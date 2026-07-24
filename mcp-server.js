@@ -16,6 +16,7 @@ const { runSubagent } = require("./src/services/subagent-runner");
 const { parseJsonArray } = require("./src/lib/json-parse");
 const { readFeelings: readDatabaseFeelings, readFeatures: readDatabaseFeatures } = require("./src/storage/memory-reader");
 const { MemoryStore } = require("./src/storage/memory-store");
+const { resolveMcpThread } = require("./src/services/mcp-thread-resolution");
 
 const CONFIG_PATH = path.join(os.homedir(), ".stone_memory", "stmem.json");
 const PROJECT_ROOT = path.resolve(__dirname);
@@ -65,9 +66,9 @@ function subagentCall(prompt, opts = {}) {
 }
 
 function resolveThread(args, cfg) {
-  const sessionId = args.thread || process.env.CLAUDE_CODE_SESSION_ID || listThreadIds()[0];
-  if (!sessionId) return null;
-  const tc = cfg[sessionId] || {};
+  const config = cfg || {};
+  const sessionId = resolveMcpThread(args, config, listThreadIds());
+  const tc = config[sessionId] || {};
   return {
     threadId: sessionId,
     windowDays: args.window || tc.windowDays || 3,
