@@ -17,12 +17,12 @@ const { parseJsonArray } = require("./src/lib/json-parse");
 const { readFeelings: readDatabaseFeelings, readFeatures: readDatabaseFeatures } = require("./src/storage/memory-reader");
 const { MemoryStore } = require("./src/storage/memory-store");
 const { resolveMcpThread } = require("./src/services/mcp-thread-resolution");
+const { buildMcpRebuildPreviewArgs } = require("./src/services/mcp-rebuild-preview");
 
 const CONFIG_PATH = path.join(os.homedir(), ".stone_memory", "stmem.json");
 const PROJECT_ROOT = path.resolve(__dirname);
 const SCRIPTS_DIR = path.join(PROJECT_ROOT, "scripts");
 const LOG_FILE = path.join(os.homedir(), ".stone_memory", "logs", "mcp.log");
-const PENDING_REBUILD_FILE = path.join(os.homedir(), ".stone_memory", "rebuild-pending.json");
 
 /** 获取 feeling 的完整日期字符串，优先从 createdAt 取年份，无 createdAt 时从月份推断（跨年保护） */
 function feelingDate(month, day, feeling) {
@@ -31,9 +31,6 @@ function feelingDate(month, day, feeling) {
   if (!year) { const now = new Date(); year = parseInt(month) > now.getMonth() + 1 ? now.getFullYear() - 1 : now.getFullYear(); }
   return `${year}-${String(month).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
 }
-// 启动时检查触发器，注入提醒到线程文件尾部
-checkPendingTriggers();
-
 function loadConfig() {
   try { return JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8")); }
   catch { return null; }
@@ -74,39 +71,6 @@ function resolveThread(args, cfg) {
     windowDays: args.window || tc.windowDays || 3,
     toolPairs: args.toolPairs ?? tc.keepToolPairs ?? 30,
   };
-}
-
-// ── 触发器 ──
-
-function checkPendingTriggers() {
-  const cfg = loadConfig();
-  if (!cfg) return;
-  // 待重建 — 直接执行，不注入文本提醒
-  if (fs.existsSync(PENDING_REBUILD_FILE)) {
-    let queue;
-    try {
-      queue = JSON.parse(fs.readFileSync(PENDING_REBUILD_FILE, "utf8"));
-      const threadId = queue.threadId;
-      const tc = cfg[threadId] || {};
-      const cli = path.join(PROJECT_ROOT, "bin", "stmem");
-      if (fs.existsSync(cli)) {
-        const rebuildArgs = [cli, "rebuild", "--thread", threadId, "--apply"];
-        if (queue.window !== undefined) rebuildArgs.push("--window", String(queue.window));
-        if (queue.toolPairs !== undefined) rebuildArgs.push("--tool-pairs", String(queue.toolPairs));
-        if (queue.summaryLimit !== undefined) rebuildArgs.push("--summary-limit", String(queue.summaryLimit));
-        if (queue.minImportance !== undefined) rebuildArgs.push("--min-importance", String(queue.minImportance));
-        if (queue.watermark === true) rebuildArgs.push("--watermark");
-        log(`pending rebuild: ${JSON.stringify(rebuildArgs.slice(1))}`);
-        try {
-          execFileSync(process.execPath, rebuildArgs, { encoding: "utf8", timeout: 120000, maxBuffer: 10 * 1024 * 1024, windowsHide: true });
-          log(`pending rebuild done: ${threadId}`);
-        } catch (e) {
-          log(`pending rebuild failed: ${e.stderr || e.message}`);
-        }
-      }
-    } catch {}
-    try { fs.unlinkSync(PENDING_REBUILD_FILE); } catch {}
-  }
 }
 
 /** 手动检查当前待办 */
@@ -159,22 +123,26 @@ function toolRebuild(args) {
   if (!cfg) return "未配置 stmem.json";
   const resolved = resolveThread(args, cfg);
   if (!resolved) return "无法确定线程 ID";
+  const cli = path.join(PROJECT_ROOT, "bin", "stmem");
+  if (!fs.existsSync(cli)) return "找不到 stmem CLI";
   const tc = cfg[resolved.threadId] || {};
   const useDefaults = tc.mcpRebuildDefaultsEnabled === true;
-  const queue = {
-    threadId: resolved.threadId,
-    window: args.window || resolved.windowDays,
-    toolPairs: args.toolPairs ?? resolved.toolPairs,
+  const rebuildArgs = buildMcpRebuildPreviewArgs(cli, resolved, {
+    ...args,
     summaryLimit: args.summaryLimit ?? (useDefaults ? Math.max(0, Number(tc.mcpSummaryLimit) || 0) : 0),
     minImportance: args.minImportance ?? (useDefaults ? Math.max(0, Math.min(5, Number(tc.mcpMinImportance) || 0)) : 0),
-    watermark: args.watermark === true,
-    requestedAt: new Date().toISOString(),
-  };
+  });
   try {
-    fs.writeFileSync(PENDING_REBUILD_FILE, JSON.stringify(queue, null, 2) + "\n", "utf8");
-    return "已插入 rebuild 队列，下次 MCP 服务器启动或 /switch 时自动执行。";
+    const output = execFileSync(process.execPath, rebuildArgs, {
+      encoding: "utf8",
+      timeout: 120000,
+      maxBuffer: 10 * 1024 * 1024,
+      windowsHide: true,
+      cwd: PROJECT_ROOT,
+    });
+    return `${output.trim()}\n\n这是只读 dry-run；确认结果后请在前端或维护窗口显式应用，MCP 启动不会自动改写线程。`;
   } catch (err) {
-    return `写入队列失败: ${err.message}`;
+    return `重建预览失败: ${err.stderr || err.message}`;
   }
 }
 
@@ -278,9 +246,7 @@ function toolDeepSearch(args) {
 
   // 保存 topic 文件（handler 兜底，存到线程 memory 下）
   try {
-    const stopWords = new Set(["她","我","的","了","是","在","和","跟","与","有","不","也","都","就","还","要","会","能","去","来","这","那","什么","怎么","为什么","一个","赛博"]);
-    const configuredUserName = getCfg("user", resolved?.threadId, "");
-    if (configuredUserName) stopWords.add(configuredUserName);
+    const stopWords = new Set(["小鱼","她","我","的","了","是","在","和","跟","与","有","不","也","都","就","还","要","会","能","去","来","这","那","什么","怎么","为什么","一个","赛博"]);
     const kws = query.split(/[\s，,。！？]+/).filter(w => w.length >= 2 && !stopWords.has(w));
     const mainKw = kws[0] || query.split(/[\s，,。]+/)[0];
     if (mainKw && mainKw.length >= 2 && result && result.length > 200) {
@@ -460,16 +426,13 @@ function toolAuditQuery(args) {
 const TOOLS = [
   {
     name: "stmem_memory_rebuild",
-    description: "Queue a thread rebuild: writes a pending-rebuild marker to disk. The rebuild will run automatically the next time MCP server starts or /switch triggers it. This avoids UUID chain breaks that happen when the file is replaced mid-session.",
+    description: "Generate a read-only thread rebuild dry-run. Applying a rebuild requires explicit confirmation in the web UI or a maintenance CLI command; MCP startup never rewrites a thread.",
     inputSchema: {
       type: "object",
       properties: {
         thread: { type: "string", description: "线程 ID，默认自动检测当前 session" },
         window: { type: "number", description: "窗口天数，默认 stmem.json 的 windowDays" },
         toolPairs: { type: "number", description: "保留最近 N 对工具链调用，默认 40" },
-        summaryLimit: { type: "number", description: "本次最多保留的历史逻辑记忆数；0 为不限制。省略时使用用户保存的 MCP 默认摘要范围。" },
-        minImportance: { type: "number", description: "本次普通摘要最低 importance，0 为不过滤；锚点不受限制但占名额。" },
-        watermark: { type: "boolean", description: "使用最后一条已挖掘摘要对应原文作为近期上下文水位线。" },
       },
     },
   },
