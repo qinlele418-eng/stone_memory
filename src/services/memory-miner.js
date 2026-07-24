@@ -190,7 +190,7 @@ const FEATURE_CATEGORIES = [
 class MemoryMiner {
   constructor({ memoryDir, archive, deepseekConfig, personaConfig, threadId }) {
     this.threadId = threadId;
-    this.aiName = personaConfig?.aiName || "Alessio";
+    this.aiName = personaConfig?.aiName || "AI";
     this.userName = personaConfig?.userName || "用户";
     this.purpose = personaConfig?.purpose || "accompany";
     this.memoryDir = memoryDir;
