@@ -752,6 +752,9 @@ async function handleApi(req, res, url) {
   const rebuildMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/rebuild\/(preview|dry-run|apply|check|repair)$/);
   if (rebuildMatch) {
     const threadId = decodeURIComponent(rebuildMatch[1]), action = rebuildMatch[2];
+    // The service may have access to a shared sessions root, but the web API
+    // may only operate on threads explicitly registered in stmem config.
+    publicThreadSettings(threadId);
     if (req.method === "GET" && action === "preview") {
       const windowDays = Math.max(1, Number(url.searchParams.get("windowDays")) || 3);
       const toolValue = url.searchParams.get("toolPairs");
