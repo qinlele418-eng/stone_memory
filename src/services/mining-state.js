@@ -35,11 +35,12 @@ function shouldAttempt(state, date, messages, now = Date.now()) {
 function requiresRemine(state, date, messages) {
   const day = getDayState(state, date);
   if (!day || !["completed", "completed_empty"].includes(day.status)) return false;
-  const currentMessages = Array.isArray(messages) ? messages : [];
-  if (day.archiveFingerprint) {
-    return archiveFingerprint(currentMessages) !== day.archiveFingerprint;
-  }
-  return Number(day.messageCount) !== currentMessages.length;
+  const completedAt = Date.parse(day.completedAt || "");
+  if (!Number.isFinite(completedAt)) return false;
+  return (Array.isArray(messages) ? messages : []).some(message => {
+    const eventTime = Date.parse(message?.timestamp || "");
+    return Number.isFinite(eventTime) && eventTime > completedAt;
+  });
 }
 
 function listBlockedDays(state) {
