@@ -17,7 +17,7 @@ const path = require("path");
 const { MemoryMiner } = require("../src/services/memory-miner");
 const { getCfg, getThreadDir, listThreadIds, loadConfig } = require("../src/config");
 const { MemoryStore } = require("../src/storage/memory-store");
-const { shouldAttempt } = require("../src/services/mining-state");
+const { requiresRemine, shouldAttempt } = require("../src/services/mining-state");
 
 function resolveApiConfig(tid, forceApi, forceSub, { diagnostic = false } = {}) {
   if (forceSub) return {};  // 强制 subagent
@@ -164,7 +164,11 @@ async function main() {
       return bj.toISOString().slice(0, 10);
     })();
 
-    const pending = allDates.filter(d => d < bjToday && shouldAttempt(miningState, d, miner.store.listMessages({ date: d })));
+    const pending = allDates.filter(d => {
+      if (d >= bjToday) return false;
+      const messages = miner.store.listMessages({ date: d });
+      return shouldAttempt(miningState, d, messages) || requiresRemine(miningState, d, messages);
+    });
     if (!pending.length) { console.log("[stmem] 所有日期已挖掘完毕"); process.exit(0); }
 
     console.log(`[stmem] 待挖掘: ${pending.length} 天 (${pending[0]} ~ ${pending[pending.length-1]}) (${modeLabel})`);
@@ -173,7 +177,8 @@ async function main() {
       try {
         console.log(`\n[stmem] --- ${d} ---`);
         registerMiningProcess(tid, d, modeLabel);
-        const result = await miner.mine(d, { force });
+        const messages = miner.store.listMessages({ date: d });
+        const result = await miner.mine(d, { force: force || requiresRemine(miningState, d, messages) });
         if (result.status === "locked") throw new Error(`${result.errorCode}: date is locked`);
         if (["completed", "already_completed"].includes(result.status)) ok++;
         else if (result.status === "completed_empty") empty++;

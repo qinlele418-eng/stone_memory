@@ -21,7 +21,7 @@ const { execFile, execSync } = require("child_process");
 
 const { loadConfig, getCfg, getThreadDir, listThreadIds } = require("../src/config");
 const { listJsonlRecursive } = require("../src/lib/archive-paths");
-const { shouldAttempt } = require("../src/services/mining-state");
+const { requiresRemine, shouldAttempt } = require("../src/services/mining-state");
 const { resolveAutoCompactConfig } = require("../src/services/auto-compact-config");
 const { ingestThreadFile: ingestSharedThreadFile } = require("../src/services/thread-ingest");
 const { MemoryStore } = require("../src/storage/memory-store");
@@ -83,6 +83,7 @@ function loadMiningState(tid) {
   try {
     return Object.fromEntries(store.listDayStates().map(row => [`day:${row.source_date}`, {
       status: row.status, attempt: row.attempt, nextRetryAt: row.next_retry_at,
+      messageCount: row.message_count, archiveFingerprint: row.archive_fingerprint,
     }]));
   } finally { store.close(); }
 }
@@ -99,9 +100,9 @@ function scanArchiveDates(tid) {
   finally { store.close(); }
 }
 
-async function runMining(tid, dateStr) {
+async function runMining(tid, dateStr, { force = false } = {}) {
   const scriptPath = path.join(__dirname, "stmem-mine.js");
-  const cmd = `${process.execPath} ${scriptPath} --thread ${tid} --date ${dateStr}`;
+  const cmd = `${process.execPath} ${scriptPath} --thread ${tid} --date ${dateStr}${force ? " --force" : ""}`;
   log(`[${tid}] 开始挖掘 ${dateStr} ...`);
 
   try {
@@ -304,19 +305,25 @@ async function checkAndMine(tid) {
     const createdAt = store.getThread()?.created_at;
     if (createdAt) createdDate = new Date(new Date(createdAt).getTime() + 8 * 3600 * 1000).toISOString().slice(0,10);
   } finally { store.close(); }
+  const messagesByDate = new Map();
+  const messagesFor = date => {
+    if (!messagesByDate.has(date)) messagesByDate.set(date, readArchiveDay(tid, date));
+    return messagesByDate.get(date);
+  };
   const pending = archiveDates.filter(d => d < bjToday
     && shouldAutoMineDate(d, {
       createdDate,
       automaticFullMining: fullMining,
       automaticMemoryMaintenance: maintenance,
     })
-    && shouldAttempt(miningState, d, readArchiveDay(tid, d)));
+    && (shouldAttempt(miningState, d, messagesFor(d)) || requiresRemine(miningState, d, messagesFor(d))));
 
   let minedAny = false;
   if (pending.length > 0 && !minerOff) {
     log(`[${tid}] 发现 ${pending.length} 天待挖掘: ${pending.join(", ")}`);
     for (const dateStr of pending) {
-      if (await runMining(tid, dateStr)) minedAny = true;
+      const force = requiresRemine(miningState, dateStr, messagesFor(dateStr));
+      if (await runMining(tid, dateStr, { force })) minedAny = true;
     }
   }
 
