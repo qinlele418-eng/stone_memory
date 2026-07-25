@@ -84,6 +84,7 @@ function loadMiningState(tid) {
     return Object.fromEntries(store.listDayStates().map(row => [`day:${row.source_date}`, {
       status: row.status, attempt: row.attempt, nextRetryAt: row.next_retry_at,
       messageCount: row.message_count, archiveFingerprint: row.archive_fingerprint,
+      completedAt: row.completed_at,
     }]));
   } finally { store.close(); }
 }
