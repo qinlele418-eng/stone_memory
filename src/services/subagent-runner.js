@@ -22,8 +22,9 @@
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
-const { execSync } = require("child_process");
+const { execFileSync } = require("child_process");
 const { loadConfig, getCfg, getThreadDir } = require("../config");
+const { commandInvocation, appendOption } = require("../lib/command-invocation");
 
 const BUILTIN_RUNTIMES = {
   claude: {
@@ -35,7 +36,7 @@ const BUILTIN_RUNTIMES = {
     },
   },
   codex: {
-    command: "codex exec",
+    command: "codex exec --ephemeral --sandbox read-only --ignore-user-config --ignore-rules --color never",
     flags: {
       model: "-m",
     },
@@ -119,6 +120,33 @@ function buildStdinCmd(runtimeName, opts = {}) {
   return cmd;
 }
 
+function buildStdinInvocation(runtimeName, opts = {}) {
+  const rt = getRuntimeConfig(runtimeName);
+  if (!rt) throw new Error(`Unknown runtime: ${runtimeName}. Add it to stmem.json → runtimes.`);
+  const flags = rt.flags || {};
+  const invocation = commandInvocation(rt.command, { remove: ["-p"] });
+  if (opts.opsFile && flags.systemPrompt && fs.existsSync(opts.opsFile)) {
+    appendOption(invocation.args, flags.systemPrompt, opts.opsFile);
+  }
+  if (opts.mcpConfig && flags.mcpConfig) {
+    appendOption(invocation.args, flags.mcpConfig, opts.mcpConfig);
+  }
+  if (opts.model && flags.model) {
+    if (!/^[A-Za-z0-9._:/+-]{1,128}$/.test(String(opts.model))) {
+      throw new Error("model name contains unsupported characters");
+    }
+    appendOption(invocation.args, flags.model, opts.model);
+  }
+  if (opts.reasoning) {
+    if (runtimeName !== "codex") throw new Error("reasoning effort is only supported by the Codex subagent");
+    if (!["minimal", "low", "medium", "high", "xhigh"].includes(opts.reasoning)) {
+      throw new Error("unsupported Codex reasoning effort");
+    }
+    appendOption(invocation.args, "-c", `model_reasoning_effort=${JSON.stringify(opts.reasoning)}`);
+  }
+  return invocation;
+}
+
 /**
  * @param {string} prompt
  * @param {object} opts
@@ -159,21 +187,15 @@ function runSubagent(prompt, opts = {}) {
     finalPrompt = `${opsContent}\n\n---\n\n${prompt}`;
   }
 
-  const tmpDir = path.join(getThreadDir(threadId), "tmp");
-  fs.mkdirSync(tmpDir, { recursive: true });
-  const tmpFile = path.join(tmpDir, `prompt_${Date.now()}.txt`);
-  fs.writeFileSync(tmpFile, finalPrompt, "utf8");
-
-  const cmd = buildStdinCmd(runtimeName, { ...opts, opsFile, mcpConfig, model, reasoning });
-  const fullCmd = `${cmd} < "${tmpFile}"`;
-
-  const shell = process.platform === "win32" ? "cmd.exe" : "/bin/bash";
+  const invocation = buildStdinInvocation(runtimeName, {
+    ...opts, opsFile, mcpConfig, model, reasoning,
+  });
   try {
-    const out = execSync(fullCmd, {
+    const out = execFileSync(invocation.file, invocation.args, {
+      input: finalPrompt,
       encoding: "utf8",
       timeout,
       maxBuffer: 10 * 1024 * 1024,
-      shell,
       windowsHide: true,
     });
     if (!out || !out.trim()) {
@@ -182,9 +204,40 @@ function runSubagent(prompt, opts = {}) {
       throw err;
     }
     return out.trim();
-  } finally {
-    try { fs.unlinkSync(tmpFile); } catch {}
+  } catch (error) {
+    const wrapped = new Error(extractSubagentFailure(error));
+    wrapped.code = error?.code || "SUBAGENT_PROCESS_FAILED";
+    throw wrapped;
   }
 }
 
-module.exports = { runSubagent, buildCommand, buildStdinCmd, getRuntimeConfig, resolvePlaceholders };
+function extractSubagentFailure(error) {
+  if (error?.code === "OUTPUT_EMPTY") {
+    return "subagent returned empty output";
+  }
+  const stderr = String(error?.stderr || "");
+  const stdout = String(error?.stdout || "");
+  const diagnosticLines = `${stderr}\n${stdout}`
+    .split(/\r?\n/u)
+    .map(line => line.trim())
+    .filter(Boolean)
+    .filter(line => /^(?:error|fatal|warning):/iu.test(line)
+      || /(?:rate limit|context window|model unavailable|stream disconnected|unauthorized|forbidden|timed out|connection (?:failed|closed)|quota exceeded|request failed|HTTP [45]\d\d)/iu.test(line))
+    .slice(-6);
+  if (diagnosticLines.length) {
+    return diagnosticLines.join(" ").slice(0, 800);
+  }
+  const exitCode = error?.status ?? error?.code;
+  const suffix = exitCode !== undefined && exitCode !== null ? ` (exit ${exitCode})` : "";
+  return `subagent process exited without a model response${suffix}`;
+}
+
+module.exports = {
+  runSubagent,
+  buildCommand,
+  buildStdinCmd,
+  buildStdinInvocation,
+  getRuntimeConfig,
+  resolvePlaceholders,
+  extractSubagentFailure,
+};
