@@ -3,6 +3,7 @@ const path = require("path");
 const os = require("os");
 const { CONFIG_PATH, loadConfig } = require("../config");
 const { MemoryStore } = require("../storage/memory-store");
+const { findThreadSessionFile } = require("../lib/thread-session-file");
 
 const STONE = path.join(os.homedir(), ".stone_memory");
 const GLOBAL_KEYS = new Set(["runtimes", "threadId", "apiKeys"]);
@@ -21,7 +22,7 @@ function saveConfig(config) {
 function validateThreadInput(input, config = loadConfig(), { allowExisting = false } = {}) {
   const required = ["libraryName", "threadId", "ai", "user", "runtime", "purpose", "minerMode"];
   for (const key of required) if (!String(input[key] || "").trim()) throw new Error(`缺少必填项：${key}`);
-  if (!/^[A-Za-z0-9._:-]+$/.test(input.threadId)) throw new Error("绑定线程只能包含字母、数字、点、冒号、下划线和连字符");
+  if (!/^[A-Za-z0-9._:-]+$/.test(input.threadId)) throw new Error("真实线程 ID 只能包含字母、数字、点、冒号、下划线和连字符");
   if (config[input.threadId] && !allowExisting) throw new Error("这个线程已经绑定到其他记忆体");
   const wanted = normalizeName(input.libraryName);
   const duplicate = Object.entries(config).find(([key, item]) =>
@@ -30,15 +31,35 @@ function validateThreadInput(input, config = loadConfig(), { allowExisting = fal
   if (!["claude", "codex"].includes(input.runtime)) throw new Error("运行时必须是 claude 或 codex");
   if (!String(input.sessionDir || "").trim()) throw new Error("需要填写线程文件搜索目录");
   if (!["api", "subagent"].includes(input.minerMode)) throw new Error("挖掘模式必须是 api 或 subagent");
+  if (input.minerMode === "api") {
+    const existingKey = config.apiKeys?.[input.apiProvider]?.key;
+    const existingModel = config.apiKeys?.[input.apiProvider]?.model;
+    const existingBaseUrl = config.apiKeys?.[input.apiProvider]?.baseUrl;
+    if (!String(input.apiProvider || "").trim() || (!String(input.apiKey || "").trim() && !existingKey)) throw new Error("API 模式需要厂商和 API Key");
+    if (!String(input.model || existingModel || "").trim()) throw new Error("API 模式需要填写上游实际可用的模型名；Stone Memory 不预设模型名");
+    if (input.apiProvider !== "deepseek" && !String(input.baseUrl || existingBaseUrl || "").trim()) throw new Error("非 DeepSeek API 模式需要填写兼容 chat/completions 的 Base URL");
+  }
 }
 
 function threadDirectory(input) {
   return path.join(STONE, "runtimes", input.runtime, input.purpose, input.threadId);
 }
 
-function createThread(input, { allowExisting = false } = {}) {
+function validateSessionBinding(input) {
+  const file = findThreadSessionFile(String(input.sessionDir || "").trim(), String(input.threadId || "").trim());
+  if (!file) {
+    throw new Error(
+      `无法绑定线程：在 ${String(input.sessionDir || "").trim() || "指定目录"} 中找不到文件名包含真实线程 ID `
+      + `${String(input.threadId || "").trim() || "(空)"} 的 JSONL。记忆体名字应填入 libraryName，threadId 必须填写 Claude/Codex 的真实线程 ID。`,
+    );
+  }
+  return file;
+}
+
+function createThread(input, { allowExisting = false, requireSession = true } = {}) {
   const config = loadConfig();
   validateThreadInput(input, config, { allowExisting });
+  const sessionFile = requireSession ? validateSessionBinding(input) : null;
   const existing = config[input.threadId] || {};
   if (allowExisting && existing.runtime && input.runtime !== existing.runtime) throw new Error("运行时暂不支持直接迁移");
   if (allowExisting && existing.purpose && input.purpose !== existing.purpose) throw new Error("用途暂不支持直接迁移");
@@ -63,10 +84,16 @@ function createThread(input, { allowExisting = false } = {}) {
   };
   if (input.minerMode === "api") {
     const existingKey = config.apiKeys?.[input.apiProvider]?.key;
+    const existingModel = config.apiKeys?.[input.apiProvider]?.model;
     if (!input.apiProvider || (!input.apiKey && !existingKey)) throw new Error("API 模式需要厂商和 API Key");
+    if (!String(input.model || existingModel || "").trim()) throw new Error("API 模式需要填写上游实际可用的模型名；Stone Memory 不预设模型名");
     entry.apiProvider = input.apiProvider;
     config.apiKeys = config.apiKeys || {};
-    config.apiKeys[input.apiProvider] = { key: input.apiKey || existingKey, baseUrl: input.baseUrl || config.apiKeys[input.apiProvider]?.baseUrl || undefined };
+    config.apiKeys[input.apiProvider] = {
+      key: input.apiKey || existingKey,
+      baseUrl: input.baseUrl || config.apiKeys[input.apiProvider]?.baseUrl || undefined,
+      model: String(input.model || existingModel).trim(),
+    };
   }
   config.runtimes = config.runtimes || {
     claude: { command: "claude -p --bare", flags: { systemPrompt: "--system-prompt-file", mcpConfig: "--mcp-config", model: "--model" } },
@@ -96,7 +123,12 @@ function createThread(input, { allowExisting = false } = {}) {
       ? hasSession(path.join(dir, item.name))
       : item.name.endsWith(".jsonl") && item.name.includes(threadId) && !item.name.includes(".rebuilt"));
   }
-  return { threadId, ...entry, directory: root, sessionFound: hasSession(searchRoot), updatedExisting: !!existing.label };
+  return {
+    threadId, ...entry, directory: root,
+    sessionFound: sessionFile ? true : hasSession(searchRoot),
+    sessionFile: sessionFile || null,
+    updatedExisting: !!existing.label,
+  };
 }
 
-module.exports = { createThread, validateThreadInput, normalizeName, saveConfig };
+module.exports = { createThread, validateThreadInput, validateSessionBinding, normalizeName, saveConfig };

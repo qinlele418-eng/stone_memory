@@ -4,8 +4,10 @@
  *
  * 用法:
  *   stmem init --thread <id>                    交互式
- *   stmem init --thread <id> --batch '<json>'   非交互式（脚本调用）
- *   stmem init --thread <id> --batch-file <path> 安全读取非交互配置
+ *   stmem init --batch-file <path>              安全读取机器配置
+ *   stmem init --batch-file <path> --validate   只校验，不写入
+ *   stmem init --template [--runtime codex]     输出机器可填写模板
+ *   stmem init --schema                         输出 JSON Schema
  *   stmem init --help                           帮助
  */
 
@@ -16,7 +18,10 @@ const readline = require("readline");
 
 const STONE = path.join(os.homedir(), ".stone_memory");
 const cfgFile = path.join(STONE, "stmem.json");
-const { createThread, normalizeName } = require("../src/services/thread-setup");
+const {
+  createThread, validateThreadInput, validateSessionBinding, normalizeName,
+} = require("../src/services/thread-setup");
+const { INIT_SCHEMA, buildInitTemplate } = require("../src/services/init-contract");
 
 function loadCfg() {
   try { return JSON.parse(fs.readFileSync(cfgFile, "utf8")); }
@@ -74,7 +79,7 @@ async function interactiveInit(threadId) {
   const defaultSessionDir = runtime === "codex" ? path.join(os.homedir(), ".codex", "sessions") : existing.sessionDir;
   const sessionDir = await askRequired(rl, "线程文件搜索目录（会递归查找）", existing.sessionDir || defaultSessionDir);
   const minerMode = await askRequired(rl, "挖掘模式 (api/subagent)", existing.minerMode || "subagent");
-  let apiProvider = existing.apiProvider || "", apiKey = "", baseUrl = "";
+  let apiProvider = existing.apiProvider || "", apiKey = "", baseUrl = "", model = "";
   if (minerMode === "api") {
     apiProvider = await askRequired(rl, "API 厂商 (deepseek/openai/anthropic)", existing.apiProvider || "deepseek");
     // 填写 API key
@@ -83,6 +88,7 @@ async function interactiveInit(threadId) {
     const defaultBaseUrl = { deepseek: "https://api.deepseek.com", openai: "https://api.openai.com", anthropic: "https://api.anthropic.com" }[apiProvider] || "";
     const existingBaseUrl = cfg.apiKeys?.[apiProvider]?.baseUrl || "";
     baseUrl = await askOptional(rl, `  ${apiProvider} Base URL (回车默认)`, existingBaseUrl || defaultBaseUrl);
+    model = await askRequired(rl, `  ${apiProvider} 模型名（必须与上游实际名称一致）`, cfg.apiKeys?.[apiProvider]?.model || "");
   }
   const windowDays = await askOptionalNumber(rl, "rebuild 窗口天数", existing.windowDays, 3);
   const keepToolPairs = await askOptionalNumber(rl, "保留工具对数", existing.keepToolPairs, 30);
@@ -90,37 +96,63 @@ async function interactiveInit(threadId) {
   rl.close();
 
   return { threadId, libraryName: label, ai, user, userGender, runtime, purpose, sessionDir, minerMode,
-    apiProvider, apiKey, baseUrl, windowDays, keepToolPairs,
+    apiProvider, apiKey, baseUrl, model, windowDays, keepToolPairs,
     automaticFullMining: existing.automaticFullMining !== false,
     automaticMemoryMaintenance: existing.automaticMemoryMaintenance !== false };
 }
 
 async function main() {
   const args = process.argv.slice(2);
-  const threadIdx = args.indexOf("--thread");
-  const threadId = threadIdx >= 0 ? args[threadIdx + 1] : null;
-
-  if (!threadId) {
-    console.log("用法: stmem init --thread <id>\n       stmem init --help");
-    process.exit(1);
+  if (args.includes("--template")) {
+    const runtimeIndex = args.indexOf("--runtime");
+    console.log(JSON.stringify(buildInitTemplate(runtimeIndex >= 0 ? args[runtimeIndex + 1] : "codex"), null, 2));
+    return;
   }
+  if (args.includes("--schema")) {
+    console.log(JSON.stringify(INIT_SCHEMA, null, 2));
+    return;
+  }
+  const threadIdx = args.indexOf("--thread");
+  const argumentThreadId = threadIdx >= 0 ? args[threadIdx + 1] : null;
 
   let input;
   if (args.includes("--batch") || args.includes("--batch-file")) {
     const raw = args.includes("--batch-file")
       ? JSON.parse(fs.readFileSync(args[args.indexOf("--batch-file") + 1], "utf8"))
       : JSON.parse(args[args.indexOf("--batch") + 1] || "{}");
+    if (argumentThreadId && raw.threadId && argumentThreadId !== raw.threadId) {
+      throw new Error(`--thread (${argumentThreadId}) 与 batch 文件中的 threadId (${raw.threadId}) 不一致`);
+    }
+    const threadId = argumentThreadId || raw.threadId;
+    if (!threadId) throw new Error("batch 文件必须填写真实 threadId");
     input = { ...raw, threadId, libraryName: raw.libraryName || raw.label || threadId };
+    if (args.includes("--validate")) {
+      validateThreadInput(input, loadCfg(), { allowExisting: true });
+      const sessionFile = validateSessionBinding(input);
+      console.log(JSON.stringify({
+        valid: true, threadId, libraryName: input.libraryName,
+        sessionDir: input.sessionDir, sessionFile,
+      }, null, 2));
+      return;
+    }
   } else {
-    input = await interactiveInit(threadId);
+    if (!argumentThreadId) {
+      console.log("用法:\n"
+        + "  stmem init --thread <真实线程ID>\n"
+        + "  stmem init --template --runtime codex\n"
+        + "  stmem init --batch-file <json> --validate\n"
+        + "  stmem init --batch-file <json>");
+      process.exit(1);
+    }
+    input = await interactiveInit(argumentThreadId);
   }
   const tc = createThread(input, { allowExisting: true });
-  const sessionWarn = tc.sessionFound ? "" : "\n   ⚠️ 未找到对应 session 文件，请先创建线程或检查 sessionDir 路径";
 
   console.log(`\n✅ 初始化完成`);
   console.log(`   AI: ${tc.ai}  用户: ${tc.user}`);
   console.log(`   运行时: ${tc.runtime}  用途: ${tc.purpose}`);
-  console.log(`   路径: ${tc.directory}${sessionWarn}`);
+  console.log(`   记忆目录: ${tc.directory}`);
+  console.log(`   已绑定线程文件: ${tc.sessionFile}`);
 
   // 全局开关只作为总闸；任一线程明确启用自动任务时打开总闸，
   // 实际是否挖掘仍由 watcher 逐线程读取 automatic* 配置决定。

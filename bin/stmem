@@ -12,8 +12,14 @@ if (!cmd || cmd === "--help" || cmd === "-h") {
 
 用法:
   stmem status                                  查看所有线程状态
+  stmem ai-help                                输出给外部 Agent 的安全操作协议
+  stmem capabilities [--json]                  声明内置导入、挖掘与重建能力
+  stmem doctor --thread <id> [--json]           只读诊断配置、线程文件与运行状态
   stmem delete --thread <id> [--dry-run]        删除线程配置及数据
-  stmem init --thread <id>                      初始化新线程
+  stmem init --thread <真实线程ID>              交互式初始化
+  stmem init --template [--runtime codex]       输出 AI 可填写的 JSON 模板
+  stmem init --batch-file <json> --validate     严格校验配置和真实线程文件
+  stmem init --batch-file <json>                使用与前端相同的正式接口初始化
   stmem fork --parent <id> --thread <id>        将线程登记为共享父级记忆的子线程
   stmem feature-phrases [--thread <id>]         从所有清洗后的 features 提取通用检索词
   stmem feature-evidence [--thread <id>]        回查 archive 与 feelings 的词频证据
@@ -31,6 +37,8 @@ if (!cmd || cmd === "--help" || cmd === "-h") {
   stmem mine [--thread <id>] --all                  挖掘全部未处理日期，生成feelings + features
   stmem mine [--thread <id>] [--date <YYYY-MM-DD>]  挖掘单日 feelings + features
   stmem mine [--thread <id>] --date <日期> --force   直接重挖并覆盖当天结果
+  stmem mine --thread <id> --date <日期> --check --json  自检提示词、输入、上游响应与返回格式
+  stmem mine --thread <id> --stop                  停止该记忆体当前挖掘任务
   stmem mine [--thread <id>] --targeted --batch-file <json>  对选中的对话精准补挖并追加摘要
   stmem rebuild --thread <id> [--window N] [--tool-pairs N]  预览重建
   stmem rebuild --thread <id> --apply           实际写入
@@ -50,10 +58,19 @@ if (!cmd || cmd === "--help" || cmd === "-h") {
   process.exit(0);
 }
 
-// 每次执行命令前确保 watcher 存活（init 自己会启动，跳过）
-if (cmd !== "init") ensureWatcher();
+// 纯帮助/诊断命令不得改变 watcher 状态；其余命令维持原有自动拉起行为。
+if (!new Set(["init", "ai-help", "capabilities", "doctor"]).has(cmd)) ensureWatcher();
 
 switch (cmd) {
+  case "ai-help":
+    require(path.join(SCRIPTS, "stmem-ai-help"));
+    break;
+  case "capabilities":
+    require(path.join(SCRIPTS, "stmem-capabilities"));
+    break;
+  case "doctor":
+    require(path.join(SCRIPTS, "stmem-doctor"));
+    break;
   case "init":
     require(path.join(SCRIPTS, "stmem-init"));
     break;

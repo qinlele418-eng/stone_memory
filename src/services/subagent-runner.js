@@ -54,6 +54,8 @@ function resolvePlaceholders(threadId) {
   const dir = getThreadDir(threadId);
   const memDir = path.join(dir, "memory");
   return {
+    "{aiName}":             getCfg("ai", threadId, "AI"),
+    "{userName}":           getCfg("user", threadId, "用户"),
     "{{retainConfig}}":    path.join(memDir, "retain-config.json"),
     "{{archiveDir}}":      path.join(memDir, "archive"),
     "{{searchLog}}":       path.join(memDir, "search-log.jsonl"),

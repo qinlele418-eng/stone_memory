@@ -163,6 +163,34 @@ stmem init --thread <线程ID>
 
 交互式填写: AI 名字、用户昵称、运行时、用途、挖掘模式等。
 
+AI 助手或自动化脚本不得直接编辑 `~/.stone_memory/stmem.json`。请先让 Stone Memory 输出与前端相同的机器配置模板：
+
+```bash
+stmem init --template --runtime codex > stmem-init.json
+# 编辑 JSON 后先严格校验；不会写入配置
+stmem init --batch-file stmem-init.json --validate
+# 校验通过后正式创建
+stmem init --batch-file stmem-init.json
+```
+
+模板中三个概念不能混用：
+
+- `libraryName`：控制台显示的记忆体名字，例如 `alisa`。
+- `threadId`：Claude/Codex 的真实线程 ID，例如 `019f91...`；不是自定义名字。
+- `sessionDir`：线程文件搜索根目录，不是 JSONL 文件名；Stone Memory 会递归查找。
+
+batch init 会确认 `sessionDir` 中确实存在文件名包含 `threadId` 的 JSONL。找不到时命令失败且不会写入错误配置。需要了解完整字段时可运行 `stmem init --schema`。
+
+如果由外部 Coding Agent 协助安装或排错，先让它运行：
+
+```bash
+stmem ai-help
+stmem capabilities --json
+stmem doctor --thread <真实线程ID> --json
+```
+
+`ai-help` 给出安全操作协议；`capabilities` 机器可读地声明 Stone Memory 已有的清洗、预览、备份、重建和修复能力；`doctor` 只读检查配置、真实线程文件、SQLite、watcher 与最近挖掘状态，并返回稳定错误码和正式的下一条命令。配置问题不应通过手写 `stmem.json`、另造脚本或修改项目源码解决。
+
 ### 启动本地管理界面
 
 ```bash
@@ -231,7 +259,15 @@ stmem mine --thread <线程ID> --date 2026-06-09 --force
 # 临时切换模式
 stmem mine --thread <线程ID> --all --api       # 走 API
 stmem mine --thread <线程ID> --all --subagent  # 走 subagent CLI
+
+# 使用正式提示词和指定日期对话做一次只读诊断，展示上游实际响应
+stmem mine --thread <线程ID> --date 2026-06-09 --check --json --api
+
+# 停止该记忆体当前正在执行的挖掘
+stmem mine --thread <线程ID> --stop
 ```
+
+API 模式必须在创建记忆体或设置页显式填写厂商、API Key 和上游当前实际可用的模型名，非默认服务地址另填 Base URL。Stone Memory 不再预设模型名。前端“一键自检”会展示实际使用的用途提示词、对话拼接预览、HTTP 状态、原始响应体、`message.content` 和 JSON 解析结果，用于区分输入为空、提示词缺失、鉴权/额度/地址/模型错误、上游空响应及返回格式错误。
 
 ### Feature 词语证据
 
@@ -494,7 +530,7 @@ subagent 模式不依赖外部 API，通过宿主 Agent 的 CLI 执行挖掘/审
 
 - `command`：subagent CLI 命令。`-p` 传 prompt，`--bare` 传输出文本
 - `flags.systemPrompt`：指定 `--system-prompt-file` 参数名（不同 CLI 可能不一样）
-- 运行时名称在 `stmem init` 时选择，或直接编辑 stmem.json 的 runtime 字段
+- 运行时名称在 `stmem init` 时选择。创建后如需修改设置，仍通过 `stmem init --batch-file`；不要直接编辑 `stmem.json`
 
 ### 执行流程
 

@@ -90,8 +90,9 @@ class MemoryCompressor {
   }
 
   async _compressViaApi(prompt) {
-    const { apiKey, baseUrl = "https://api.deepseek.com", model: rawModel = "deepseek-chat",
+    const { apiKey, baseUrl = "https://api.deepseek.com", model: rawModel,
       requestTimeoutMs = 180000 } = this.apiConfig;
+    if (!String(rawModel || "").trim()) throw new Error("API 模式没有配置模型名");
     const model = rawModel.replace(/\[\d+[km]\]/i, "");
     const system = fs.readFileSync(OPS_FILE, "utf8");
     let lastError;

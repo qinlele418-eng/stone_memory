@@ -62,6 +62,10 @@ function miningCommandArgs(threadId, date, mode) {
   return ["mine","--thread",threadId,"--date",date,mode==="api"?"--api":"--subagent"];
 }
 
+function miningCheckCommandArgs(threadId, date, mode) {
+  return ["mine","--thread",threadId,"--date",date,"--check","--json",mode==="api"?"--api":"--subagent"];
+}
+
 function targetedMiningCommandArgs(threadId, mode, batchFile) {
   return ["mine","--thread",threadId,"--targeted","--batch-file",batchFile,mode==="api"?"--api":"--subagent"];
 }
@@ -139,12 +143,18 @@ function compactTimelineReport(data) {
 async function executeMiningJob(job) {
   job.status="running";job.startedAt=new Date().toISOString();
   for(const date of job.dates){
+    if(job.cancelRequested)break;
     job.currentDate=date;job.updatedAt=new Date().toISOString();
     try{await runStmemAsync(miningCommandArgs(job.threadId,date,job.mode));job.results.push({date,status:"completed"});}
-    catch(error){job.results.push({date,status:"failed",error:String(error.message||error).slice(0,500)});}
+    catch(error){
+      if(job.cancelRequested){job.results.push({date,status:"cancelled"});break;}
+      job.results.push({date,status:"failed",error:String(error.message||error).slice(0,500)});
+    }
     job.completed=job.results.length;
   }
-  job.currentDate=null;job.status=job.results.some(row=>row.status==="failed")?"completed_with_errors":"completed";job.completedAt=new Date().toISOString();job.updatedAt=job.completedAt;
+  job.currentDate=null;
+  job.status=job.cancelRequested?"cancelled":job.results.some(row=>row.status==="failed")?"completed_with_errors":"completed";
+  job.completedAt=new Date().toISOString();job.updatedAt=job.completedAt;
 }
 
 function publicThreadSettings(threadId) {
@@ -155,6 +165,7 @@ function publicThreadSettings(threadId) {
     userGender: entry.userGender || "unspecified", runtime: entry.runtime || "claude", purpose: entry.purpose || "accompany",
     sessionDir: entry.sessionDir || "", minerMode: entry.minerMode || "subagent", apiProvider: entry.apiProvider || "",
     baseUrl: entry.apiProvider ? (config.apiKeys?.[entry.apiProvider]?.baseUrl || "") : "",
+    model: entry.apiProvider ? (config.apiKeys?.[entry.apiProvider]?.model || "") : "",
     apiKey: entry.apiProvider ? (config.apiKeys?.[entry.apiProvider]?.key || "") : "",
     hasApiKey: !!(entry.apiProvider && config.apiKeys?.[entry.apiProvider]?.key),
     windowDays: entry.windowDays ?? 3, keepToolPairs: entry.keepToolPairs ?? 30,
@@ -300,7 +311,7 @@ async function handleApi(req, res, url) {
   if (req.method === "POST" && url.pathname === "/api/session-file/check") {
     const body = await readJson(req);
     const threadId = String(body.threadId || "").trim(), sessionDir = String(body.sessionDir || "").trim();
-    if (!threadId || !sessionDir) throw new Error("请先填写绑定线程和线程文件搜索目录");
+    if (!threadId || !sessionDir) throw new Error("请先填写真实 Claude/Codex 线程 ID 和线程文件搜索目录");
     const file = findThreadSessionFile(sessionDir, threadId);
     if (!file) throw new Error(`在这个目录中没有找到线程 ${threadId} 的 JSONL 文件，请重新填写路径或检查文件是否存在`);
     return json(res, 200, { found: true, file });
@@ -337,10 +348,32 @@ async function handleApi(req, res, url) {
     return json(res, 200, { success: true, threadId });
   }
 
-  const miningMatch=url.pathname.match(/^\/api\/libraries\/([^/]+)\/mining\/(status|start|day|targeted-messages|targeted)$/);
+  const miningMatch=url.pathname.match(/^\/api\/libraries\/([^/]+)\/mining\/(status|start|stop|check|day|targeted-messages|targeted)$/);
   if(miningMatch){
     const threadId=decodeURIComponent(miningMatch[1]);publicThreadSettings(threadId);
     if(req.method==="GET"&&miningMatch[2]==="status")return json(res,200,{job:miningJobs.get(threadId)||null,dates:miningDates(threadId)});
+    if(req.method==="POST"&&miningMatch[2]==="check"){
+      const body=await readJson(req),date=String(body.date||""),mode=body.mode==="api"?"api":body.mode==="subagent"?"subagent":null;
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(date))throw new Error("请选择需要自检的对话日期");
+      if(!mode)throw new Error("请选择 API 或 Subagent 挖掘通道");
+      try{
+        const output=await runStmemAsync(miningCheckCommandArgs(threadId,date,mode),{maxOutput:50000});
+        return json(res,200,JSON.parse(output));
+      }catch(cause){
+        const text=String(cause.message||cause);
+        try{return json(res,200,JSON.parse(text.slice(text.indexOf("{"))));}catch{}
+        throw cause;
+      }
+    }
+    if(req.method==="POST"&&miningMatch[2]==="stop"){
+      const active=miningJobs.get(threadId);
+      if(!active||!["queued","running","cancelling"].includes(active.status))return json(res,200,{stopped:false,code:"MINING_NOT_RUNNING"});
+      active.cancelRequested=true;active.status="cancelling";active.updatedAt=new Date().toISOString();
+      let result;
+      try{result=JSON.parse(runStmem(["mine","--thread",threadId,"--stop","--json"])||"{}");}
+      catch(cause){result={stopped:false,code:"MINING_STOP_FAILED",reason:cause.message};}
+      return json(res,200,{...result,job:active});
+    }
     if(req.method==="GET"&&miningMatch[2]==="day"){
       const date=String(url.searchParams.get("date")||"");
       if(!/^\d{4}-\d{2}-\d{2}$/.test(date))throw new Error("日期格式无效");
@@ -385,7 +418,7 @@ async function handleApi(req, res, url) {
       const available=new Set(miningDates(threadId).map(row=>row.date));
       const dates=[...new Set(Array.isArray(body.dates)?body.dates.map(String):[])].filter(date=>/^\d{4}-\d{2}-\d{2}$/.test(date)&&available.has(date)).sort();
       if(!dates.length)throw new Error("请至少选择一个有对话的日期");
-      const now=new Date().toISOString(),job={id:crypto.randomUUID(),threadId,mode,dates,status:"queued",currentDate:null,completed:0,results:[],createdAt:now,updatedAt:now};
+      const now=new Date().toISOString(),job={id:crypto.randomUUID(),threadId,mode,dates,status:"queued",currentDate:null,completed:0,results:[],cancelRequested:false,createdAt:now,updatedAt:now};
       miningJobs.set(threadId,job);
       executeMiningJob(job).catch(cause=>{job.status="failed";job.currentDate=null;job.error=String(cause.message||cause).slice(0,500);job.updatedAt=new Date().toISOString();});
       return json(res,202,{job});
@@ -649,4 +682,4 @@ function startWebServer({ host = "127.0.0.1", port = 4173 } = {}) {
   });
 }
 
-module.exports = { startWebServer, listLibraries, overview, previewRows, paginate, buildConversationCalendar, miningDatesFromStore, miningCommandArgs, targetedMiningCommandArgs, timelineCommandArgs, compactTimelineReport, compressionCommandArgs, runStmem };
+module.exports = { startWebServer, listLibraries, overview, previewRows, paginate, buildConversationCalendar, miningDatesFromStore, miningCommandArgs, miningCheckCommandArgs, targetedMiningCommandArgs, timelineCommandArgs, compactTimelineReport, compressionCommandArgs, runStmem };

@@ -20,7 +20,7 @@ function resolveApiConfig(threadId, forceApi, forceSubagent) {
   return {
     apiKey: credentials.key,
     baseUrl: credentials.baseUrl || "https://api.deepseek.com",
-    model: credentials.model || "deepseek-chat",
+    model: credentials.model,
   };
 }
 

@@ -167,6 +167,7 @@ td.context { min-width: 320px; max-width: 460px; line-height: 1.5; }
 .select-row time, .select-row .role { color: var(--muted); font-size: 12px; }
 .tool-row .role { max-width: 15ch; overflow-wrap: anywhere; word-break: break-all; }
 .select-row .context { max-height: 6.2em; overflow: auto; white-space: pre-wrap; line-height: 1.55; font-size: 13px; }
+.mining-progress-side{display:flex;align-items:center;gap:12px}.mining-progress-side .danger-link{white-space:nowrap}.mining-check{margin-bottom:16px}.mining-check.has-errors{border-color:#d9a0a0}.mining-check-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.mining-check-grid div{padding:11px;background:var(--leaf-50);border-radius:10px}.mining-check-grid dt{color:var(--muted);font-size:11px}.mining-check-grid dd{margin:5px 0 0;font-weight:700}.mining-check pre{max-height:360px;overflow:auto;white-space:pre-wrap;word-break:break-word;padding:12px;background:var(--paper);border:1px solid var(--line);border-radius:10px;font-size:12px}
 .tool-row { grid-template-columns: 24px 150px 130px minmax(0,1fr); }
 .integrity { padding: 16px 18px; margin: 18px 0; border-radius: var(--radius-md); background: var(--moss-100); line-height: 1.6; }
 .integrity.warning { color: #713f2b; background: #fff3dd; }

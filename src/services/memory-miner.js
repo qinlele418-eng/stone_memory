@@ -8,6 +8,7 @@ const { parseJsonArray, parseJsonObject } = require("../lib/json-parse");
 const { archiveFingerprint, getDayState, isCompleted, retryDelayMs } = require("./mining-state");
 const { MemoryStore } = require("../storage/memory-store");
 const { parseFeelingTime } = require("./thread-rebuilder");
+const { diagnoseApiMining } = require("./mining-diagnostics");
 
 class MiningError extends Error {
   constructor(code, message, details = {}) {
@@ -72,7 +73,8 @@ function buildFeelingPrompt(aiName, userName, purpose) {
 - 记录决策、偏好、模式和习惯
 - importance 只允许 2/3/5：2=普通但值得保存，3=持续有价值，5=极少数会长期影响后续工作的关键决策
 - 不要输出 1 或 4
-- 如果没有值得记的内容，输出 []。`;
+- 只要当天发生了可区分的具体事件、出现了新的想法或感受，或存在值得以后回忆的普通日常片段，就生成 feelings；事件不重大时使用 importance 2，不要因为不够重大而省略
+- 只有输入确实没有有效对话，或全部是重复、测试、指令噪声，无法形成任何具体事件时，才输出 []。`;
   }
 
   if (purpose === "accompany") {
@@ -101,7 +103,9 @@ function buildFeelingPrompt(aiName, userName, purpose) {
 - 情绪强烈、亲密、争吵、性或技术修复本身不等于 5；只有它改变了长期关系走向时才给 5
 - 不要输出 1 或 4
 
-如果没有值得记的内容，输出 []。`;
+只要当天发生了可区分的具体事件、出现了新的想法或感受，或存在值得以后回忆的普通日常片段，就生成 feelings。普通事件使用 importance 2，不要因为没有关系转折、不够重大或不能形成长期特征而省略。
+
+只有输入确实没有有效对话，或全部是重复、测试、指令噪声，无法形成任何具体事件时，才输出 []。`;
   }
 
   return ""; // unknown purpose — 返回空
@@ -278,8 +282,7 @@ class MemoryMiner {
       }});
       // 加载 ops 提示词（所有模式共用）
       const opsFile = path.join(__dirname, "..", "..", "operations", "memory-miner-operations.md");
-      let opsPrompt = "";
-      try { opsPrompt = fs.readFileSync(opsFile, "utf8"); } catch {}
+      const opsPrompt = this._readOperationsPrompt();
 
       if (messages.length === 0) {
         // 空 archive 不调用模型，但双通道均视为成功检查过。
@@ -374,6 +377,77 @@ class MemoryMiner {
       const label = ts ? `[${ts} ${m.type || "user"}]` : `[${m.type || "user"}]`;
       return `${label} ${m.text || ""}`;
     }).join("\n");
+  }
+
+  _readOperationsPrompt() {
+    const opsFile = path.join(__dirname, "..", "..", "operations", "memory-miner-operations.md");
+    try {
+      return fs.readFileSync(opsFile, "utf8")
+        .split("{aiName}").join(this.aiName)
+        .split("{userName}").join(this.userName);
+    } catch {
+      return "";
+    }
+  }
+
+  _datedChannelPrompt(prompt, targetDate) {
+    const [, m, d] = targetDate.split("-");
+    const dateLabel = `${parseInt(m)}月${parseInt(d)}日`;
+    return `${prompt}\n\n以下是 ${dateLabel} 的对话记录。你只能记录这一天实际发生的对话。即使对话中提到之前的事，你也只记录今天的对话。每条 feelings 必须以 "${dateLabel}，" 开头，禁止使用其他日期。`;
+  }
+
+  async diagnose(targetDate) {
+    const messages = this.store.listMessages({ date: targetDate });
+    const conversationText = this._buildConversationText(messages);
+    const opsPrompt = this._readOperationsPrompt();
+    const basePrompt = opsPrompt && this.purpose === "accompany"
+      ? `${opsPrompt}\n\n只输出 feelings 数组，不要 features。\n\n格式：[{"content": "...", "importance": 1-5}]`
+      : buildFeelingPrompt(this.aiName, this.userName, this.purpose);
+    const systemPrompt = this._datedChannelPrompt(basePrompt, targetDate);
+    const input = {
+      purpose: this.purpose,
+      promptSource: opsPrompt && this.purpose === "accompany" ? "operations/memory-miner-operations.md" : "built-in",
+      messageCount: messages.length,
+      conversationCharacters: conversationText.length,
+      promptCharacters: systemPrompt.length,
+      promptHasPurpose: !!basePrompt.trim(),
+      promptHasConversation: !!conversationText.trim(),
+      systemPromptPreview: systemPrompt.slice(0, 1500),
+      conversationPreview: conversationText.slice(0, 1500),
+    };
+    if (!messages.length) return { ok: false, code: "MINING_INPUT_EMPTY", reason: `${targetDate} 没有可挖掘对话`, input, actualResponse: null };
+    if (!basePrompt.trim()) return { ok: false, code: "MINING_PROMPT_MISSING", reason: `用途 ${this.purpose} 没有对应的 miner 提示词`, input, actualResponse: null };
+    if (!this.deepseekConfig?.apiKey) {
+      try {
+        const reply = subagentSafe(`${systemPrompt}\n\n对话内容：\n${conversationText}\n\n请输出 JSON 数组。`, { threadId: this.threadId });
+        const parsed = parseJsonArray(reply);
+        const literalEmpty = /^\s*(?:```(?:json)?\s*)?\[\s*\](?:\s*```)?\s*$/i.test(reply);
+        if (!parsed.length && !literalEmpty) {
+          return {
+            ok: false, code: "SUBAGENT_OUTPUT_INVALID", reason: "Subagent 返回了内容，但不是 miner 要求的 JSON 数组", input,
+            actualResponse: { content: String(reply).slice(0, 20000), contentTruncated: String(reply).length > 20000 },
+          };
+        }
+        return {
+          ok: true,
+          code: parsed.length ? "SUBAGENT_OK" : "SUBAGENT_OK_EMPTY_RESULT",
+          reason: parsed.length ? `Subagent 返回并解析出 ${parsed.length} 条` : "Subagent 可调用，但返回了空数组",
+          input,
+          actualResponse: { content: String(reply).slice(0, 20000), contentTruncated: String(reply).length > 20000 },
+        };
+      } catch (error) {
+        return {
+          ok: false, code: error.code || "SUBAGENT_FAILED", reason: error.message, input,
+          actualResponse: { content: String(error.stdout || error.stderr || error.message || "").slice(0, 20000) },
+        };
+      }
+    }
+    const result = await diagnoseApiMining({
+      apiConfig: this.deepseekConfig,
+      systemPrompt,
+      conversationText,
+    });
+    return { ...result, input };
   }
 
   async mineTargeted(targetDate, messages, { instruction = "" } = {}) {
@@ -516,9 +590,7 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
 
   /** 单通道挖掘 (API key 模式) */
   async _mineChannel({ targetDate, messages, prompt, stateKey, label, isFeature = false }) {
-    const [y, m, d] = targetDate.split("-");
-    const dateLabel = `${parseInt(m)}月${parseInt(d)}日`;
-    const datedPrompt = `${prompt}\n\n以下是 ${dateLabel} 的对话记录。你只能记录这一天实际发生的对话。即使对话中提到之前的事，你也只记录今天的对话。每条 feelings 必须以 "${dateLabel}，" 开头，禁止使用其他日期。`;
+    const datedPrompt = this._datedChannelPrompt(prompt, targetDate);
     console.log(`[memory-miner] ${targetDate}: ${label} — ${messages.length} messages, extracting...`);
     const raw = await this._extractViaSubagent(messages, datedPrompt);
     if (!raw || !raw.length) {
@@ -540,7 +612,8 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
 
     // 如果配置了独立 API key，用原来的直接调用（更快）
     if (this.deepseekConfig?.apiKey) {
-      const { apiKey, baseUrl = "https://api.deepseek.com", model: rawModel = "deepseek-chat" } = this.deepseekConfig;
+      const { apiKey, baseUrl = "https://api.deepseek.com", model: rawModel } = this.deepseekConfig;
+      if (!String(rawModel || "").trim()) throw new MiningError("API_MODEL_MISSING", "API 模式没有配置模型名");
       const model = rawModel.replace(/\[\d+[km]\]/i, "");
       const conversationText = this._buildConversationText(messages);
       // 重试 3 次：网络闪断自动恢复
@@ -616,4 +689,12 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
   }
 }
 
-module.exports = { MemoryMiner, MiningError, normalizeNewImportance, sortFeelingsChronologically, feelingEventTime };
+module.exports = {
+  MemoryMiner,
+  MiningError,
+  normalizeNewImportance,
+  sortFeelingsChronologically,
+  feelingEventTime,
+  buildFeelingPrompt,
+  buildFeaturePrompt,
+};

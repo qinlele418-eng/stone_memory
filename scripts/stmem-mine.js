@@ -19,7 +19,7 @@ const { getCfg, getThreadDir, listThreadIds, loadConfig } = require("../src/conf
 const { MemoryStore } = require("../src/storage/memory-store");
 const { shouldAttempt } = require("../src/services/mining-state");
 
-function resolveApiConfig(tid, forceApi, forceSub) {
+function resolveApiConfig(tid, forceApi, forceSub, { diagnostic = false } = {}) {
   if (forceSub) return {};  // 强制 subagent
 
   const tc = loadConfig()[tid] || {};
@@ -28,17 +28,71 @@ function resolveApiConfig(tid, forceApi, forceSub) {
 
   const provider = tc.apiProvider || "deepseek";
   const globalKeys = loadConfig().apiKeys || {};
-  const cred = globalKeys[provider];
+  const cred = globalKeys[provider] || {};
+  const baseUrl = cred.baseUrl || (provider === "deepseek" ? "https://api.deepseek.com" : "");
   if (!cred || !cred.key) {
+    if (diagnostic) return { apiKey: "", baseUrl, model: cred.model || "", provider };
+    if (forceApi) throw new Error(`API 模式未找到 ${provider} 的 API Key`);
     console.warn(`[stmem] 线程 ${tid} 配置了 api 模式但未找到 ${provider} 的 key，回退 subagent`);
     return {};
+  }
+  if (!String(cred.model || "").trim()) {
+    if (diagnostic) return { apiKey: cred.key, baseUrl, model: "", provider };
+    throw new Error(`API 模式缺少 ${provider} 模型名。请在创建记忆体或设置页填写上游实际可用的模型名`);
+  }
+  if (!baseUrl) {
+    if (diagnostic) return { apiKey: cred.key, baseUrl: "", model: String(cred.model).trim(), provider };
+    throw new Error(`API 模式缺少 ${provider} Base URL。非 DeepSeek 服务必须填写兼容 chat/completions 的地址`);
   }
 
   return {
     apiKey: cred.key,
-    baseUrl: cred.baseUrl || "https://api.deepseek.com",
-    model: cred.model || "deepseek-chat",
+    baseUrl,
+    model: String(cred.model).trim(),
   };
+}
+
+function processFile(tid) {
+  return path.join(getThreadDir(tid), "logs", "mining-process.json");
+}
+
+function registerMiningProcess(tid, date, mode) {
+  const file = processFile(tid);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ pid: process.pid, threadId: tid, date, mode, startedAt: new Date().toISOString() }, null, 2));
+}
+
+function clearMiningProcess(tid) {
+  try { fs.unlinkSync(processFile(tid)); } catch {}
+}
+
+function stopMiningProcess(tid) {
+  const file = processFile(tid);
+  let state;
+  try { state = JSON.parse(fs.readFileSync(file, "utf8")); }
+  catch { return { stopped: false, code: "MINING_NOT_RUNNING", reason: "当前没有登记中的挖掘进程" }; }
+  try {
+    process.kill(Number(state.pid), "SIGTERM");
+    try { fs.rmSync(path.join(getThreadDir(tid), "memory", `.mining-lock-${state.date}`), { recursive: true, force: true }); } catch {}
+    try {
+      const store = new MemoryStore({ memoryDir: path.join(getThreadDir(tid), "memory"), threadId: tid });
+      const current = store.getDayState(state.date);
+      store.setDayState(state.date, {
+        status: "failed",
+        attempt: current?.attempt || 0,
+        errorCode: "MINING_CANCELLED",
+        errorMessage: "用户手动停止挖掘",
+        failedAt: new Date().toISOString(),
+        nextRetryAt: new Date().toISOString(),
+      });
+      store.close();
+    } catch {}
+    clearMiningProcess(tid);
+    return { stopped: true, code: "MINING_STOP_REQUESTED", pid: state.pid, date: state.date };
+  } catch (error) {
+    clearMiningProcess(tid);
+    return { stopped: false, code: "MINING_PROCESS_STALE", reason: error.message, pid: state.pid, date: state.date };
+  }
 }
 
 async function main() {
@@ -50,13 +104,23 @@ async function main() {
   const forceSub = args.includes("--subagent");
   const force = args.includes("--force");
   const targeted = args.includes("--targeted");
+  const check = args.includes("--check");
+  const stop = args.includes("--stop");
+  const jsonOutput = args.includes("--json");
   const batchIdx = args.indexOf("--batch-file");
   const threadIdx = args.indexOf("--thread");
   const tid = threadIdx >= 0 ? args[threadIdx + 1] : listThreadIds()[0];
   if (!tid) throw new Error("未指定线程，请用 --thread <id> 或先 stmem init");
   const memoryDir = path.join(getThreadDir(tid), "memory");
 
-  const deepseekConfig = resolveApiConfig(tid, forceApi, forceSub);
+  if (stop) {
+    const result = stopMiningProcess(tid);
+    console.log(jsonOutput ? JSON.stringify(result, null, 2) : (result.stopped ? `已请求停止 ${result.date} 的挖掘` : result.reason));
+    if (!result.stopped && result.code !== "MINING_NOT_RUNNING") process.exitCode = 1;
+    return;
+  }
+
+  const deepseekConfig = resolveApiConfig(tid, forceApi, forceSub, { diagnostic: check });
   const modeLabel = deepseekConfig.apiKey ? `api (${deepseekConfig.baseUrl})` : "subagent";
 
   const miner = new MemoryMiner({
@@ -70,6 +134,15 @@ async function main() {
       purpose: getCfg("purpose", tid),
     },
   });
+
+  if (check) {
+    const date = targetDate || miner._yesterday();
+    const result = await miner.diagnose(date);
+    console.log(jsonOutput ? JSON.stringify({ date, mode: deepseekConfig.apiKey || forceApi ? "api" : "subagent", ...result }, null, 2)
+      : `挖掘自检 ${result.ok ? "通过" : "失败"}（${result.code}）\n${result.reason}\n\n实际返回：\n${result.actualResponse?.content || result.actualResponse?.body || "（无响应内容）"}`);
+    if (!result.ok) process.exitCode = 1;
+    return;
+  }
 
   if (targeted) {
     if (batchIdx < 0 || !args[batchIdx + 1]) throw new Error("精准补挖需要 --batch-file <json>");
@@ -99,6 +172,7 @@ async function main() {
     for (const d of pending) {
       try {
         console.log(`\n[stmem] --- ${d} ---`);
+        registerMiningProcess(tid, d, modeLabel);
         const result = await miner.mine(d, { force });
         if (result.status === "locked") throw new Error(`${result.errorCode}: date is locked`);
         if (["completed", "already_completed"].includes(result.status)) ok++;
@@ -107,16 +181,25 @@ async function main() {
       } catch (e) {
         console.error(`[stmem] ${d} 失败: ${e.message}`);
         fail++;
+      } finally {
+        clearMiningProcess(tid);
       }
     }
     console.log(`\n[stmem] 完成: ${ok} 有结果, ${empty} 无需记录, ${fail} 失败`);
     if (fail) process.exitCode = 1;
   } else {
     console.log(`[stmem] mining ${targetDate || "昨天"} (${modeLabel})...`);
-    const result = await miner.mine(targetDate, { force });
-    if (result.status === "locked") throw new Error(`${result.errorCode}: date is locked`);
-    console.log(`[stmem] ${result.status}.`);
+    try {
+      registerMiningProcess(tid, targetDate || miner._yesterday(), modeLabel);
+      const result = await miner.mine(targetDate, { force });
+      if (result.status === "locked") throw new Error(`${result.errorCode}: date is locked`);
+      console.log(`[stmem] ${result.status}.`);
+    } finally {
+      clearMiningProcess(tid);
+    }
   }
 }
 
 main().catch(e => { console.error(e.message); process.exit(1); });
+
+module.exports = { resolveApiConfig, stopMiningProcess };

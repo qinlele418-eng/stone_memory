@@ -8,10 +8,28 @@ const {
   normalizeNewImportance,
   sortFeelingsChronologically,
   feelingEventTime,
+  buildFeelingPrompt,
 } = require("../src/services/memory-miner");
+
+test("feeling prompts keep ordinary events instead of treating weak features as an empty day", () => {
+  for (const purpose of ["accompany", "coding", "study"]) {
+    const prompt = buildFeelingPrompt("石头", "小鱼", purpose);
+    assert.match(prompt, /普通.*importance 2|importance 2.*普通/);
+    assert.match(prompt, /不要因为.*重大.*省略/);
+    assert.match(prompt, /重复、测试、指令噪声/);
+    assert.doesNotMatch(prompt, /没有值得记的内容/);
+  }
+});
 
 test("new mining normalizes importance to 2, 3, or 5", () => {
   assert.deepEqual([1, 2, 3, 4, 5, null].map(normalizeNewImportance), [2, 2, 3, 3, 5, 2]);
+});
+
+test("accompany operations expand the configured AI name before reaching the model", t => {
+  const miner = minerFixture(t, [{ text: "今天的对话" }]);
+  const prompt = miner._readOperationsPrompt();
+  assert.match(prompt, /你是 Alessio/);
+  assert.doesNotMatch(prompt, /\{aiName\}/);
 });
 
 test("new feelings are stored in event-time order with unknown times stable at the end", () => {

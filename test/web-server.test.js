@@ -1,8 +1,9 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { previewRows, paginate, buildConversationCalendar, miningDatesFromStore, miningCommandArgs, targetedMiningCommandArgs, timelineCommandArgs, compactTimelineReport, compressionCommandArgs } = require("../src/web/server");
+const { previewRows, paginate, buildConversationCalendar, miningDatesFromStore, miningCommandArgs, miningCheckCommandArgs, targetedMiningCommandArgs, timelineCommandArgs, compactTimelineReport, compressionCommandArgs } = require("../src/web/server");
 const { itemKey, inspectClaude, inspectCodex, conversationWindow, latestConversationDate, trimRows } = require("../src/services/rebuild-workbench");
-const { validateThreadInput } = require("../src/services/thread-setup");
+const { validateThreadInput, validateSessionBinding } = require("../src/services/thread-setup");
+const { INIT_SCHEMA, buildInitTemplate } = require("../src/services/init-contract");
 const { findThreadSessionFile } = require("../src/lib/thread-session-file");
 const { usageFromRow } = require("../src/lib/thread-context-usage");
 const { MemoryStore } = require("../src/storage/memory-store");
@@ -58,6 +59,11 @@ test("conversation calendar renders complete months newest first", () => {
 test("web mining reuses one existing single-date CLI command per selected day", () => {
   assert.deepEqual(miningCommandArgs("thread-1", "2026-07-04", "api"), ["mine", "--thread", "thread-1", "--date", "2026-07-04", "--api"]);
   assert.deepEqual(miningCommandArgs("thread-1", "2026-07-16", "subagent"), ["mine", "--thread", "thread-1", "--date", "2026-07-16", "--subagent"]);
+});
+
+test("web mining self-check reuses the formal CLI diagnostic command", () => {
+  assert.deepEqual(miningCheckCommandArgs("thread-1", "2026-07-04", "api"),
+    ["mine", "--thread", "thread-1", "--date", "2026-07-04", "--check", "--json", "--api"]);
 });
 
 test("web targeted mining goes through the CLI append command", () => {
@@ -192,6 +198,26 @@ test("web init requires a configurable session search directory for both runtime
   assert.doesNotThrow(() => validateThreadInput({ ...input, runtime: "codex", sessionDir: "C:\\Users\\you\\.codex\\sessions" }, {}));
 });
 
+test("API init requires an explicit upstream model name instead of a hidden default", () => {
+  const input = {
+    libraryName: "小绿", threadId: "thread-1", ai: "AI", user: "用户",
+    runtime: "codex", purpose: "accompany", sessionDir: "/tmp", minerMode: "api",
+    apiProvider: "provider", apiKey: "key",
+  };
+  assert.throws(() => validateThreadInput(input, {}), /模型名/);
+});
+
+test("machine init contract keeps display name separate from the real thread id", () => {
+  const template = buildInitTemplate("codex");
+  assert.equal(template.libraryName, "记忆体显示名称");
+  assert.match(template.threadId, /真实线程ID/);
+  assert.equal(template.runtime, "codex");
+  assert.match(template.sessionDir, /\.codex[\\/]sessions$/);
+  assert.deepEqual(INIT_SCHEMA.required, [
+    "libraryName", "threadId", "ai", "user", "runtime", "purpose", "sessionDir", "minerMode",
+  ]);
+});
+
 test("session lookup recursively finds a Codex dated session directory", t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-session-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -201,6 +227,21 @@ test("session lookup recursively finds a Codex dated session directory", t => {
   fs.writeFileSync(file, "{}\n");
   assert.equal(findThreadSessionFile(root, "thread-1"), file);
   assert.equal(findThreadSessionFile(root, "missing-thread"), null);
+});
+
+test("strict init binding rejects a display name used as thread id", t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-session-binding-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const dated = path.join(root, "2026", "07", "25");
+  fs.mkdirSync(dated, { recursive: true });
+  const realId = "019f91-real-thread";
+  const file = path.join(dated, `rollout-${realId}.jsonl`);
+  fs.writeFileSync(file, "{}\n");
+  assert.equal(validateSessionBinding({ sessionDir: root, threadId: realId }), file);
+  assert.throws(
+    () => validateSessionBinding({ sessionDir: root, threadId: "alisa" }),
+    /记忆体名字应填入 libraryName.*真实线程 ID/,
+  );
 });
 
 test("runtime usage extraction uses Claude cache totals and Codex input tokens", () => {

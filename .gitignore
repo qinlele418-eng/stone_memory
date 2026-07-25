@@ -1,8 +1,6 @@
 .mcp.json
 AGENTS.md
-docs/resume.md
-docs/resume-entry.md
-docs/job-search-positioning.md
+docs/
 node_modules/
 .env
 .env.*
