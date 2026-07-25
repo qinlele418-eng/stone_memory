@@ -15,20 +15,30 @@ test("completed_empty is a terminal successful state", () => {
 });
 
 test("completed date is queued for safe remine when its archive grows", () => {
-  const original = [{ timestamp: "1", type: "user", text: "first" }];
+  const original = [{ timestamp: "2026-06-12T01:00:00Z", type: "user", text: "first" }];
   const state = { "day:2026-06-12": {
     status: "completed",
     messageCount: 1,
     archiveFingerprint: archiveFingerprint(original),
+    completedAt: "2026-06-12T02:00:00Z",
   } };
   assert.equal(requiresRemine(state, "2026-06-12", original), false);
-  assert.equal(requiresRemine(state, "2026-06-12", [...original, { timestamp: "2", type: "assistant", text: "second" }]), true);
+  assert.equal(requiresRemine(state, "2026-06-12", [...original, {
+    timestamp: "2026-06-12T03:00:00Z", type: "assistant", text: "second",
+  }]), true);
 });
 
-test("legacy completed date falls back to its recorded message count", () => {
+test("historical imports do not remine when their event time predates completion", () => {
+  const state = { "day:2026-06-12": { status: "completed", completedAt: "2026-07-01T00:00:00Z" } };
+  assert.equal(requiresRemine(state, "2026-06-12", [
+    { timestamp: "2026-06-12T01:00:00Z", text: "original" },
+    { timestamp: "2026-06-12T02:00:00Z", text: "late historical import" },
+  ]), false);
+});
+
+test("legacy completed date without a completion time is not remine automatically", () => {
   const state = { "day:2026-06-12": { status: "completed", messageCount: 1 } };
-  assert.equal(requiresRemine(state, "2026-06-12", [{ text: "a" }]), false);
-  assert.equal(requiresRemine(state, "2026-06-12", [{ text: "a" }, { text: "b" }]), true);
+  assert.equal(requiresRemine(state, "2026-06-12", [{ timestamp: "2026-06-12T03:00:00Z" }]), false);
 });
 
 test("failed date observes retry backoff", () => {
