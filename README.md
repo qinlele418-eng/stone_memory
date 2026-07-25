@@ -587,7 +587,7 @@ Rules 文件本身保存纯 Markdown，不预写内部标记。rebuild 注入线
 ```
 memory/topics/
 ├── topic_小绿小紫小黄.md        # 共同回忆
-├── topic_石头给小鱼起过的外号和称呼.md  # 专属词汇
+├── topic_AI给用户起过的外号和称呼.md    # 专属词汇
 ├── topic_果冻果冻安全词游戏.md    # 重要约定
 └── topic_论坛.md                # 固定话题
 ```

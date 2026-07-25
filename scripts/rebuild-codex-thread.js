@@ -96,6 +96,7 @@ function main() {
   const trigger = triggerIdx >= 0 ? args[triggerIdx + 1] : "cli";
 
   if (!threadId) { console.log("用法: --thread <id> [--window N] [--tool-pairs N] [--apply]"); return; }
+  const userName = getCfg("user", threadId, "用户");
   const codexDir = getCfg("sessionDir", threadId);
   if (!codexDir) { console.error("无法重建：未配置线程文件目录，请前往设置填写 Codex session 搜索目录"); process.exit(1); }
 
@@ -347,7 +348,7 @@ function main() {
   for (const date of preDates) {
     if (fragmentDates.has(date)) {
       if (pendingMemory.length > 0) {
-        for (const block of buildMemoryBlocks(pendingMemory)) {
+        for (const block of buildMemoryBlocks(pendingMemory, userName)) {
           output.push(JSON.stringify({
             timestamp: block.timestamp, type: "response_item",
             payload: { type: "message", role: "user", content: [{ type: "input_text", text: block.text }] },
@@ -380,7 +381,7 @@ function main() {
     }
   }
   if (pendingMemory.length > 0) {
-    for (const block of buildMemoryBlocks(pendingMemory)) {
+    for (const block of buildMemoryBlocks(pendingMemory, userName)) {
       output.push(JSON.stringify({
         timestamp: block.timestamp, type: "response_item",
         payload: { type: "message", role: "user", content: [{ type: "input_text", text: block.text }] },
