@@ -51,9 +51,9 @@ function subagentSafe(prompt, opts = {}) {
   try {
     return runSubagent(prompt, opts);
   } catch (err) {
-    const msg = err.stdout || err.stderr || err.message || String(err);
-    console.error(`[memory-miner] subagent error: ${msg.slice(0, 300)}`);
-    throw new Error(`subagent failed: ${msg.slice(0, 200)}`);
+    const msg = String(err?.message || "subagent process failed");
+    console.error(`[memory-miner] subagent error: ${msg.slice(0, 800)}`);
+    throw new Error(`subagent failed: ${msg.slice(0, 500)}`);
   }
 }
 
