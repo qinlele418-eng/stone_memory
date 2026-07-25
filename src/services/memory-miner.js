@@ -9,6 +9,7 @@ const { archiveFingerprint, getDayState, isCompleted, retryDelayMs } = require("
 const { MemoryStore } = require("../storage/memory-store");
 const { parseFeelingTime } = require("./thread-rebuilder");
 const { diagnoseApiMining } = require("./mining-diagnostics");
+const { splitMiningMessages, byteLength } = require("./mining-chunks");
 
 class MiningError extends Error {
   constructor(code, message, details = {}) {
@@ -334,6 +335,9 @@ class MemoryMiner {
       return { date: targetDate, status: completedDay.status, feelingCount: completedDay.feelingCount, featureCount: completedDay.featureCount, durationMs: Date.now() - startedAt };
     } catch (err) {
       console.error(`[memory-miner] error: ${err.message}`);
+      // 双通道只有 replaceDay 成功后才算整日发布。任一通道/分块失败，
+      // 清除进程内临时完成标记，确保常驻 watcher 下次会完整重跑两路。
+      this._deleteStateKeys([`feeling:${targetDate}`, `feature:${targetDate}`]);
       const failedAt = new Date();
       if (force) {
         this._appendNotification({
@@ -396,18 +400,42 @@ class MemoryMiner {
     return `${prompt}\n\n以下是 ${dateLabel} 的对话记录。你只能记录这一天实际发生的对话。即使对话中提到之前的事，你也只记录今天的对话。每条 feelings 必须以 "${dateLabel}，" 开头，禁止使用其他日期。`;
   }
 
+  _messageChunks(messages) {
+    return splitMiningMessages(messages, {
+      render: rows => this._buildConversationText(rows),
+    });
+  }
+
+  _chunkPrompt(prompt, index, total, previousEntries = [], label = "摘要") {
+    if (total <= 1) return prompt;
+    const previous = previousEntries.slice(-5).map(entry => ({
+      content: entry?.content,
+      importance: entry?.importance,
+      ...(entry?.category ? { category: entry.category } : {}),
+    }));
+    return `${prompt}\n\n这是当天对话的第 ${index + 1}/${total} 部分。只总结本部分实际出现的事件；不要补写前后块内容。这个块内容较少时可以返回空数组。`
+      + (previous.length
+        ? `\n\n上一块最后 ${previous.length} 条已生成${label}如下，仅用于理解连续事件、人物指代和避免重复；这些内容已经保存，禁止再次输出：\n${JSON.stringify(previous)}`
+        : "");
+  }
+
   async diagnose(targetDate) {
     const messages = this.store.listMessages({ date: targetDate });
-    const conversationText = this._buildConversationText(messages);
+    const chunks = this._messageChunks(messages);
+    const checkedMessages = chunks[0] || [];
+    const conversationText = this._buildConversationText(checkedMessages);
     const opsPrompt = this._readOperationsPrompt();
     const basePrompt = opsPrompt && this.purpose === "accompany"
       ? `${opsPrompt}\n\n只输出 feelings 数组，不要 features。\n\n格式：[{"content": "...", "importance": 1-5}]`
       : buildFeelingPrompt(this.aiName, this.userName, this.purpose);
-    const systemPrompt = this._datedChannelPrompt(basePrompt, targetDate);
+    const systemPrompt = this._chunkPrompt(this._datedChannelPrompt(basePrompt, targetDate), 0, chunks.length);
     const input = {
       purpose: this.purpose,
       promptSource: opsPrompt && this.purpose === "accompany" ? "operations/memory-miner-operations.md" : "built-in",
       messageCount: messages.length,
+      chunkCount: chunks.length,
+      checkedChunk: chunks.length ? 1 : null,
+      chunkBytes: chunks.map(chunk => byteLength(this._buildConversationText(chunk))),
       conversationCharacters: conversationText.length,
       promptCharacters: systemPrompt.length,
       promptHasPurpose: !!basePrompt.trim(),
@@ -500,8 +528,6 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
 
   /** claude -p 单日双通道：ops 走 --system-prompt-file，stdin 只传对话 + 输出指令 */
   async _mineDayWithSubagent(targetDate, messages, state, opsPrompt) {
-
-    const conversationText = this._buildConversationText(messages);
     const [y, m, d] = targetDate.split("-");
     const dateLabel = `${parseInt(m)}月${parseInt(d)}日`;
 
@@ -509,22 +535,26 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
     const hasOps = opsPrompt && fs.existsSync(opsFile) && this.purpose === "accompany";
 
     // stdin 只传对话 + 输出指令，不内联 ops（ops 走 --system-prompt-file）
-    const prompt = hasOps
-      ? `以下是 ${dateLabel} 的对话记录。你只能记录这一天实际发生的对话。每条 feelings 必须以 "${dateLabel}，" 开头，禁止使用其他日期。\n\n对话内容：\n${conversationText}\n\n请输出 JSON：{"feelings":[...], "features":[...]}`
-      : `${buildFeelingPrompt(this.aiName, this.userName, this.purpose)}\n\n---\n\n${buildFeaturePrompt(this.userName, this.purpose)}\n\n以下是 ${dateLabel} 的对话记录。你只能记录这一天实际发生的对话。每条 feelings 必须以 "${dateLabel}，" 开头，禁止使用其他日期。\n\n对话内容：\n${conversationText}\n\n请输出 JSON：{"feelings":[...], "features":[...]}`;
-
-    console.log(`[memory-miner] ${targetDate}: sub-agent extracting feelings + features...`);
-    const reply = hasOps
-      ? subagentSafe(prompt, { opsFile, threadId: this.threadId })
-      : subagentSafe(prompt, { threadId: this.threadId });
-
-    // 解析 feelings + features
-    const parsed = parseJsonObject(reply);
-    if (!parsed || !Array.isArray(parsed.feelings) || !Array.isArray(parsed.features)) {
-      throw new MiningError("OUTPUT_INVALID", `${targetDate}: subagent output is not a feelings/features JSON object`);
+    const chunks = this._messageChunks(messages);
+    const feelings = [], features = [];
+    console.log(`[memory-miner] ${targetDate}: sub-agent extracting feelings + features in ${chunks.length} chunk(s)...`);
+    for (let index = 0; index < chunks.length; index++) {
+      const conversationText = this._buildConversationText(chunks[index]);
+      const basePrompt = hasOps
+        ? `以下是 ${dateLabel} 的对话记录。你只能记录这一天实际发生的对话。每条 feelings 必须以 "${dateLabel}，" 开头，禁止使用其他日期。\n\n对话内容：\n${conversationText}\n\n请输出 JSON：{"feelings":[...], "features":[...]}`
+        : `${buildFeelingPrompt(this.aiName, this.userName, this.purpose)}\n\n---\n\n${buildFeaturePrompt(this.userName, this.purpose)}\n\n以下是 ${dateLabel} 的对话记录。你只能记录这一天实际发生的对话。每条 feelings 必须以 "${dateLabel}，" 开头，禁止使用其他日期。\n\n对话内容：\n${conversationText}\n\n请输出 JSON：{"feelings":[...], "features":[...]}`;
+      const prompt = this._chunkPrompt(basePrompt, index, chunks.length, feelings, "feelings");
+      console.log(`[memory-miner] ${targetDate}: sub-agent chunk ${index + 1}/${chunks.length} — ${byteLength(conversationText)} bytes`);
+      const reply = hasOps
+        ? subagentSafe(prompt, { opsFile, threadId: this.threadId })
+        : subagentSafe(prompt, { threadId: this.threadId });
+      const parsed = parseJsonObject(reply);
+      if (!parsed || !Array.isArray(parsed.feelings) || !Array.isArray(parsed.features)) {
+        throw new MiningError("OUTPUT_INVALID", `${targetDate}: subagent chunk ${index + 1}/${chunks.length} output is not a feelings/features JSON object`);
+      }
+      feelings.push(...parsed.feelings);
+      features.push(...parsed.features);
     }
-    const feelings = parsed.feelings;
-    const features = parsed.features;
 
     // 写入 feelings
     if (feelings.length > 0 && !state[`feeling:${targetDate}`]) {
@@ -543,7 +573,12 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
     console.log(`[memory-miner] ${targetDate}: ${label} — ${raw.length} entries, saving...`);
     const existing = isFeature ? this.pendingFeatures : this.pendingFeelings;
     const existingSet = new Set(existing.map(e => e.content));
-    const deduped = raw.filter(m => !existingSet.has(m.content));
+    const deduped = raw.filter(m => {
+      const content = String(m?.content || "");
+      if (!content || existingSet.has(content)) return false;
+      existingSet.add(content);
+      return true;
+    });
     if (!deduped.length) {
       console.log(`[memory-miner] ${targetDate}: ${label} — all already exist`);
       this._saveState({ [stateKey]: Date.now() });
@@ -591,8 +626,18 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
   /** 单通道挖掘 (API key 模式) */
   async _mineChannel({ targetDate, messages, prompt, stateKey, label, isFeature = false }) {
     const datedPrompt = this._datedChannelPrompt(prompt, targetDate);
-    console.log(`[memory-miner] ${targetDate}: ${label} — ${messages.length} messages, extracting...`);
-    const raw = await this._extractViaSubagent(messages, datedPrompt);
+    const chunks = this._messageChunks(messages);
+    const raw = [];
+    console.log(`[memory-miner] ${targetDate}: ${label} — ${messages.length} messages in ${chunks.length} chunk(s), extracting...`);
+    for (let index = 0; index < chunks.length; index++) {
+      const conversationBytes = byteLength(this._buildConversationText(chunks[index]));
+      console.log(`[memory-miner] ${targetDate}: ${label} chunk ${index + 1}/${chunks.length} — ${conversationBytes} bytes`);
+      const result = await this._extractViaSubagent(
+        chunks[index],
+        this._chunkPrompt(datedPrompt, index, chunks.length, raw, isFeature ? "features" : "feelings"),
+      );
+      if (Array.isArray(result)) raw.push(...result);
+    }
     if (!raw || !raw.length) {
       console.log(`[memory-miner] ${targetDate}: ${label} — no results`);
       this._saveState({ [stateKey]: Date.now() });
