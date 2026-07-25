@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { isCompleted, shouldAttempt, retryDelayMs, listBlockedDays } = require("../src/services/mining-state");
+const { archiveFingerprint, isCompleted, shouldAttempt, requiresRemine, retryDelayMs, listBlockedDays } = require("../src/services/mining-state");
 
 test("legacy skipped+mined date is not treated as completed", () => {
   const state = { "mined:2026-06-12": 1, "skipped:2026-06-12": 1 };
@@ -12,6 +12,23 @@ test("completed_empty is a terminal successful state", () => {
   const state = { "day:2026-06-12": { status: "completed_empty", messageCount: 2 } };
   assert.equal(isCompleted(state, "2026-06-12"), true);
   assert.equal(shouldAttempt(state, "2026-06-12", [{ text: "a" }, { text: "b" }]), false);
+});
+
+test("completed date is queued for safe remine when its archive grows", () => {
+  const original = [{ timestamp: "1", type: "user", text: "first" }];
+  const state = { "day:2026-06-12": {
+    status: "completed",
+    messageCount: 1,
+    archiveFingerprint: archiveFingerprint(original),
+  } };
+  assert.equal(requiresRemine(state, "2026-06-12", original), false);
+  assert.equal(requiresRemine(state, "2026-06-12", [...original, { timestamp: "2", type: "assistant", text: "second" }]), true);
+});
+
+test("legacy completed date falls back to its recorded message count", () => {
+  const state = { "day:2026-06-12": { status: "completed", messageCount: 1 } };
+  assert.equal(requiresRemine(state, "2026-06-12", [{ text: "a" }]), false);
+  assert.equal(requiresRemine(state, "2026-06-12", [{ text: "a" }, { text: "b" }]), true);
 });
 
 test("failed date observes retry backoff", () => {

@@ -32,6 +32,16 @@ function shouldAttempt(state, date, messages, now = Date.now()) {
   return true;
 }
 
+function requiresRemine(state, date, messages) {
+  const day = getDayState(state, date);
+  if (!day || !["completed", "completed_empty"].includes(day.status)) return false;
+  const currentMessages = Array.isArray(messages) ? messages : [];
+  if (day.archiveFingerprint) {
+    return archiveFingerprint(currentMessages) !== day.archiveFingerprint;
+  }
+  return Number(day.messageCount) !== currentMessages.length;
+}
+
 function listBlockedDays(state) {
   return Object.entries(state || {}).flatMap(([key, value]) => {
     if (!key.startsWith("day:") || !value || value.status !== "blocked") return [];
@@ -44,4 +54,4 @@ function retryDelayMs(attempt) {
   return delays[Math.min(Math.max(1, attempt) - 1, delays.length - 1)];
 }
 
-module.exports = { archiveFingerprint, getDayState, isCompleted, shouldAttempt, retryDelayMs, listBlockedDays };
+module.exports = { archiveFingerprint, getDayState, isCompleted, shouldAttempt, requiresRemine, retryDelayMs, listBlockedDays };
