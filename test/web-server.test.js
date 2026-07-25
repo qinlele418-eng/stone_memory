@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { previewRows, paginate, buildConversationCalendar, miningDatesFromStore, miningCommandArgs, miningCheckCommandArgs, targetedMiningCommandArgs, timelineCommandArgs, compactTimelineReport, compressionCommandArgs, reviewCandidateForWeb, reviewProfileFromInput } = require("../src/web/server");
+const { previewRows, paginate, buildConversationCalendar, miningDatesFromStore, miningCommandArgs, miningCheckCommandArgs, targetedMiningCommandArgs, timelineCommandArgs, compactTimelineReport, compressionCommandArgs, safeStmemFailure, reviewCandidateForWeb, reviewProfileFromInput } = require("../src/web/server");
 const { buildStdinCmd } = require("../src/services/subagent-runner");
 const { itemKey, inspectClaude, inspectCodex, conversationWindow, latestConversationDate, trimRows } = require("../src/services/rebuild-workbench");
 const { validateThreadInput, validateSessionBinding } = require("../src/services/thread-setup");
@@ -65,6 +65,23 @@ test("web mining reuses one existing single-date CLI command per selected day", 
 test("web mining self-check reuses the formal CLI diagnostic command", () => {
   assert.deepEqual(miningCheckCommandArgs("thread-1", "2026-07-04", "api"),
     ["mine", "--thread", "thread-1", "--date", "2026-07-04", "--check", "--json", "--api"]);
+});
+
+test("web subprocess errors never expose unmarked conversation output", () => {
+  const stderr = [
+    "private conversation content",
+    "more untrusted model output",
+    "[memory-miner] subagent error: subagent failed: ERROR: 401 Unauthorized",
+  ].join("\n");
+  assert.equal(
+    safeStmemFailure(stderr, "mine", 1),
+    "subagent error: subagent failed: ERROR: 401 Unauthorized",
+  );
+  assert.equal(safeStmemFailure("private conversation content", "mine", 7), "stmem mine失败（退出码 7）");
+  assert.equal(
+    safeStmemFailure("[memory-compressor] error: API 429: rate limited", "compress", 1),
+    "error: API 429: rate limited",
+  );
 });
 
 test("web targeted mining goes through the CLI append command", () => {
