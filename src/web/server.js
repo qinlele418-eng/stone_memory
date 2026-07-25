@@ -27,12 +27,23 @@ const reviewJobs = new Map();
 const PROJECT_ROOT = path.join(__dirname, "..", "..");
 const STMEM_BIN = path.join(PROJECT_ROOT, "bin", "stmem");
 
+function safeStmemFailure(stderr, command, status) {
+  const lines = String(stderr || "").split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  const marked = lines.reverse().find(line =>
+    /^\[(?:memory-miner|memory-compressor)\]\s+(?:subagent\s+)?error:/i.test(line));
+  if (marked) {
+    return marked.replace(/^\[(?:memory-miner|memory-compressor)\]\s+/i, "").slice(0, 500);
+  }
+  const suffix = Number.isInteger(status) ? `（退出码 ${status}）` : "";
+  return `stmem ${command || "命令"}失败${suffix}`;
+}
+
 function runStmem(args, { timeout = 10 * 60 * 1000, maxBuffer = 32 * 1024 * 1024 } = {}) {
   const result = spawnSync(process.execPath, [STMEM_BIN, ...args], {
     cwd: PROJECT_ROOT, encoding: "utf8", timeout, maxBuffer,
   });
   if (result.error) throw result.error;
-  if (result.status !== 0) throw new Error((result.stderr || result.stdout || `stmem ${args[0]} 失败`).trim());
+  if (result.status !== 0) throw new Error(safeStmemFailure(result.stderr, args[0], result.status));
   return (result.stdout || "").trim();
 }
 
@@ -43,7 +54,7 @@ function runStmemAsync(args, { maxOutput = 8000 } = {}) {
     child.stdout.on("data",chunk=>{stdout=(stdout+chunk).slice(-maxOutput);});
     child.stderr.on("data",chunk=>{stderr=(stderr+chunk).slice(-Math.min(maxOutput,8000));});
     child.once("error",reject);
-    child.once("close",code=>code===0?resolve(stdout.trim()):reject(new Error((stderr||stdout||`stmem ${args[0]} 失败`).trim())));
+    child.once("close",code=>code===0?resolve(stdout.trim()):reject(new Error(safeStmemFailure(stderr,args[0],code))));
   });
 }
 
@@ -900,6 +911,6 @@ function startWebServer({ host = "127.0.0.1", port = 4173 } = {}) {
 module.exports = {
   startWebServer, listLibraries, overview, previewRows, paginate, buildConversationCalendar,
   miningDatesFromStore, miningCommandArgs, miningCheckCommandArgs, targetedMiningCommandArgs,
-  timelineCommandArgs, compactTimelineReport, compressionCommandArgs, runStmem,
+  timelineCommandArgs, compactTimelineReport, compressionCommandArgs, safeStmemFailure, runStmem,
   reviewCandidateForWeb, reviewProfileFromInput,
 };
