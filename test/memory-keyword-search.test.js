@@ -22,7 +22,12 @@ fs.writeFileSync(path.join(stoneDir, "stmem.json"), JSON.stringify({
 
 const { getThreadDir } = require("../src/config");
 const { MemoryStore } = require("../src/storage/memory-store");
-const { searchByKeyword, searchArchiveContext } = require("../src/services/memory-keyword-search");
+const {
+  searchByKeyword,
+  searchArchiveContext,
+  extractKeywords,
+  normalizeEventUtc,
+} = require("../src/services/memory-keyword-search");
 
 test.after(() => {
   process.env.HOME = originalHome;
@@ -76,4 +81,32 @@ test("deep-search hits retain time metadata and archive lookup uses the configur
   assert.equal(archive.snippets.length, 1);
   assert.match(archive.text, /我们继续整理归栖/);
   assert.match(archive.text, /我记得归栖的这条线/);
+});
+
+test("legacy HH:MM event times are normalized with the source date", () => {
+  assert.equal(
+    normalizeEventUtc("23:58", "2026-07-09", null),
+    "2026-07-09T15:58:00.000Z",
+  );
+});
+
+test("ISO event times remain valid UTC timestamps", () => {
+  assert.equal(
+    normalizeEventUtc("2026-07-22T04:11:00.000Z", "2026-07-22", null),
+    "2026-07-22T04:11:00.000Z",
+  );
+});
+
+test("natural-language deep-search queries retain useful Chinese terms", () => {
+  const keywords = extractKeywords("我们以前关于乡村规划许可的主要判断是什么");
+  assert.ok(keywords.includes("乡村规划"));
+  assert.ok(keywords.includes("许可"));
+  assert.ok(!keywords.includes("我们"));
+  assert.ok(!keywords.includes("什么"));
+});
+
+test("short exact terms remain available alongside segmented words", () => {
+  const keywords = extractKeywords("开发边界");
+  assert.ok(keywords.includes("开发边界"));
+  assert.ok(keywords.includes("边界"));
 });

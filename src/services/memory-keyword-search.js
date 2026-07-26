@@ -1,9 +1,17 @@
 const fs = require("fs");
 const path = require("path");
+const { Jieba } = require("@node-rs/jieba");
+const { dict } = require("@node-rs/jieba/dict");
 
 const { getCfg, getThreadDir, listThreadIds } = require("../config");
 const { readFeelings: readDatabaseFeelings, readMessages } = require("../storage/memory-reader");
 const { automaticRetainWindow } = require("./thread-rebuilder");
+
+const jieba = Jieba.withDict(dict);
+const QUERY_STOP_WORDS = new Set([
+  "我们", "以前", "关于", "主要", "什么", "怎么", "为什么", "是否",
+  "有没有", "记得", "当时", "这个", "那个", "一次", "判断",
+]);
 
 function resolvePaths(threadId) {
   const configured = listThreadIds();
@@ -78,15 +86,35 @@ function toUtc(date, hour, minute) {
   return new Date(`${date}T${String(hour).padStart(2,"0")}:${String(minute||0).padStart(2,"0")}:00.000+08:00`).toISOString();
 }
 
+function normalizeEventUtc(eventTime, sourceDate, parsedTime) {
+  const raw = String(eventTime || "").trim();
+  if (raw) {
+    if (/^\d{1,2}:\d{2}(?::\d{2})?$/.test(raw) && sourceDate) {
+      const normalized = raw.length === 5 ? `${raw}:00` : raw;
+      const value = new Date(`${sourceDate}T${normalized}+08:00`);
+      if (Number.isFinite(value.getTime())) return value.toISOString();
+    }
+    const value = new Date(raw);
+    if (Number.isFinite(value.getTime())) return value.toISOString();
+  }
+  return parsedTime ? toUtc(sourceDate || parsedTime.date, parsedTime.hour, parsedTime.minute) : null;
+}
+
 // ---- 关键词提取 ----
 
 function extractKeywords(query) {
-  // 保留所有 2+ 字的词，日期时间词也是重要定位信息
-  return query
-    .replace(/[，,。.！!？?：:、\s]+/g, " ")
-    .trim()
-    .split(/\s+/)
-    .filter(w => w.length >= 2);
+  const normalized = String(query || "").replace(/[，,。.！!？?：:、\s]+/g, " ").trim();
+  if (!normalized) return [];
+  const words = [];
+  const explicit = normalized.split(/\s+/).filter(word => word.length >= 2);
+  if (explicit.length > 1) words.push(...explicit);
+  else if (normalized.length <= 8) words.push(normalized);
+  for (const { word, tag } of jieba.tag(normalized)) {
+    const value = String(word || "").trim();
+    if (value.length < 2 || QUERY_STOP_WORDS.has(value) || ["x", "uj", "ul", "p", "r"].includes(tag)) continue;
+    words.push(value);
+  }
+  return [...new Set(words)];
 }
 
 // ---- 加载 ----
@@ -111,7 +139,7 @@ function loadFeelings(_feelingsFile, memoryDir, threadId) {
       id: r.id,
       content: r.content,
       date,
-      utcTime: r.eventTime || (time ? toUtc(date, time.hour, time.minute) : null),
+      utcTime: normalizeEventUtc(r.eventTime, date, time),
     });
   }
   _feelingsCache = feelings;
@@ -158,6 +186,10 @@ function searchByKeyword(query, { maxResults = 1, threadId } = {}) {
     let messages = readArchive(p.memoryDir, p.threadId, archiveDate);
     const nextUtc=hit.idx + 1 < feelings.length ? feelings[hit.idx + 1].utcTime : null;
     const automatic=automaticRetainWindow(hit.utcTime,nextUtc,messages);
+    if (!automatic) {
+      results.push({ feeling: hit, text: `Found: ${hit.content}\n\n(Invalid timestamp — cannot retrieve original)` });
+      continue;
+    }
     const startUtc=automatic.startUtc,endUtc=automatic.endUtc;
     const endDate = endUtc.slice(0, 10);
     if (endDate !== archiveDate) {
@@ -340,4 +372,4 @@ function searchArchiveContext(feelingDate, keywords, { maxDays = 5, contextLines
   };
 }
 
-module.exports = { searchByKeyword, searchArchiveContext };
+module.exports = { searchByKeyword, searchArchiveContext, extractKeywords, normalizeEventUtc };

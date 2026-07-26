@@ -233,16 +233,22 @@ function toolDeepSearch(args) {
   }
 
   // 构造 prompt，把搜索结果直接喂给 sub-agent
+  const clip = (text, maxChars) => {
+    const value = String(text || "");
+    return value.length <= maxChars
+      ? value
+      : `${value.slice(0, maxChars)}\n\n[上下文已截断，完整原文仍保存在 Stone Memory 中]`;
+  };
   const searchContext = [
-    kwResult.text ? `## 关键词匹配\n\n${kwResult.text}` : "",
-    archiveHits.length ? `## 原文上下文\n\n${archiveHits.slice(0, 2).join("\n\n")}` : "",
+    kwResult.text ? `## 关键词匹配\n\n${clip(kwResult.text, 12_000)}` : "",
+    archiveHits.length ? `## 原文上下文\n\n${clip(archiveHits.slice(0, 2).join("\n\n"), 8_000)}` : "",
   ].filter(Boolean).join("\n\n");
 
   const prompt = searchContext
     ? `你是一个记忆检索助手。以下是关键词搜索结果和相关对话原文，请基于这些信息用第一人称叙事回答用户的查询。\n\n${searchContext}\n\n---\n\n用户查询：${query}`
     : `你是一个记忆检索助手。用户的查询是：${query}`;
 
-  const result = subagentCall(prompt, { threadId: resolved?.threadId });
+  const result = subagentCall(prompt, { threadId: resolved?.threadId, timeout: 180_000 });
 
   // 保存 topic 文件（handler 兜底，存到线程 memory 下）
   try {
@@ -322,6 +328,7 @@ function toolAuditList(args) {
     }
     const unreviewed = Object.keys(byDate).sort();
     if (unreviewed.length === 0) return `截止 ${lastCutoff}，全部已审。`;
+    const unreviewedCount = Object.values(byDate).reduce((total, rows) => total + rows.length, 0);
 
     const preamble = [
       "睡前记忆巡检。以下是上次审计之后的新摘要。",
@@ -333,7 +340,7 @@ function toolAuditList(args) {
       "",
       "不用每条都标。只标真正重要的。",
       "",
-      `截止: ${lastCutoff}，${unreviewed.length} 条未审`,
+      `截止: ${lastCutoff}，${unreviewedCount} 条未审（分布在 ${unreviewed.length} 个日期）`,
       "",
     ].join("\n");
     const lines = [preamble, "| # | 日期 | 类型 | 摘要 |", "|---|------|------|------|"];

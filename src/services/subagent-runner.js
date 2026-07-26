@@ -98,6 +98,11 @@ function buildStdinCmd(runtimeName, opts = {}) {
   if (!rt) throw new Error(`Unknown runtime: ${runtimeName}. Add it to stmem.json → runtimes.`);
   const flags = rt.flags || {};
   let cmd = rt.command.replace(/\s*-p/, "");
+  if (runtimeName === "codex") {
+    // Subagents must not load the parent Codex MCP configuration. In particular,
+    // loading Stone Memory again here recursively starts another deep search.
+    cmd += " --ignore-user-config --ephemeral";
+  }
   if (opts.opsFile && flags.systemPrompt && fs.existsSync(opts.opsFile)) {
     cmd += ` ${flags.systemPrompt} "${opts.opsFile}"`;
   }
