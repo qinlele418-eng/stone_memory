@@ -139,7 +139,11 @@ const FEATURE_CATEGORY_GUIDE = `类别定义（按事实本身分类，不按聊
 - 选择最具体的一个类别。同一事实不要换词后重复投进多个库；只有包含两个独立事实时才拆开记录
 - “和 AI 聊工作/吃饭”不等于 relation；只有关系身份、边界或互动模式本身才归 relation
 - “在项目里熬夜/吃饭”不等于 work；睡眠归 sleep，饮食归 eat，项目进度和产出才归 work
-- 一次事件不自动构成 habit、preference 或 relation；必须明确表达稳定特征，或在多日反复出现`;
+- 一次事件不自动构成 habit、preference 或 relation；必须明确表达稳定特征，或在多日反复出现
+- 只有一天的对话时，不得仅凭一条操作要求、临时配置或当次选择推断 habit / preference；这类内容若值得保存，应写进 feelings
+- habit / preference 原则上需要至少两个不同对话时点的证据，或用户明确使用“长期、一直、以后都、通常、习惯、喜欢”等稳定性表达
+- 明确的关系称呼或身份可以按原词记录为 relation，但不得外推未表达的关系含义
+- 不得虚构尝试次数、先后步骤、原因或心理状态；事实细节必须能在原话中找到依据`;
 
 function buildFeaturePrompt(userName, purpose) {
   if (purpose === "coding" || purpose === "study") {
@@ -340,7 +344,7 @@ class MemoryMiner {
         const feelingCount = this.pendingFeelings.length;
         const featureCount = this.pendingFeatures.length;
         const completionStatus = feelingCount === 0 && featureCount === 0 ? "completed_empty" : "completed";
-        this.store.replaceDay(targetDate, { feelings: this.pendingFeelings, features: this.pendingFeatures, source, dayState: {
+        this.store.replaceDay(targetDate, { feelings: this.pendingFeelings, features: this.pendingFeatures, source, preserveImports: true, dayState: {
           status: completionStatus, messageCount: messages.length, archiveFingerprint: fingerprint,
           feelingCount, featureCount,
           attempt, completedAt, errorCode: null, errorMessage: null, failedAt: null, nextRetryAt: null, updatedAt: completedAt,

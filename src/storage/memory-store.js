@@ -21,6 +21,19 @@ function dateFromFeeling(entry) {
   return `${year}-${String(month).padStart(2, "0")}-${String(match[2]).padStart(2, "0")}`;
 }
 
+function addMillisecondsPreservingOffset(timestamp, milliseconds) {
+  const match = String(timestamp).match(/(Z|([+-])(\d{2}):(\d{2}))$/);
+  const value = new Date(timestamp).getTime();
+  if (!match || !Number.isFinite(value)) return null;
+  if (match[1] === "Z") return new Date(value + milliseconds).toISOString();
+  const direction = match[2] === "+" ? 1 : -1;
+  const offsetMinutes = direction * (Number(match[3]) * 60 + Number(match[4]));
+  const local = new Date(value + milliseconds + offsetMinutes * 60 * 1000)
+    .toISOString()
+    .slice(0, 23);
+  return `${local}${match[1]}`;
+}
+
 class MemoryStore {
   constructor({ memoryDir, threadId }) {
     this.memoryDir = memoryDir;
@@ -389,15 +402,15 @@ class MemoryStore {
     return this.db.prepare("SELECT * FROM mining_jobs WHERE id=?").get(jobId) || null;
   }
 
-  replaceDay(sourceDate, { feelings = [], features = [], source = "remine", miningJobId = null, dayState = null } = {}) {
-    return this._writeDay(sourceDate, { feelings, features, source, miningJobId, replace: true, dayState });
+  replaceDay(sourceDate, { feelings = [], features = [], source = "remine", miningJobId = null, dayState = null, preserveImports = false } = {}) {
+    return this._writeDay(sourceDate, { feelings, features, source, miningJobId, replace: true, dayState, preserveImports });
   }
 
   appendTargeted(sourceDate, { feelings = [], features = [], miningJobId = null } = {}) {
     return this._writeDay(sourceDate, { feelings, features, source: "targeted", miningJobId, replace: false });
   }
 
-  _writeDay(sourceDate, { feelings, features, source, miningJobId, replace, dayState = null }) {
+  _writeDay(sourceDate, { feelings, features, source, miningJobId, replace, dayState = null, preserveImports = false }) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(sourceDate)) throw new Error("sourceDate must be YYYY-MM-DD");
     if (!Array.isArray(feelings) || !Array.isArray(features)) throw new Error("feelings and features must be arrays");
     const now = new Date().toISOString();
@@ -409,8 +422,9 @@ class MemoryStore {
       VALUES (?,?,?,?,?,?,?,?,?,?,?)`);
     const write = this.db.transaction(() => {
       if (replace) {
-        this.db.prepare("DELETE FROM feelings WHERE thread_id=? AND source_date=?").run(this.threadId, sourceDate);
-        this.db.prepare("DELETE FROM features WHERE thread_id=? AND source_date=?").run(this.threadId, sourceDate);
+        const imported = preserveImports ? " AND source<>'import'" : "";
+        this.db.prepare(`DELETE FROM feelings WHERE thread_id=? AND source_date=?${imported}`).run(this.threadId, sourceDate);
+        this.db.prepare(`DELETE FROM features WHERE thread_id=? AND source_date=?${imported}`).run(this.threadId, sourceDate);
       }
       let n = this.db.prepare("SELECT COUNT(*) n FROM feelings WHERE thread_id=? AND source_date=?").get(this.threadId, sourceDate).n;
       for (const item of feelings) {

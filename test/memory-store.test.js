@@ -57,6 +57,22 @@ test("remine directly replaces current results without version data", t => {
   assert.equal(fs.existsSync(path.join(store.memoryDir, "mined", "feelings", "days.jsonl")), false);
 });
 
+test("remine can preserve independently imported legacy memories", t => {
+  const { store } = tempStore(t);
+  const now = new Date().toISOString();
+  const insert = store.db.prepare(`INSERT INTO feelings
+    (id,thread_id,source_date,event_time,order_key,content,importance,source,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?)`);
+  insert.run("imported", "thread-test", "2026-06-12", null, "1", "legacy diary", 3, "import", now, now);
+  insert.run("automatic", "thread-test", "2026-06-12", null, "2", "old automatic", 3, "auto", now, now);
+  const result = store.replaceDay("2026-06-12", {
+    feelings: [{ content: "new remine", importance: 3 }],
+    source: "remine",
+    preserveImports: true,
+  });
+  assert.deepEqual(result.feelings.map(row => row.content), ["legacy diary", "new remine"]);
+});
+
 test("targeted storage appends to the current day and preserves existing memories", t => {
   const { store } = tempStore(t);
   store.appendTargeted("2026-06-12", { feelings: [{ content: "first", eventTime: "2026-06-12T18:00:00+08:00", importance: 3 }] });
