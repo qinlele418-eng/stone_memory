@@ -17,7 +17,7 @@ async function main() {
     printHelp();
     return;
   }
-  const threadId = valueOf(args, "--thread") || listThreadIds()[0];
+  const threadId = valueOf(args, "--thread");
   if (!threadId) throw new Error("mine-review requires --thread <id>");
   const config = loadConfig();
   if (!config[threadId] || typeof config[threadId] !== "object") throw new Error(`unknown configured thread: ${threadId}`);
@@ -181,7 +181,12 @@ function print(value) {
 }
 
 main().catch(error => {
-  console.error(JSON.stringify({ ok: false, error: error.message }));
+  console.error(JSON.stringify({
+    ok: false,
+    code: error.code || "MINE_REVIEW_FAILED",
+    error: error.message,
+    details: error.details || null,
+  }));
   process.exitCode = 1;
 });
 

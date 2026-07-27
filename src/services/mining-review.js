@@ -8,6 +8,7 @@ const {
   feelingEventTime,
 } = require("./memory-miner");
 const { archiveFingerprint } = require("./mining-state");
+const { isInjectedMemoryBlock } = require("../lib/system-injection");
 
 const REVIEW_RULES = Object.freeze({
   "source-aware": "识别同一天可能存在多个窗口或并行入口；不得仅凭时间相邻就拼接无关上下文。",
@@ -157,7 +158,7 @@ class MiningReviewStore {
 
   load(id) {
     const candidate = JSON.parse(fs.readFileSync(this._path(id), "utf8"));
-    if (candidate.threadId !== this.threadId) throw new Error("candidate belongs to another thread");
+    validateCandidate(candidate, { id, threadId: this.threadId });
     return candidate;
   }
 
@@ -265,86 +266,152 @@ class MiningReviewStore {
   }
 
   async apply(id) {
-    const candidate = this.load(id);
-    if (candidate.status !== "review_pending") throw new Error("candidate has already been processed");
-    this._assertCurrentFingerprint(candidate.date, candidate.archiveFingerprint);
-    fs.mkdirSync(this.backupDir, { recursive: true, mode: 0o700 });
-    const store = new MemoryStore({ memoryDir: this.memoryDir, threadId: this.threadId });
+    const release = this._acquireApplyLock(id);
     try {
-      const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
-      const backupFile = `${stamp}-before-review-${candidate.date}.db`;
-      const backupPath = path.join(this.backupDir, backupFile);
-      await store.db.backup(backupPath);
-      const postBackupFingerprint = archiveFingerprint(store.listMessages({ date: candidate.date }));
-      if (postBackupFingerprint !== candidate.archiveFingerprint) {
-        throw new Error("messages changed while the review backup was being created");
-      }
-      const now = new Date().toISOString();
-      const job = store.createJob({
-        sourceDate: candidate.date,
-        mode: "remine",
-        triggerType: "cli",
-        publishStrategy: "replace",
-        instruction: JSON.stringify({
-          reviewCandidateId: candidate.id,
-          profileId: candidate.profile?.id || null,
-          parentCandidateIds: candidate.hybrid?.parentCandidateIds || null,
-          promptHash: candidate.promptHash,
-        }),
-      });
-      store.updateJob(job.id, { status: "running", startedAt: now });
+      // The lock must be held before loading status. Two CLI processes may otherwise
+      // both observe review_pending and publish different candidates for one day.
+      const candidate = this.load(id);
+      if (candidate.status !== "review_pending") throw reviewError("REVIEW_ALREADY_PROCESSED", "candidate has already been processed");
+      this._assertCurrentFingerprint(candidate.date, candidate.archiveFingerprint);
+      fs.mkdirSync(this.backupDir, { recursive: true, mode: 0o700 });
+      const store = new MemoryStore({ memoryDir: this.memoryDir, threadId: this.threadId });
       try {
-        const messages = store.listMessages({ date: candidate.date });
-        const result = store.replaceDay(candidate.date, {
-          feelings: candidate.feelings,
-          features: candidate.features,
-          source: "remine",
-          miningJobId: job.id,
-          dayState: {
-            status: candidate.feelings.length || candidate.features.length ? "completed" : "completed_empty",
-            messageCount: messages.length,
-            feelingCount: candidate.feelings.length,
-            featureCount: candidate.features.length,
-            attempt: 1,
-            archiveFingerprint: candidate.archiveFingerprint,
-            completedAt: now,
-            updatedAt: now,
-          },
+        const conflicts = this._manualStateConflicts(store, candidate.date);
+        if (conflicts.total) {
+          throw reviewError(
+            "REVIEW_MANUAL_STATE_CONFLICT",
+            `${candidate.date} 存在 ${conflicts.total} 条锚点或人工编辑摘要，已拒绝覆盖。请先处理这些保护状态，再重新发布候选。`,
+            conflicts,
+          );
+        }
+        const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(".", "");
+        const backupFile = `${stamp}-before-review-${candidate.date}-${candidate.id.slice(-8)}.db`;
+        const backupPath = path.join(this.backupDir, backupFile);
+        await store.db.backup(backupPath);
+        const postBackupFingerprint = archiveFingerprint(reviewMessages(store, candidate.date));
+        if (postBackupFingerprint !== candidate.archiveFingerprint) {
+          throw reviewError("REVIEW_MESSAGES_CHANGED", "messages changed while the review backup was being created");
+        }
+        const now = new Date().toISOString();
+        const job = store.createJob({
+          sourceDate: candidate.date,
+          mode: "remine",
+          triggerType: "cli",
+          publishStrategy: "replace",
+          instruction: JSON.stringify({
+            reviewCandidateId: candidate.id,
+            profileId: candidate.profile?.id || null,
+            parentCandidateIds: candidate.hybrid?.parentCandidateIds || null,
+            promptHash: candidate.promptHash,
+          }),
         });
-        store.updateJob(job.id, {
-          status: "completed",
-          feelingCount: candidate.feelings.length,
-          featureCount: candidate.features.length,
-          finishedAt: now,
-          publishedAt: now,
-        });
-        candidate.status = "applied";
-        candidate.appliedAt = now;
-        candidate.backup = { filename: backupFile, sha256: sha256(fs.readFileSync(backupPath)) };
-        candidate.miningJobId = job.id;
-        this._write(candidate);
-        this._discardSiblings(candidate);
-        return {
-          ok: true,
-          candidateId: candidate.id,
-          date: candidate.date,
-          feelingCount: result.feelings.length,
-          featureCount: result.features.length,
-          miningJobId: job.id,
-          backup: candidate.backup,
-        };
-      } catch (error) {
-        store.updateJob(job.id, {
-          status: "failed",
-          errorCode: error.code || "REVIEW_APPLY_FAILED",
-          errorMessage: error.message,
-          finishedAt: new Date().toISOString(),
-        });
-        throw error;
+        store.updateJob(job.id, { status: "running", startedAt: now });
+        try {
+          const messages = reviewMessages(store, candidate.date);
+          const normalized = normalizeCandidateResults({
+            date: candidate.date,
+            feelings: candidate.feelings,
+            features: candidate.features,
+            enforceCountLimit: candidate.ruleIds?.includes("count-limit") ||
+              candidate.hybrid?.enforceCountLimit === true,
+          });
+          const result = store.replaceDay(candidate.date, {
+            feelings: normalized.feelings,
+            features: normalized.features,
+            source: "remine",
+            miningJobId: job.id,
+            dayState: {
+              status: normalized.feelings.length || normalized.features.length ? "completed" : "completed_empty",
+              messageCount: messages.length,
+              feelingCount: normalized.feelings.length,
+              featureCount: normalized.features.length,
+              attempt: 1,
+              archiveFingerprint: candidate.archiveFingerprint,
+              completedAt: now,
+              updatedAt: now,
+            },
+          });
+          store.updateJob(job.id, {
+            status: "completed",
+            feelingCount: normalized.feelings.length,
+            featureCount: normalized.features.length,
+            finishedAt: now,
+            publishedAt: now,
+          });
+          candidate.status = "applied";
+          candidate.appliedAt = now;
+          candidate.backup = { filename: backupFile, sha256: sha256(fs.readFileSync(backupPath)) };
+          candidate.miningJobId = job.id;
+          this._write(candidate);
+          this._discardSiblings(candidate);
+          return {
+            ok: true,
+            candidateId: candidate.id,
+            date: candidate.date,
+            feelingCount: result.feelings.length,
+            featureCount: result.features.length,
+            miningJobId: job.id,
+            backup: candidate.backup,
+          };
+        } catch (error) {
+          store.updateJob(job.id, {
+            status: "failed",
+            errorCode: error.code || "REVIEW_APPLY_FAILED",
+            errorMessage: error.message,
+            finishedAt: new Date().toISOString(),
+          });
+          throw error;
+        }
+      } finally {
+        store.close();
       }
     } finally {
-      store.close();
+      release();
     }
+  }
+
+  _manualStateConflicts(store, date) {
+    const feelings = store.listFeelings({ date });
+    const ids = new Set(feelings.map(row => row.id));
+    const retainConfig = readJson(path.join(this.memoryDir, "retain-config.json"), { retain: {}, eventAnchors: {} });
+    const retainAnchors = Object.keys(retainConfig.retain || {}).filter(id => ids.has(id));
+    const eventAnchors = Object.keys(retainConfig.eventAnchors || {}).filter(id => ids.has(id));
+    const editedFeelings = feelings.filter(row =>
+      row.source === "manual" ||
+      row.summary_mode !== "daily" ||
+      !!row.coarse_summary ||
+      !!row.coarse_terms
+    ).map(row => row.id);
+    return {
+      total: new Set([...retainAnchors, ...eventAnchors, ...editedFeelings]).size,
+      retainAnchors,
+      eventAnchors,
+      editedFeelings,
+    };
+  }
+
+  _acquireApplyLock(candidateIdValue) {
+    fs.mkdirSync(this.candidateDir, { recursive: true, mode: 0o700 });
+    const candidate = this.load(candidateIdValue);
+    const lockPath = path.join(this.candidateDir, `.apply-${candidate.date}.lock`);
+    let handle;
+    try {
+      handle = fs.openSync(lockPath, "wx", 0o600);
+      fs.writeFileSync(handle, JSON.stringify({
+        pid: process.pid,
+        candidateId: candidateIdValue,
+        createdAt: new Date().toISOString(),
+      }));
+    } catch (error) {
+      if (error.code === "EEXIST") {
+        throw reviewError("REVIEW_APPLY_LOCKED", `${candidate.date} 已有另一份候选正在发布，请等待完成后刷新。`);
+      }
+      throw error;
+    }
+    return () => {
+      try { fs.closeSync(handle); } catch {}
+      try { fs.unlinkSync(lockPath); } catch {}
+    };
   }
 
   discard(id) {
@@ -359,8 +426,8 @@ class MiningReviewStore {
   _assertCurrentFingerprint(date, expected) {
     const store = new MemoryStore({ memoryDir: this.memoryDir, threadId: this.threadId });
     try {
-      const current = archiveFingerprint(store.listMessages({ date }));
-      if (current !== expected) throw new Error("messages changed after candidate generation");
+      const current = archiveFingerprint(reviewMessages(store, date));
+      if (current !== expected) throw reviewError("REVIEW_MESSAGES_CHANGED", "messages changed after candidate generation");
       return current;
     } finally {
       store.close();
@@ -400,6 +467,44 @@ function sanitizeProfile(profile) {
     model: profile?.model ? String(profile.model) : null,
     reasoning: profile?.reasoning ? String(profile.reasoning) : null,
   };
+}
+
+function reviewMessages(store, date) {
+  return store.listMessages({ date }).filter(row => !isInjectedMemoryBlock(row.text));
+}
+
+function validateCandidate(candidate, { id, threadId }) {
+  if (!candidate || candidate.version !== 1) throw reviewError("REVIEW_CANDIDATE_INVALID", "unsupported or invalid candidate");
+  if (candidate.id !== id) throw reviewError("REVIEW_CANDIDATE_INVALID", "candidate id does not match its filename");
+  if (candidate.threadId !== threadId) throw reviewError("REVIEW_CANDIDATE_INVALID", "candidate belongs to another thread");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(candidate.date || ""))) {
+    throw reviewError("REVIEW_CANDIDATE_INVALID", "candidate date is invalid");
+  }
+  if (!["review_pending", "applied", "discarded"].includes(candidate.status)) {
+    throw reviewError("REVIEW_CANDIDATE_INVALID", "candidate status is invalid");
+  }
+  if (!candidate.archiveFingerprint || !Array.isArray(candidate.feelings) || !Array.isArray(candidate.features)) {
+    throw reviewError("REVIEW_CANDIDATE_INVALID", "candidate payload is incomplete");
+  }
+  normalizeCandidateResults({
+    date: candidate.date,
+    feelings: candidate.feelings,
+    features: candidate.features,
+    enforceCountLimit: candidate.ruleIds?.includes("count-limit") ||
+      candidate.hybrid?.enforceCountLimit === true,
+  });
+}
+
+function readJson(file, fallback) {
+  try { return JSON.parse(fs.readFileSync(file, "utf8")); }
+  catch { return fallback; }
+}
+
+function reviewError(code, message, details = null) {
+  const error = new Error(message);
+  error.code = code;
+  if (details) error.details = details;
+  return error;
 }
 
 function candidateId() {

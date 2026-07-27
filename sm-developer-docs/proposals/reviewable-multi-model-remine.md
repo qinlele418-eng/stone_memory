@@ -1,5 +1,11 @@
 # 可审阅的多模型重挖与按日替换
 
+> 实现状态（2026-07-27）：第一阶段 CLI 核心已经接入，正式命令采用
+> `stmem mine-review preview|list|mix|apply|discard`。在原提案基础上，当前实现增加了
+> 显式 thread、同日 apply 互斥、候选重验，以及锚点/人工 coarse/hidden 状态存在时
+> fail closed。多模型批量编排、HTTP 适配与并排审阅前端尚未接入；后续实现必须继续
+> 以这些 CLI 为唯一写入口，不得在页面或 route 中复制正式写入逻辑。
+
 ## 真实问题
 
 当前 `stmem mine --force` 可以重新挖掘某一天，但正式结果会直接替换当天的

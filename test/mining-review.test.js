@@ -128,6 +128,50 @@ test("mix and apply reject stale candidates after messages change", async t => {
   await assert.rejects(() => fixture.reviews.apply(first.id), /messages changed/);
 });
 
+test("apply fails closed when the replaced day contains anchors or manual summary state", async t => {
+  const fixture = reviewFixture(t);
+  fixture.store.replaceDay(fixture.date, {
+    feelings: [{ id: "protected-feeling", content: "7月25日，早上七点。旧摘要。", importance: 3 }],
+    features: [],
+  });
+  fs.writeFileSync(path.join(fixture.memoryDir, "retain-config.json"), JSON.stringify({
+    retain: {},
+    eventAnchors: { "protected-feeling": { anchor: true } },
+  }));
+  const candidate = fixture.createCandidate({
+    feelings: [{ content: "7月25日，早上八点。新摘要。", importance: 3 }],
+  });
+  await assert.rejects(
+    () => fixture.reviews.apply(candidate.id),
+    error => error.code === "REVIEW_MANUAL_STATE_CONFLICT" &&
+      error.details.eventAnchors.includes("protected-feeling"),
+  );
+  assert.equal(fixture.store.listFeelings({ date: fixture.date })[0].id, "protected-feeling");
+});
+
+test("apply uses a per-day lock and validates candidate files before publishing", async t => {
+  const fixture = reviewFixture(t);
+  const candidate = fixture.createCandidate({
+    feelings: [{ content: "7月25日，早上八点。候选。", importance: 3 }],
+  });
+  const lock = path.join(fixture.memoryDir, "review-candidates", `.apply-${fixture.date}.lock`);
+  fs.writeFileSync(lock, "{}");
+  await assert.rejects(
+    () => fixture.reviews.apply(candidate.id),
+    error => error.code === "REVIEW_APPLY_LOCKED",
+  );
+  fs.unlinkSync(lock);
+
+  const file = path.join(fixture.memoryDir, "review-candidates", `${candidate.id}.json`);
+  const tampered = JSON.parse(fs.readFileSync(file, "utf8"));
+  tampered.date = "not-a-date";
+  fs.writeFileSync(file, JSON.stringify(tampered));
+  assert.throws(
+    () => fixture.reviews.load(candidate.id),
+    error => error.code === "REVIEW_CANDIDATE_INVALID",
+  );
+});
+
 function reviewFixture(t) {
   const memoryDir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-review-"));
   const threadId = "review-test-thread";
