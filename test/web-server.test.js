@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { previewRows, paginate, buildConversationCalendar, miningDatesFromStore, miningCommandArgs, miningCheckCommandArgs, targetedMiningCommandArgs, timelineCommandArgs, compactTimelineReport, compressionCommandArgs } = require("../src/web/server");
+const { previewRows, paginate, buildConversationCalendar, miningDatesFromStore, miningCommandArgs, miningCheckCommandArgs, targetedMiningCommandArgs, timelineCommandArgs, compactTimelineReport, compressionCommandArgs, reviewCandidateForWeb } = require("../src/web/server");
 const { itemKey, inspectClaude, inspectCodex, conversationWindow, latestConversationDate, trimRows } = require("../src/services/rebuild-workbench");
 const { validateThreadInput, validateSessionBinding } = require("../src/services/thread-setup");
 const { INIT_SCHEMA, buildInitTemplate } = require("../src/services/init-contract");
@@ -108,6 +108,35 @@ test("web compression previews and applies through existing compact and hidden C
   }), ["compact","--thread","thread-1","--json","--from","2026-07-01","--to","2026-07-07","--api","--apply"]);
   assert.deepEqual(compressionCommandArgs("thread-1", { kind:"hidden",apply:true,afterDays:120 }),
     ["hidden","--thread","thread-1","--json","--after-days","120","--apply"]);
+});
+
+test("review workbench maps canonical CLI candidates to the contributed frontend contract", () => {
+  const candidate = reviewCandidateForWeb({
+    id: "candidate-1",
+    profile: { id: "api:provider:model", label: "模型甲" },
+    ruleIds: ["source-aware", "intimate-facts"],
+    feelings: [],
+    features: [],
+  });
+  assert.equal(candidate.model, "api:provider:model");
+  assert.equal(candidate.modelLabel, "模型甲");
+  assert.equal(candidate.preset, "custom");
+  assert.equal(candidate.rules.sourceAware, true);
+  assert.equal(candidate.rules.intimacy, true);
+  assert.equal(candidate.rules.countLimit, false);
+});
+
+test("review workbench exposes hybrid candidates without changing CLI provenance", () => {
+  const hybrid = { parentCandidateIds: ["one", "two"], selectionProvenance: { feelings: [], features: [] } };
+  const candidate = reviewCandidateForWeb({
+    id: "candidate-hybrid",
+    profile: { id: "hybrid", label: "Hybrid" },
+    ruleIds: [],
+    hybrid,
+  });
+  assert.equal(candidate.model, "hybrid");
+  assert.equal(candidate.modelLabel, "混合精选");
+  assert.equal(candidate.hybrid, hybrid);
 });
 
 test("mining reports count real memories instead of stale day-state counters", t => {

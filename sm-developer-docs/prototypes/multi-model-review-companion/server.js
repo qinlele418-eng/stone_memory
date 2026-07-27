@@ -402,7 +402,7 @@ ${conversation}
   return new Promise((resolve, reject) => {
     const child = spawn("codex", args, {
       stdio: ["pipe", "ignore", "pipe"],
-      env: { ...process.env, HOME: "/home/ubuntu" },
+      env: { ...process.env },
     });
     let stderr = "";
     const timeout = setTimeout(() => child.kill("SIGTERM"), 30 * 60 * 1000);

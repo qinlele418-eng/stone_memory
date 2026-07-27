@@ -15,17 +15,21 @@ const { latestSuccessfulRebuild, readRebuildState } = require("../services/rebui
 const { sessionFile } = require("../services/rebuild-workbench");
 const { parseFeelingTime, feelingToUtc, automaticRetainWindow } = require("../services/thread-rebuilder");
 const { parseRebuildDryRun } = require("../services/rebuild-dry-run");
+const { MiningReviewStore } = require("../services/mining-review");
 
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MAX_UPLOAD = 512 * 1024 * 1024;
 const previews = new Map();
 const miningJobs = new Map();
 const compressionJobs = new Set();
+const reviewJobs = new Map();
 const PROJECT_ROOT = path.join(__dirname, "..", "..");
 const STMEM_BIN = path.join(PROJECT_ROOT, "bin", "stmem");
 
-function runStmem(args, { timeout = 10 * 60 * 1000 } = {}) {
-  const result = spawnSync(process.execPath, [STMEM_BIN, ...args], { cwd: PROJECT_ROOT, encoding: "utf8", timeout });
+function runStmem(args, { timeout = 10 * 60 * 1000, maxBuffer = 32 * 1024 * 1024 } = {}) {
+  const result = spawnSync(process.execPath, [STMEM_BIN, ...args], {
+    cwd: PROJECT_ROOT, encoding: "utf8", timeout, maxBuffer,
+  });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error((result.stderr || result.stdout || `stmem ${args[0]} 失败`).trim());
   return (result.stdout || "").trim();
@@ -68,6 +72,87 @@ function miningCheckCommandArgs(threadId, date, mode) {
 
 function targetedMiningCommandArgs(threadId, mode, batchFile) {
   return ["mine","--thread",threadId,"--targeted","--batch-file",batchFile,mode==="api"?"--api":"--subagent"];
+}
+
+const REVIEW_RULE_IDS = {
+  sourceAware: "source-aware",
+  relationshipPlatform: "platform-neutral",
+  emotional: "personal-emotion",
+  conflict: "conflict-context",
+  intimacy: "intimate-facts",
+  countLimit: "count-limit",
+  strictBoundaries: "strict-importance",
+};
+
+function reviewProfiles(threadId) {
+  const config = loadConfig();
+  const thread = config[threadId];
+  if (!thread) throw new Error(`记忆体不存在：${threadId}`);
+  const profiles = [{
+    id: "subagent:configured",
+    label: "当前 Subagent",
+    available: true,
+    detail: "使用 Stone Memory 当前的 Subagent 通道",
+    profile: { id: "subagent:configured", label: "当前 Subagent", channel: "subagent" },
+  }];
+  for (const [provider, credential] of Object.entries(config.apiKeys || {})) {
+    const model = String(credential?.model || "").trim();
+    const available = !!(credential?.key && credential?.baseUrl && model);
+    profiles.push({
+      id: `api:${provider}:${model || "unconfigured"}`,
+      label: model || `${provider}（未配置模型）`,
+      available,
+      detail: available ? `${provider} · ${model}` : "当前没有完整的 Key、地址与模型配置",
+      profile: { id: `api:${provider}:${model}`, label: model, channel: "api", provider, model },
+    });
+  }
+  return profiles;
+}
+
+function reviewCandidateForWeb(candidate) {
+  const ruleIds = new Set(candidate.ruleIds || []);
+  const rules = Object.fromEntries(Object.entries(REVIEW_RULE_IDS).map(([key, id]) => [key, ruleIds.has(id)]));
+  const hybrid = candidate.profile?.id === "hybrid";
+  return {
+    ...candidate,
+    model: hybrid ? "hybrid" : candidate.profile?.id || "unknown",
+    modelLabel: hybrid ? "混合精选" : candidate.profile?.label || candidate.profile?.model || "候选",
+    preset: ruleIds.size ? "custom" : "author",
+    rules,
+  };
+}
+
+function parseStmemJson(output) {
+  try { return JSON.parse(output); }
+  catch { throw new Error(`Stone Memory 返回了无法识别的结果：${String(output).slice(0, 300)}`); }
+}
+
+function writePrivateBatch(payload) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-review-"));
+  const file = path.join(dir, "batch.json");
+  fs.writeFileSync(file, JSON.stringify(payload), { mode: 0o600 });
+  return { file, cleanup: () => fs.rmSync(dir, { recursive: true, force: true }) };
+}
+
+async function executeReviewPreview(job) {
+  job.status = "running";
+  job.startedAt = new Date().toISOString();
+  const batch = writePrivateBatch({ profile: job.profile, ruleIds: job.ruleIds });
+  try {
+    const output = await runStmemAsync([
+      "mine-review", "preview", "--thread", job.threadId, "--date", job.date,
+      "--batch-file", batch.file,
+    ], { maxOutput: 2 * 1024 * 1024 });
+    job.candidate = reviewCandidateForWeb(parseStmemJson(output));
+    job.candidateId = job.candidate.id;
+    job.status = "completed";
+  } catch (error) {
+    job.status = "failed";
+    job.error = String(error.message || error).slice(0, 2000);
+  } finally {
+    batch.cleanup();
+    job.completedAt = new Date().toISOString();
+  }
 }
 
 function timelineCommandArgs(threadId, terms, { from = "", to = "" } = {}) {
@@ -299,7 +384,7 @@ function overview(threadId) {
 }
 
 function serveStatic(req, res, pathname) {
-  const requested = pathname === "/" ? "index.html" : pathname.slice(1);
+  const requested = pathname === "/" ? "index.html" : pathname.endsWith("/") ? `${pathname.slice(1)}index.html` : pathname.slice(1);
   const file = path.resolve(PUBLIC_DIR, requested);
   if (!file.startsWith(PUBLIC_DIR) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) return false;
   const types = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".svg": "image/svg+xml" };
@@ -309,6 +394,103 @@ function serveStatic(req, res, pathname) {
 }
 
 async function handleApi(req, res, url) {
+  if (req.method === "GET" && url.pathname === "/review-lab/api/libraries") {
+    const libraries = listLibraries().map(library => ({
+      ...library,
+      label: library.libraryName,
+      publicThreadId: `${library.threadId.slice(0, 8)}…${library.threadId.slice(-8)}`,
+    }));
+    const threadId = String(url.searchParams.get("threadId") || libraries[0]?.threadId || "");
+    return json(res, 200, { libraries, models: threadId ? reviewProfiles(threadId).map(({ profile, ...row }) => row) : [] });
+  }
+  if (req.method === "GET" && url.pathname === "/review-lab/api/dates") {
+    const threadId = String(url.searchParams.get("threadId") || "");
+    return json(res, 200, { dates: miningDates(threadId) });
+  }
+  if (req.method === "GET" && url.pathname === "/review-lab/api/candidates") {
+    const threadId = String(url.searchParams.get("threadId") || "");
+    const args = ["mine-review", "list", "--thread", threadId];
+    if (url.searchParams.get("date")) args.push("--date", url.searchParams.get("date"));
+    const result = parseStmemJson(runStmem(args));
+    return json(res, 200, {
+      candidates: (result.candidates || []).map(reviewCandidateForWeb),
+      nearDuplicateHints: result.nearDuplicateHints || [],
+    });
+  }
+  if (req.method === "POST" && url.pathname === "/review-lab/api/preview") {
+    const body = await readJson(req);
+    const threadId = String(body.threadId || "");
+    const model = reviewProfiles(threadId).find(row => row.id === body.model && row.available);
+    if (!model) throw new Error("所选模型当前不可用");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(body.date || ""))) throw new Error("候选日期无效");
+    const ruleIds = Object.entries(REVIEW_RULE_IDS)
+      .filter(([key]) => body.rules?.[key])
+      .map(([, id]) => id);
+    const job = {
+      id: `review-${crypto.randomUUID()}`,
+      threadId,
+      date: body.date,
+      profile: model.profile,
+      ruleIds,
+      status: "queued",
+      createdAt: new Date().toISOString(),
+    };
+    reviewJobs.set(job.id, job);
+    executeReviewPreview(job);
+    return json(res, 202, { job: { id: job.id, status: job.status } });
+  }
+  const reviewJobMatch = url.pathname.match(/^\/review-lab\/api\/preview-jobs\/([^/]+)$/);
+  if (req.method === "GET" && reviewJobMatch) {
+    const job = reviewJobs.get(decodeURIComponent(reviewJobMatch[1]));
+    if (!job) return error(res, 404, "候选任务不存在；Web 服务重启后请从候选列表查看已完成结果");
+    return json(res, 200, { job });
+  }
+  if (req.method === "POST" && url.pathname === "/review-lab/api/hybrid") {
+    const body = await readJson(req);
+    const batch = writePrivateBatch({
+      date: body.date,
+      selection: body.selection,
+      enforceCountLimit: body.enforceCountLimit === true,
+    });
+    try {
+      const result = parseStmemJson(runStmem([
+        "mine-review", "mix", "--thread", String(body.threadId || ""), "--batch-file", batch.file,
+      ]));
+      return json(res, 200, { candidate: reviewCandidateForWeb(result) });
+    } finally { batch.cleanup(); }
+  }
+  const reviewEvidenceMatch = url.pathname.match(/^\/review-lab\/api\/candidates\/([^/]+)\/evidence$/);
+  if (req.method === "GET" && reviewEvidenceMatch) {
+    const threadId = String(url.searchParams.get("threadId") || "");
+    const reviews = new MiningReviewStore({ memoryDir: path.join(getThreadDir(threadId), "memory"), threadId });
+    const candidate = reviews.load(decodeURIComponent(reviewEvidenceMatch[1]));
+    const index = Number(url.searchParams.get("index"));
+    const item = candidate.feelings?.[index];
+    if (!item) throw new Error("候选摘要不存在");
+    const center = Date.parse(item.eventTime || "");
+    const store = new MemoryStore({ memoryDir: path.join(getThreadDir(threadId), "memory"), threadId });
+    try {
+      const rows = store.listMessages({ date: candidate.date }).filter(row => {
+        const time = Date.parse(row.timestamp || "");
+        return !Number.isFinite(center) || (time >= center - 5 * 60 * 1000 && time <= center + 30 * 60 * 1000);
+      }).map(row => ({ timestamp: row.timestamp, role: row.type, text: row.text }));
+      return json(res, 200, { date: candidate.date, eventTime: item.eventTime, note: "事件前 5 分钟至后 30 分钟", rows });
+    } finally { store.close(); }
+  }
+  const reviewActionMatch = url.pathname.match(/^\/review-lab\/api\/candidates\/([^/]+)\/(apply|discard)$/);
+  if (req.method === "POST" && reviewActionMatch) {
+    const body = await readJson(req);
+    const threadId = String(body.threadId || "");
+    const result = parseStmemJson(runStmem([
+      "mine-review", reviewActionMatch[2], "--thread", threadId,
+      "--candidate", decodeURIComponent(reviewActionMatch[1]),
+    ]));
+    return json(res, 200, reviewActionMatch[2] === "apply" ? {
+      ...result,
+      feelings: result.feelingCount,
+      features: result.featureCount,
+    } : result);
+  }
   if (req.method === "GET" && url.pathname === "/api/libraries") return json(res, 200, { libraries: listLibraries() });
 
   if (req.method === "POST" && url.pathname === "/api/session-file/check") {
@@ -667,13 +849,17 @@ function cleanupPreviews() {
     try { fs.rmSync(path.dirname(item.filePath), { recursive: true, force: true }); } catch {}
     previews.delete(token);
   }
+  for (const [id, job] of reviewJobs) {
+    const timestamp = Date.parse(job.completedAt || job.createdAt || "");
+    if (Number.isFinite(timestamp) && timestamp < cutoff) reviewJobs.delete(id);
+  }
 }
 
 function startWebServer({ host = "127.0.0.1", port = 4173 } = {}) {
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host || `${host}:${port}`}`);
     try {
-      if (url.pathname.startsWith("/api/")) return await handleApi(req, res, url);
+      if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/review-lab/api/")) return await handleApi(req, res, url);
       if (serveStatic(req, res, url.pathname)) return;
       if (!path.extname(url.pathname)) return serveStatic(req, res, "/");
       error(res, 404, "页面不存在");
@@ -688,4 +874,9 @@ function startWebServer({ host = "127.0.0.1", port = 4173 } = {}) {
   });
 }
 
-module.exports = { startWebServer, listLibraries, overview, previewRows, paginate, buildConversationCalendar, miningDatesFromStore, miningCommandArgs, miningCheckCommandArgs, targetedMiningCommandArgs, timelineCommandArgs, compactTimelineReport, compressionCommandArgs, runStmem };
+module.exports = {
+  startWebServer, listLibraries, overview, previewRows, paginate, buildConversationCalendar,
+  miningDatesFromStore, miningCommandArgs, miningCheckCommandArgs, targetedMiningCommandArgs,
+  timelineCommandArgs, compactTimelineReport, compressionCommandArgs, runStmem,
+  reviewCandidateForWeb,
+};
