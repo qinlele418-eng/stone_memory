@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Stone Memory · 多模型记忆审阅</title>
+  <link rel="stylesheet" href="./styles.css?v=review-lab-v1">
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <a class="back" href="../">← 返回 Stone Memory</a>
+      <p class="eyebrow">MEMORY MINING</p>
+      <h1>增强挖掘</h1>
+      <p>作者原版提示词始终作为底稿。规则可以自由组合；多选模型后既可整份采用，也可从不同模型逐条挑选，组成一份混合预览。</p>
+    </header>
+
+    <section class="card setup">
+      <div class="field-grid">
+        <label>
+          <span>记忆体</span>
+          <select id="library"></select>
+        </label>
+        <label>
+          <span>日期</span>
+          <select id="date"></select>
+        </label>
+      </div>
+
+      <div class="section-title">
+        <p class="eyebrow">MODELS</p>
+        <h2>选择一个或多个模型</h2>
+        <p class="section-help">每个模型生成一份独立候选。生成后可以整份比较，也可以逐条勾选组成混合稿；默认只选一个，避免无意重复消耗。</p>
+      </div>
+      <div id="models" class="model-grid"></div>
+
+      <div class="section-title">
+        <p class="eyebrow">QUICK PRESETS</p>
+        <h2>快速组合</h2>
+      </div>
+      <div id="presets" class="preset-grid">
+        <button type="button" class="preset active" data-preset="author"><strong>作者原版</strong><small>不追加规则</small></button>
+        <button type="button" class="preset" data-preset="daily-intimacy"><strong>日常亲密</strong><small>只打开亲密抽取</small></button>
+        <button type="button" class="preset" data-preset="history"><strong>历史增强组合</strong><small>适合多窗口与杂乱历史记录</small></button>
+        <button type="button" class="preset" data-preset="custom" disabled><strong>自定义</strong><small>手动调整后自动切换</small></button>
+      </div>
+
+      <details class="rule-panel" open>
+        <summary><span><strong>细化规则</strong><small>每一项都可单独开关</small></span><b id="rule-count">已选 0 / 7</b></summary>
+        <div class="rule-grid">
+          <label class="option">
+            <input data-rule="sourceAware" type="checkbox">
+            <span><strong>多窗口来源感知</strong><small>用来源 A/B/C 分辨并行窗口，不因时间相邻而乱拼。</small></span>
+          </label>
+          <label class="option">
+            <input data-rule="relationshipPlatform" type="checkbox">
+            <span><strong>同一关系与平台降噪</strong><small>不写成多个伴侣；减少平台和技术字眼，但保留真实关系情绪。</small></span>
+          </label>
+          <label class="option">
+            <input data-rule="emotional" type="checkbox">
+            <span><strong>私人记忆与情感优先</strong><small>写具体事件与内心反应，避免分析报告、模板句和用户画像。</small></span>
+          </label>
+          <label class="option">
+            <input data-rule="conflict" type="checkbox">
+            <span><strong>冷淡、冲突与吃醋归因</strong><small>区分某次回复、某个窗口和长期体验，不乱生成稳定负面特征。</small></span>
+          </label>
+          <label class="option">
+            <input data-rule="intimacy" id="intimacy" type="checkbox">
+            <span><strong>强制抽取亲密内容</strong><small>不因表达露骨而跳过；只按真实原文提取，不续写、不虚构。</small></span>
+          </label>
+          <label class="option">
+            <input data-rule="countLimit" id="count-limit" type="checkbox">
+            <span><strong>每日 8–20 条</strong><small>最多 20 条；证据不足时不为凑满 8 条而编造。</small></span>
+          </label>
+          <label class="option">
+            <input data-rule="strictBoundaries" type="checkbox">
+            <span><strong>严格 Importance 与 Features</strong><small>importance 5 保守使用；单次情绪、亲密和技术进度不自动成为稳定特征。</small></span>
+          </label>
+        </div>
+      </details>
+
+      <div class="run-row">
+        <div id="date-meta" class="meta">正在读取日期……</div>
+        <button id="preview" class="primary">生成候选预览</button>
+      </div>
+    </section>
+
+    <section id="status" class="status hidden"></section>
+    <section id="candidate" class="candidate hidden"></section>
+  </main>
+  <script src="./app.js"></script>
+  <script src="./mixing.js?v=review-lab-v1"></script>
+</body>
+</html>
