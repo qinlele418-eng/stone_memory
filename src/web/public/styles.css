@@ -142,6 +142,8 @@ td.context { min-width: 320px; max-width: 460px; line-height: 1.5; }
 .dashboard-head h1 { margin: 0 0 8px; font-family: Georgia, "Noto Serif SC", serif; font-size: 36px; font-weight: 600; }
 .status-line { display: flex; align-items: center; gap: 9px; color: var(--pine-700); font-weight: 680; }
 .status-dot { width: 9px; height: 9px; border-radius: 50%; background: #70a16f; box-shadow: 0 0 0 5px rgba(112,161,111,.13); }
+.status-line.warning { color:#8a651f; }
+.status-line.warning .status-dot { background:#d4a93a; box-shadow:0 0 0 5px rgba(212,169,58,.15); }
 .dashboard-head .mini-stone { width: 125px; margin: -20px 0 -24px; }
 .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 18px 0; }
 .stat { padding: 20px; background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius-md); }
