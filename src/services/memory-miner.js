@@ -529,6 +529,100 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
     }
   }
 
+  /**
+   * Generate a review candidate without publishing feelings/features or
+   * changing mining day state.
+   */
+  async preview(targetDate, { promptOverlay = "", model = null } = {}) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) throw new Error("review preview requires a YYYY-MM-DD date");
+    const messages = this.store.listMessages({ date: targetDate }).filter(row => !isInjectedMemoryBlock(row.text));
+    const chunks = this._messageChunks(messages);
+    const fingerprint = archiveFingerprint(messages);
+    const overlay = String(promptOverlay || "").trim();
+    if (!messages.length) {
+      return {
+        date: targetDate,
+        archiveFingerprint: fingerprint,
+        messageCount: 0,
+        chunkCount: 0,
+        feelings: [],
+        features: [],
+        promptHash: crypto.createHash("sha256").update(overlay).digest("hex"),
+      };
+    }
+
+    const opsPrompt = this._readOperationsPrompt();
+    const promptParts = [];
+    let feelings = [];
+    let features = [];
+    if (this.deepseekConfig?.apiKey) {
+      const feelingBase = opsPrompt && this.purpose === "accompany"
+        ? `${opsPrompt}\n\n只输出 feelings 数组，不要 features。\n\n格式：[{"content": "...", "importance": 1-5}]`
+        : buildFeelingPrompt(this.aiName, this.userName, this.purpose);
+      const featureBase = opsPrompt && this.purpose === "accompany"
+        ? `${opsPrompt}\n\n只输出 features 数组，不要 feelings。\n\n格式：[{"content": "...", "category": "...", "importance": 1-5}]`
+        : buildFeaturePrompt(this.userName, this.purpose);
+      const feelingPrompt = overlay ? `${feelingBase}\n\n${overlay}` : feelingBase;
+      const featurePrompt = overlay ? `${featureBase}\n\n${overlay}` : featureBase;
+      promptParts.push(feelingPrompt, featurePrompt);
+      feelings = await this._extractReviewChannel({
+        targetDate, messages, prompt: feelingPrompt, label: "feelings", model,
+      });
+      features = await this._extractReviewChannel({
+        targetDate, messages, prompt: featurePrompt, label: "features", isFeature: true, model,
+      });
+    } else {
+      const [, month, day] = targetDate.split("-");
+      const dateLabel = `${parseInt(month)}月${parseInt(day)}日`;
+      const opsFile = path.join(__dirname, "..", "..", "operations", "memory-miner-operations.md");
+      const hasOps = opsPrompt && fs.existsSync(opsFile) && this.purpose === "accompany";
+      for (let index = 0; index < chunks.length; index++) {
+        const conversationText = this._buildConversationText(chunks[index]);
+        const basePrompt = hasOps
+          ? `以下是 ${dateLabel} 的对话记录。你只能记录这一天实际发生的对话。每条 feelings 必须以 "${dateLabel}，" 开头，禁止使用其他日期。\n\n对话内容：\n${conversationText}\n\n请输出 JSON：{"feelings":[...], "features":[...]}`
+          : `${buildFeelingPrompt(this.aiName, this.userName, this.purpose)}\n\n---\n\n${buildFeaturePrompt(this.userName, this.purpose)}\n\n以下是 ${dateLabel} 的对话记录。你只能记录这一天实际发生的对话。每条 feelings 必须以 "${dateLabel}，" 开头，禁止使用其他日期。\n\n对话内容：\n${conversationText}\n\n请输出 JSON：{"feelings":[...], "features":[...]}`;
+        const withOverlay = overlay ? `${basePrompt}\n\n${overlay}` : basePrompt;
+        const prompt = this._chunkPrompt(withOverlay, index, chunks.length, feelings, "feelings");
+        promptParts.push(prompt);
+        const reply = subagentSafe(prompt, {
+          ...(hasOps ? { opsFile } : {}),
+          threadId: this.threadId,
+          model: model || undefined,
+        });
+        const parsed = parseJsonObject(reply);
+        if (!parsed || !Array.isArray(parsed.feelings) || !Array.isArray(parsed.features)) {
+          throw new MiningError("OUTPUT_INVALID", `${targetDate}: review chunk ${index + 1}/${chunks.length} output is not a feelings/features JSON object`);
+        }
+        feelings.push(...parsed.feelings);
+        features.push(...parsed.features);
+      }
+    }
+
+    return {
+      date: targetDate,
+      archiveFingerprint: fingerprint,
+      messageCount: messages.length,
+      chunkCount: chunks.length,
+      feelings,
+      features,
+      promptHash: crypto.createHash("sha256").update(promptParts.join("\n\n---\n\n")).digest("hex"),
+    };
+  }
+
+  async _extractReviewChannel({ targetDate, messages, prompt, label, isFeature = false, model = null }) {
+    const datedPrompt = this._datedChannelPrompt(prompt, targetDate);
+    const chunks = this._messageChunks(messages);
+    const raw = [];
+    for (let index = 0; index < chunks.length; index++) {
+      const result = await this._extractViaSubagent(
+        chunks[index],
+        this._chunkPrompt(datedPrompt, index, chunks.length, raw, isFeature ? "features" : label),
+        { model },
+      );
+      if (Array.isArray(result)) raw.push(...result);
+    }
+    return raw;
+  }
   /** claude -p 单日双通道：ops 走 --system-prompt-file，stdin 只传对话 + 输出指令 */
   async _mineDayWithSubagent(targetDate, messages, state, opsPrompt) {
     const [y, m, d] = targetDate.split("-");
@@ -656,7 +750,7 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
     return bj.toISOString().slice(0, 10);
   }
 
-  async _extractViaSubagent(messages, prompt) {
+  async _extractViaSubagent(messages, prompt, { model: subagentModel = null } = {}) {
 
     // 如果配置了独立 API key，用原来的直接调用（更快）
     if (this.deepseekConfig?.apiKey) {
@@ -697,7 +791,7 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
     // 无独立 API key → 用 claude -p（订阅/OAuth 用户）
     const conversationText = this._buildConversationText(messages);
     const subPrompt = `${prompt}\n\n对话内容：\n${conversationText}\n\n请输出 JSON 数组。`;
-    const reply = subagentSafe(subPrompt, { threadId: this.threadId });
+    const reply = subagentSafe(subPrompt, { threadId: this.threadId, model: subagentModel || undefined });
     return parseJsonArray(reply);
   }
 

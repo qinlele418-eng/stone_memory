@@ -76,6 +76,30 @@ test("targeted mining uses existing feelings as tone examples and appends select
   ]);
 });
 
+test("review preview returns candidate material without publishing the day", async t => {
+  const miner = minerFixture(t, [{ timestamp: "2026-06-12T01:00:00.000Z", text: "候选审阅对话" }]);
+  miner.deepseekConfig = { apiKey: ["test", "only"].join("-"), baseUrl: "https://example.invalid", model: "test-model" };
+  const prompts = [];
+  miner._extractViaSubagent = async (_messages, prompt) => {
+    prompts.push(prompt);
+    if (/只输出 features/.test(prompt)) {
+      return [{ content: "候选特征", category: "relation", importance: 3 }];
+    }
+    return [{ content: "6月12日，上午九点。候选摘要。", importance: 3 }];
+  };
+  const preview = await miner.preview("2026-06-12", {
+    promptOverlay: "本次只用于候选审阅。",
+  });
+  assert.equal(preview.messageCount, 1);
+  assert.equal(preview.chunkCount, 1);
+  assert.equal(preview.feelings.length, 1);
+  assert.equal(preview.features.length, 1);
+  assert.match(preview.promptHash, /^[0-9a-f]{64}$/);
+  assert.ok(prompts.every(prompt => /本次只用于候选审阅/.test(prompt)));
+  assert.equal(miner.store.listFeelings({ date: "2026-06-12" }).length, 0);
+  assert.equal(miner.store.listFeatures({ date: "2026-06-12" }).length, 0);
+  assert.equal(miner.store.getDayState("2026-06-12"), null);
+});
 function minerFixture(t, messages) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-miner-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));

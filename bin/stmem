@@ -40,6 +40,7 @@ if (!cmd || cmd === "--help" || cmd === "-h") {
   stmem mine --thread <id> --date <日期> --check --json  自检提示词、输入、上游响应与返回格式
   stmem mine --thread <id> --stop                  停止该记忆体当前挖掘任务
   stmem mine [--thread <id>] --targeted --batch-file <json>  对选中的对话精准补挖并追加摘要
+  stmem mine-review preview|list|mix|apply|discard            可审阅候选与按日替换
   stmem rebuild --thread <id> [--window N] [--tool-pairs N]  预览重建
   stmem rebuild --thread <id> --summary-limit N --min-importance N  临时筛选本次注入摘要
   stmem rebuild --thread <id> --apply           实际写入
@@ -60,7 +61,7 @@ if (!cmd || cmd === "--help" || cmd === "-h") {
 }
 
 // 纯帮助/诊断命令不得改变 watcher 状态；其余命令维持原有自动拉起行为。
-if (!new Set(["init", "ai-help", "capabilities", "doctor"]).has(cmd)) ensureWatcher();
+if (!new Set(["init", "ai-help", "capabilities", "doctor", "mine-review"]).has(cmd)) ensureWatcher();
 
 switch (cmd) {
   case "ai-help":
@@ -101,6 +102,9 @@ switch (cmd) {
     break;
   case "mine":
     require(path.join(SCRIPTS, "stmem-mine"));
+    break;
+  case "mine-review":
+    require(path.join(SCRIPTS, "stmem-mine-review"));
     break;
   case "rebuild":
     require(path.join(SCRIPTS, "stmem-rebuild"));
