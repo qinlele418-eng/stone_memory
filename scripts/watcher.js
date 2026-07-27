@@ -25,6 +25,8 @@ const { shouldAttempt } = require("../src/services/mining-state");
 const { resolveAutoCompactConfig } = require("../src/services/auto-compact-config");
 const { ingestThreadFile: ingestSharedThreadFile } = require("../src/services/thread-ingest");
 const { MemoryStore } = require("../src/storage/memory-store");
+const { shouldAutoMineDate } = require("../src/services/automatic-mining-policy");
+const { processMatches } = require("../src/lib/process-identity");
 const { findThreadSessionFile } = require("../src/lib/thread-session-file");
 const { latestContextUsage } = require("../src/lib/thread-context-usage");
 const { updateContextUsage } = require("../src/services/rebuild-log");
@@ -44,10 +46,6 @@ function beijingToday() {
   return bj.toISOString().slice(0, 10);
 }
 
-function processAlive(pid) {
-  try { process.kill(pid, 0); return true; } catch { return false; }
-}
-
 function acquireWorkerLock(threadId) {
   const suffix = crypto.createHash("sha256").update(threadId).digest("hex").slice(0, 20);
   const lockDir = path.join(os.homedir(), ".stone_memory", `.watcher-worker-${suffix}.lock`);
@@ -57,7 +55,7 @@ function acquireWorkerLock(threadId) {
     if (error.code !== "EEXIST") throw error;
     let owner = null;
     try { owner = JSON.parse(fs.readFileSync(path.join(lockDir, "owner.json"), "utf8")); } catch {}
-    if (owner?.pid && processAlive(owner.pid)) return null;
+    if (owner?.pid && processMatches(owner.pid, "scripts/watcher.js")) return null;
     fs.rmSync(lockDir, { recursive: true, force: true });
     fs.mkdirSync(lockDir);
   }
@@ -307,7 +305,11 @@ async function checkAndMine(tid) {
     if (createdAt) createdDate = new Date(new Date(createdAt).getTime() + 8 * 3600 * 1000).toISOString().slice(0,10);
   } finally { store.close(); }
   const pending = archiveDates.filter(d => d < bjToday
-    && (fullMining || (maintenance && d >= createdDate))
+    && shouldAutoMineDate(d, {
+      createdDate,
+      automaticFullMining: fullMining,
+      automaticMemoryMaintenance: maintenance,
+    })
     && shouldAttempt(miningState, d, readArchiveDay(tid, d)));
 
   let minedAny = false;
@@ -349,7 +351,7 @@ async function main() {
     process.once("SIGINT", () => { releaseWorkerLock(); process.exit(0); });
     if (supervisorPid) {
       const parentCheck = setInterval(() => {
-        if (!processAlive(supervisorPid)) {
+      if (!processMatches(supervisorPid, "watcher-supervisor.js")) {
           log(`[${threadFlag}] supervisor ${supervisorPid} 已消失，worker 退出等待接管`);
           releaseWorkerLock();
           process.exit(0);

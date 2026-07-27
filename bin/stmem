@@ -149,6 +149,7 @@ switch (cmd) {
 
 function ensureWatcher() {
   const { spawn } = require("child_process");
+  const { processMatches } = require("../src/lib/process-identity");
   const pidFile = path.join(os.homedir(), ".stone_memory", "watcher.pid");
   const watcherScript = path.join(SCRIPTS, "watcher-supervisor.js");
 
@@ -158,7 +159,7 @@ function ensureWatcher() {
 
   try {
     const oldPid = parseInt(fs.readFileSync(pidFile, "utf8"), 10);
-    try { process.kill(oldPid, 0); return; } catch {}
+    if (processMatches(oldPid, "watcher-supervisor.js")) return;
   } catch {}
 
   // watcher 不在运行，自动拉起

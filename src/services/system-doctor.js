@@ -5,6 +5,7 @@ const { execFileSync } = require("child_process");
 const { loadConfig, getThreadDir } = require("../config");
 const { findThreadSessionFile } = require("../lib/thread-session-file");
 const { MemoryStore } = require("../storage/memory-store");
+const { processMatches } = require("../lib/process-identity");
 
 const REQUIRED_CONFIG = ["label", "ai", "user", "runtime", "purpose", "sessionDir", "minerMode"];
 
@@ -12,10 +13,7 @@ function watcherStatus() {
   const root = path.join(os.homedir(), ".stone_memory");
   let pid = null;
   try { pid = Number(fs.readFileSync(path.join(root, "watcher.pid"), "utf8")); } catch {}
-  let running = false;
-  if (pid) {
-    try { process.kill(pid, 0); running = true; } catch {}
-  }
+  const running = !!pid && processMatches(pid, "watcher-supervisor.js");
   return {
     running,
     pid: running ? pid : null,

@@ -8,8 +8,10 @@
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
+const crypto = require("crypto");
 const { spawn } = require("child_process");
 const { listThreadIds } = require("../src/config");
+const { processMatches } = require("../src/lib/process-identity");
 
 const STONE = path.join(os.homedir(), ".stone_memory");
 const LOG_DIR = path.join(STONE, "logs");
@@ -32,8 +34,15 @@ function log(message) {
   fs.appendFileSync(path.join(LOG_DIR, "watcher.log"), `${line}\n`, "utf8");
 }
 
-function processAlive(pid) {
-  try { process.kill(pid, 0); return true; } catch { return false; }
+function externalWorkerAlive(threadId) {
+  const suffix = crypto.createHash("sha256").update(threadId).digest("hex").slice(0, 20);
+  const lockDir = path.join(STONE, `.watcher-worker-${suffix}.lock`);
+  if (!fs.existsSync(lockDir)) return false;
+  let owner = null;
+  try { owner = JSON.parse(fs.readFileSync(path.join(lockDir, "owner.json"), "utf8")); } catch {}
+  if (owner?.pid && processMatches(owner.pid, "scripts/watcher.js")) return true;
+  try { fs.rmSync(lockDir, { recursive: true, force: true }); } catch {}
+  return false;
 }
 
 function acquireLock() {
@@ -44,7 +53,7 @@ function acquireLock() {
     if (error.code !== "EEXIST") throw error;
     let owner = null;
     try { owner = JSON.parse(fs.readFileSync(path.join(LOCK_DIR, "owner.json"), "utf8")); } catch {}
-    if (owner?.pid && processAlive(owner.pid)) return false;
+    if (owner?.pid && processMatches(owner.pid, "watcher-supervisor.js")) return false;
     fs.rmSync(LOCK_DIR, { recursive: true, force: true });
     fs.mkdirSync(LOCK_DIR);
   }
@@ -97,7 +106,9 @@ function stopWorker(threadId, reason) {
 function reconcile() {
   const configured = new Set(listThreadIds());
   for (const threadId of workers.keys()) if (!configured.has(threadId)) stopWorker(threadId, "线程已从配置移除");
-  for (const threadId of configured) if (!workers.has(threadId)) startWorker(threadId);
+  for (const threadId of configured) {
+    if (!workers.has(threadId) && !externalWorkerAlive(threadId)) startWorker(threadId);
+  }
 }
 
 function shutdown(signal) {

@@ -22,6 +22,7 @@ const {
   createThread, validateThreadInput, validateSessionBinding, normalizeName,
 } = require("../src/services/thread-setup");
 const { INIT_SCHEMA, buildInitTemplate } = require("../src/services/init-contract");
+const { processMatches } = require("../src/lib/process-identity");
 
 function loadCfg() {
   try { return JSON.parse(fs.readFileSync(cfgFile, "utf8")); }
@@ -212,7 +213,7 @@ WantedBy=default.target
       // 检查是否已在运行
       try {
         const oldPid = parseInt(fs.readFileSync(pidFile, "utf8"), 10);
-        try { process.kill(oldPid, 0); console.log("   watcher 已在运行"); return; } catch {}
+        if (processMatches(oldPid, "watcher-supervisor.js")) { console.log("   watcher 已在运行"); return; }
       } catch {}
       // 后台启动
       const w = spawn(process.execPath, [watcherScript], {
@@ -234,7 +235,7 @@ WantedBy=default.target
   // fallback: 直接后台启动
   try {
     const oldPid = parseInt(fs.readFileSync(pidFile, "utf8"), 10);
-    try { process.kill(oldPid, 0); console.log(`   watcher 已在运行 (pid ${oldPid})`); return; } catch {}
+    if (processMatches(oldPid, "watcher-supervisor.js")) { console.log(`   watcher 已在运行 (pid ${oldPid})`); return; }
   } catch {}
   const w = spawn(process.execPath, [watcherScript], { detached: true, stdio: ["ignore", "ignore", "ignore"] });
   w.unref();

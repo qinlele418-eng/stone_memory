@@ -16,6 +16,7 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const { spawn } = require("child_process");
+const { processMatches } = require("../src/lib/process-identity");
 
 const STONE = path.join(os.homedir(), ".stone_memory");
 const OFF_FLAG = path.join(STONE, ".watcher-off");
@@ -30,7 +31,7 @@ function getWatcherPid() {
 }
 
 function isRunning(pid) {
-  try { process.kill(pid, 0); return true; } catch { return false; }
+  return processMatches(pid, "watcher-supervisor.js");
 }
 
 const subcmd = process.argv[3] || "status";
