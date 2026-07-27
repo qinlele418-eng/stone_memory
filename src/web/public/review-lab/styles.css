@@ -39,7 +39,7 @@ h1 { font-size: clamp(38px, 7vw, 64px); }
 }
 .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 label > span:first-child { display: block; margin-bottom: 8px; font-size: 13px; font-weight: 750; }
-select {
+select, input[type="text"], .model-builder input {
   width: 100%;
   min-height: 48px;
   padding: 0 42px 0 14px;
@@ -48,6 +48,7 @@ select {
   border-radius: 13px;
   background: white;
 }
+.model-builder{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:16px;padding:16px;background:rgba(255,255,255,.55);border:1px solid var(--line);border-radius:16px}.model-builder button{align-self:end;min-height:48px}.hidden{display:none!important}
 .section-title { margin-top: 28px; }
 .section-title .eyebrow { margin-top: 0; }
 .section-title h2 { font-size: 26px; }
@@ -63,6 +64,7 @@ select {
   background: #fff;
   cursor: pointer;
 }
+.model.configured{justify-content:space-between;cursor:default}.model.configured>label{display:flex;align-items:center;gap:12px;min-width:0}.model.configured .text-action{flex:0 0 auto}
 .model:has(input:checked) { border-color: #7fae82; background: var(--leaf); box-shadow: inset 4px 0 var(--pine); }
 .model:has(input:disabled) { opacity: .5; cursor: not-allowed; }
 .model input, .option input { width: 18px; height: 18px; accent-color: var(--pine); }
@@ -114,7 +116,7 @@ button:disabled { opacity: .55; cursor: wait; }
 @media (max-width: 720px) {
   .shell { width: min(100% - 20px, 1040px); padding-top: 15px; }
   .card, .status, .candidate { padding: 19px; border-radius: 19px; }
-  .field-grid, .model-grid, .option-grid { grid-template-columns: 1fr; }
+  .field-grid, .model-grid, .model-builder, .option-grid { grid-template-columns: 1fr; }
   .run-row, .candidate-head { align-items: stretch; flex-direction: column; }
   .badges { justify-content: flex-start; }
   .run-row button { width: 100%; }

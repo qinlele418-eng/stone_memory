@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { previewRows, paginate, buildConversationCalendar, miningDatesFromStore, miningCommandArgs, miningCheckCommandArgs, targetedMiningCommandArgs, timelineCommandArgs, compactTimelineReport, compressionCommandArgs, reviewCandidateForWeb } = require("../src/web/server");
+const { previewRows, paginate, buildConversationCalendar, miningDatesFromStore, miningCommandArgs, miningCheckCommandArgs, targetedMiningCommandArgs, timelineCommandArgs, compactTimelineReport, compressionCommandArgs, reviewCandidateForWeb, reviewProfileFromInput } = require("../src/web/server");
+const { buildStdinCmd } = require("../src/services/subagent-runner");
 const { itemKey, inspectClaude, inspectCodex, conversationWindow, latestConversationDate, trimRows } = require("../src/services/rebuild-workbench");
 const { validateThreadInput, validateSessionBinding } = require("../src/services/thread-setup");
 const { INIT_SCHEMA, buildInitTemplate } = require("../src/services/init-contract");
@@ -137,6 +138,35 @@ test("review workbench exposes hybrid candidates without changing CLI provenance
   assert.equal(candidate.model, "hybrid");
   assert.equal(candidate.modelLabel, "混合精选");
   assert.equal(candidate.hybrid, hybrid);
+});
+
+test("review workbench accepts per-candidate Claude Code and Codex profiles", () => {
+  assert.deepEqual(reviewProfileFromInput("unused", {
+    channel: "subagent", runtime: "claude", model: "claude-opus-4-6", label: "Claude 主候选",
+  }), {
+    id: "subagent:claude:claude-opus-4-6:default",
+    label: "Claude 主候选",
+    channel: "subagent",
+    runtime: "claude",
+    model: "claude-opus-4-6",
+    reasoning: null,
+  });
+  assert.equal(reviewProfileFromInput("unused", {
+    channel: "subagent", runtime: "codex", model: "gpt-5.5", reasoning: "high",
+  }).reasoning, "high");
+  assert.throws(() => reviewProfileFromInput("unused", {
+    channel: "subagent", runtime: "claude", model: "claude-opus-4-6", reasoning: "high",
+  }), /只有 Codex/);
+});
+
+test("subagent command adapter uses each CLI model flag and Codex-only reasoning", () => {
+  assert.equal(buildStdinCmd("claude", { model: "claude-opus-4-6" }),
+    "claude -p --bare --model claude-opus-4-6");
+  assert.equal(buildStdinCmd("codex", { model: "gpt-5.5", reasoning: "low" }),
+    'codex exec -m gpt-5.5 -c model_reasoning_effort="low"');
+  assert.throws(() => buildStdinCmd("claude", {
+    model: "claude-opus-4-6", reasoning: "low",
+  }), /only supported by the Codex/);
 });
 
 test("mining reports count real memories instead of stale day-state counters", t => {

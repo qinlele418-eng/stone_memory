@@ -84,29 +84,49 @@ const REVIEW_RULE_IDS = {
   strictBoundaries: "strict-importance",
 };
 
-function reviewProfiles(threadId) {
+function reviewProviders(threadId) {
   const config = loadConfig();
   const thread = config[threadId];
   if (!thread) throw new Error(`记忆体不存在：${threadId}`);
-  const profiles = [{
-    id: "subagent:configured",
-    label: "当前 Subagent",
-    available: true,
-    detail: "使用 Stone Memory 当前的 Subagent 通道",
-    profile: { id: "subagent:configured", label: "当前 Subagent", channel: "subagent" },
-  }];
-  for (const [provider, credential] of Object.entries(config.apiKeys || {})) {
-    const model = String(credential?.model || "").trim();
-    const available = !!(credential?.key && credential?.baseUrl && model);
-    profiles.push({
-      id: `api:${provider}:${model || "unconfigured"}`,
-      label: model || `${provider}（未配置模型）`,
-      available,
-      detail: available ? `${provider} · ${model}` : "当前没有完整的 Key、地址与模型配置",
-      profile: { id: `api:${provider}:${model}`, label: model, channel: "api", provider, model },
-    });
+  return Object.entries(config.apiKeys || {}).flatMap(([id, credential]) =>
+    credential?.key && (credential?.baseUrl || id === "deepseek")
+      ? [{ id, label: id, defaultModel: String(credential.model || "") }]
+      : []
+  );
+}
+
+function reviewProfileFromInput(threadId, input = {}) {
+  const channel = String(input.channel || "");
+  const model = String(input.model || "").trim();
+  if (!/^[A-Za-z0-9._:/+-]{1,128}$/.test(model)) throw new Error("请填写实际可用的模型名");
+  if (channel === "subagent") {
+    const runtime = String(input.runtime || "");
+    if (!["claude", "codex"].includes(runtime)) throw new Error("Subagent 必须选择 Claude Code 或 Codex");
+    const reasoning = input.reasoning ? String(input.reasoning) : null;
+    if (reasoning && runtime !== "codex") throw new Error("只有 Codex 支持 reasoning effort");
+    if (reasoning && !["minimal", "low", "medium", "high", "xhigh"].includes(reasoning)) {
+      throw new Error("Codex reasoning effort 无效");
+    }
+    return {
+      id: `subagent:${runtime}:${model}:${reasoning || "default"}`,
+      label: String(input.label || `${runtime === "codex" ? "Codex" : "Claude Code"} · ${model}`),
+      channel, runtime, model, reasoning,
+    };
   }
-  return profiles;
+  if (channel === "api") {
+    const provider = String(input.provider || "");
+    const config = loadConfig();
+    const credential = config.apiKeys?.[provider];
+    if (!credential?.key || (!credential?.baseUrl && provider !== "deepseek")) {
+      throw new Error(`API Provider ${provider || "未选择"} 尚未在设置中配置完整`);
+    }
+    return {
+      id: `api:${provider}:${model}`,
+      label: String(input.label || `${provider} · ${model}`),
+      channel, provider, model,
+    };
+  }
+  throw new Error("请选择 Subagent 或 API 通道");
 }
 
 function reviewCandidateForWeb(candidate) {
@@ -401,7 +421,7 @@ async function handleApi(req, res, url) {
       publicThreadId: `${library.threadId.slice(0, 8)}…${library.threadId.slice(-8)}`,
     }));
     const threadId = String(url.searchParams.get("threadId") || libraries[0]?.threadId || "");
-    return json(res, 200, { libraries, models: threadId ? reviewProfiles(threadId).map(({ profile, ...row }) => row) : [] });
+    return json(res, 200, { libraries, providers: threadId ? reviewProviders(threadId) : [] });
   }
   if (req.method === "GET" && url.pathname === "/review-lab/api/dates") {
     const threadId = String(url.searchParams.get("threadId") || "");
@@ -420,8 +440,7 @@ async function handleApi(req, res, url) {
   if (req.method === "POST" && url.pathname === "/review-lab/api/preview") {
     const body = await readJson(req);
     const threadId = String(body.threadId || "");
-    const model = reviewProfiles(threadId).find(row => row.id === body.model && row.available);
-    if (!model) throw new Error("所选模型当前不可用");
+    const profile = reviewProfileFromInput(threadId, body.profile);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(String(body.date || ""))) throw new Error("候选日期无效");
     const ruleIds = Object.entries(REVIEW_RULE_IDS)
       .filter(([key]) => body.rules?.[key])
@@ -430,7 +449,7 @@ async function handleApi(req, res, url) {
       id: `review-${crypto.randomUUID()}`,
       threadId,
       date: body.date,
-      profile: model.profile,
+      profile,
       ruleIds,
       status: "queued",
       createdAt: new Date().toISOString(),
@@ -878,5 +897,5 @@ module.exports = {
   startWebServer, listLibraries, overview, previewRows, paginate, buildConversationCalendar,
   miningDatesFromStore, miningCommandArgs, miningCheckCommandArgs, targetedMiningCommandArgs,
   timelineCommandArgs, compactTimelineReport, compressionCommandArgs, runStmem,
-  reviewCandidateForWeb,
+  reviewCandidateForWeb, reviewProfileFromInput,
 };

@@ -94,6 +94,15 @@ reader；HTTP 层只负责安全临时文件、CLI 调用和结果格式化。
 }
 ```
 
+开发者实验前端不提供硬编码模型目录。用户为本次比较逐个添加 profile：
+
+- Subagent 先选择 Claude Code 或 Codex，再填写该 CLI 实际可用的模型名；
+- Codex 可额外指定 `minimal/low/medium/high/xhigh` reasoning effort；
+- API 从设置中已保存凭据的 Provider 中选择，再填写本次模型名；
+- 同一次比较允许混合 Claude Code、Codex 与多个 API profile，并行生成互相独立的候选。
+
+这些都是单次候选参数，不覆盖记忆体日常 Miner 的 runtime、channel 或默认模型。
+
 Key 继续只保存在现有本机配置中，不进入 batch file、候选、日志或 PR。前端可以
 多选可用 profile，让每个模型生成一份相互独立的候选。若某个 profile 失败，其余
 候选仍可供审阅，但状态必须明确显示为“部分失败”。

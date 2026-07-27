@@ -35,6 +35,7 @@ const PRESET_LABELS = {
 
 const state = {
   libraries: [],
+  providers: [],
   models: [],
   dates: [],
   candidates: [],
@@ -71,7 +72,7 @@ function clearStatus() {
 }
 
 function selectedModels() {
-  return [...document.querySelectorAll('input[name="model"]:checked')].map(input => input.value);
+  return state.models.filter(model => model.enabled !== false);
 }
 
 function readRules() {
@@ -118,19 +119,60 @@ function updatePreviewButton() {
 }
 
 function renderModels() {
-  let selectedDefault = false;
-  $("#models").innerHTML = state.models.map(model => {
-    const checked = model.available && !selectedDefault;
-    if (checked) selectedDefault = true;
-    return `<label class="model">
-      <input type="checkbox" name="model" value="${escapeHtml(model.id)}"
-        ${checked ? "checked" : ""} ${model.available ? "" : "disabled"}>
-      <span><strong>${escapeHtml(model.label)}</strong>
-      <small>${escapeHtml(model.available ? model.detail : "当前没有可用凭据")}</small></span>
-    </label>`;
-  }).join("");
-  document.querySelectorAll('input[name="model"]').forEach(input => input.addEventListener("change", updatePreviewButton));
+  $("#models").innerHTML = state.models.length ? state.models.map(model => `<article class="model configured">
+    <label><input type="checkbox" data-model-enabled="${escapeHtml(model.id)}" ${model.enabled === false ? "" : "checked"}>
+      <span><strong>${escapeHtml(model.label)}</strong><small>${escapeHtml(model.channel === "api"
+        ? `API · ${model.provider} · ${model.model}`
+        : `Subagent · ${model.runtime === "codex" ? "Codex" : "Claude Code"} · ${model.model}${model.reasoning ? ` · ${model.reasoning}` : ""}`)}</small></span>
+    </label><button type="button" class="text-action" data-remove-model="${escapeHtml(model.id)}">移除</button>
+  </article>`).join("") : '<div class="empty">还没有模型配置。请在上方至少添加一个。</div>';
+  document.querySelectorAll("[data-model-enabled]").forEach(input => input.addEventListener("change", () => {
+    const model = state.models.find(row => row.id === input.dataset.modelEnabled);
+    if (model) model.enabled = input.checked;
+    updatePreviewButton();
+  }));
+  document.querySelectorAll("[data-remove-model]").forEach(button => button.addEventListener("click", () => {
+    state.models = state.models.filter(row => row.id !== button.dataset.removeModel);
+    renderModels();
+  }));
   updatePreviewButton();
+}
+
+function renderModelBuilder() {
+  const channel = $("#model-channel").value;
+  const runtime = $("#model-runtime").value;
+  $("#runtime-field").classList.toggle("hidden", channel !== "subagent");
+  $("#provider-field").classList.toggle("hidden", channel !== "api");
+  $("#reasoning-field").classList.toggle("hidden", channel !== "subagent" || runtime !== "codex");
+  $("#model-provider").innerHTML = state.providers.length
+    ? state.providers.map(row => `<option value="${escapeHtml(row.id)}">${escapeHtml(row.label)}</option>`).join("")
+    : '<option value="">请先在设置中配置 API Provider</option>';
+  if (channel === "api") {
+    const provider = state.providers.find(row => row.id === $("#model-provider").value) || state.providers[0];
+    if (provider?.defaultModel && !$("#model-name").value.trim()) $("#model-name").value = provider.defaultModel;
+  }
+}
+
+function addModelConfiguration() {
+  const channel = $("#model-channel").value;
+  const runtime = $("#model-runtime").value;
+  const provider = $("#model-provider").value;
+  const model = $("#model-name").value.trim();
+  const reasoning = runtime === "codex" && channel === "subagent" ? $("#model-reasoning").value : "";
+  if (!model) return status("请填写这个通道实际支持的模型名。", "error");
+  if (channel === "api" && !provider) return status("请先在设置中配置一个可用的 API Provider。", "error");
+  const label = $("#model-label").value.trim() || (channel === "api"
+    ? `${provider} · ${model}`
+    : `${runtime === "codex" ? "Codex" : "Claude Code"} · ${model}${reasoning ? ` · ${reasoning}` : ""}`);
+  state.models.push({
+    id: `profile-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    channel, runtime: channel === "subagent" ? runtime : null,
+    provider: channel === "api" ? provider : null, model,
+    reasoning: reasoning || null, label, enabled: true,
+  });
+  $("#model-label").value = "";
+  renderModels();
+  clearStatus();
 }
 
 function renderLibraries() {
@@ -307,9 +349,8 @@ async function generatePreview() {
   button.disabled = true;
   try {
     status(`正在同时启动 ${models.length} 份独立候选。预览不会写入正式记忆。`);
-    const tasks = models.map(async (modelId, index) => {
-      const model = state.models.find(item => item.id === modelId);
-      const label = model?.label || modelId;
+    const tasks = models.map(async (model, index) => {
+      const label = model.label;
       try {
         const data = await api("./api/preview", {
           method: "POST",
@@ -317,7 +358,10 @@ async function generatePreview() {
           body: JSON.stringify({
             threadId: $("#library").value,
             date: $("#date").value,
-            model: modelId,
+            profile: {
+              channel: model.channel, runtime: model.runtime, provider: model.provider,
+              model: model.model, reasoning: model.reasoning, label: model.label,
+            },
             preset: state.preset,
             rules,
           }),
@@ -388,9 +432,10 @@ async function init() {
     const requestedThread = new URLSearchParams(location.search).get("threadId") || "";
     const data = await api(`./api/libraries${requestedThread ? `?threadId=${encodeURIComponent(requestedThread)}` : ""}`);
     state.libraries = data.libraries;
-    state.models = data.models;
+    state.providers = data.providers || [];
     renderLibraries();
     if (requestedThread && state.libraries.some(row => row.threadId === requestedThread)) $("#library").value = requestedThread;
+    renderModelBuilder();
     renderModels();
     applyPreset("author");
     if (!state.libraries.length) throw new Error("没有找到 Stone 记忆体");
@@ -398,8 +443,8 @@ async function init() {
     $("#library").addEventListener("change", async () => {
       const selected = $("#library").value;
       const refreshed = await api(`./api/libraries?threadId=${encodeURIComponent(selected)}`);
-      state.models = refreshed.models;
-      renderModels();
+      state.providers = refreshed.providers || [];
+      renderModelBuilder();
       await loadDates();
     });
     $("#date").addEventListener("change", async () => {
@@ -411,6 +456,13 @@ async function init() {
       button.addEventListener("click", () => applyPreset(button.dataset.preset));
     });
     document.querySelectorAll("[data-rule]").forEach(input => input.addEventListener("change", switchToCustom));
+    $("#model-channel").addEventListener("change", renderModelBuilder);
+    $("#model-runtime").addEventListener("change", renderModelBuilder);
+    $("#model-provider").addEventListener("change", () => {
+      const provider = state.providers.find(row => row.id === $("#model-provider").value);
+      if (provider?.defaultModel) $("#model-name").value = provider.defaultModel;
+    });
+    $("#add-model").addEventListener("click", addModelConfiguration);
     $("#preview").addEventListener("click", generatePreview);
   } catch (error) {
     status(error.message, "error");

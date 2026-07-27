@@ -463,6 +463,7 @@ function sanitizeProfile(profile) {
     id: String(profile?.id || "configured-default"),
     label: String(profile?.label || profile?.id || "Configured default"),
     channel: String(profile?.channel || "configured"),
+    runtime: profile?.runtime ? String(profile.runtime) : null,
     provider: profile?.provider ? String(profile.provider) : null,
     model: profile?.model ? String(profile.model) : null,
     reasoning: profile?.reasoning ? String(profile.reasoning) : null,

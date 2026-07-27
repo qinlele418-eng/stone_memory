@@ -104,7 +104,17 @@ function buildStdinCmd(runtimeName, opts = {}) {
     cmd += ` ${flags.mcpConfig} "${opts.mcpConfig}"`;
   }
   if (opts.model && flags.model) {
+    if (!/^[A-Za-z0-9._:/+-]{1,128}$/.test(String(opts.model))) {
+      throw new Error("model name contains unsupported characters");
+    }
     cmd += ` ${flags.model} ${opts.model}`;
+  }
+  if (opts.reasoning) {
+    if (runtimeName !== "codex") throw new Error("reasoning effort is only supported by the Codex subagent");
+    if (!["minimal", "low", "medium", "high", "xhigh"].includes(opts.reasoning)) {
+      throw new Error("unsupported Codex reasoning effort");
+    }
+    cmd += ` -c model_reasoning_effort=${JSON.stringify(opts.reasoning)}`;
   }
   return cmd;
 }
@@ -119,9 +129,10 @@ function buildStdinCmd(runtimeName, opts = {}) {
  * @param {number} [opts.timeout=600000]
  */
 function runSubagent(prompt, opts = {}) {
-  const { threadId, mcpConfig, model, timeout = 600_000 } = opts;
+  const { threadId, mcpConfig, model, reasoning, timeout = 600_000 } = opts;
   let { opsFile } = opts;
-  const runtimeName = getCfg("runtime", threadId, "claude");
+  const runtimeName = opts.runtime || getCfg("runtime", threadId, "claude");
+  if (!["claude", "codex"].includes(runtimeName)) throw new Error(`Unsupported subagent runtime: ${runtimeName}`);
 
   // 替换 ops 文件中的 {{placeholders}} → 线程实际路径
   if (opsFile && threadId && fs.existsSync(opsFile)) {
@@ -153,7 +164,7 @@ function runSubagent(prompt, opts = {}) {
   const tmpFile = path.join(tmpDir, `prompt_${Date.now()}.txt`);
   fs.writeFileSync(tmpFile, finalPrompt, "utf8");
 
-  const cmd = buildStdinCmd(runtimeName, { ...opts, opsFile, mcpConfig, model });
+  const cmd = buildStdinCmd(runtimeName, { ...opts, opsFile, mcpConfig, model, reasoning });
   const fullCmd = `${cmd} < "${tmpFile}"`;
 
   const shell = process.platform === "win32" ? "cmd.exe" : "/bin/bash";
@@ -176,4 +187,4 @@ function runSubagent(prompt, opts = {}) {
   }
 }
 
-module.exports = { runSubagent, buildCommand, getRuntimeConfig, resolvePlaceholders };
+module.exports = { runSubagent, buildCommand, buildStdinCmd, getRuntimeConfig, resolvePlaceholders };

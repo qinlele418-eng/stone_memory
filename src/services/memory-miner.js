@@ -533,7 +533,7 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
    * Generate a review candidate without publishing feelings/features or
    * changing mining day state.
    */
-  async preview(targetDate, { promptOverlay = "", model = null } = {}) {
+  async preview(targetDate, { promptOverlay = "", model = null, runtime = null, reasoning = null } = {}) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) throw new Error("review preview requires a YYYY-MM-DD date");
     const messages = this.store.listMessages({ date: targetDate }).filter(row => !isInjectedMemoryBlock(row.text));
     const chunks = this._messageChunks(messages);
@@ -588,6 +588,8 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
           ...(hasOps ? { opsFile } : {}),
           threadId: this.threadId,
           model: model || undefined,
+          runtime: runtime || undefined,
+          reasoning: reasoning || undefined,
         });
         const parsed = parseJsonObject(reply);
         if (!parsed || !Array.isArray(parsed.feelings) || !Array.isArray(parsed.features)) {

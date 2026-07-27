@@ -29,8 +29,17 @@
 
       <div class="section-title">
         <p class="eyebrow">MODELS</p>
-        <h2>选择一个或多个模型</h2>
-        <p class="section-help">每个模型生成一份独立候选。生成后可以整份比较，也可以逐条勾选组成混合稿；默认只选一个，避免无意重复消耗。</p>
+        <h2>配置本次参与比较的模型</h2>
+        <p class="section-help">Subagent 使用本机 Claude Code / Codex 订阅；API 使用设置中已有的 Provider 凭据。每项配置生成一份互相独立的候选。</p>
+      </div>
+      <div class="model-builder">
+        <label><span>执行通道</span><select id="model-channel"><option value="subagent">Subagent</option><option value="api">API</option></select></label>
+        <label id="runtime-field"><span>本机 CLI</span><select id="model-runtime"><option value="codex">Codex</option><option value="claude">Claude Code</option></select></label>
+        <label id="provider-field" class="hidden"><span>API Provider</span><select id="model-provider"></select></label>
+        <label><span>模型名</span><input id="model-name" placeholder="填写该通道实际支持的模型名"></label>
+        <label id="reasoning-field"><span>Codex reasoning</span><select id="model-reasoning"><option value="">默认</option><option value="minimal">minimal</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="xhigh">xhigh</option></select></label>
+        <label><span>显示名称（可选）</span><input id="model-label" placeholder="例如 GPT 主候选"></label>
+        <button type="button" class="secondary" id="add-model">加入本次比较</button>
       </div>
       <div id="models" class="model-grid"></div>
 

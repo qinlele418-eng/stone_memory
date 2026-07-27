@@ -78,6 +78,8 @@ async function main() {
       const result = await miner.preview(date, {
         promptOverlay: overlay.text,
         model: subagentModel,
+        runtime: profile.runtime,
+        reasoning: profile.reasoning,
       });
       const candidate = reviews.createCandidate({
         ...result,
@@ -114,14 +116,15 @@ fingerprint, creates a SQLite backup, and then atomically replaces one day.`);
 
 
 function resolveProfile(threadId, requested = {}) {
-  if (requested.reasoning) throw new Error("per-call reasoning override is not supported yet");
   const config = loadConfig();
   const thread = config[threadId] || {};
   const channel = String(requested.channel || thread.minerMode || "subagent");
   if (channel === "api") {
+    if (requested.reasoning) throw new Error("reasoning effort is only supported by the Codex subagent");
     const provider = String(requested.provider || thread.apiProvider || "deepseek");
     const credential = config.apiKeys?.[provider] || {};
     const model = String(requested.model || credential.model || "").trim();
+    if (model && !/^[A-Za-z0-9._:/+-]{1,128}$/.test(model)) throw new Error("review model name contains unsupported characters");
     const baseUrl = String(credential.baseUrl || (provider === "deepseek" ? "https://api.deepseek.com" : "")).trim();
     if (!credential.key) throw new Error(`API profile ${provider} has no configured key`);
     if (!model) throw new Error(`API profile ${provider} has no model`);
@@ -140,15 +143,24 @@ function resolveProfile(threadId, requested = {}) {
     };
   }
   if (!["subagent", "configured"].includes(channel)) throw new Error(`unsupported review channel: ${channel}`);
+  const runtime = String(requested.runtime || thread.runtime || "claude");
+  if (!["claude", "codex"].includes(runtime)) throw new Error(`unsupported review runtime: ${runtime}`);
   const model = requested.model ? String(requested.model) : null;
+  if (model && !/^[A-Za-z0-9._:/+-]{1,128}$/.test(model)) throw new Error("review model name contains unsupported characters");
+  const reasoning = requested.reasoning ? String(requested.reasoning) : null;
+  if (reasoning && runtime !== "codex") throw new Error("reasoning effort is only supported by Codex");
+  if (reasoning && !["minimal", "low", "medium", "high", "xhigh"].includes(reasoning)) {
+    throw new Error("unsupported Codex reasoning effort");
+  }
   return {
     profile: {
-      id: String(requested.id || (model ? `subagent:${model}` : "configured-subagent")),
+      id: String(requested.id || (model ? `subagent:${runtime}:${model}` : `subagent:${runtime}:configured`)),
       label: String(requested.label || model || "Configured subagent"),
       channel: "subagent",
+      runtime,
       provider: null,
       model,
-      reasoning: requested.reasoning || null,
+      reasoning,
     },
     deepseekConfig: {},
     subagentModel: model,
