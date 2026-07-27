@@ -151,6 +151,7 @@ td.context { min-width: 320px; max-width: 460px; line-height: 1.5; }
 .stat span { color: var(--muted); font-size: 13px; }
 .overview-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}.overview-grid>div{display:grid;gap:6px;padding:18px;background:var(--leaf-50);border:1px solid var(--line);border-radius:var(--radius-md)}.overview-grid span,.overview-grid small{color:var(--muted)}.overview-grid strong{font-size:22px}.overview-grid small{line-height:1.5}
 .overview-empty-guide{padding:22px;background:var(--leaf-50);border:1px solid var(--line);border-radius:var(--radius-md)}.overview-empty-guide p{max-width:780px;margin:0 0 18px;color:var(--muted);line-height:1.8}
+.developer-mode-empty{display:grid;justify-items:center;padding:64px 28px;text-align:center}.developer-mode-mark{display:grid;place-items:center;width:58px;height:58px;margin-bottom:18px;color:var(--pine-700);background:var(--moss-100);border:1px solid var(--moss-200);border-radius:18px;font-size:30px}.developer-mode-empty h2{margin-bottom:10px}.developer-mode-empty p{max-width:620px;margin:0;color:var(--muted);line-height:1.8}.developer-mode-empty small{max-width:620px;margin-top:18px;color:var(--muted);line-height:1.6}
 .section-card { margin-top: 18px; padding: 26px; background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius-lg); }
 .section-card h2 { margin: 0 0 18px; font-family: Georgia, "Noto Serif SC", serif; font-size: 22px; font-weight: 600; }
 .memory-row { padding: 16px 0; border-top: 1px solid #edf0eb; }
@@ -214,7 +215,7 @@ td.context { min-width: 320px; max-width: 460px; line-height: 1.5; }
   .wizard-actions button { width: 100%; }
   .workspace-grid { grid-template-columns: 1fr; gap: 20px; }
   .sidebar { position: static; }
-  .side-nav { grid-template-columns: repeat(4, 1fr); overflow-x: auto; }
+  .side-nav { grid-template-columns:repeat(5,minmax(92px,1fr));overflow-x:auto; }
   .side-nav button { text-align: center; white-space: nowrap; }
   .stats-grid { grid-template-columns: 1fr 1fr; }
   .dashboard-head { padding: 24px; }

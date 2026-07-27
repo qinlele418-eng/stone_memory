@@ -1,5 +1,6 @@
 .mcp.json
 AGENTS.md
+!sm-developer-docs/AGENTS.md
 docs/
 node_modules/
 .env
