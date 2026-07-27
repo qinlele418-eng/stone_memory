@@ -76,6 +76,9 @@ function createThread(input, { allowExisting = false, requireSession = true } = 
     minerMode: input.minerMode,
     windowDays: Math.max(1, Number(input.windowDays) || 3),
     keepToolPairs: input.keepToolPairs === undefined || input.keepToolPairs === "" ? 30 : Math.max(0, Number(input.keepToolPairs) || 0),
+    mcpRebuildDefaultsEnabled: input.mcpRebuildDefaultsEnabled === true,
+    mcpSummaryLimit: Math.max(0, Math.floor(Number(input.mcpSummaryLimit) || 0)),
+    mcpMinImportance: Math.max(0, Math.min(5, Math.floor(Number(input.mcpMinImportance) || 0))),
     contextWindowTokens: input.contextWindowTokens === undefined || input.contextWindowTokens === ""
       ? (existing.contextWindowTokens || null)
       : (Math.max(0, Number(input.contextWindowTokens) || 0) || null),

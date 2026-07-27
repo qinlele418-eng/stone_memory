@@ -3,6 +3,7 @@ const path = require("path");
 const crypto = require("crypto");
 const { openDatabase } = require("./database");
 const { listDateFiles } = require("../lib/archive-paths");
+const { isInjectedMemoryBlock } = require("../lib/system-injection");
 
 function id(prefix) {
   return `${prefix}_${Date.now()}_${crypto.randomBytes(5).toString("hex")}`;
@@ -26,6 +27,9 @@ class MemoryStore {
     this.db = openDatabase(memoryDir);
     const now = new Date().toISOString();
     this.db.prepare(`INSERT OR IGNORE INTO threads(id,created_at,updated_at) VALUES (?,?,?)`).run(threadId, now, now);
+    // 迁移期曾把 rebuild 注入的 <memory_context> 当普通 user 文本写入 messages。
+    // 在所有正式入口共用的存储层自愈，升级后首次打开记忆体即可清除历史污染。
+    this.removedInjectedMemoryBlocks = this.removeInjectedMemoryBlocks();
   }
 
   registerThread({ runtime = null, purpose = null, label = null } = {}) {
@@ -85,6 +89,19 @@ class MemoryStore {
     if (to) { clauses.push("timestamp<=?"); params.push(to); }
     return this.db.prepare(`SELECT timestamp,source_date AS sourceDate,role AS type,text,source,created_at AS createdAt
       FROM messages WHERE ${clauses.join(" AND ")} ORDER BY timestamp`).all(...params);
+  }
+
+  removeInjectedMemoryBlocks() {
+    const polluted = this.db.prepare("SELECT rowid,text FROM messages WHERE thread_id=? AND text LIKE '%<memory_context>%'")
+      .all(this.threadId)
+      .filter(row => isInjectedMemoryBlock(row.text));
+    if (!polluted.length) return 0;
+    const remove = this.db.prepare("DELETE FROM messages WHERE rowid=?");
+    return this.db.transaction(rows => {
+      let removed = 0;
+      for (const row of rows) removed += remove.run(row.rowid).changes;
+      return removed;
+    })(polluted);
   }
 
   listMessageDates() {

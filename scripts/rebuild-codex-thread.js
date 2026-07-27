@@ -17,7 +17,7 @@ const crypto = require("crypto");
 const { FullArchive, dateKeyFromTs } = require("../src/services/memory-archive");
 const {
   loadInjectableFeelings, loadRetainConfig,
-  buildFragmentWindows, buildMemoryBlocks, resolveLatestFeelingWatermark,
+  buildFragmentWindows, buildMemoryBlocks, resolveLatestFeelingWatermark, selectRebuildFeelings,
 } = require("../src/services/thread-rebuilder");
 const { getCfg, getThreadDir } = require("../src/config");
 const { readMessages } = require("../src/storage/memory-reader");
@@ -88,12 +88,18 @@ function main() {
   const toolPairsIdx = args.indexOf("--tool-pairs");
   const planIdx = args.indexOf("--plan");
   const triggerIdx = args.indexOf("--trigger");
+  const summaryLimitIdx = args.indexOf("--summary-limit");
+  const minImportanceIdx = args.indexOf("--min-importance");
   const watermarkMode = args.includes("--watermark");
   const threadId = threadIdx >= 0 ? args[threadIdx + 1] : null;
   const windowDays = windowIdx >= 0 ? parseInt(args[windowIdx + 1]) || DEFAULT_WINDOW_DAYS : DEFAULT_WINDOW_DAYS;
   const keepPairs = toolPairsIdx >= 0 ? Math.max(0, parseInt(args[toolPairsIdx + 1]) || 0) : 40;
   const plan = loadRebuildPlan(planIdx >= 0 ? args[planIdx + 1] : null);
   const trigger = triggerIdx >= 0 ? args[triggerIdx + 1] : "cli";
+  const summaryFilter = {
+    summaryLimit: summaryLimitIdx >= 0 ? Math.max(0, parseInt(args[summaryLimitIdx + 1], 10) || 0) : 0,
+    minImportance: minImportanceIdx >= 0 ? Math.max(0, Math.min(5, parseInt(args[minImportanceIdx + 1], 10) || 0)) : 0,
+  };
 
   if (!threadId) { console.log("用法: --thread <id> [--window N] [--tool-pairs N] [--apply]"); return; }
   const userName = getCfg("user", threadId, "用户");
@@ -237,7 +243,11 @@ function main() {
   // === 锚点 + 片段 ===
   const retainConfig = loadRetainConfig(fp.retainConfig);
   const retainMap = retainConfig.retain || {};
-  const { retainFeelings, retainIds, fragmentWindows, msgInFragment } = buildFragmentWindows(preWindow, allFeelings, messages, retainMap);
+  const protectedIds = new Set([...Object.keys(retainMap), ...Object.keys(retainConfig.eventAnchors || {})]);
+  const selection = selectRebuildFeelings(preWindow, { ...summaryFilter, protectedIds });
+  const selectedPreWindow = selection.selected;
+  console.log(`[codex-rebuild] Summary selection: ${preWindow.length} candidates → ${selectedPreWindow.length} selected (latest=${summaryFilter.summaryLimit || "all"}, minImportance=${summaryFilter.minImportance || 0}, protected=${selection.protectedCount}, overflow=${selection.overflow})`);
+  const { retainFeelings, retainIds, fragmentWindows, msgInFragment } = buildFragmentWindows(selectedPreWindow, allFeelings, messages, retainMap);
 
   // 从 archive 按 UTC 窗口加载碎片消息（与 rebuild-thread.js 一致）
   const archiveDir = path.join(getThreadDir(threadId), "memory", "archive");
@@ -258,7 +268,7 @@ function main() {
     }
   }
 
-  const memoryFeelings = preWindow.filter(f => !retainIds.has(f.id));
+  const memoryFeelings = selectedPreWindow.filter(f => !retainIds.has(f.id));
   console.log(`[codex-rebuild] ${retainFeelings.length} fragments → ${fragmentDates.size} archive dates, ${memoryFeelings.length} → memory`);
 
   // === 构建输出 ===
@@ -342,7 +352,7 @@ function main() {
   }
 
   // 交替注入: 记忆块 ↔ 片段
-  const preDates = [...new Set(preWindow.map(f => f.date))].sort();
+  const preDates = [...new Set(selectedPreWindow.map(f => f.date))].sort();
   let pendingMemory = [];
   let retainedMessages = 0;
   for (const date of preDates) {
@@ -374,10 +384,10 @@ function main() {
         stats.windowMsg++;
         retainedMessages++;
       }
-      const dayNonRetain = preWindow.filter(f => f.date === date && !retainIds.has(f.id));
+      const dayNonRetain = selectedPreWindow.filter(f => f.date === date && !retainIds.has(f.id));
       pendingMemory.push(...dayNonRetain);
     } else {
-      pendingMemory.push(...preWindow.filter(f => f.date === date));
+      pendingMemory.push(...selectedPreWindow.filter(f => f.date === date));
     }
   }
   if (pendingMemory.length > 0) {

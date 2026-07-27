@@ -46,7 +46,7 @@ function initThreadPaths(threadId) {
   RULES_DIR = path.join(THREAD_BASE, "rules");
   DEFAULT_WINDOW_DAYS = getCfg("windowDays", threadId, 3);
 }
-const { automaticRetainWindow, buildMemoryBlocks, resolveLatestFeelingWatermark } = require("../src/services/thread-rebuilder");
+const { automaticRetainWindow, buildMemoryBlocks, resolveLatestFeelingWatermark, selectRebuildFeelings } = require("../src/services/thread-rebuilder");
 
 function loadRetainConfig() {
   try {
@@ -147,7 +147,7 @@ function loadInjectableFeelings() {
     if (!content) continue;
     const time = parseFeelingTime(content);
     if (!time?.date) continue;
-    feelings.push({ id: r.id, content, date: time.date, hour: time.hour, minute: time.minute, utcTime: feelingToUtc(time), retainOriginal: false });
+    feelings.push({ id: r.id, content, importance: Number(r.importance) || 0, date: time.date, hour: time.hour, minute: time.minute, utcTime: feelingToUtc(time), retainOriginal: false });
   }
   return feelings;
 }
@@ -294,7 +294,7 @@ function outputCleanMessage(msg, emitFn, stats, preservedToolIds = new Set()) {
 
 // ---- 主流程 ----
 
-function rebuildThread(inputPath, outputPath, dryRun, windowDays, toolPairsOverride = null, plan = loadRebuildPlan(), watermarkMode = false) {
+function rebuildThread(inputPath, outputPath, dryRun, windowDays, toolPairsOverride = null, plan = loadRebuildPlan(), watermarkMode = false, summaryFilter = {}) {
   // === 加载 ===
   console.log("[rebuild] Loading injectable feelings (daily/coarse; hidden excluded)...");
   const allFeelings = loadInjectableFeelings();
@@ -382,12 +382,16 @@ function rebuildThread(inputPath, outputPath, dryRun, windowDays, toolPairsOverr
   // === 片段提取 (从 retain-config.json 读取) ===
   const retainConfig = loadRetainConfig();
   const retainMap = retainConfig.retain || {};
+  const protectedIds = new Set([...Object.keys(retainMap), ...Object.keys(retainConfig.eventAnchors || {})]);
+  const selection = selectRebuildFeelings(preWindow, { ...summaryFilter, protectedIds });
+  const selectedPreWindow = selection.selected;
+  console.log(`[rebuild] Summary selection: ${preWindow.length} candidates → ${selectedPreWindow.length} selected (latest=${summaryFilter.summaryLimit || "all"}, minImportance=${summaryFilter.minImportance || 0}, protected=${selection.protectedCount}, overflow=${selection.overflow})`);
 
   // 标记哪些 feelings 需要保留原文 (按 feeling.id 匹配)
-  for (const f of preWindow) {
+  for (const f of selectedPreWindow) {
     if (retainMap[f.id]) f.retainOriginal = true;
   }
-  const retainFeelings = preWindow.filter((f) => f.retainOriginal);
+  const retainFeelings = selectedPreWindow.filter((f) => f.retainOriginal);
   const retainIds = new Set(retainFeelings.map((f) => f.id));
 
   // 构建片段窗口: 优先使用 config 中的 startUtc/endUtc, 否则自动计算
@@ -436,7 +440,7 @@ function rebuildThread(inputPath, outputPath, dryRun, windowDays, toolPairsOverr
   }
 
   // pre-window feelings: retainOriginal 的不放记忆块, 其余放记忆块
-  const memoryFeelings = preWindow.filter((f) => !retainIds.has(f.id));
+  const memoryFeelings = selectedPreWindow.filter((f) => !retainIds.has(f.id));
   console.log(`[rebuild]   ${retainFeelings.length} retainOriginal (from retain-config.json) → ${fragmentWindows.length} fragments, ${fragmentDates.size} dates`);
 
   // === 构建输出 ===
@@ -507,9 +511,9 @@ function rebuildThread(inputPath, outputPath, dryRun, windowDays, toolPairsOverr
   let pendingMemory = []; // 当前累积的记忆 feelings
   let retainedMessages = 0;
 
-  // 收集所有 pre-window 日期
+  // 只按本次摘要筛选结果构造历史记忆块。
   const allPreDates = new Set();
-  for (const f of preWindow) allPreDates.add(f.date);
+  for (const f of selectedPreWindow) allPreDates.add(f.date);
   const sortedPreDates = [...allPreDates].sort();
 
   for (const date of sortedPreDates) {
@@ -535,11 +539,11 @@ function rebuildThread(inputPath, outputPath, dryRun, windowDays, toolPairsOverr
         retainedMessages += stats.windowMsg - before;
       }
       // 该日期未被 retain 的 feelings → 进 pendingMemory (下一个记忆块)
-      const dayNonRetain = preWindow.filter((f) => f.date === date && !retainIds.has(f.id));
+      const dayNonRetain = selectedPreWindow.filter((f) => f.date === date && !retainIds.has(f.id));
       pendingMemory.push(...dayNonRetain);
     } else {
       // 无片段 → 累积 feelings 到记忆块
-      const dayFeelings = preWindow.filter((f) => f.date === date);
+      const dayFeelings = selectedPreWindow.filter((f) => f.date === date);
       pendingMemory.push(...dayFeelings);
     }
   }
@@ -636,6 +640,8 @@ function main() {
   const windowIdx = args.indexOf("--window");
   const toolPairsIdx = args.indexOf("--tool-pairs");
   const planIdx = args.indexOf("--plan");
+  const summaryLimitIdx = args.indexOf("--summary-limit");
+  const minImportanceIdx = args.indexOf("--min-importance");
   const watermarkMode = args.includes("--watermark");
   const threadId = threadIdx >= 0 ? args[threadIdx + 1] : null;
   const windowDays = windowIdx >= 0
@@ -645,6 +651,10 @@ function main() {
     ? Math.max(0, parseInt(args[toolPairsIdx + 1], 10) || 0)
     : null;
   const plan = loadRebuildPlan(planIdx >= 0 ? args[planIdx + 1] : null);
+  const summaryFilter = {
+    summaryLimit: summaryLimitIdx >= 0 ? Math.max(0, parseInt(args[summaryLimitIdx + 1], 10) || 0) : 0,
+    minImportance: minImportanceIdx >= 0 ? Math.max(0, Math.min(5, parseInt(args[minImportanceIdx + 1], 10) || 0)) : 0,
+  };
 
   initThreadPaths(threadId);
   const OUTPUT_SUFFIX = ".rebuilt";
@@ -679,12 +689,12 @@ function main() {
   const outputFile = inputFile.replace(/\.jsonl$/, `${OUTPUT_SUFFIX}.jsonl`);
 
   if (dryRun && !apply) {
-    rebuildThread(inputFile, outputFile, true, windowDays, toolPairsOverride, plan, watermarkMode);
+    rebuildThread(inputFile, outputFile, true, windowDays, toolPairsOverride, plan, watermarkMode, summaryFilter);
     console.log("\n[rebuild] Use --apply to write.");
     return;
   }
 
-  rebuildThread(inputFile, outputFile, false, windowDays, toolPairsOverride, plan, watermarkMode);
+  rebuildThread(inputFile, outputFile, false, windowDays, toolPairsOverride, plan, watermarkMode, summaryFilter);
   console.log(`\n[rebuild] Done — thread replaced.`);
 }
 

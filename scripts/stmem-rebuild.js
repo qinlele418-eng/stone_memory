@@ -15,6 +15,8 @@ function main() {
   const toolPairsIdx = args.indexOf("--tool-pairs");
   const planIdx = args.indexOf("--plan");
   const triggerIdx = args.indexOf("--trigger");
+  const summaryLimitIdx = args.indexOf("--summary-limit");
+  const minImportanceIdx = args.indexOf("--min-importance");
   const watermark = args.includes("--watermark");
 
   const { getCfg } = require("../src/config");
@@ -49,6 +51,8 @@ function main() {
   if (toolPairs) { spawnArgs.push("--tool-pairs"); spawnArgs.push(String(toolPairs)); }
   if (plan) { spawnArgs.push("--plan"); spawnArgs.push(String(plan)); }
   if (watermark) spawnArgs.push("--watermark");
+  if (summaryLimitIdx >= 0 && args[summaryLimitIdx + 1] !== undefined) spawnArgs.push("--summary-limit", args[summaryLimitIdx + 1]);
+  if (minImportanceIdx >= 0 && args[minImportanceIdx + 1] !== undefined) spawnArgs.push("--min-importance", args[minImportanceIdx + 1]);
   if (triggerIdx >= 0 && args[triggerIdx + 1]) { spawnArgs.push("--trigger"); spawnArgs.push(args[triggerIdx + 1]); }
 
   console.log(`[stmem] ${runtime} rebuild ${threadId}, window=${window}${toolPairs ? `, pairs=${toolPairs}` : ""}${watermark ? ", watermark" : ""}...`);

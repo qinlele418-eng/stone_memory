@@ -8,6 +8,7 @@ test("parses the full Claude rebuild dry-run report", () => {
 [rebuild]   27772 messages from full
 [rebuild] Window: 5 days (cutoff: 2026-07-08), tool chains: 30 pairs, 10 tool IDs
 [rebuild]   638 pre-window, 0 in-window
+[rebuild] Summary selection: 638 candidates → 200 selected (latest=200, minImportance=3, protected=12, overflow=0)
 [rebuild]   36 retainOriginal (from retain-config.json) → 36 fragments, 17 dates
 [rebuild]   injected 2 rules from rules/
 [rebuild] ====== DRY RUN ======
@@ -28,6 +29,7 @@ test("parses the full Claude rebuild dry-run report", () => {
     runtime:"claude",windowDays:5,cutoff:"2026-07-08",retentionMode:"active-days",
     watermarkFeelingId:null,watermarkCutoff:null,watermarkFallback:false,
     fullMessages:27772,injectableFeelings:638,
+    summaryCandidates:638,selectedSummaries:200,summaryLimit:200,minImportance:3,protectedSummaries:12,protectedOverflow:0,
     preWindowFeelings:638,inWindowFeelings:0,retainAnchors:36,retainFragments:36,retainDates:17,
     injectedRules:2,toolPairs:30,toolIds:10,originalMessages:27772,outputLines:2948,
     reductionPercent:89.4,memoryBlocks:17,windowMessages:2928,retainedMessages:74,functionCalls:null,

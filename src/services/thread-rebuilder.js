@@ -87,10 +87,35 @@ function loadInjectableFeelings(memoryDir, threadId) {
     const hour = localEvent ? localEvent.getUTCHours() : parsed.hour;
     const minute = localEvent ? localEvent.getUTCMinutes() : parsed.minute;
     const time = { date: r.sourceDate || parsed.date, hour, minute };
-    return { id: r.id, content: r.content, date: time.date, hour, minute, utcTime: feelingToUtc(time), retainOriginal: false };
+    return { id: r.id, content: r.content, importance: Number(r.importance) || 0, date: time.date, hour, minute, utcTime: feelingToUtc(time), retainOriginal: false };
   });
   console.log(`[rebuilder] sqlite: ${feelings.length} memories (daily/coarse; hidden excluded)`);
   return feelings;
+}
+
+function selectRebuildFeelings(feelings, {
+  summaryLimit = 0,
+  minImportance = 0,
+  protectedIds = [],
+} = {}) {
+  const limit = Math.max(0, Math.floor(Number(summaryLimit) || 0));
+  const minimum = Math.max(0, Math.min(5, Number(minImportance) || 0));
+  const protectedSet = protectedIds instanceof Set ? protectedIds : new Set(protectedIds);
+  const protectedRows = feelings.filter(feeling => protectedSet.has(feeling.id));
+  const ordinaryRows = feelings.filter(feeling =>
+    !protectedSet.has(feeling.id) && Number(feeling.importance) >= minimum);
+  if (!limit) {
+    const selectedIds = new Set([...protectedRows, ...ordinaryRows].map(feeling => feeling.id));
+    return { selected: feelings.filter(feeling => selectedIds.has(feeling.id)), protectedCount: protectedRows.length, overflow: 0 };
+  }
+  const ordinarySlots = Math.max(0, limit - protectedRows.length);
+  const selectedOrdinary = ordinarySlots ? ordinaryRows.slice(-ordinarySlots) : [];
+  const selectedIds = new Set([...protectedRows, ...selectedOrdinary].map(feeling => feeling.id));
+  return {
+    selected: feelings.filter(feeling => selectedIds.has(feeling.id)),
+    protectedCount: protectedRows.length,
+    overflow: Math.max(0, protectedRows.length - limit),
+  };
 }
 
 function resolveLatestFeelingWatermark(memoryDir, threadId, messages) {
@@ -237,6 +262,7 @@ function computeCutoff(windowDays, referenceDate = new Date().toISOString().slic
 module.exports = {
   parseFeelingTime, feelingToUtc,
   loadRetainConfig, loadInjectableFeelings,
+  selectRebuildFeelings,
   resolveLatestFeelingWatermark, automaticRetainWindow, buildFragmentWindows, buildMemoryBlocks,
   computeCutoff,
 };

@@ -3,6 +3,7 @@ const path = require("path");
 const crypto = require("crypto");
 const { ensureDateFile } = require("../lib/archive-paths");
 const { normalizeThreadMessage } = require("../lib/thread-message");
+const { isInjectedMemoryBlock } = require("../lib/system-injection");
 
 function parseThreadMessages(raw) {
   const messages = [];
@@ -85,12 +86,13 @@ function ingestRecords(records, { fullDir = null, memoryStore = null, format = "
       if (!fullByDate.has(date)) fullByDate.set(date, []);
       fullByDate.get(date).push(raw);
     }
-    if (!row || isSystemTemplate(row.text) || row.text.includes("<!-- stmem-rule:")) continue;
+    if (!row || isInjectedMemoryBlock(row.text) || isSystemTemplate(row.text) || row.text.includes("<!-- stmem-rule:")) continue;
     if (!archiveByDate.has(date)) archiveByDate.set(date, []);
     archiveByDate.get(date).push(row);
   }
   let imported = 0, fullBacked = 0;
   if (memoryStore) {
+    memoryStore.removeInjectedMemoryBlocks();
     const rows = [];
     for (const [date, entries] of archiveByDate) for (const row of entries) rows.push({
       timestamp: row.timestamp, sourceDate: date, role: row.type, text: row.text, source: format,

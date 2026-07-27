@@ -41,6 +41,7 @@ if (!cmd || cmd === "--help" || cmd === "-h") {
   stmem mine --thread <id> --stop                  停止该记忆体当前挖掘任务
   stmem mine [--thread <id>] --targeted --batch-file <json>  对选中的对话精准补挖并追加摘要
   stmem rebuild --thread <id> [--window N] [--tool-pairs N]  预览重建
+  stmem rebuild --thread <id> --summary-limit N --min-importance N  临时筛选本次注入摘要
   stmem rebuild --thread <id> --apply           实际写入
   stmem rebuild --thread <id> --check           检查活动线程结构完整性
   stmem rebuild --thread <id> --repair          备份并修复可恢复的线程断链
@@ -148,6 +149,8 @@ function ensureWatcher() {
   const watcherScript = path.join(SCRIPTS, "watcher-supervisor.js");
 
   if (!fs.existsSync(watcherScript)) return;
+
+  fs.mkdirSync(path.dirname(pidFile), { recursive: true });
 
   try {
     const oldPid = parseInt(fs.readFileSync(pidFile, "utf8"), 10);

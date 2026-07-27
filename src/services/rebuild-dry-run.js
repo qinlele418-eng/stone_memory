@@ -17,6 +17,7 @@ function parseRebuildDryRun(output) {
   const codexStats=text.match(/Memory blocks:\s*(\d+)\s*\|\s*Messages:\s*(\d+)\s*\|\s*Function calls:\s*(\d+)/i);
   const injectableFeelings=number(text,/Loading injectable feelings[\s\S]*?\n[^\n]*?(\d+)\s+feelings/i)
     ??(splitMatch?Number(splitMatch[1])+Number(splitMatch[2]):null);
+  const summarySelection=text.match(/Summary selection:\s*(\d+)\s+candidates\s*→\s*(\d+)\s+selected\s*\(latest=([^,]+),\s*minImportance=(\d+),\s*protected=(\d+),\s*overflow=(\d+)\)/i);
   return {
     runtime,
     windowDays:windowMatch?Number(windowMatch[1]):null,
@@ -27,6 +28,12 @@ function parseRebuildDryRun(output) {
     watermarkFallback,
     fullMessages:number(text,/(\d+)\s+messages from full/i),
     injectableFeelings,
+    summaryCandidates:summarySelection?Number(summarySelection[1]):null,
+    selectedSummaries:summarySelection?Number(summarySelection[2]):null,
+    summaryLimit:summarySelection&&summarySelection[3]!=="all"?Number(summarySelection[3]):null,
+    minImportance:summarySelection?Number(summarySelection[4]):0,
+    protectedSummaries:summarySelection?Number(summarySelection[5]):null,
+    protectedOverflow:summarySelection?Number(summarySelection[6]):0,
     preWindowFeelings:splitMatch?Number(splitMatch[1]):null,
     inWindowFeelings:splitMatch?Number(splitMatch[2]):null,
     retainAnchors:retainMatch?Number(retainMatch[1]):null,

@@ -169,6 +169,9 @@ function publicThreadSettings(threadId) {
     apiKey: entry.apiProvider ? (config.apiKeys?.[entry.apiProvider]?.key || "") : "",
     hasApiKey: !!(entry.apiProvider && config.apiKeys?.[entry.apiProvider]?.key),
     windowDays: entry.windowDays ?? 3, keepToolPairs: entry.keepToolPairs ?? 30,
+    mcpRebuildDefaultsEnabled: entry.mcpRebuildDefaultsEnabled === true,
+    mcpSummaryLimit: entry.mcpSummaryLimit ?? 0,
+    mcpMinImportance: entry.mcpMinImportance ?? 0,
     contextWindowTokens: entry.contextWindowTokens || null,
     automaticFullMining: entry.automaticFullMining !== false,
     automaticMemoryMaintenance: entry.automaticMemoryMaintenance !== false,
@@ -556,17 +559,19 @@ async function handleApi(req, res, url) {
       return json(res, 200, { ...preview, items: paginate(preview.items, url.searchParams.get("page")), tools: paginate(preview.tools, url.searchParams.get("toolPage")) });
     }
     if(req.method==="GET"&&action==="dry-run"){
-      const windowDays=Math.max(1,Number(url.searchParams.get("windowDays"))||3),toolValue=url.searchParams.get("toolPairs"),toolPairs=Math.max(0,toolValue===null?30:Number(toolValue)),watermark=url.searchParams.get("watermark")==="true";
+      const windowDays=Math.max(1,Number(url.searchParams.get("windowDays"))||3),toolValue=url.searchParams.get("toolPairs"),toolPairs=Math.max(0,toolValue===null?30:Number(toolValue)),watermark=url.searchParams.get("watermark")==="true",summaryLimit=Math.max(0,Number(url.searchParams.get("summaryLimit"))||0),minImportance=Math.max(0,Math.min(5,Number(url.searchParams.get("minImportance"))||0));
       const rebuildArgs=["rebuild","--thread",threadId,"--window",String(windowDays),"--tool-pairs",String(toolPairs)];
       if(watermark)rebuildArgs.push("--watermark");
+      rebuildArgs.push("--summary-limit",String(summaryLimit),"--min-importance",String(minImportance));
       return json(res,200,parseRebuildDryRun(runStmem(rebuildArgs)));
     }
     if(req.method==="POST"&&action==="dry-run"){
-      const body=await readJson(req),windowDays=Math.max(1,Number(body.windowDays)||3),toolPairs=Math.max(0,body.toolPairs===undefined?30:Number(body.toolPairs)),watermark=body.watermark===true;
+      const body=await readJson(req),windowDays=Math.max(1,Number(body.windowDays)||3),toolPairs=Math.max(0,body.toolPairs===undefined?30:Number(body.toolPairs)),watermark=body.watermark===true,summaryLimit=Math.max(0,Number(body.summaryLimit)||0),minImportance=Math.max(0,Math.min(5,Number(body.minImportance)||0));
       const dir=fs.mkdtempSync(path.join(os.tmpdir(),"stmem-rebuild-preview-")),planFile=path.join(dir,"plan.json");
       fs.writeFileSync(planFile,JSON.stringify({excludedMessages:body.excludedMessages||[],excludedTools:body.excludedTools||[]}),{encoding:"utf8",mode:0o600});
       const rebuildArgs=["rebuild","--thread",threadId,"--window",String(windowDays),"--tool-pairs",String(toolPairs),"--plan",planFile];
       if(watermark)rebuildArgs.push("--watermark");
+      rebuildArgs.push("--summary-limit",String(summaryLimit),"--min-importance",String(minImportance));
       try{return json(res,200,parseRebuildDryRun(runStmem(rebuildArgs)));}
       finally{fs.rmSync(dir,{recursive:true,force:true});}
     }
@@ -580,6 +585,7 @@ async function handleApi(req, res, url) {
         const requestedTools = body.toolPairs === undefined ? 30 : Number(body.toolPairs);
         const rebuildArgs=["rebuild", "--thread", threadId, "--window", String(Math.max(1, Number(body.windowDays) || 3)), "--tool-pairs", String(Math.max(0, requestedTools)), "--plan", planFile, "--trigger", "web", "--apply"];
         if(body.watermark===true)rebuildArgs.push("--watermark");
+        rebuildArgs.push("--summary-limit",String(Math.max(0,Number(body.summaryLimit)||0)),"--min-importance",String(Math.max(0,Math.min(5,Number(body.minImportance)||0))));
         const output = runStmem(rebuildArgs);
         const integrity = JSON.parse(runStmem(["rebuild", "--thread", threadId, "--check"]));
         return json(res, 200, { success: true, output, integrity });

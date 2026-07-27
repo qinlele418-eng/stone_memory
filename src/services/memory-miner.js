@@ -10,6 +10,7 @@ const { MemoryStore } = require("../storage/memory-store");
 const { parseFeelingTime } = require("./thread-rebuilder");
 const { diagnoseApiMining } = require("./mining-diagnostics");
 const { splitMiningMessages, byteLength } = require("./mining-chunks");
+const { isInjectedMemoryBlock } = require("../lib/system-injection");
 
 class MiningError extends Error {
   constructor(code, message, details = {}) {
@@ -274,7 +275,9 @@ class MemoryMiner {
       if (force) this._deleteStateKeys([`feeling:${targetDate}`, `feature:${targetDate}`]);
       const state = force ? {} : this._readState();
 
-      messages = this.store.listMessages({ date: targetDate });
+      const removedMemoryBlocks = this.store.removeInjectedMemoryBlocks();
+      if (removedMemoryBlocks) console.warn(`[memory-miner] removed ${removedMemoryBlocks} injected memory block(s) from archive before mining`);
+      messages = this.store.listMessages({ date: targetDate }).filter(row => !isInjectedMemoryBlock(row.text));
       fingerprint = archiveFingerprint(messages);
       attempt = (getDayState(state, targetDate)?.attempt || 0) + 1;
       if (!force) this._saveState({ [`day:${targetDate}`]: {
@@ -420,7 +423,7 @@ class MemoryMiner {
   }
 
   async diagnose(targetDate) {
-    const messages = this.store.listMessages({ date: targetDate });
+    const messages = this.store.listMessages({ date: targetDate }).filter(row => !isInjectedMemoryBlock(row.text));
     const chunks = this._messageChunks(messages);
     const checkedMessages = chunks[0] || [];
     const conversationText = this._buildConversationText(checkedMessages);

@@ -10,7 +10,7 @@
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
-const { execSync } = require("child_process");
+const { execSync, execFileSync } = require("child_process");
 const { getCfg, getThreadDir, listThreadIds } = require("./src/config");
 const { runSubagent } = require("./src/services/subagent-runner");
 const { parseJsonArray } = require("./src/lib/json-parse");
@@ -87,15 +87,17 @@ function checkPendingTriggers() {
       queue = JSON.parse(fs.readFileSync(PENDING_REBUILD_FILE, "utf8"));
       const threadId = queue.threadId;
       const tc = cfg[threadId] || {};
-      const runtime = tc.runtime || "claude";
-      const scriptName = runtime === "codex" ? "rebuild-codex-thread.js" : "rebuild-thread.js";
-      const script = path.join(SCRIPTS_DIR, scriptName);
-      if (fs.existsSync(script)) {
-        const windowFlag = queue.window ? `--window ${queue.window}` : "";
-        const cmd = `${process.execPath} ${script} --thread ${threadId} --apply ${windowFlag}`.trim();
-        log(`pending rebuild: ${cmd}`);
+      const cli = path.join(PROJECT_ROOT, "bin", "stmem");
+      if (fs.existsSync(cli)) {
+        const rebuildArgs = [cli, "rebuild", "--thread", threadId, "--apply"];
+        if (queue.window !== undefined) rebuildArgs.push("--window", String(queue.window));
+        if (queue.toolPairs !== undefined) rebuildArgs.push("--tool-pairs", String(queue.toolPairs));
+        if (queue.summaryLimit !== undefined) rebuildArgs.push("--summary-limit", String(queue.summaryLimit));
+        if (queue.minImportance !== undefined) rebuildArgs.push("--min-importance", String(queue.minImportance));
+        if (queue.watermark === true) rebuildArgs.push("--watermark");
+        log(`pending rebuild: ${JSON.stringify(rebuildArgs.slice(1))}`);
         try {
-          execSync(cmd, { encoding: "utf8", timeout: 120000, maxBuffer: 10 * 1024 * 1024, windowsHide: true });
+          execFileSync(process.execPath, rebuildArgs, { encoding: "utf8", timeout: 120000, maxBuffer: 10 * 1024 * 1024, windowsHide: true });
           log(`pending rebuild done: ${threadId}`);
         } catch (e) {
           log(`pending rebuild failed: ${e.stderr || e.message}`);
@@ -156,9 +158,15 @@ function toolRebuild(args) {
   if (!cfg) return "未配置 stmem.json";
   const resolved = resolveThread(args, cfg);
   if (!resolved) return "无法确定线程 ID";
+  const tc = cfg[resolved.threadId] || {};
+  const useDefaults = tc.mcpRebuildDefaultsEnabled === true;
   const queue = {
     threadId: resolved.threadId,
     window: args.window || resolved.windowDays,
+    toolPairs: args.toolPairs ?? resolved.toolPairs,
+    summaryLimit: args.summaryLimit ?? (useDefaults ? Math.max(0, Number(tc.mcpSummaryLimit) || 0) : 0),
+    minImportance: args.minImportance ?? (useDefaults ? Math.max(0, Math.min(5, Number(tc.mcpMinImportance) || 0)) : 0),
+    watermark: args.watermark === true,
     requestedAt: new Date().toISOString(),
   };
   try {
@@ -456,6 +464,9 @@ const TOOLS = [
         thread: { type: "string", description: "线程 ID，默认自动检测当前 session" },
         window: { type: "number", description: "窗口天数，默认 stmem.json 的 windowDays" },
         toolPairs: { type: "number", description: "保留最近 N 对工具链调用，默认 40" },
+        summaryLimit: { type: "number", description: "本次最多保留的历史逻辑记忆数；0 为不限制。省略时使用用户保存的 MCP 默认摘要范围。" },
+        minImportance: { type: "number", description: "本次普通摘要最低 importance，0 为不过滤；锚点不受限制但占名额。" },
+        watermark: { type: "boolean", description: "使用最后一条已挖掘摘要对应原文作为近期上下文水位线。" },
       },
     },
   },
