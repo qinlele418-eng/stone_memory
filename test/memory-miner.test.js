@@ -300,13 +300,19 @@ test("features are mined from generated feelings instead of raw dialogue", async
     { content: "6月12日，上午十点。确认了新的偏好。", importance: 2 },
   ];
   let received;
-  miner._mineChannel = async options => { received = options; };
+  miner._extractViaSubagent = async (messages, prompt) => {
+    received = { messages, prompt };
+    return [{ content: "她偏好新的摘要方式。", category: "preference", importance: 3 }];
+  };
   await miner._mineFeaturesFromFeelings({
     targetDate: "2026-06-12", prompt: "feature prompt", stateKey: "feature:2026-06-12",
   });
   assert.equal(received.messages.length, 2);
   assert.deepEqual(received.messages.map(row => row.text), miner.pendingFeelings.map(row => row.content));
   assert.ok(received.messages.every(row => !row.text.includes("不应再次发送")));
+  assert.match(received.prompt, /已经生成并去噪的事件摘要/);
+  assert.match(received.prompt, /不要在 feature 内容中输出日期/);
+  assert.doesNotMatch(received.prompt, /每条 feelings 必须/);
 });
 
 test("feature mining skips the model when no feelings were generated", async t => {

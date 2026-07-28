@@ -857,7 +857,7 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
 
   /** 单通道挖掘 (API key 模式) */
   async _mineChannel({ targetDate, messages, prompt, stateKey, label, isFeature = false }) {
-    const datedPrompt = this._datedChannelPrompt(prompt, targetDate);
+    const datedPrompt = this._datedChannelPrompt(prompt, targetDate, isFeature);
     const chunks = this._messageChunks(messages);
     const raw = [];
     const cache = this._loadChunkCache(targetDate, label, messages, chunks.length);
