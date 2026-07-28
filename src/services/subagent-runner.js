@@ -26,6 +26,8 @@ const { execFileSync } = require("child_process");
 const { loadConfig, getCfg, getThreadDir } = require("../config");
 const { commandInvocation, appendOption } = require("../lib/command-invocation");
 
+const PROJECT_ROOT = path.resolve(__dirname, "../..");
+
 const BUILTIN_RUNTIMES = {
   claude: {
     command: "claude -p --bare",
@@ -201,6 +203,7 @@ function runSubagent(prompt, opts = {}) {
       encoding: "utf8",
       timeout,
       maxBuffer: 10 * 1024 * 1024,
+      cwd: PROJECT_ROOT,
       windowsHide: true,
     });
     if (!out || !out.trim()) {

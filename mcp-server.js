@@ -104,9 +104,19 @@ function toolTriggersCheck(args) {
       files.close();
       if (dates.length > 0) lastArchiveDate = dates.pop();
     } catch {}
-    if (lastArchiveDate) {
-      const d = Math.floor((Date.now() - new Date(lastArchiveDate).getTime()) / 86400000);
-      if (d >= windowDays) { lines.push(`1️⃣  线程重建待执行 — ${tid}，上次存档 ${d} 天前，窗口 ${windowDays} 天`); lines.push(`   → stmem_memory_rebuild(thread: "${tid}")`); lines.push(""); found = true; }
+    let lastMaintenanceDate = lastArchiveDate;
+    let lastMaintenanceLabel = "存档";
+    try {
+      const rebuildStateFile = path.join(getThreadDir(tid), "logs", "rebuild-state.json");
+      const completedAt = JSON.parse(fs.readFileSync(rebuildStateFile, "utf8"))?.lastCompleted?.completedAt;
+      if (completedAt && (!lastMaintenanceDate || new Date(completedAt) > new Date(lastMaintenanceDate))) {
+        lastMaintenanceDate = completedAt;
+        lastMaintenanceLabel = "重建";
+      }
+    } catch {}
+    if (lastMaintenanceDate) {
+      const d = Math.floor((Date.now() - new Date(lastMaintenanceDate).getTime()) / 86400000);
+      if (d >= windowDays) { lines.push(`1️⃣  线程重建待执行 — ${tid}，上次${lastMaintenanceLabel} ${d} 天前，窗口 ${windowDays} 天`); lines.push(`   → stmem_memory_rebuild(thread: "${tid}")`); lines.push(""); found = true; }
     }
   }
   if (!found) lines.push("暂无待办，一切正常 ✅");
@@ -465,7 +475,10 @@ const TOOLS = [
     description: "关键词搜索记忆 feelings + 回溯原文 archive",
     inputSchema: {
       type: "object",
-      properties: { query: { type: "string", description: "搜索关键词" } },
+      properties: {
+        query: { type: "string", description: "搜索关键词" },
+        thread: { type: "string", description: "线程 ID；Codex 等无法自动注入会话 ID 的客户端应明确传入" },
+      },
       required: ["query"],
     },
   },
@@ -474,7 +487,10 @@ const TOOLS = [
     description: "深度记忆检索（子 agent 多级搜索 + 原文回溯）",
     inputSchema: {
       type: "object",
-      properties: { query: { type: "string", description: "搜索内容（自然语言）" } },
+      properties: {
+        query: { type: "string", description: "搜索内容（自然语言）" },
+        thread: { type: "string", description: "线程 ID；Codex 等无法自动注入会话 ID 的客户端应明确传入" },
+      },
       required: ["query"],
     },
   },
