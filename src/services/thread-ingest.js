@@ -38,6 +38,13 @@ function isSystemTemplate(text) {
   return !!text && markers.filter(re => re.test(text)).length >= 2;
 }
 
+function isArchiveConversation(row) {
+  return !!row?.text
+    && !isInjectedMemoryBlock(row.text)
+    && !isSystemTemplate(row.text)
+    && !row.text.includes("<!-- stmem-rule:");
+}
+
 function hash(value) { return crypto.createHash("sha256").update(value).digest("hex"); }
 function fullKey(row) { return hash(JSON.stringify(row)); }
 function timeValue(row) { const n = new Date(row.timestamp || "").getTime(); return Number.isFinite(n) ? n : 0; }
@@ -86,7 +93,7 @@ function ingestRecords(records, { fullDir = null, memoryStore = null, format = "
       if (!fullByDate.has(date)) fullByDate.set(date, []);
       fullByDate.get(date).push(raw);
     }
-    if (!row || isInjectedMemoryBlock(row.text) || isSystemTemplate(row.text) || row.text.includes("<!-- stmem-rule:")) continue;
+    if (!isArchiveConversation(row)) continue;
     if (!archiveByDate.has(date)) archiveByDate.set(date, []);
     archiveByDate.get(date).push(row);
   }
@@ -110,4 +117,7 @@ function ingestThreadFile(filePath, options) {
   return ingestMessages(messages, options);
 }
 
-module.exports = { parseThreadMessages, beijingDateKey, isSystemTemplate, ingestMessages, ingestRecords, ingestThreadFile };
+module.exports = {
+  parseThreadMessages, beijingDateKey, isSystemTemplate, isArchiveConversation,
+  ingestMessages, ingestRecords, ingestThreadFile,
+};
