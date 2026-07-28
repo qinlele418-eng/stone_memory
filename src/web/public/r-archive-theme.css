@@ -1,0 +1,110 @@
+/* Thread dashboard purple-gray theme. Loaded after the standalone garden skin. */
+:root {
+  --pine-950: #1a1922;
+  --pine-800: #523c78;
+  --pine-700: #6e4f9a;
+  --moss-500: #8265b3;
+  --moss-300: #b7a6d3;
+  --moss-200: rgba(110, 79, 154, .20);
+  --moss-100: rgba(110, 79, 154, .10);
+  --leaf-50: #f4f3f7;
+  --paper: #ffffff;
+  --earth: #6d6a7c;
+  --muted: #6d6a7c;
+  --line: rgba(26, 25, 34, .10);
+  --shadow: 0 18px 48px -30px rgba(38, 29, 55, .28);
+  color: #1a1922;
+  background: #f4f3f7;
+}
+
+html { background: #f4f3f7; }
+body {
+  color: #1a1922;
+  background:
+    radial-gradient(circle at 12% 8%, rgba(130, 101, 179, .09), transparent 34rem),
+    radial-gradient(circle at 88% 92%, rgba(210, 145, 179, .08), transparent 38rem),
+    #f4f3f7;
+}
+.brand, .lobby-head h1, .library-card h2, .dashboard-head h1,
+.side-title, .section-card h2, .stat strong { color: #523c78; }
+.brand { gap: 8px; }
+.brand-mark { width: 154px; height: 66px; object-fit: contain; }
+.brand small { margin-left: -8px; }
+.hero-stone { width: min(520px, 90vw); max-height: 300px; object-fit: contain; }
+.library-card .mini-stone { width: 230px; right: 8px; top: 8px; object-fit: contain; }
+.library-card h2 { margin-top: 138px; }
+.dashboard-head .mini-stone {
+  width: 250px;
+  max-height: 145px;
+  margin: -26px -14px -30px 0;
+  object-fit: contain;
+}
+.lobby-head h1, .library-card h2, .dashboard-head h1, .side-title {
+  font-family: "Cormorant Garamond", Georgia, "Noto Serif SC", serif;
+  font-style: italic;
+  letter-spacing: .01em;
+}
+.brand small, .library-stats, .stat, .eyebrow, .memory-time {
+  font-family: "DM Mono", ui-monospace, monospace;
+}
+.panel, .dashboard-head, .stat, .section-card, .library-card {
+  background: rgba(255, 255, 255, .94);
+  border-color: var(--line);
+  box-shadow: var(--shadow);
+}
+.primary { color: #fff; background: #6e4f9a; box-shadow: 0 10px 26px rgba(110, 79, 154, .22); }
+.primary:hover { background: #5d4285; }
+.secondary, .side-nav button.active, .side-nav button:hover {
+  color: #523c78;
+  background: rgba(110, 79, 154, .10);
+}
+.side-nav {
+  background: rgba(255, 255, 255, .76);
+  border-color: var(--line);
+  box-shadow: 0 16px 36px -28px rgba(38, 29, 55, .25);
+}
+.side-nav button { color: #6d6a7c; }
+.side-nav button.active { color: #523c78; box-shadow: inset 0 0 0 1px rgba(110, 79, 154, .16); }
+.status-dot { background: #8265b3; box-shadow: 0 0 0 5px rgba(130, 101, 179, .14); }
+.library-card:hover { border-color: rgba(110, 79, 154, .36); box-shadow: 0 22px 54px -30px rgba(38, 29, 55, .34); }
+.new-card { color: #6e4f9a; background: rgba(255, 255, 255, .48); border-color: rgba(110, 79, 154, .30); }
+.new-card span, .settings-gear { background: rgba(110, 79, 154, .10); }
+.dropzone, .overview-grid > div, .overview-empty-guide, .targeted-mining,
+.rebuild-preview, .rebuild-rule-row, .choice-row label, .watermark-description {
+  background: #f8f7fb;
+}
+.hero-stone, .brand-mark, .mini-stone {
+  filter: drop-shadow(0 14px 24px rgba(82, 60, 120, .12));
+}
+
+@media (max-width: 760px) {
+  .sidebar { background: rgba(244, 243, 247, .92); }
+  .brand-mark { width: 128px; height: 56px; }
+  .brand small { display: none; }
+  .library-card .mini-stone { width: 220px; right: 10px; }
+  .dashboard-head .mini-stone {
+    align-self: flex-end;
+    width: 220px;
+    max-height: 112px;
+    margin: -18px -8px -10px 0;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --pine-950: #ebe9ee; --pine-800: #c2afe0; --pine-700: #a890d4;
+    --moss-500: #a890d4; --moss-300: #766492;
+    --moss-200: rgba(168, 144, 212, .24); --moss-100: rgba(168, 144, 212, .16);
+    --leaf-50: #1a1820; --paper: #2a2832; --earth: #c8c4d0;
+    --muted: #aaa5b4; --line: rgba(232, 230, 236, .10);
+    color: #ebe9ee; background: #1a1820;
+  }
+  html, body { color: #ebe9ee; background: #1a1820; }
+  .brand, .lobby-head h1, .library-card h2, .dashboard-head h1,
+  .side-title, .section-card h2, .stat strong { color: #c2afe0; }
+  .panel, .dashboard-head, .stat, .section-card, .library-card { background: rgba(42, 40, 50, .96); }
+  .side-nav, .sidebar { background: rgba(42, 40, 50, .88); }
+  .dropzone, .overview-grid > div, .overview-empty-guide, .targeted-mining,
+  .rebuild-preview, .rebuild-rule-row, .choice-row label, .watermark-description { background: #312f3a; }
+  input, select, textarea, .targeted-message-list, .chat-bubble { color: #ebe9ee; background: #312f3a; }
+}
