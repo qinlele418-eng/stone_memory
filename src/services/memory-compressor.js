@@ -1,7 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { runSubagent } = require("./subagent-runner");
-const { parseJsonArray } = require("../lib/json-parse");
+const { parseJsonArray, parseJsonObject } = require("../lib/json-parse");
 
 const OPS_FILE = path.join(__dirname, "..", "..", "operations", "memory-compressor-operations.md");
 
@@ -18,6 +18,20 @@ function compressionRows(feelings) {
 
 function buildCompressionPrompt(feelings) {
   return `请压缩以下 feelings。严格逐条返回相同 id，不要遗漏或增加条目。\n\n${JSON.stringify(compressionRows(feelings), null, 2)}\n\n只输出 JSON 数组。`;
+}
+
+function buildApiCompressionPrompt(feelings) {
+  return `请压缩以下 feelings。严格逐条返回相同 id，不要遗漏或增加条目。\n\n${JSON.stringify(compressionRows(feelings), null, 2)}\n\n只输出一个 JSON 对象，格式为 {"items":[{"id":"原始 id","coarseSummary":"精简摘要","coreTerms":["具体词"]}]}。`;
+}
+
+function aliasCompressionFeelings(feelings) {
+  const ids = new Map();
+  const rows = (feelings || []).map((feeling, index) => {
+    const alias = `item_${index + 1}`;
+    ids.set(alias, feeling.id);
+    return { ...feeling, id: alias };
+  });
+  return { rows, ids };
 }
 
 function temporalPrefix(content) {
@@ -67,16 +81,23 @@ class MemoryCompressor {
 
   async compress(feelings) {
     if (!feelings?.length) return [];
-    const basePrompt = buildCompressionPrompt(feelings);
+    const viaApi = Boolean(this.apiConfig.apiKey);
+    const aliases = viaApi ? aliasCompressionFeelings(feelings) : null;
+    const validationRows = aliases?.rows || feelings;
+    const basePrompt = viaApi
+      ? buildApiCompressionPrompt(validationRows)
+      : buildCompressionPrompt(feelings);
     let lastError;
     for (let attempt = 0; attempt < 3; attempt++) {
       const prompt = attempt === 0 ? basePrompt
-        : `${basePrompt}\n\n上一次输出未通过校验：${lastError.message}。请重新输出完整数组，确保每条都有 1～3 个具体 coreTerms。`;
+        : `${basePrompt}\n\n上一次输出未通过校验：${lastError.message}。请重新输出完整结果，确保每条都有 1～3 个具体 coreTerms。`;
       try {
-        const raw = this.apiConfig.apiKey
+        const raw = viaApi
           ? await this._compressViaApi(prompt)
           : this._compressViaSubagent(prompt);
-        return validateCompressionResult(feelings, raw);
+        const validated = validateCompressionResult(validationRows, raw);
+        if (!aliases) return validated;
+        return validated.map(row => ({ ...row, id: aliases.ids.get(row.id) }));
       } catch (error) {
         lastError = error;
       }
@@ -110,6 +131,7 @@ class MemoryCompressor {
               model,
               messages: [{ role: "system", content: system }, { role: "user", content: prompt }],
               temperature: 0.2,
+              response_format: { type: "json_object" },
               max_tokens: Math.max(1000, feelingsTokenBudget(prompt)),
             }),
           });
@@ -123,7 +145,11 @@ class MemoryCompressor {
         const data = await response.json();
         const reply = data?.choices?.[0]?.message?.content;
         if (!reply?.trim()) throw new Error("API returned empty content");
-        return parseJsonArray(reply);
+        const object = parseJsonObject(reply);
+        if (Array.isArray(object?.items)) return object.items;
+        const legacy = parseJsonArray(reply);
+        if (legacy.length) return legacy;
+        throw new Error("API 压缩结果不是包含 items 数组的 JSON 对象");
       } catch (error) {
         lastError = error;
         if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 1000 * 2 ** attempt));
@@ -137,4 +163,8 @@ function feelingsTokenBudget(prompt) {
   return Math.min(8000, Math.max(1000, Math.ceil(prompt.length / 2)));
 }
 
-module.exports = { MemoryCompressor, buildCompressionPrompt, validateCompressionResult, validateCoreTerms, compressionRows, temporalPrefix };
+module.exports = {
+  MemoryCompressor, buildCompressionPrompt, buildApiCompressionPrompt,
+  aliasCompressionFeelings, validateCompressionResult, validateCoreTerms,
+  compressionRows, temporalPrefix,
+};
