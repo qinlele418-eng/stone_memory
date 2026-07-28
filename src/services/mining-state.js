@@ -26,7 +26,7 @@ function shouldAttempt(state, date, messages, now = Date.now()) {
   const day = getDayState(state, date);
   if (!day) return true;
   if (day.status === "blocked" || (day.status === "failed" && day.attempt >= 3)) return false;
-  if (day.status === "failed" && day.nextRetryAt) {
+  if (["failed", "partial_failed"].includes(day.status) && day.nextRetryAt) {
     return new Date(day.nextRetryAt).getTime() <= now;
   }
   return true;

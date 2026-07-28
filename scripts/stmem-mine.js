@@ -19,7 +19,7 @@ const { getCfg, getThreadDir, listThreadIds, loadConfig } = require("../src/conf
 const { MemoryStore } = require("../src/storage/memory-store");
 const { requiresRemine, shouldAttempt } = require("../src/services/mining-state");
 
-function resolveApiConfig(tid, forceApi, forceSub, { diagnostic = false } = {}) {
+function resolveApiConfig(tid, forceApi, forceSub, { diagnostic = false, model = "" } = {}) {
   if (forceSub) return {};  // 强制 subagent
 
   const tc = loadConfig()[tid] || {};
@@ -36,7 +36,8 @@ function resolveApiConfig(tid, forceApi, forceSub, { diagnostic = false } = {}) 
     console.warn(`[stmem] 线程 ${tid} 配置了 api 模式但未找到 ${provider} 的 key，回退 subagent`);
     return {};
   }
-  if (!String(cred.model || "").trim()) {
+  const selectedModel = String(model || cred.model || "").trim();
+  if (!selectedModel) {
     if (diagnostic) return { apiKey: cred.key, baseUrl, model: "", provider };
     throw new Error(`API 模式缺少 ${provider} 模型名。请在创建记忆体或设置页填写上游实际可用的模型名`);
   }
@@ -48,7 +49,7 @@ function resolveApiConfig(tid, forceApi, forceSub, { diagnostic = false } = {}) 
   return {
     apiKey: cred.key,
     baseUrl,
-    model: String(cred.model).trim(),
+    model: selectedModel,
   };
 }
 
@@ -103,6 +104,8 @@ async function main() {
   const forceApi = args.includes("--api");
   const forceSub = args.includes("--subagent");
   const force = args.includes("--force");
+  const modelIdx = args.indexOf("--model");
+  const model = modelIdx >= 0 ? String(args[modelIdx + 1] || "").trim() : "";
   const targeted = args.includes("--targeted");
   const check = args.includes("--check");
   const stop = args.includes("--stop");
@@ -120,7 +123,7 @@ async function main() {
     return;
   }
 
-  const deepseekConfig = resolveApiConfig(tid, forceApi, forceSub, { diagnostic: check });
+  const deepseekConfig = resolveApiConfig(tid, forceApi, forceSub, { diagnostic: check, model });
   const modeLabel = deepseekConfig.apiKey ? `api (${deepseekConfig.baseUrl})` : "subagent";
 
   const miner = new MemoryMiner({

@@ -5,9 +5,11 @@ const os = require("os");
 const path = require("path");
 const {
   MemoryMiner,
+  MiningError,
   normalizeNewImportance,
   sortFeelingsChronologically,
   feelingEventTime,
+  miningChunkTimeRange,
   buildFeelingPrompt,
 } = require("../src/services/memory-miner");
 
@@ -54,6 +56,17 @@ test("new feelings are stored in event-time order with unknown times stable at t
       entries[5].content,
     ],
   );
+});
+
+test("failed mining chunks expose their Beijing time range", () => {
+  assert.deepEqual(miningChunkTimeRange([
+    { timestamp: "2026-07-27T08:42:00.000Z" },
+    { timestamp: "2026-07-27T10:07:00.000Z" },
+  ]), {
+    startTime: "2026-07-27T08:42:00.000Z",
+    endTime: "2026-07-27T10:07:00.000Z",
+    label: "16:42–18:07",
+  });
 });
 
 test("targeted mining uses existing feelings as tone examples and appends selected events", async t => {
@@ -186,6 +199,9 @@ test("chunk continuity includes only the previous five generated entries", t => 
     importance: 2,
   }));
   const prompt = miner._chunkPrompt("base", 1, 3, previous, "feelings");
+  assert.match(prompt, /这是今天一段时间内的对话，不是一整天的对话内容/);
+  assert.match(prompt, /如果对这部分对话没什么感触，可以返回空数组/);
+  assert.doesNotMatch(prompt, /第 2\/3 部分|不要补写前后块/);
   assert.doesNotMatch(prompt, /摘要1|摘要2/);
   for (let index = 3; index <= 7; index++) assert.match(prompt, new RegExp(`摘要${index}`));
 });
@@ -214,9 +230,84 @@ test("a failed chunk does not publish partial day results", async t => {
   await assert.rejects(() => miner._mineChannel({
     targetDate: "2026-06-12", messages, prompt: "prompt",
     stateKey: "feeling:2026-06-12", label: "feelings",
-  }), /chunk failed/);
+  }), error => error.code === "CHUNK_FAILED"
+    && error.details.cause.message === "chunk failed"
+    && error.details.chunkTimeLabel === "08:50–09:09"
+    && /08:50–09:09/.test(error.message));
   assert.equal(miner.pendingFeelings.length, 0);
   assert.equal(miner._readState()["feeling:2026-06-12"], undefined);
+});
+
+test("a retry reuses successful chunk cache and only mines the failed chunk", async t => {
+  const messages = Array.from({ length: 70 }, (_, index) => ({
+    timestamp: new Date(Date.UTC(2026, 5, 12, 0, index)).toISOString(),
+    type: "user",
+    text: "x".repeat(1000),
+  }));
+  const miner = minerFixture(t, []);
+  let calls = 0;
+  miner._extractViaSubagent = async () => {
+    calls++;
+    if (calls === 2) throw new Error("temporary failure");
+    return [{ content: `6月12日，上午${calls === 1 ? "八" : "九"}点。事件。`, importance: 2 }];
+  };
+
+  await assert.rejects(() => miner._mineChannel({
+    targetDate: "2026-06-12", messages, prompt: "prompt",
+    stateKey: "feeling:2026-06-12", label: "feelings",
+  }), error => error.code === "CHUNK_FAILED" && error.details.completedChunks === 1);
+  assert.equal(calls, 2);
+
+  await miner._mineChannel({
+    targetDate: "2026-06-12", messages, prompt: "prompt",
+    stateKey: "feeling:2026-06-12", label: "feelings",
+  });
+  assert.equal(calls, 3);
+  assert.equal(miner.pendingFeelings.length, 2);
+});
+
+test("features are mined from generated feelings instead of raw dialogue", async t => {
+  const miner = minerFixture(t, [{ text: "不应再次发送给 feature miner 的原始对话" }]);
+  miner.pendingFeelings = [
+    { content: "6月12日，上午九点。完成了摘要去噪。", importance: 3 },
+    { content: "6月12日，上午十点。确认了新的偏好。", importance: 2 },
+  ];
+  let received;
+  miner._mineChannel = async options => { received = options; };
+  await miner._mineFeaturesFromFeelings({
+    targetDate: "2026-06-12", prompt: "feature prompt", stateKey: "feature:2026-06-12",
+  });
+  assert.equal(received.messages.length, 2);
+  assert.deepEqual(received.messages.map(row => row.text), miner.pendingFeelings.map(row => row.content));
+  assert.ok(received.messages.every(row => !row.text.includes("不应再次发送")));
+});
+
+test("feature mining skips the model when no feelings were generated", async t => {
+  const miner = minerFixture(t, []);
+  miner._mineChannel = async () => { throw new Error("model should not be called"); };
+  await miner._mineFeaturesFromFeelings({
+    targetDate: "2026-06-12", prompt: "feature prompt", stateKey: "feature:2026-06-12",
+  });
+  assert.equal(miner._readState()["feature:2026-06-12"], true);
+});
+
+test("feature date prompt describes summaries and does not require feeling dates", t => {
+  const miner = minerFixture(t, []);
+  const prompt = miner._datedChannelPrompt("feature prompt", "2026-06-12", true);
+  assert.match(prompt, /已经生成并去噪的事件摘要/);
+  assert.match(prompt, /不要在 feature 内容中输出日期/);
+  assert.doesNotMatch(prompt, /每条 feelings 必须/);
+});
+
+test("a day with a successful chunk is marked partial_failed instead of failed", async t => {
+  const miner = minerFixture(t, [{ text: "需要分块的对话" }]);
+  miner._mineDayWithSubagent = async () => {
+    throw new MiningError("CHUNK_FAILED", "第 2/3 块失败，已完成 1/3 块", {
+      completedChunks: 1, totalChunks: 3, failedChunk: 2,
+    });
+  };
+  await assert.rejects(() => miner.mine("2026-06-12"), /第 2\/3 块失败/);
+  assert.equal(miner.store.getDayState("2026-06-12").status, "partial_failed");
 });
 
 test("three consecutive failures block automatic retries and enqueue a notification", async t => {

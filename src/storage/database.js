@@ -4,7 +4,7 @@ const Database = require("better-sqlite3");
 const { resolveDatabasePath } = require("./database-location");
 const { messageIdentity } = require("../lib/message-identity");
 
-const SCHEMA_VERSION = 9;
+const SCHEMA_VERSION = 10;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE TABLE IF NOT EXISTS mining_day_state (
   thread_id TEXT NOT NULL,
   source_date TEXT NOT NULL,
-  status TEXT NOT NULL CHECK(status IN ('running','completed','completed_empty','failed','blocked')),
+  status TEXT NOT NULL CHECK(status IN ('running','completed','completed_empty','partial_failed','failed','blocked')),
   message_count INTEGER NOT NULL DEFAULT 0,
   feeling_count INTEGER NOT NULL DEFAULT 0,
   feature_count INTEGER NOT NULL DEFAULT 0,
@@ -150,12 +150,43 @@ function openDatabase(memoryDir) {
   if (currentVersion < SCHEMA_VERSION) {
     db.exec(SCHEMA);
     migrateMessages(db);
+    migrateMiningDayState(db);
     migrateColumns(db);
     removeVersionTables(db);
     db.prepare("INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)")
       .run(SCHEMA_VERSION, new Date().toISOString());
   }
   return db;
+}
+
+function migrateMiningDayState(db) {
+  const sql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='mining_day_state'").get()?.sql || "";
+  if (sql.includes("partial_failed")) return;
+  db.exec(`
+    BEGIN IMMEDIATE;
+    ALTER TABLE mining_day_state RENAME TO mining_day_state_v9;
+    CREATE TABLE mining_day_state (
+      thread_id TEXT NOT NULL,
+      source_date TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('running','completed','completed_empty','partial_failed','failed','blocked')),
+      message_count INTEGER NOT NULL DEFAULT 0,
+      feeling_count INTEGER NOT NULL DEFAULT 0,
+      feature_count INTEGER NOT NULL DEFAULT 0,
+      attempt INTEGER NOT NULL DEFAULT 0,
+      error_code TEXT,
+      error_message TEXT,
+      archive_fingerprint TEXT,
+      started_at TEXT,
+      completed_at TEXT,
+      failed_at TEXT,
+      next_retry_at TEXT,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(thread_id, source_date)
+    );
+    INSERT INTO mining_day_state SELECT * FROM mining_day_state_v9;
+    DROP TABLE mining_day_state_v9;
+    COMMIT;
+  `);
 }
 
 function migrateMessages(db) {

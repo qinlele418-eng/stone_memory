@@ -47,6 +47,17 @@ function feelingEventTime(entry, targetDate) {
   return new Date(`${targetDate}T${String(parsed.hour).padStart(2, "0")}:${String(parsed.minute || 0).padStart(2, "0")}:00+08:00`).toISOString();
 }
 
+function miningChunkTimeRange(messages) {
+  const rows = (messages || []).filter(row => Number.isFinite(Date.parse(row?.timestamp || "")));
+  if (!rows.length) return { startTime: null, endTime: null, label: "时间未知" };
+  const format = timestamp => new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai", hour: "2-digit", minute: "2-digit", hour12: false,
+  }).format(new Date(timestamp));
+  const startTime = rows[0].timestamp;
+  const endTime = rows[rows.length - 1].timestamp;
+  return { startTime, endTime, label: `${format(startTime)}–${format(endTime)}` };
+}
+
 function subagentSafe(prompt, opts = {}) {
   try {
     return runSubagent(prompt, opts);
@@ -195,12 +206,14 @@ class MemoryMiner {
     this.purpose = personaConfig?.purpose || "accompany";
     this.memoryDir = memoryDir;
     this.minedDir = path.join(memoryDir, "mined");
+    this.chunkCacheDir = path.join(this.minedDir, "chunk-cache");
     this.archive = archive;
     this.deepseekConfig = deepseekConfig;
     this.timer = null;
     this.running = false;
 
     fs.mkdirSync(path.join(memoryDir, "archive"), { recursive: true });
+    fs.mkdirSync(this.chunkCacheDir, { recursive: true });
     this.store = new MemoryStore({ memoryDir, threadId });
     this.channelState = new Set();
     this.pendingFeelings = [];
@@ -273,6 +286,7 @@ class MemoryMiner {
       this.pendingFeelings = [];
       this.pendingFeatures = [];
       if (force) this._deleteStateKeys([`feeling:${targetDate}`, `feature:${targetDate}`]);
+      if (force) this._clearChunkCaches(targetDate);
       const state = force ? {} : this._readState();
 
       const removedMemoryBlocks = this.store.removeInjectedMemoryBlocks();
@@ -300,7 +314,7 @@ class MemoryMiner {
           }
           if (!state[`feature:${targetDate}`]) {
             const prompt = `${opsPrompt}\n\n只输出 features 数组，不要 feelings。\n\n格式：[{"content": "...", "category": "...", "importance": 1-5}]`;
-            await this._mineChannel({ targetDate, messages, prompt, outputFile: null, stateKey: `feature:${targetDate}`, label: "features", isFeature: true });
+            await this._mineFeaturesFromFeelings({ targetDate, prompt, stateKey: `feature:${targetDate}` });
           }
         } else {
           // 无 ops：用内联提示词
@@ -308,7 +322,10 @@ class MemoryMiner {
             await this._mineChannel({ targetDate, messages, prompt: buildFeelingPrompt(this.aiName, this.userName, this.purpose), stateKey: `feeling:${targetDate}`, label: "feelings" });
           }
           if (!state[`feature:${targetDate}`]) {
-            await this._mineChannel({ targetDate, messages, prompt: buildFeaturePrompt(this.userName, this.purpose), outputFile: null, stateKey: `feature:${targetDate}`, label: "features", isFeature: true });
+            await this._mineFeaturesFromFeelings({
+              targetDate, prompt: buildFeaturePrompt(this.userName, this.purpose),
+              stateKey: `feature:${targetDate}`,
+            });
           }
         }
       } else {
@@ -328,6 +345,7 @@ class MemoryMiner {
           feelingCount, featureCount,
           attempt, completedAt, errorCode: null, errorMessage: null, failedAt: null, nextRetryAt: null, updatedAt: completedAt,
         }});
+        this._clearChunkCaches(targetDate);
         this._deleteStateKeys([`skipped:${targetDate}`]);
       } else {
         const missing = [!updated[`feeling:${targetDate}`] && "feelings", !updated[`feature:${targetDate}`] && "features"].filter(Boolean);
@@ -338,8 +356,8 @@ class MemoryMiner {
       return { date: targetDate, status: completedDay.status, feelingCount: completedDay.feelingCount, featureCount: completedDay.featureCount, durationMs: Date.now() - startedAt };
     } catch (err) {
       console.error(`[memory-miner] error: ${err.message}`);
-      // 双通道只有 replaceDay 成功后才算整日发布。任一通道/分块失败，
-      // 清除进程内临时完成标记，确保常驻 watcher 下次会完整重跑两路。
+      // 双通道只有 replaceDay 成功后才算整日发布。分块成功结果留在临时缓存，
+      // 下次只补失败块；正式库仍不发布残缺的一天。
       this._deleteStateKeys([`feeling:${targetDate}`, `feature:${targetDate}`]);
       const failedAt = new Date();
       if (force) {
@@ -351,9 +369,11 @@ class MemoryMiner {
         if (err instanceof MiningError) throw err;
         throw new MiningError(err.code || "MINING_FAILED", err.message, { cause: err });
       }
-      const blocked = attempt >= 3;
+      const partial = err?.details?.completedChunks > 0;
+      const blocked = !partial && attempt >= 3;
       this._saveState({ [`day:${targetDate}`]: {
-        status: blocked ? "blocked" : "failed", messageCount: messages.length, archiveFingerprint: fingerprint,
+        status: blocked ? "blocked" : partial ? "partial_failed" : "failed",
+        messageCount: messages.length, archiveFingerprint: fingerprint,
         attempt, errorCode: err.code || "MINING_FAILED", errorMessage: err.message,
         failedAt: failedAt.toISOString(),
         ...(blocked ? { nextRetryAt: null } : { nextRetryAt: new Date(failedAt.getTime() + retryDelayMs(attempt)).toISOString() }),
@@ -397,9 +417,12 @@ class MemoryMiner {
     }
   }
 
-  _datedChannelPrompt(prompt, targetDate) {
+  _datedChannelPrompt(prompt, targetDate, isFeature = false) {
     const [, m, d] = targetDate.split("-");
     const dateLabel = `${parseInt(m)}月${parseInt(d)}日`;
+    if (isFeature) {
+      return `${prompt}\n\n以下输入是 ${dateLabel} 已经生成并去噪的事件摘要。只从这些摘要中提取长期有检索价值的 features；不要把摘要改写成另一批事件，也不要在 feature 内容中输出日期。`;
+    }
     return `${prompt}\n\n以下是 ${dateLabel} 的对话记录。你只能记录这一天实际发生的对话。即使对话中提到之前的事，你也只记录今天的对话。每条 feelings 必须以 "${dateLabel}，" 开头，禁止使用其他日期。`;
   }
 
@@ -416,7 +439,7 @@ class MemoryMiner {
       importance: entry?.importance,
       ...(entry?.category ? { category: entry.category } : {}),
     }));
-    return `${prompt}\n\n这是当天对话的第 ${index + 1}/${total} 部分。只总结本部分实际出现的事件；不要补写前后块内容。这个块内容较少时可以返回空数组。`
+    return `${prompt}\n\n这是今天一段时间内的对话，不是一整天的对话内容。根据重要性挖完整的一块或多块事件；如果对这部分对话没什么感触，可以返回空数组。`
       + (previous.length
         ? `\n\n上一块最后 ${previous.length} 条已生成${label}如下，仅用于理解连续事件、人物指代和避免重复；这些内容已经保存，禁止再次输出：\n${JSON.stringify(previous)}`
         : "");
@@ -612,7 +635,7 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
   }
 
   async _extractReviewChannel({ targetDate, messages, prompt, label, isFeature = false, model = null }) {
-    const datedPrompt = this._datedChannelPrompt(prompt, targetDate);
+    const datedPrompt = this._datedChannelPrompt(prompt, targetDate, isFeature);
     const chunks = this._messageChunks(messages);
     const raw = [];
     for (let index = 0; index < chunks.length; index++) {
@@ -635,36 +658,73 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
 
     // stdin 只传对话 + 输出指令，不内联 ops（ops 走 --system-prompt-file）
     const chunks = this._messageChunks(messages);
-    const feelings = [], features = [];
-    console.log(`[memory-miner] ${targetDate}: sub-agent extracting feelings + features in ${chunks.length} chunk(s)...`);
+    const feelings = [];
+    const cache = this._loadChunkCache(targetDate, "feelings-subagent", messages, chunks.length);
+    console.log(`[memory-miner] ${targetDate}: sub-agent extracting feelings in ${chunks.length} chunk(s)...`);
     for (let index = 0; index < chunks.length; index++) {
+      const cached = cache.chunks[index];
+      if (cached) {
+        feelings.push(...cached);
+        continue;
+      }
       const conversationText = this._buildConversationText(chunks[index]);
       const basePrompt = hasOps
-        ? `以下是 ${dateLabel} 的对话记录。你只能记录这一天实际发生的对话。每条 feelings 必须以 "${dateLabel}，" 开头，禁止使用其他日期。\n\n对话内容：\n${conversationText}\n\n请输出 JSON：{"feelings":[...], "features":[...]}`
-        : `${buildFeelingPrompt(this.aiName, this.userName, this.purpose)}\n\n---\n\n${buildFeaturePrompt(this.userName, this.purpose)}\n\n以下是 ${dateLabel} 的对话记录。你只能记录这一天实际发生的对话。每条 feelings 必须以 "${dateLabel}，" 开头，禁止使用其他日期。\n\n对话内容：\n${conversationText}\n\n请输出 JSON：{"feelings":[...], "features":[...]}`;
+        ? `以下是 ${dateLabel} 的对话记录。你只能记录这一天实际发生的对话。每条 feelings 必须以 "${dateLabel}，" 开头，禁止使用其他日期。\n\n对话内容：\n${conversationText}\n\n只输出 feelings JSON 数组，不要输出 features。`
+        : `${buildFeelingPrompt(this.aiName, this.userName, this.purpose)}\n\n以下是 ${dateLabel} 的对话记录。你只能记录这一天实际发生的对话。每条 feelings 必须以 "${dateLabel}，" 开头，禁止使用其他日期。\n\n对话内容：\n${conversationText}\n\n只输出 feelings JSON 数组。`;
       const prompt = this._chunkPrompt(basePrompt, index, chunks.length, feelings, "feelings");
       console.log(`[memory-miner] ${targetDate}: sub-agent chunk ${index + 1}/${chunks.length} — ${byteLength(conversationText)} bytes`);
-      const reply = hasOps
-        ? subagentSafe(prompt, { opsFile, threadId: this.threadId })
-        : subagentSafe(prompt, { threadId: this.threadId });
-      const parsed = parseJsonObject(reply);
-      if (!parsed || !Array.isArray(parsed.feelings) || !Array.isArray(parsed.features)) {
-        throw new MiningError("OUTPUT_INVALID", `${targetDate}: subagent chunk ${index + 1}/${chunks.length} output is not a feelings/features JSON object`);
+      try {
+        const reply = hasOps
+          ? subagentSafe(prompt, { opsFile, threadId: this.threadId })
+          : subagentSafe(prompt, { threadId: this.threadId });
+        const parsed = parseJsonArray(reply);
+        if (!Array.isArray(parsed)) {
+          throw new MiningError("OUTPUT_INVALID", `${targetDate}: subagent chunk ${index + 1}/${chunks.length} output is not a feelings JSON array`);
+        }
+        cache.chunks[index] = parsed;
+        this._saveChunkCache(targetDate, "feelings-subagent", cache);
+        feelings.push(...parsed);
+      } catch (error) {
+        const range = miningChunkTimeRange(chunks[index]);
+        throw new MiningError(error.code || "CHUNK_FAILED",
+          `${targetDate} ${range.label}（第 ${index + 1}/${chunks.length} 块）挖掘失败，已完成 ${Object.keys(cache.chunks).length}/${chunks.length} 块`,
+          { completedChunks: Object.keys(cache.chunks).length, totalChunks: chunks.length, failedChunk: index + 1,
+            chunkStartTime: range.startTime, chunkEndTime: range.endTime, chunkTimeLabel: range.label, cause: error });
       }
-      feelings.push(...parsed.feelings);
-      features.push(...parsed.features);
     }
 
     // 写入 feelings
     if (feelings.length > 0 && !state[`feeling:${targetDate}`]) {
       await this._saveEntries(feelings, { targetDate, stateKey: `feeling:${targetDate}`, label: "feelings", isFeature: false });
     }
-    // 写入 features
-    if (features.length > 0 && !state[`feature:${targetDate}`]) {
-      await this._saveEntries(features, { targetDate, outputFile: null, stateKey: `feature:${targetDate}`, label: "features", isFeature: true });
-    }
     if (!feelings.length && !state[`feeling:${targetDate}`]) this._saveState({ [`feeling:${targetDate}`]: Date.now() });
-    if (!features.length && !state[`feature:${targetDate}`]) this._saveState({ [`feature:${targetDate}`]: Date.now() });
+    if (!state[`feature:${targetDate}`]) {
+      const prompt = opsPrompt && this.purpose === "accompany"
+        ? `${opsPrompt}\n\n以下输入是今天已经生成并去噪的 feelings。请只从这些摘要提取 features，不要输出 feelings。\n\n格式：[{"content": "...", "category": "...", "importance": 1-5}]`
+        : buildFeaturePrompt(this.userName, this.purpose);
+      await this._mineFeaturesFromFeelings({ targetDate, prompt, stateKey: `feature:${targetDate}` });
+    }
+  }
+
+  _featureSourceMessages(targetDate) {
+    return this.pendingFeelings.map((entry, index) => ({
+      timestamp: entry.eventTime || `${targetDate}T12:00:${String(index % 60).padStart(2, "0")}+08:00`,
+      type: "memory",
+      text: entry.content,
+    }));
+  }
+
+  async _mineFeaturesFromFeelings({ targetDate, prompt, stateKey }) {
+    const messages = this._featureSourceMessages(targetDate);
+    if (!messages.length) {
+      console.log(`[memory-miner] ${targetDate}: features — no feelings, skipping model call`);
+      this._saveState({ [stateKey]: Date.now() });
+      return;
+    }
+    console.log(`[memory-miner] ${targetDate}: features — extracting from ${messages.length} generated feelings`);
+    await this._mineChannel({
+      targetDate, messages, prompt, stateKey, label: "features", isFeature: true,
+    });
   }
 
   /** 保存条目（去重 + 写文件） */
@@ -727,15 +787,32 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
     const datedPrompt = this._datedChannelPrompt(prompt, targetDate);
     const chunks = this._messageChunks(messages);
     const raw = [];
+    const cache = this._loadChunkCache(targetDate, label, messages, chunks.length);
     console.log(`[memory-miner] ${targetDate}: ${label} — ${messages.length} messages in ${chunks.length} chunk(s), extracting...`);
     for (let index = 0; index < chunks.length; index++) {
+      if (cache.chunks[index]) {
+        raw.push(...cache.chunks[index]);
+        continue;
+      }
       const conversationBytes = byteLength(this._buildConversationText(chunks[index]));
       console.log(`[memory-miner] ${targetDate}: ${label} chunk ${index + 1}/${chunks.length} — ${conversationBytes} bytes`);
-      const result = await this._extractViaSubagent(
-        chunks[index],
-        this._chunkPrompt(datedPrompt, index, chunks.length, raw, isFeature ? "features" : "feelings"),
-      );
-      if (Array.isArray(result)) raw.push(...result);
+      try {
+        const result = await this._extractViaSubagent(
+          chunks[index],
+          this._chunkPrompt(datedPrompt, index, chunks.length, raw, isFeature ? "features" : "feelings"),
+        );
+        const entries = Array.isArray(result) ? result : [];
+        cache.chunks[index] = entries;
+        this._saveChunkCache(targetDate, label, cache);
+        raw.push(...entries);
+      } catch (error) {
+        const range = miningChunkTimeRange(chunks[index]);
+        throw new MiningError(error.code || "CHUNK_FAILED",
+          `${targetDate} ${range.label}（${label} 第 ${index + 1}/${chunks.length} 块）挖掘失败，已完成 ${Object.keys(cache.chunks).length}/${chunks.length} 块`,
+          { completedChunks: Object.keys(cache.chunks).length, totalChunks: chunks.length, failedChunk: index + 1,
+            chunkStartTime: range.startTime, chunkEndTime: range.endTime, chunkTimeLabel: range.label,
+            channel: label, cause: error });
+      }
     }
     if (!raw || !raw.length) {
       console.log(`[memory-miner] ${targetDate}: ${label} — no results`);
@@ -813,6 +890,33 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
     return state;
   }
 
+  _chunkCachePath(targetDate, label) {
+    return path.join(this.chunkCacheDir, `${targetDate}-${label}.json`);
+  }
+
+  _loadChunkCache(targetDate, label, messages, chunkCount) {
+    const fingerprint = archiveFingerprint(messages);
+    const filename = this._chunkCachePath(targetDate, label);
+    try {
+      const cached = JSON.parse(fs.readFileSync(filename, "utf8"));
+      if (cached.archiveFingerprint === fingerprint && cached.chunkCount === chunkCount) return cached;
+    } catch {}
+    return { version: 1, targetDate, label, archiveFingerprint: fingerprint, chunkCount, chunks: {} };
+  }
+
+  _saveChunkCache(targetDate, label, cache) {
+    const filename = this._chunkCachePath(targetDate, label);
+    const temporary = `${filename}.${process.pid}.tmp`;
+    fs.writeFileSync(temporary, JSON.stringify(cache), { mode: 0o600 });
+    fs.renameSync(temporary, filename);
+  }
+
+  _clearChunkCaches(targetDate) {
+    for (const label of ["combined", "feelings-subagent", "feelings", "features"]) {
+      try { fs.unlinkSync(this._chunkCachePath(targetDate, label)); } catch {}
+    }
+  }
+
   _saveState(state) {
     for (const [key, value] of Object.entries(state)) {
       if (key.startsWith("day:")) this.store.setDayState(key.slice(4), value);
@@ -839,6 +943,7 @@ module.exports = {
   normalizeNewImportance,
   sortFeelingsChronologically,
   feelingEventTime,
+  miningChunkTimeRange,
   buildFeelingPrompt,
   buildFeaturePrompt,
 };
