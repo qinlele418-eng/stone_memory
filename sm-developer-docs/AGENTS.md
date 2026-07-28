@@ -177,6 +177,14 @@ Stone Memory优先从现有原文、摘要和特征中重算解释，不为每�
 5. 运行相关测试和完整 `npm test`。
 6. 提交PR，说明风险、验证结果及是否涉及数据迁移。
 
+## 前端实验模块
+
+- 开发者模式中的实验前端必须遵守 [前端实验模块规范](frontend-modules.md)。
+- 采用 `theme-studio` 的可拆卸 bootstrap 结构；模块入口、页面和业务状态不得硬编码进主 `app.js`。
+- 入口卡片统一复用 `developer-experiment-card`、`developer-memory-stack` 和 `developer-enter`，通过 `data-module-order` 排序。
+- 绑定记忆体的模块只能消费宿主提供的真实 `threadId`，不得自行默认第一套记忆体。
+- 实验页面使用 `--stone-tide-*` 主题契约，让主题工作台的修改自动覆盖所有模块。
+
 禁止：
 
 - 遇到报错就另写导入、清洗或rebuild脚本。

@@ -225,16 +225,21 @@ function lobby() {
   document.querySelector("#new-library").onclick = () => { resetCreateForm(); wizard(); };
 }
 
-async function openLibrary(threadId) {
-  try { const data = await api(`/api/libraries/${encodeURIComponent(threadId)}/overview`); workspace(data); }
-  catch (error) { showToast(error.message, "error"); }
+async function openLibrary(threadId, view = "overview") {
+  try {
+    const data = await api(`/api/libraries/${encodeURIComponent(threadId)}/overview`);
+    workspace(data);
+    if (view === "developer") renderDeveloperMode(data);
+  } catch (error) {
+    showToast(error.message, "error");
+  }
 }
 
 function workspace(data) {
   const counts = data.counts, rebuild=data.rebuild;
   const automationReady=data.automaticFullMining&&data.automaticMemoryMaintenance;
   const statusText=data.attention||(!automationReady?"自动挖掘未完全开启":"记忆运行正常");
-  app.innerHTML = `<section class="workspace"><div class="shell workspace-grid"><aside class="sidebar"><a class="back-link" href="#">← 返回记忆体</a><h2 class="side-title">${escapeHtml(data.libraryName)}</h2><nav class="side-nav" aria-label="记忆体导航"><button class="active" data-view="overview">概览</button><button data-view="maintenance">维护</button><button data-view="archive">记忆档案</button><button data-view="developer">开发者模式</button><button data-view="settings">设置</button></nav></aside><main id="workspace-main"><div class="dashboard-head"><div><p class="eyebrow">Stone Memory</p><h1>${escapeHtml(data.libraryName)}</h1><div class="status-line ${automationReady&&!data.attention?"":"warning"}"><span class="status-dot"></span>${escapeHtml(statusText)}</div></div>${stoneSvg("mini-stone")}</div>
+  app.innerHTML = `<section class="workspace" data-thread-id="${escapeHtml(data.threadId)}" data-library-name="${escapeHtml(data.libraryName)}"><div class="shell workspace-grid"><aside class="sidebar"><a class="back-link" href="#">← 返回记忆体</a><h2 class="side-title">${escapeHtml(data.libraryName)}</h2><nav class="side-nav" aria-label="记忆体导航"><button class="active" data-view="overview">概览</button><button data-view="maintenance">维护</button><button data-view="archive">记忆档案</button><button data-view="developer">开发者模式</button><button data-view="settings">设置</button></nav></aside><main id="workspace-main"><div class="dashboard-head"><div><p class="eyebrow">Stone Memory</p><h1>${escapeHtml(data.libraryName)}</h1><div class="status-line ${automationReady&&!data.attention?"":"warning"}"><span class="status-dot"></span>${escapeHtml(statusText)}</div></div>${stoneSvg("mini-stone")}</div>
     ${rebuild?`<section class="section-card"><h2>当前线程已插入内容</h2><div class="overview-grid"><div><span>人设 / 规则</span><strong>${rebuild.injectedRules||0} 份</strong><small>${(rebuild.injectedRuleNames||[]).map(escapeHtml).join("、")||"无"}</small></div><div><span>原文对话</span><strong>${(rebuild.recentMessages||0)+(rebuild.retainedMessages||0)} 条</strong><small>近期 ${rebuild.recentMessages||0} 条（${rebuild.windowDays} 个活跃日） · 锚点实际注入 ${rebuild.retainedMessages||0} 条（${rebuild.retainAnchors||0} 个锚点）</small></div><div><span>摘要</span><strong>${rebuild.injectedFeelings||0} 条</strong><small>仅统计本次实际写入线程的摘要</small></div><div><span>工具链</span><strong>${rebuild.preservedToolPairs||0} 组</strong><small>上次 rebuild 的保留结果</small></div></div></section>`:`<section class="section-card"><h2>当前线程已插入内容</h2><div class="overview-empty-guide"><p>当前还没有线程注入报告。请前往【维护】，先通过【对话导入】补充记录、在【记忆挖掘】中生成摘要，再通过【线程重建】将人设、摘要与近期对话写入当前线程，完成记忆体构建。</p><button class="secondary" id="overview-maintenance">前往维护 →</button></div></section>`}
     <section class="section-card"><h2>线程与记忆状态</h2><div class="overview-grid"><div><span>当前上下文窗口</span><strong>${formatContextUsage(data.contextUsage)}</strong><small>${contextUsageHint(data)}</small></div><div><span>最近重建</span><strong>${rebuild?escapeHtml(formatBeijingTime(rebuild.completedAt)):"暂无记录"}</strong><small>${rebuild?`${escapeHtml(rebuild.runtime)} · ${escapeHtml(rebuild.trigger||"cli")} · 北京时间`:"等待第一次正式 rebuild"}</small></div><div><span>上次挖掘</span><strong>${data.lastMinedAt?escapeHtml(formatBeijingTime(data.lastMinedAt)):"尚未挖掘"}</strong><small>待挖掘 ${data.pendingMiningDays||0} 天</small></div><div><span>自动化</span><strong>${data.automaticFullMining||data.automaticMemoryMaintenance?"已配置":"已关闭"}</strong><small>历史补挖 ${data.automaticFullMining?"开":"关"} · 新对话维护 ${data.automaticMemoryMaintenance?"开":"关"}</small></div></div></section>
     <section class="section-card"><h2>最近生成摘要</h2>${data.recent.length ? data.recent.map(item => `<article class="memory-row"><div class="memory-time">${escapeHtml(item.sourceDate)} ${escapeHtml(item.eventTime || "")}</div><p>${escapeHtml(item.content)}</p><span class="badge">importance ${item.importance}</span><span class="badge">${escapeHtml(item.summaryMode)}</span></article>`).join("") : `<div class="empty">还没有摘要。导入对话后，第一次挖掘会让记忆在这里出现。</div>`}</section></main></div></section>`;
@@ -250,8 +255,7 @@ function workspace(data) {
 function renderDeveloperMode(library) {
   document.querySelectorAll(".side-nav button").forEach(button => button.classList.toggle("active", button.dataset.view === "developer"));
   const main=document.querySelector("#workspace-main");
-  main.innerHTML=`<div class="dashboard-head developer-mode-head"><div><p class="eyebrow">Stone Memory Lab</p><h1>开发者模式</h1><p class="lead">这里不是档案柜，是 Stone Memory 正在生长的实验室。</p></div><div class="developer-orbit" aria-hidden="true"><span></span><i></i></div></div><section class="developer-lab-intro"><span class="developer-live-dot"></span><p>体验已经通过原型验证、但仍需要真实使用反馈的新能力。实验功能可能调整参数与行为，进入正式栏目之前不会改变默认流程。</p></section><section class="developer-experiment-card"><div class="developer-experiment-glow" aria-hidden="true"></div><div class="developer-experiment-copy"><div class="developer-experiment-meta"><span class="developer-status active">实验前端已接入</span><span class="developer-contributor">贡献人：@小思飞刀</span></div><p class="eyebrow">Reviewable memory · Community experiment 01</p><h2>记忆审阅实验室</h2><p>让多个模型分别回忆同一天，并排比较它们记住与遗漏的内容，逐条混选后再决定哪些内容成为正式记忆。</p><div class="developer-experiment-features"><span>多模型独立候选</span><span>逐条混选</span><span>确认后入库</span></div></div><div class="developer-experiment-action"><div class="developer-memory-stack" aria-hidden="true"><i></i><i></i><i></i><b>记忆候选</b></div><button class="developer-enter" id="enter-review-lab"><span>Community experiment 01</span><strong>进入实验 →</strong></button></div></section>`;
-  main.querySelector("#enter-review-lab").onclick=()=>{location.href=`/review-lab/?threadId=${encodeURIComponent(library.threadId)}`;};
+  main.innerHTML=`<div class="dashboard-head developer-mode-head"><div><p class="eyebrow">Stone Memory Lab</p><h1>开发者模式</h1><p class="lead">这里不是档案柜，是 Stone Memory 正在生长的实验室。</p></div><div class="developer-orbit" aria-hidden="true"><span></span><i></i></div></div><section class="developer-lab-intro"><span class="developer-live-dot"></span><p>体验已经通过原型验证、但仍需要真实使用反馈的新能力。实验功能可能调整参数与行为，进入正式栏目之前不会改变默认流程。</p></section><div id="developer-module-host" class="developer-module-host" aria-live="polite"></div>`;
 }
 
 function renderMemoryHub(library) {
@@ -842,4 +846,16 @@ async function checkAndRepair(library) {
   await showIntegrity(library, true); button.disabled = false; button.innerHTML = original;
 }
 
-loadLibraries().then(() => state.libraries.length ? lobby() : welcome()).catch(error => { app.innerHTML = `<section class="welcome"><div class="welcome-content"><h1>Stone Memory</h1><p class="lead">本地服务暂时无法读取记忆体。</p><button class="primary" onclick="location.reload()">重新加载</button></div></section>`; showToast(error.message, "error"); });
+loadLibraries().then(async () => {
+  if (!state.libraries.length) {
+    welcome();
+    return;
+  }
+  const route = new URLSearchParams(window.location.search);
+  const threadId = route.get("threadId");
+  if (route.get("view") === "developer" && state.libraries.some(library => library.threadId === threadId)) {
+    await openLibrary(threadId, "developer");
+    return;
+  }
+  lobby();
+}).catch(error => { app.innerHTML = `<section class="welcome"><div class="welcome-content"><h1>Stone Memory</h1><p class="lead">本地服务暂时无法读取记忆体。</p><button class="primary" onclick="location.reload()">重新加载</button></div></section>`; showToast(error.message, "error"); });

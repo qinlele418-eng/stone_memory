@@ -1,0 +1,98 @@
+/*
+ * Semantic coverage for legacy surfaces that still used literal colors.
+ * Keep this list small and semantic: page-specific data series can retain
+ * their own meaning, while shared controls inherit the active theme.
+ */
+
+body.tidal-visual {
+  --stone-tide-warning: #8a6542;
+  --stone-tide-info: #6d76a8;
+}
+
+body.tidal-visual .dropzone,
+body.tidal-visual .overview-grid > div,
+body.tidal-visual .check-card,
+body.tidal-visual .summary-box,
+body.tidal-visual .targeted-mining,
+body.tidal-visual .rebuild-preview,
+body.tidal-visual .rebuild-watermark-option,
+body.tidal-visual .injection-settings,
+body.tidal-visual .mining-report-actions {
+  border-color: var(--stone-tide-line);
+  background: var(--stone-tide-surface-soft);
+}
+
+body.tidal-visual .dropzone {
+  border-style: dashed;
+}
+
+body.tidal-visual th,
+body.tidal-visual td,
+body.tidal-visual .memory-row,
+body.tidal-visual .select-row,
+body.tidal-visual .rule-card,
+body.tidal-visual .rebuild-fold {
+  border-color: var(--stone-tide-line-soft);
+}
+
+body.tidal-visual .status-dot {
+  background: var(--stone-tide-status);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--stone-tide-status) 16%, transparent);
+}
+
+body.tidal-visual .status-line.warning {
+  color: var(--stone-tide-warning);
+}
+
+body.tidal-visual .status-line.warning .status-dot {
+  background: var(--stone-tide-warning);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--stone-tide-warning) 16%, transparent);
+}
+
+body.tidal-visual .invalid-row,
+body.tidal-visual .field-error,
+body.tidal-visual .danger-link {
+  color: var(--stone-tide-danger);
+}
+
+body.tidal-visual .invalid-row {
+  background: color-mix(in srgb, var(--stone-tide-danger) 8%, var(--stone-tide-canvas));
+}
+
+body.tidal-visual .chat-thread {
+  border-color: var(--stone-tide-line);
+  background: var(--stone-tide-surface-soft);
+}
+
+body.tidal-visual .chat-bubble {
+  border-color: var(--stone-tide-line);
+  background: var(--stone-tide-surface);
+  box-shadow: var(--stone-tide-shadow-card);
+}
+
+body.tidal-visual .chat-message.user .chat-bubble {
+  border-color: var(--stone-tide-line);
+  background: var(--stone-tide-accent-soft);
+}
+
+body.tidal-visual .activity-calendar,
+body.tidal-visual .date-list button {
+  border-color: var(--stone-tide-line);
+  background: var(--stone-tide-surface);
+}
+
+body.tidal-visual .calendar-day.level-0 {
+  background: var(--stone-tide-surface);
+}
+
+body.tidal-visual .calendar-day.level-1 {
+  background: color-mix(in srgb, var(--stone-tide-accent) 16%, var(--stone-tide-canvas));
+}
+
+body.tidal-visual .calendar-day.level-2 {
+  background: color-mix(in srgb, var(--stone-tide-accent) 38%, var(--stone-tide-canvas));
+}
+
+body.tidal-visual .calendar-day.level-3 {
+  background: var(--stone-tide-accent);
+}

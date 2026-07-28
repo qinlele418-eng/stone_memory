@@ -7,8 +7,9 @@
 1. [AGENTS.md](./AGENTS.md)：给开发者与编码 Agent 的架构边界、设计理念与取舍原因。
 2. [architecture.md](./architecture.md)：核心数据流与模块职责。
 3. [contributing.md](./contributing.md)：Issue、文档与代码 PR 的提交方式。
-4. [test-reports/](./test-reports/)：社区模型对比、挖掘效果与真实使用测试。
-5. [proposals/](./proposals/)：尚未进入正式实现的新功能建议。
+4. [frontend-modules.md](./frontend-modules.md)：开发者模式前端的可拆卸接入、统一卡片与主题契约。
+5. [test-reports/](./test-reports/)：社区模型对比、挖掘效果与真实使用测试。
+6. [proposals/](./proposals/)：尚未进入正式实现的新功能建议。
 
 ## 最重要的原则
 

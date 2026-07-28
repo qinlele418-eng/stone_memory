@@ -1,5 +1,17 @@
 "use strict";
 
+const smartBackLink = document.querySelector("[data-smart-back]");
+smartBackLink?.addEventListener("click", event => {
+  try {
+    const previousUrl = new URL(document.referrer);
+    if (previousUrl.origin !== window.location.origin || previousUrl.href === window.location.href) return;
+    event.preventDefault();
+    window.history.back();
+  } catch {
+    // Keep the link's ../ fallback when this page was opened directly.
+  }
+});
+
 const RULE_KEYS = [
   "sourceAware",
   "relationshipPlatform",
@@ -176,9 +188,11 @@ function addModelConfiguration() {
 }
 
 function renderLibraries() {
-  $("#library").innerHTML = state.libraries.map(library =>
-    `<option value="${escapeHtml(library.threadId)}">${escapeHtml(library.label || library.libraryName || "未命名记忆体")} · ${escapeHtml(library.publicThreadId || library.threadId)}</option>`
-  ).join("");
+  const library = state.libraries[0];
+  $("#library").innerHTML = library ? `<option value="${escapeHtml(library.threadId)}" selected>${escapeHtml(library.label || library.libraryName || "未命名记忆体")}</option>` : "";
+  $("#current-library").textContent = library
+    ? `${library.label || library.libraryName || "未命名记忆体"} · ${library.publicThreadId || library.threadId}`
+    : "当前记忆体不可用";
 }
 
 async function loadDates() {
@@ -430,23 +444,23 @@ async function applyCandidate() {
 async function init() {
   try {
     const requestedThread = new URLSearchParams(location.search).get("threadId") || "";
+    if (!requestedThread) throw new Error("缺少当前记忆体标识，请从 Stone Memory【开发者模式】重新进入。");
+    const fallbackUrl = new URL("../", window.location.href);
+    fallbackUrl.searchParams.set("threadId", requestedThread);
+    fallbackUrl.searchParams.set("view", "developer");
+    smartBackLink.href = fallbackUrl.href;
     const data = await api(`./api/libraries${requestedThread ? `?threadId=${encodeURIComponent(requestedThread)}` : ""}`);
-    state.libraries = data.libraries;
+    const currentLibrary = data.libraries.find(row => row.threadId === requestedThread);
+    if (!currentLibrary) throw new Error("当前记忆体不存在或已被删除，请返回开发者模式重新选择。");
+    state.libraries = [currentLibrary];
     state.providers = data.providers || [];
     renderLibraries();
-    if (requestedThread && state.libraries.some(row => row.threadId === requestedThread)) $("#library").value = requestedThread;
+    $("#library").value = requestedThread;
     renderModelBuilder();
     renderModels();
     applyPreset("author");
     if (!state.libraries.length) throw new Error("没有找到 Stone 记忆体");
     await loadDates();
-    $("#library").addEventListener("change", async () => {
-      const selected = $("#library").value;
-      const refreshed = await api(`./api/libraries?threadId=${encodeURIComponent(selected)}`);
-      state.providers = refreshed.providers || [];
-      renderModelBuilder();
-      await loadDates();
-    });
     $("#date").addEventListener("change", async () => {
       renderDateMeta();
       await loadExistingCandidates();

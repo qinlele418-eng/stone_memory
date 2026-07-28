@@ -427,13 +427,16 @@ function serveStatic(req, res, pathname) {
 
 async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/review-lab/api/libraries") {
-    const libraries = listLibraries().map(library => ({
+    const threadId = String(url.searchParams.get("threadId") || "");
+    if (!threadId) throw new Error("缺少当前记忆体标识，请从开发者模式进入记忆审阅实验室");
+    const library = listLibraries().find(item => item.threadId === threadId);
+    if (!library) throw new Error(`记忆体不存在：${threadId}`);
+    const libraries = [{
       ...library,
       label: library.libraryName,
       publicThreadId: `${library.threadId.slice(0, 8)}…${library.threadId.slice(-8)}`,
-    }));
-    const threadId = String(url.searchParams.get("threadId") || libraries[0]?.threadId || "");
-    return json(res, 200, { libraries, providers: threadId ? reviewProviders(threadId) : [] });
+    }];
+    return json(res, 200, { libraries, providers: reviewProviders(threadId) });
   }
   if (req.method === "GET" && url.pathname === "/review-lab/api/dates") {
     const threadId = String(url.searchParams.get("threadId") || "");

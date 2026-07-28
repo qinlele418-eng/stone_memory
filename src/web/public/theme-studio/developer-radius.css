@@ -1,0 +1,6 @@
+body.tidal-visual .developer-mode-head,
+body.tidal-visual .developer-experiment-card,
+body.tidal-visual .developer-theme-card,
+body.tidal-visual .theme-workbench {
+  border-radius: var(--stone-tide-radius-lg);
+}

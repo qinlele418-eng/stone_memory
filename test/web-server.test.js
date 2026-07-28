@@ -328,3 +328,18 @@ test("runtime usage extraction uses Claude cache totals and Codex input tokens",
   const codex={timestamp:"2026-01-01",type:"event_msg",payload:{type:"token_count",info:{last_token_usage:{input_tokens:216081,cached_input_tokens:214784},model_context_window:258400}}};
   assert.deepEqual(usageFromRow(codex,"codex"),{usedTokens:216081,detectedMaxTokens:258400,observedAt:"2026-01-01",source:"codex_token_count"});
 });
+
+test("developer experiments register through removable bootstraps instead of app.js", () => {
+  const publicDir = path.join(__dirname, "..", "src", "web", "public");
+  const appSource = fs.readFileSync(path.join(publicDir, "app.js"), "utf8");
+  const indexSource = fs.readFileSync(path.join(publicDir, "index.html"), "utf8");
+  const reviewBootstrap = fs.readFileSync(path.join(publicDir, "review-lab", "bootstrap.js"), "utf8");
+  const themeBootstrap = fs.readFileSync(path.join(publicDir, "theme-studio", "bootstrap.js"), "utf8");
+
+  assert.match(appSource, /id="developer-module-host"/);
+  assert.doesNotMatch(appSource, /enter-review-lab|贡献人：@小思飞刀/);
+  assert.match(indexSource, /\/review-lab\/bootstrap\.js/);
+  assert.match(indexSource, /\/theme-studio\/bootstrap\.js/);
+  assert.match(reviewBootstrap, /dataModule = MODULE_ID|dataset\.developerModule = MODULE_ID/);
+  assert.match(themeBootstrap, /dataModule = MODULE_ID|dataset\.developerModule = MODULE_ID/);
+});

@@ -41,6 +41,8 @@ CLI命令的运行时实现与Claude/Codex格式适配。运行时脚本不应�
 
 本地单用户前端。HTTP路由可以直接执行只读查询，但写入操作必须转交 `stmem`命令。
 
+开发者模式提供通用模块插槽与当前记忆体上下文。实验前端以独立目录和 `bootstrap.js` 注册，不在主 `app.js` 中硬编码；所有模块共享 `--stone-tide-*` 视觉契约。详见 [前端实验模块规范](frontend-modules.md)。
+
 ### `mcp-server.js`
 
 向Agent暴露受控能力。MCP不能拥有一套独立于CLI的配置、导入或重建实现。

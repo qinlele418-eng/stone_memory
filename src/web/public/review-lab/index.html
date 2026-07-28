@@ -5,22 +5,26 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>Stone Memory · 多模型记忆审阅</title>
   <link rel="stylesheet" href="./styles.css?v=review-lab-v1">
+  <link rel="stylesheet" href="./theme.css?v=review-lab-theme-v1">
 </head>
 <body>
   <main class="shell">
     <header class="hero">
-      <a class="back" href="../">← 返回 Stone Memory</a>
-      <p class="eyebrow">MEMORY MINING</p>
-      <h1>增强挖掘</h1>
+      <a class="back" href="../" data-smart-back>← 返回开发者模块</a>
+      <p class="eyebrow">REVIEWABLE MEMORY · COMMUNITY EXPERIMENT 01</p>
+      <h1>记忆审阅实验室</h1>
       <p>作者原版提示词始终作为底稿。规则可以自由组合；多选模型后既可整份采用，也可从不同模型逐条挑选，组成一份混合预览。</p>
+      <small class="review-credit">贡献人：@小思飞刀</small>
     </header>
 
     <section class="card setup">
       <div class="field-grid">
-        <label>
-          <span>记忆体</span>
-          <select id="library"></select>
-        </label>
+        <div class="current-library-card">
+          <span>当前记忆体</span>
+          <strong id="current-library">正在读取当前记忆体……</strong>
+          <small>由 Stone Memory 开发者模块统一传入，不在实验页面中切换。</small>
+          <select id="library" hidden aria-hidden="true"></select>
+        </div>
         <label>
           <span>日期</span>
           <select id="date"></select>
@@ -97,6 +101,7 @@
     <section id="status" class="status hidden"></section>
     <section id="candidate" class="candidate hidden"></section>
   </main>
+  <script src="../theme-studio/bootstrap.js" defer></script>
   <script src="./app.js"></script>
   <script src="./mixing.js?v=review-lab-v1"></script>
 </body>

@@ -1,0 +1,182 @@
+/*
+ * Developer mode intentionally uses the same visual language as the rest of
+ * Stone Memory. The developer area changes the content, not the card system.
+ */
+
+body.tidal-visual .developer-mode-head {
+  color: var(--stone-tide-ink);
+  background: var(--stone-tide-surface);
+  border-color: var(--stone-tide-line-soft);
+  box-shadow: var(--stone-tide-shadow-card);
+}
+
+body.tidal-visual .developer-mode-head h1,
+body.tidal-visual .developer-mode-head .eyebrow,
+body.tidal-visual .developer-mode-head .lead {
+  color: inherit;
+}
+
+body.tidal-visual .developer-mode-head .eyebrow {
+  color: var(--stone-tide-accent);
+}
+
+body.tidal-visual .developer-mode-head .lead {
+  color: var(--stone-tide-ink-soft);
+}
+
+body.tidal-visual .developer-orbit {
+  border-color: var(--stone-tide-line);
+}
+
+body.tidal-visual .developer-orbit::before {
+  border-color: var(--stone-tide-line-soft);
+}
+
+body.tidal-visual .developer-orbit::after {
+  background: var(--stone-tide-accent-soft);
+  box-shadow: 0 0 24px color-mix(in srgb, var(--stone-tide-accent) 22%, transparent);
+}
+
+body.tidal-visual .developer-orbit span,
+body.tidal-visual .developer-orbit i {
+  background: var(--stone-tide-status);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--stone-tide-status) 42%, transparent);
+}
+
+body.tidal-visual .developer-orbit i {
+  background: var(--stone-tide-danger);
+}
+
+body.tidal-visual .developer-experiment-card,
+body.tidal-visual .developer-theme-card {
+  color: var(--stone-tide-ink);
+  border-color: var(--stone-tide-line-soft);
+  background: var(--stone-tide-surface);
+  box-shadow: var(--stone-tide-shadow-card);
+}
+
+body.tidal-visual .developer-experiment-card::before {
+  display: none;
+}
+
+body.tidal-visual .developer-experiment-glow {
+  display: none;
+}
+
+body.tidal-visual .developer-experiment-copy .eyebrow {
+  color: var(--stone-tide-accent);
+}
+
+body.tidal-visual .developer-experiment-copy h2,
+body.tidal-visual .developer-theme-card h2 {
+  color: var(--stone-tide-ink);
+}
+
+body.tidal-visual .developer-experiment-copy > p:not(.eyebrow),
+body.tidal-visual .developer-theme-card .developer-experiment-copy > p:not(.eyebrow) {
+  color: var(--stone-tide-ink-soft);
+}
+
+body.tidal-visual .developer-status {
+  color: var(--stone-tide-accent-strong);
+  background: var(--stone-tide-accent-soft);
+  border: 1px solid var(--stone-tide-line);
+}
+
+body.tidal-visual .developer-contributor {
+  color: var(--stone-tide-ink-soft);
+  background: var(--stone-tide-surface-soft);
+  border-color: var(--stone-tide-line);
+}
+
+body.tidal-visual .developer-experiment-features span {
+  color: var(--stone-tide-accent-strong);
+  background: var(--stone-tide-accent-soft);
+  border-color: var(--stone-tide-line);
+}
+
+body.tidal-visual .developer-memory-stack i,
+body.tidal-visual .developer-theme-preview i {
+  border-color: var(--stone-tide-line);
+  background: var(--stone-tide-surface);
+  box-shadow: var(--stone-tide-shadow-card);
+}
+
+body.tidal-visual .developer-memory-stack i:nth-child(3),
+body.tidal-visual .developer-theme-preview i:nth-child(3) {
+  background: var(--stone-tide-accent-soft);
+}
+
+body.tidal-visual .developer-memory-stack b,
+body.tidal-visual .developer-theme-preview b {
+  color: var(--stone-tide-accent-strong);
+}
+
+body.tidal-visual .developer-enter {
+  color: var(--stone-tide-accent-strong);
+  background: var(--stone-tide-accent-soft);
+  border-color: var(--stone-tide-line);
+}
+
+body.tidal-visual .developer-enter:hover {
+  color: var(--stone-tide-ink);
+  background: var(--stone-tide-surface);
+  border-color: var(--stone-tide-accent);
+}
+
+body.tidal-visual .theme-workbench {
+  color: var(--stone-tide-ink);
+  border-color: var(--stone-tide-line-soft);
+  background: var(--stone-tide-surface);
+  box-shadow: var(--stone-tide-shadow-card);
+}
+
+body.tidal-visual .theme-workbench h2,
+body.tidal-visual .theme-workbench .theme-token-field,
+body.tidal-visual .theme-workbench .theme-token-group > summary {
+  color: var(--stone-tide-ink);
+}
+
+body.tidal-visual .theme-workbench-head p:last-child,
+body.tidal-visual .theme-workbench .theme-token-group > summary small,
+body.tidal-visual .theme-workbench #theme-status {
+  color: var(--stone-tide-ink-soft);
+}
+
+body.tidal-visual .theme-workbench .theme-file-badge {
+  color: var(--stone-tide-accent-strong);
+  border-color: var(--stone-tide-line);
+  background: var(--stone-tide-accent-soft);
+}
+
+body.tidal-visual .theme-workbench .theme-token-group,
+body.tidal-visual .theme-workbench .theme-token-group:last-child {
+  border-color: var(--stone-tide-line-soft);
+}
+
+body.tidal-visual .theme-workbench .theme-token-field > input,
+body.tidal-visual .theme-workbench .theme-token-control input {
+  color: var(--stone-tide-ink);
+  border-color: var(--stone-tide-line);
+  background: var(--stone-tide-surface);
+}
+
+body.tidal-visual .theme-workbench .theme-token-field > input:focus,
+body.tidal-visual .theme-workbench .theme-token-control input:focus {
+  border-color: var(--stone-tide-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--stone-tide-accent) 14%, transparent);
+}
+
+body.tidal-visual .theme-workbench .theme-upload {
+  color: var(--stone-tide-accent-strong);
+  border-color: var(--stone-tide-line);
+  background: var(--stone-tide-accent-soft);
+}
+
+body.tidal-visual .theme-workbench #theme-status.error {
+  color: var(--stone-tide-danger);
+}
+
+body.tidal-visual .theme-workbench .ghost {
+  color: var(--stone-tide-accent);
+}
