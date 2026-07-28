@@ -3,7 +3,10 @@ const assert = require("node:assert/strict");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { buildCompressionPrompt, validateCompressionResult, temporalPrefix } = require("../src/services/memory-compressor");
+const {
+  aliasCompressionFeelings, buildApiCompressionPrompt, buildCompressionPrompt,
+  validateCompressionResult, temporalPrefix,
+} = require("../src/services/memory-compressor");
 const { MemoryStore } = require("../src/storage/memory-store");
 const { MemoryCompressor } = require("../src/services/memory-compressor");
 
@@ -16,6 +19,20 @@ test("compression prompt carries ids, content, dates, and historical importance"
   assert.match(prompt, /完整感受/);
   assert.match(prompt, /secondary_core/);
   assert.match(prompt, /preference/);
+});
+
+test("API compression uses short aliases and a structured object contract", () => {
+  const original = [
+    { id: "018f-long-database-id-a", content: "6月1日，晚上九点。第一件事。" },
+    { id: "018f-long-database-id-b", content: "6月2日，上午十点。第二件事。" },
+  ];
+  const aliases = aliasCompressionFeelings(original);
+  assert.deepEqual(aliases.rows.map(row => row.id), ["item_1", "item_2"]);
+  assert.equal(aliases.ids.get("item_1"), original[0].id);
+  const prompt = buildApiCompressionPrompt(aliases.rows);
+  assert.match(prompt, /"items"/);
+  assert.match(prompt, /"id": "item_1"/);
+  assert.doesNotMatch(prompt, /018f-long-database-id/);
 });
 
 test("secondary core allows a lighter 220-character coarse summary", () => {
@@ -81,4 +98,25 @@ test("compressor retries a whole batch when model output fails core term validat
   const result = await compressor.compress([{ id: "f1", content: "6月1日，晚上九点。她说想看《小王子》。" }]);
   assert.equal(attempts, 2);
   assert.deepEqual(result[0].coreTerms, ["小王子"]);
+});
+
+test("API compression maps validated aliases back to database ids", async () => {
+  const compressor = new MemoryCompressor({
+    threadId: "thread",
+    apiConfig: { apiKey: "test-only" },
+  });
+  compressor._compressViaApi = async prompt => {
+    assert.match(prompt, /"id": "item_1"/);
+    assert.doesNotMatch(prompt, /database-id/);
+    return [{
+      id: "item_1",
+      coarseSummary: "6月1日，晚上九点。她想看小王子。",
+      coreTerms: ["小王子"],
+    }];
+  };
+  const result = await compressor.compress([{
+    id: "database-id",
+    content: "6月1日，晚上九点。她说想看《小王子》。",
+  }]);
+  assert.equal(result[0].id, "database-id");
 });
