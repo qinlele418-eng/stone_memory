@@ -225,9 +225,14 @@ function lobby() {
   document.querySelector("#new-library").onclick = () => { resetCreateForm(); wizard(); };
 }
 
-async function openLibrary(threadId) {
-  try { const data = await api(`/api/libraries/${encodeURIComponent(threadId)}/overview`); workspace(data); }
-  catch (error) { showToast(error.message, "error"); }
+async function openLibrary(threadId, view = "overview") {
+  try {
+    const data = await api(`/api/libraries/${encodeURIComponent(threadId)}/overview`);
+    workspace(data);
+    if (view === "developer") renderDeveloperMode(data);
+  } catch (error) {
+    showToast(error.message, "error");
+  }
 }
 
 function workspace(data) {
@@ -251,7 +256,13 @@ function renderDeveloperMode(library) {
   document.querySelectorAll(".side-nav button").forEach(button => button.classList.toggle("active", button.dataset.view === "developer"));
   const main=document.querySelector("#workspace-main");
   main.innerHTML=`<div class="dashboard-head developer-mode-head"><div><p class="eyebrow">Stone Memory Lab</p><h1>开发者模式</h1><p class="lead">这里不是档案柜，是 Stone Memory 正在生长的实验室。</p></div><div class="developer-orbit" aria-hidden="true"><span></span><i></i></div></div><section class="developer-lab-intro"><span class="developer-live-dot"></span><p>体验已经通过原型验证、但仍需要真实使用反馈的新能力。实验功能可能调整参数与行为，进入正式栏目之前不会改变默认流程。</p></section><section class="developer-experiment-card"><div class="developer-experiment-glow" aria-hidden="true"></div><div class="developer-experiment-copy"><div class="developer-experiment-meta"><span class="developer-status active">实验前端已接入</span><span class="developer-contributor">贡献人：@小思飞刀</span></div><p class="eyebrow">Reviewable memory · Community experiment 01</p><h2>记忆审阅实验室</h2><p>让多个模型分别回忆同一天，并排比较它们记住与遗漏的内容，逐条混选后再决定哪些内容成为正式记忆。</p><div class="developer-experiment-features"><span>多模型独立候选</span><span>逐条混选</span><span>确认后入库</span></div></div><div class="developer-experiment-action"><div class="developer-memory-stack" aria-hidden="true"><i></i><i></i><i></i><b>记忆候选</b></div><button class="developer-enter" id="enter-review-lab"><span>Community experiment 01</span><strong>进入实验 →</strong></button></div></section>`;
-  main.querySelector("#enter-review-lab").onclick=()=>{location.href=`/review-lab/?threadId=${encodeURIComponent(library.threadId)}`;};
+  main.querySelector("#enter-review-lab").onclick=()=>{
+    const returnUrl = new URL(window.location.href);
+    returnUrl.searchParams.set("threadId", library.threadId);
+    returnUrl.searchParams.set("view", "developer");
+    window.history.replaceState(null, "", returnUrl);
+    window.location.href=`/review-lab/?threadId=${encodeURIComponent(library.threadId)}`;
+  };
 }
 
 function renderMemoryHub(library) {
@@ -842,4 +853,16 @@ async function checkAndRepair(library) {
   await showIntegrity(library, true); button.disabled = false; button.innerHTML = original;
 }
 
-loadLibraries().then(() => state.libraries.length ? lobby() : welcome()).catch(error => { app.innerHTML = `<section class="welcome"><div class="welcome-content"><h1>Stone Memory</h1><p class="lead">本地服务暂时无法读取记忆体。</p><button class="primary" onclick="location.reload()">重新加载</button></div></section>`; showToast(error.message, "error"); });
+loadLibraries().then(async () => {
+  if (!state.libraries.length) {
+    welcome();
+    return;
+  }
+  const route = new URLSearchParams(window.location.search);
+  const threadId = route.get("threadId");
+  if (route.get("view") === "developer" && state.libraries.some(library => library.threadId === threadId)) {
+    await openLibrary(threadId, "developer");
+    return;
+  }
+  lobby();
+}).catch(error => { app.innerHTML = `<section class="welcome"><div class="welcome-content"><h1>Stone Memory</h1><p class="lead">本地服务暂时无法读取记忆体。</p><button class="primary" onclick="location.reload()">重新加载</button></div></section>`; showToast(error.message, "error"); });

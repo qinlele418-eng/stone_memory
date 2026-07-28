@@ -1,0 +1,65 @@
+.developer-theme-card {
+  margin-top: 18px;
+  background: linear-gradient(145deg, #172b28, #253c34 58%, #382f37);
+  color: #edf5e9;
+}
+
+.developer-theme-card h2 {
+  color: #edf5e9;
+}
+
+.developer-theme-card .developer-experiment-copy > p:not(.eyebrow) {
+  color: rgba(234, 244, 229, 0.75);
+}
+
+.developer-theme-card .developer-experiment-features span {
+  color: rgba(237, 245, 233, 0.72);
+  background: rgba(255, 255, 255, 0.055);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.developer-theme-preview {
+  position: relative;
+  width: 146px;
+  height: 106px;
+  margin: 0 auto;
+}
+
+.developer-theme-preview i {
+  position: absolute;
+  inset: 0;
+  display: block;
+  border: 1px solid rgba(175, 215, 165, 0.34);
+  border-radius: 16px;
+  background: rgba(244, 247, 239, 0.1);
+}
+
+.developer-theme-preview i:nth-child(1) {
+  transform: translate(-15px, 9px) rotate(-7deg);
+  opacity: 0.45;
+}
+
+.developer-theme-preview i:nth-child(2) {
+  transform: translate(14px, 5px) rotate(6deg);
+  opacity: 0.62;
+}
+
+.developer-theme-preview i:nth-child(3) {
+  background: linear-gradient(145deg, #eef5e9, #dcebd7);
+  box-shadow: 0 12px 25px rgba(0, 0, 0, 0.15);
+}
+
+.developer-theme-preview b {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #355045;
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 13px;
+  letter-spacing: 0.12em;
+}
+
+.theme-workbench[hidden] {
+  display: none;
+}

@@ -1,5 +1,17 @@
 "use strict";
 
+const smartBackLink = document.querySelector("[data-smart-back]");
+smartBackLink?.addEventListener("click", event => {
+  try {
+    const previousUrl = new URL(document.referrer);
+    if (previousUrl.origin !== window.location.origin || previousUrl.href === window.location.href) return;
+    event.preventDefault();
+    window.history.back();
+  } catch {
+    // Keep the link's ../ fallback when this page was opened directly.
+  }
+});
+
 const RULE_KEYS = [
   "sourceAware",
   "relationshipPlatform",
