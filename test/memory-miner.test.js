@@ -25,10 +25,11 @@ test("new mining normalizes importance to 2, 3, or 5", () => {
   assert.deepEqual([1, 2, 3, 4, 5, null].map(normalizeNewImportance), [2, 2, 3, 3, 5, 2]);
 });
 
-test("accompany operations expand the configured AI name before reaching the model", t => {
+test("accompany operations use a neutral AI fallback when no identity is configured", t => {
   const miner = minerFixture(t, [{ text: "今天的对话" }]);
   const prompt = miner._readOperationsPrompt();
-  assert.match(prompt, /你是 Alessio/);
+  assert.match(prompt, /你是 AI/);
+  assert.doesNotMatch(prompt, /Alessio/);
   assert.doesNotMatch(prompt, /\{aiName\}/);
 });
 

@@ -95,14 +95,14 @@ class MemoryStore {
   }
 
   removeInjectedMemoryBlocks() {
-    const polluted = this.db.prepare("SELECT rowid,text FROM messages WHERE thread_id=? AND text LIKE '%<memory_context>%'")
+    const polluted = this.db.prepare("SELECT message_seq AS messageSeq,text FROM messages WHERE thread_id=? AND text LIKE '%<memory_context>%'")
       .all(this.threadId)
       .filter(row => isInjectedMemoryBlock(row.text));
     if (!polluted.length) return 0;
-    const remove = this.db.prepare("DELETE FROM messages WHERE rowid=?");
+    const remove = this.db.prepare("DELETE FROM messages WHERE message_seq=?");
     return this.db.transaction(rows => {
       let removed = 0;
-      for (const row of rows) removed += remove.run(row.rowid).changes;
+      for (const row of rows) removed += remove.run(row.messageSeq).changes;
       return removed;
     })(polluted);
   }
