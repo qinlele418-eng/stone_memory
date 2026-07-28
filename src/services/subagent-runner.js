@@ -24,7 +24,7 @@ const path = require("path");
 const os = require("os");
 const { execFileSync } = require("child_process");
 const { loadConfig, getCfg, getThreadDir } = require("../config");
-const { commandInvocation, appendOption } = require("../lib/command-invocation");
+const { commandInvocation, appendOption, resolveExecutableInvocation } = require("../lib/command-invocation");
 
 const BUILTIN_RUNTIMES = {
   claude: {
@@ -212,9 +212,9 @@ function runSubagent(prompt, opts = {}) {
     finalPrompt = `${opsContent}\n\n---\n\n${prompt}`;
   }
 
-  const invocation = buildStdinInvocation(runtimeName, {
+  const invocation = resolveExecutableInvocation(buildStdinInvocation(runtimeName, {
     ...opts, opsFile, mcpConfig, model, reasoning,
-  });
+  }));
   try {
     const out = execFileSync(invocation.file, invocation.args, {
       input: finalPrompt,

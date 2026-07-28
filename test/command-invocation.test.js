@@ -1,6 +1,11 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { parseCommandLine, commandInvocation, appendOption } = require("../src/lib/command-invocation");
+const {
+  parseCommandLine,
+  commandInvocation,
+  appendOption,
+  resolveExecutableInvocation,
+} = require("../src/lib/command-invocation");
 const { resolveMcpThread } = require("../src/services/mcp-thread-resolution");
 
 test("runtime commands become executable and argument arrays without shell expansion", () => {
@@ -20,6 +25,63 @@ test("runtime commands become executable and argument arrays without shell expan
 
 test("runtime command parser rejects malformed quoting", () => {
   assert.throws(() => parseCommandLine('codex exec "unfinished'), /unclosed quote/);
+});
+
+test("Windows runtime resolution unwraps an npm Codex shim without invoking a shell", () => {
+  const npmDir = "C:\\Users\\tester\\AppData\\Roaming\\npm";
+  const shim = `${npmDir}\\codex.CMD`;
+  const launcher = `${npmDir}\\node_modules\\@openai\\codex\\bin\\codex.js`;
+  const files = new Map([
+    [shim.toLowerCase(), [
+      "@ECHO off",
+      'endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\node_modules\\@openai\\codex\\bin\\codex.js" %*',
+    ].join("\r\n")],
+    [launcher.toLowerCase(), "// fixture"],
+  ]);
+
+  const resolved = resolveExecutableInvocation(
+    { file: "codex", args: ["exec", "--ephemeral"] },
+    {
+      platform: "win32",
+      env: { Path: npmDir, PATHEXT: ".COM;.EXE;.BAT;.CMD" },
+      nodePath: "C:\\Program Files\\nodejs\\node.exe",
+      existsSync: file => files.has(file.toLowerCase()),
+      readFileSync: file => files.get(file.toLowerCase()),
+    },
+  );
+
+  assert.deepEqual(resolved, {
+    file: "C:\\Program Files\\nodejs\\node.exe",
+    args: [launcher, "exec", "--ephemeral"],
+  });
+});
+
+test("Windows runtime resolution preserves PATH precedence over a later executable", () => {
+  const npmDir = "C:\\npm";
+  const nativeDir = "C:\\WindowsApps";
+  const shim = `${npmDir}\\codex.CMD`;
+  const launcher = `${npmDir}\\node_modules\\@openai\\codex\\bin\\codex.js`;
+  const files = new Map([
+    [shim.toLowerCase(), '"%_prog%" "%dp0%\\node_modules\\@openai\\codex\\bin\\codex.js" %*'],
+    [launcher.toLowerCase(), "// fixture"],
+    [`${nativeDir}\\codex.EXE`.toLowerCase(), "native"],
+  ]);
+
+  const resolved = resolveExecutableInvocation(
+    { file: "codex", args: ["exec"] },
+    {
+      platform: "win32",
+      env: { PATH: `${npmDir};${nativeDir}`, PATHEXT: ".COM;.EXE;.BAT;.CMD" },
+      nodePath: "C:\\node.exe",
+      existsSync: file => files.has(file.toLowerCase()),
+      readFileSync: file => files.get(file.toLowerCase()),
+    },
+  );
+
+  assert.deepEqual(resolved, {
+    file: "C:\\node.exe",
+    args: [launcher, "exec"],
+  });
 });
 
 test("MCP thread resolution requires explicit binding when multiple memories exist", () => {
