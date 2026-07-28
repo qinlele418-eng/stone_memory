@@ -16,6 +16,7 @@ const { sessionFile } = require("../services/rebuild-workbench");
 const { parseFeelingTime, feelingToUtc, automaticRetainWindow } = require("../services/thread-rebuilder");
 const { parseRebuildDryRun } = require("../services/rebuild-dry-run");
 const { MiningReviewStore } = require("../services/mining-review");
+const { isArchiveConversation } = require("../services/thread-ingest");
 
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MAX_UPLOAD = 512 * 1024 * 1024;
@@ -322,7 +323,7 @@ function previewRows(source, page = 1) {
   // 用户在这里确认的是最终进入 archive 的纯对话，而不是线程文件的内部事件。
   // session_meta、工具状态、推理元数据等没有 message 的原始记录由现有清洗链过滤，
   // 不应伪装成“无法识别”的坏数据污染预览。
-  const validRows = source.records.filter(record => record.message).map((record, index) => ({
+  const validRows = source.records.filter(record => isArchiveConversation(record.message)).map((record, index) => ({
     index,
     timestamp: record.message.timestamp,
     role: record.message.type,

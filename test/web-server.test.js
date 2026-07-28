@@ -15,6 +15,8 @@ const path = require("node:path");
 test("import preview paginates only cleaned archive conversations", () => {
   const records = [
     { raw: { type: "session_meta" }, message: null },
+    { raw: {}, message: { timestamp: "2026-07-20T00:59:00Z", type: "user", text: "<memory_context>\nprivate injected context" } },
+    { raw: {}, message: { timestamp: "2026-07-20T00:59:30Z", type: "user", text: "<!-- stmem-rule: instructions.md -->" } },
     { raw: {}, message: { timestamp: "2026-07-20T01:00:00Z", type: "user", text: "你好" } },
     { raw: { type: "turn_context" }, message: null },
     { raw: {}, message: { timestamp: "2026-07-20T01:01:00Z", type: "assistant", text: "你好呀" } },
