@@ -3,6 +3,8 @@ const fs = require("fs");
 const path = require("path");
 const { getCfg, getThreadDir, listThreadIds, loadConfig } = require("../src/config");
 const { MemoryMiner } = require("../src/services/memory-miner");
+const { runSubagent } = require("../src/services/subagent-runner");
+const { fuseReviewCandidate } = require("../src/services/review-fusion");
 const {
   MiningReviewStore,
   buildReviewOverlay,
@@ -54,6 +56,20 @@ async function main() {
       selection: payload.selection,
       enforceCountLimit: !!payload.enforceCountLimit,
     }));
+  }
+
+  if (action === "fuse") {
+    const payload = readBatch(args);
+    const resolved = resolveProfile(threadId, payload.profile);
+    const sourceCandidateId = String(payload.sourceCandidateId || "");
+    if (!sourceCandidateId) throw new Error("fuse requires sourceCandidateId");
+    const candidate = await fuseReviewCandidate({
+      reviews,
+      sourceCandidateId,
+      writerProfile: resolved.profile,
+      generate: prompt => runFusionWriter(prompt, resolved, threadId),
+    });
+    return print(candidate);
   }
 
   if (action === "preview") {
@@ -109,11 +125,40 @@ Usage:
   stmem mine-review preview --thread <id> --date <YYYY-MM-DD> [--batch-file <json>]
   stmem mine-review list --thread <id> [--date <YYYY-MM-DD>]
   stmem mine-review mix --thread <id> --batch-file <json>
+  stmem mine-review fuse --thread <id> --batch-file <json>
   stmem mine-review apply --thread <id> --candidate <candidate-id>
   stmem mine-review discard --thread <id> --candidate <candidate-id>
 
-preview and mix never publish formal memories. apply rechecks the message
+preview, mix and fuse never publish formal memories. apply rechecks the message
 fingerprint, creates a SQLite backup, and then atomically replaces one day.`);
+}
+
+async function runFusionWriter(prompt, resolved, threadId) {
+  if (resolved.profile.channel === "api") {
+    const { apiKey, baseUrl, model } = resolved.deepseekConfig;
+    const response = await fetch(`${String(baseUrl).replace(/\/$/, "")}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model,
+        temperature: 0.1,
+        messages: [{ role: "user", content: prompt }],
+      }),
+      signal: AbortSignal.timeout(20 * 60 * 1000),
+    });
+    if (!response.ok) throw new Error(`fusion API request failed: HTTP ${response.status}`);
+    const data = await response.json();
+    const content = data?.choices?.[0]?.message?.content;
+    if (!content) throw new Error("fusion API returned an empty response");
+    return content;
+  }
+  return runSubagent(prompt, {
+    threadId,
+    runtime: resolved.profile.runtime,
+    model: resolved.subagentModel || undefined,
+    reasoning: resolved.profile.reasoning || undefined,
+    timeout: 20 * 60 * 1000,
+  });
 }
 
 
@@ -202,4 +247,4 @@ main().catch(error => {
   process.exitCode = 1;
 });
 
-module.exports = { resolveProfile };
+module.exports = { resolveProfile, runFusionWriter };

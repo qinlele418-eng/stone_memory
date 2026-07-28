@@ -16,6 +16,7 @@ const { sessionFile } = require("../services/rebuild-workbench");
 const { parseFeelingTime, feelingToUtc, automaticRetainWindow } = require("../services/thread-rebuilder");
 const { parseRebuildDryRun } = require("../services/rebuild-dry-run");
 const { MiningReviewStore } = require("../services/mining-review");
+const { editFusionCandidate } = require("../services/review-fusion");
 const { isArchiveConversation } = require("../services/thread-ingest");
 
 const PUBLIC_DIR = path.join(__dirname, "public");
@@ -151,10 +152,11 @@ function reviewCandidateForWeb(candidate) {
   const ruleIds = new Set(candidate.ruleIds || []);
   const rules = Object.fromEntries(Object.entries(REVIEW_RULE_IDS).map(([key, id]) => [key, ruleIds.has(id)]));
   const hybrid = candidate.profile?.id === "hybrid";
+  const fusion = candidate.profile?.id === "fusion";
   return {
     ...candidate,
-    model: hybrid ? "hybrid" : candidate.profile?.id || "unknown",
-    modelLabel: hybrid ? "混合精选" : candidate.profile?.label || candidate.profile?.model || "候选",
+    model: hybrid ? "hybrid" : fusion ? "fusion" : candidate.profile?.id || "unknown",
+    modelLabel: hybrid ? "混合精选" : fusion ? candidate.profile?.label || "同事件融合" : candidate.profile?.label || candidate.profile?.model || "候选",
     preset: ruleIds.size ? "custom" : "author",
     rules,
   };
@@ -181,6 +183,29 @@ async function executeReviewPreview(job) {
       "mine-review", "preview", "--thread", job.threadId, "--date", job.date,
       "--batch-file", batch.file,
     ], { maxOutput: 2 * 1024 * 1024 });
+    job.candidate = reviewCandidateForWeb(parseStmemJson(output));
+    job.candidateId = job.candidate.id;
+    job.status = "completed";
+  } catch (error) {
+    job.status = "failed";
+    job.error = String(error.message || error).slice(0, 2000);
+  } finally {
+    batch.cleanup();
+    job.completedAt = new Date().toISOString();
+  }
+}
+
+async function executeFusionPreview(job) {
+  job.status = "running";
+  job.startedAt = new Date().toISOString();
+  const batch = writePrivateBatch({
+    sourceCandidateId: job.sourceCandidateId,
+    profile: job.profile,
+  });
+  try {
+    const output = await runStmemAsync([
+      "mine-review", "fuse", "--thread", job.threadId, "--batch-file", batch.file,
+    ], { timeout: 25 * 60 * 1000, maxOutput: 2 * 1024 * 1024 });
     job.candidate = reviewCandidateForWeb(parseStmemJson(output));
     job.candidateId = job.candidate.id;
     job.status = "completed";
@@ -498,6 +523,39 @@ async function handleApi(req, res, url) {
       ]));
       return json(res, 200, { candidate: reviewCandidateForWeb(result) });
     } finally { batch.cleanup(); }
+  }
+  if (req.method === "POST" && url.pathname === "/review-lab/api/fusion") {
+    const body = await readJson(req);
+    const threadId = String(body.threadId || "");
+    const profile = reviewProfileFromInput(threadId, body.profile);
+    const sourceCandidateId = String(body.sourceCandidateId || "");
+    if (!/^candidate-[0-9a-f-]+$/.test(sourceCandidateId)) throw new Error("融合来源候选无效");
+    const job = {
+      id: `fusion-${crypto.randomUUID()}`,
+      threadId,
+      sourceCandidateId,
+      profile,
+      status: "queued",
+      createdAt: new Date().toISOString(),
+    };
+    reviewJobs.set(job.id, job);
+    executeFusionPreview(job);
+    return json(res, 202, { job: { id: job.id, status: job.status } });
+  }
+  const fusionEditMatch = url.pathname.match(/^\/review-lab\/api\/candidates\/([^/]+)\/fusion-edit$/);
+  if (req.method === "POST" && fusionEditMatch) {
+    const body = await readJson(req);
+    const threadId = String(body.threadId || "");
+    const reviews = new MiningReviewStore({
+      memoryDir: path.join(getThreadDir(threadId), "memory"),
+      threadId,
+    });
+    const candidate = editFusionCandidate({
+      reviews,
+      candidateId: decodeURIComponent(fusionEditMatch[1]),
+      edits: body.edits,
+    });
+    return json(res, 200, { candidate: reviewCandidateForWeb(candidate) });
   }
   const reviewEvidenceMatch = url.pathname.match(/^\/review-lab\/api\/candidates\/([^/]+)\/evidence$/);
   if (req.method === "GET" && reviewEvidenceMatch) {

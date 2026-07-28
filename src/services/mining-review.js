@@ -266,6 +266,70 @@ class MiningReviewStore {
     return candidate;
   }
 
+  createFusionCandidate({
+    sourceCandidate,
+    writerProfile,
+    feelings,
+    features,
+    provenance,
+    stats,
+    promptHash,
+  }) {
+    if (!sourceCandidate || sourceCandidate.threadId !== this.threadId) {
+      throw new Error("fusion source candidate is invalid");
+    }
+    if (sourceCandidate.profile?.id !== "hybrid" || sourceCandidate.status !== "review_pending") {
+      throw new Error("fusion source must be a pending hybrid candidate");
+    }
+    const normalized = normalizeCandidateResults({
+      date: sourceCandidate.date,
+      feelings,
+      features,
+      enforceCountLimit: sourceCandidate.hybrid?.enforceCountLimit === true,
+    });
+    if (normalized.feelings.length !== feelings.length || normalized.features.length !== features.length) {
+      throw new Error("fusion output changed during normalization; review provenance would be unsafe");
+    }
+    const candidate = {
+      version: 1,
+      id: candidateId(),
+      threadId: this.threadId,
+      date: sourceCandidate.date,
+      profile: {
+        id: "fusion",
+        label: `同事件融合 · ${String(writerProfile?.label || writerProfile?.model || "已配置模型")}`,
+        channel: "review",
+      },
+      ruleIds: [],
+      promptHash: promptHash || null,
+      archiveFingerprint: sourceCandidate.archiveFingerprint,
+      messageCount: sourceCandidate.messageCount,
+      chunkCount: null,
+      priorCounts: sourceCandidate.priorCounts,
+      feelings: normalized.feelings,
+      features: normalized.features,
+      fusion: {
+        sourceCandidateId: sourceCandidate.id,
+        writerProfile: sanitizeProfile(writerProfile),
+        provenance,
+        stats,
+        safeguards: {
+          sourceCandidatePreserved: true,
+          rawMessagesUntouched: true,
+          exactMemberCoverageRequired: true,
+          feelingTimeToleranceMinutes: 10,
+        },
+      },
+      createdAt: new Date().toISOString(),
+      status: "review_pending",
+      appliedAt: null,
+      discardedAt: null,
+      backup: null,
+    };
+    this._write(candidate);
+    return candidate;
+  }
+
   async apply(id) {
     const release = this._acquireApplyLock(id);
     try {

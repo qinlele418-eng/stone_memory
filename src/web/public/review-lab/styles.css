@@ -193,6 +193,34 @@ button:disabled { opacity: .55; cursor: wait; }
 .mix-preview h3 { font-size: 19px; }
 .mix-preview-list { display: grid; gap: 8px; margin: 13px 0 0; padding: 0; list-style: none; max-height: 540px; overflow: auto; }
 .mix-preview-list li { display: flex; align-items: flex-start; justify-content: space-between; gap: 9px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 11px; background: #fff; font-size: 12px; line-height: 1.55; }
+.mix-preview-list .mix-duplicate-group-title { align-items: center; margin-top: 7px; border-style: dashed; border-color: #d9bd73; background: #fff9e9; color: #725827; font-weight: 800; }
+.mix-preview-list .mix-duplicate-row { margin-left: 8px; border-color: #d8c586; background: #fffdf5; box-shadow: inset 3px 0 #d9b85d; }
+.mix-preview-list .mix-duplicate-row .item-flag { margin: 0 7px 0 0; vertical-align: middle; }
+.fusion-writer-field { display: grid; gap: 6px; margin-top: 16px; }
+.fusion-writer-field > span { color: var(--pine-dark); font-size: 12px; font-weight: 800; }
+.fusion-writer-field select { width: 100%; min-height: 42px; padding: 0 11px; border: 1px solid var(--line); border-radius: 11px; color: var(--pine-dark); background: #fff; font: inherit; font-size: 12px; }
+.fusion-writer-field small { color: var(--muted); font-size: 10px; line-height: 1.45; }
+.mix-actions .fusion-button { background: #765a96; }
+.fusion-workshop { margin-top: 22px; padding-top: 20px; border-top: 2px solid rgba(118,90,150,.2); }
+.fusion-workshop-head,.fusion-compare-head,.fusion-save-row { display: flex; align-items: center; justify-content: space-between; gap: 13px; }
+.fusion-workshop-head .eyebrow { margin: 0 0 3px; color: #765a96; }
+.fusion-workshop-head h3 { margin: 0; }
+.fusion-workshop-head > span { padding: 5px 9px; border-radius: 999px; color: #5f477a; background: #eee7f5; font-size: 10px; font-weight: 800; }
+.fusion-compare-card { margin-top: 14px; padding: 14px; border: 1px solid #d5c8e1; border-radius: 14px; background: #fcfaff; }
+.fusion-compare-head strong { display: block; color: var(--pine-dark); }
+.fusion-compare-head small { display: block; margin-top: 3px; color: var(--muted); font-size: 10px; }
+.fusion-originals { display: grid; gap: 7px; margin-top: 12px; }
+.fusion-originals h5 { margin: 0 0 1px; color: var(--muted); font-size: 11px; }
+.fusion-original { padding: 10px 11px; border: 1px solid #e1e6df; border-radius: 10px; background: #fff; }
+.fusion-original header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.fusion-original time { color: var(--muted); font-size: 10px; }
+.fusion-original p { margin: 7px 0 0; white-space: pre-wrap; font-size: 12px; line-height: 1.6; }
+.fusion-draft { display: grid; gap: 7px; margin-top: 13px; }
+.fusion-draft > span { color: #5f477a; font-size: 11px; font-weight: 800; }
+.fusion-draft textarea { width: 100%; min-height: 112px; padding: 11px 12px; border: 1px solid #b9a5cc; border-radius: 11px; color: var(--pine-dark); background: #fff; font: inherit; font-size: 12px; line-height: 1.65; resize: vertical; }
+.fusion-draft textarea:focus { outline: 3px solid rgba(118,90,150,.14); border-color: #765a96; }
+.fusion-save-row { align-items: flex-start; margin-top: 14px; }
+.fusion-save-row small { color: var(--muted); line-height: 1.45; text-align: right; }
 .remove-pick { flex: 0 0 auto; min-height: 26px; width: 26px; padding: 0; border-radius: 50%; color: var(--muted); background: #edf1eb; font-size: 17px; line-height: 1; }
 @media (max-width: 760px) {
   .candidate-pick-tools,.mix-studio-head { align-items: stretch; flex-direction: column; }
@@ -222,3 +250,4 @@ button:disabled { opacity: .55; cursor: wait; }
 .evidence-panel article time,.evidence-panel article b{font-size:.78rem;color:#647268}
 .evidence-panel article p{margin:0;white-space:pre-wrap;line-height:1.55}
 @media(max-width:700px){.inline-summary-editor{padding:.8rem}.inline-editor-actions{align-items:stretch}.inline-editor-actions .primary,.inline-editor-actions .secondary{flex:1}.evidence-panel article{grid-template-columns:3.3rem minmax(0,1fr)}.evidence-panel article p{grid-column:1/-1}}
+@media(max-width:700px){.fusion-workshop-head,.fusion-compare-head,.fusion-save-row{align-items:stretch;flex-direction:column}.fusion-save-row small{text-align:left}.mix-preview-list .mix-duplicate-row{margin-left:3px}}
