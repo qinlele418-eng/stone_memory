@@ -3,9 +3,21 @@ body.tidal-visual::before {
   z-index: -1;
   inset: 0;
   background:
-    radial-gradient(circle at 14% 8%, rgba(255, 255, 255, 0.92), transparent 32rem),
-    radial-gradient(circle at 88% 18%, rgba(196, 211, 223, 0.22), transparent 36rem),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(222, 232, 240, 0.16));
+    radial-gradient(
+      circle at 14% 8%,
+      color-mix(in srgb, var(--stone-tide-surface) 88%, transparent),
+      transparent 32rem
+    ),
+    radial-gradient(
+      circle at 88% 18%,
+      color-mix(in srgb, var(--stone-tide-accent-soft) 54%, transparent),
+      transparent 36rem
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--stone-tide-canvas) 22%, transparent),
+      color-mix(in srgb, var(--stone-tide-surface-soft) 42%, transparent)
+    );
   content: "";
   pointer-events: none;
 }

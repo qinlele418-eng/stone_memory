@@ -1,10 +1,9 @@
 {
-  "$schema": "https://stone-memory.local/schemas/ui-theme-v1.json",
-  "version": 1,
+  "$schema": "https://stone-memory.local/schemas/ui-theme-v3.json",
+  "version": 3,
   "coreTokenPrefix": "--stone-tide-",
   "defaults": {
     "name": "Stone Memory Original",
-    "description": "磐石记忆原版绿色主题，保留原始纸张、苔藓、松绿色与圆角阴影参数。",
     "assets": {
       "logo": null
     },
@@ -23,7 +22,11 @@
         "line": "#dce6d7",
         "lineSoft": "rgba(220, 230, 215, 0.90)",
         "status": "#7ea36f",
-        "danger": "#a3463e"
+        "danger": "#a3463e",
+        "warning": "#8a6542",
+        "info": "#5f7196",
+        "conflict": "#a65d56",
+        "fusion": "#765a96"
       },
       "radii": {
         "extraSmall": "9px",
@@ -58,7 +61,7 @@
     }
   },
   "editable": {
-    "colors": ["canvas", "surface", "ink", "inkSoft", "accent", "accentStrong", "accentSoft", "line", "danger"],
+    "colors": ["canvas", "surface", "surfaceSoft", "ink", "inkSoft", "inkFaint", "accent", "accentStrong", "accentSoft", "line", "lineSoft", "status", "danger", "warning", "info", "conflict", "fusion"],
     "radii": ["small", "medium", "large"],
     "shadows": ["card", "panel"]
   }

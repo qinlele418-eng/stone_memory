@@ -1,31 +1,23 @@
 (() => {
   "use strict";
 
-  const STORAGE_KEY = "stone-memory-ui-theme-v1";
-  const CSS_TOKENS = {
-    colors: {
-      canvas: "--stone-tide-canvas", ink: "--stone-tide-ink",
-      inkSoft: "--stone-tide-ink-soft", inkFaint: "--stone-tide-ink-faint",
-      accent: "--stone-tide-accent", accentStrong: "--stone-tide-accent-strong",
-      accentSoft: "--stone-tide-accent-soft", surface: "--stone-tide-surface",
-      surfaceSoft: "--stone-tide-surface-soft", line: "--stone-tide-line",
-      lineSoft: "--stone-tide-line-soft", status: "--stone-tide-status",
-      danger: "--stone-tide-danger",
-    },
-    radii: {
-      extraSmall: "--stone-tide-radius-xs", small: "--stone-tide-radius-sm",
-      medium: "--stone-tide-radius-md", large: "--stone-tide-radius-lg",
-      pill: "--stone-tide-radius-pill",
-    },
-    shadows: {
-      card: "--stone-tide-shadow-card", panel: "--stone-tide-shadow-panel",
-      floating: "--stone-tide-shadow-floating", button: "--stone-tide-shadow-button",
-    },
-    motion: {
-      fast: "--stone-tide-motion-fast", normal: "--stone-tide-motion-normal",
-      easing: "--stone-tide-ease-soft",
-    },
-  };
+  const MODULE_THEME_BRIDGE_KEY = "stone-memory-developer-semantic-theme-v1";
+  const ALLOWED_SEMANTIC_PROPERTIES = new Set([
+    "--stone-tide-canvas", "--stone-tide-canvas-warm",
+    "--stone-tide-ink", "--stone-tide-ink-soft", "--stone-tide-ink-faint",
+    "--stone-tide-accent", "--stone-tide-accent-strong", "--stone-tide-accent-soft",
+    "--stone-tide-surface", "--stone-tide-surface-soft",
+    "--stone-tide-line", "--stone-tide-line-soft",
+    "--stone-tide-status", "--stone-tide-danger", "--stone-tide-warning",
+    "--stone-tide-info", "--stone-tide-conflict", "--stone-tide-fusion",
+    "--stone-tide-radius-xs", "--stone-tide-radius-sm", "--stone-tide-radius-md",
+    "--stone-tide-radius-lg", "--stone-tide-radius-pill",
+    "--stone-tide-shadow-card", "--stone-tide-shadow-panel",
+    "--stone-tide-shadow-floating", "--stone-tide-shadow-button",
+    "--stone-tide-space-1", "--stone-tide-space-2", "--stone-tide-space-3",
+    "--stone-tide-space-4", "--stone-tide-space-5", "--stone-tide-space-6",
+    "--stone-tide-motion-fast", "--stone-tide-motion-normal", "--stone-tide-ease-soft",
+  ]);
 
   const cleanCssValue = value => {
     const text = String(value || "").trim();
@@ -34,15 +26,14 @@
 
   function applyFirstFrameTheme() {
     try {
-      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
-      if (!saved?.tokens) return;
-      for (const [group, definitions] of Object.entries(CSS_TOKENS)) {
-        for (const [name, property] of Object.entries(definitions)) {
-          const value = cleanCssValue(saved.tokens[group]?.[name]);
-          if (value) document.documentElement.style.setProperty(property, value);
-        }
+      const snapshot = JSON.parse(sessionStorage.getItem(MODULE_THEME_BRIDGE_KEY) || "null");
+      if (!snapshot?.properties || typeof snapshot.properties !== "object") return;
+      for (const [property, rawValue] of Object.entries(snapshot.properties)) {
+        if (!ALLOWED_SEMANTIC_PROPERTIES.has(property)) continue;
+        const value = cleanCssValue(rawValue);
+        if (value) document.documentElement.style.setProperty(property, value);
       }
-      document.documentElement.dataset.stoneTheme = String(saved.name || "Custom").slice(0, 60);
+      document.documentElement.dataset.stoneTheme = String(snapshot.name || "Custom").slice(0, 60);
       document.documentElement.classList.add("stone-module-themed");
     } catch {}
   }

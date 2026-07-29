@@ -5,13 +5,16 @@ const assert = require("node:assert/strict");
 
 const publicDir = path.join(__dirname, "..", "src", "web", "public");
 
-test("developer kit exposes a reusable first-frame runtime and module contract", () => {
+test("developer kit consumes an optional semantic snapshot without reading theme persistence", () => {
   const runtime = fs.readFileSync(path.join(publicDir, "developer-kit", "runtime.js"), "utf8");
   const contract = JSON.parse(fs.readFileSync(path.join(publicDir, "developer-kit", "contract.json"), "utf8"));
   const index = fs.readFileSync(path.join(publicDir, "developer-kit", "index.html"), "utf8");
   const app = fs.readFileSync(path.join(publicDir, "developer-kit", "app.js"), "utf8");
 
   assert.match(runtime, /applyFirstFrameTheme\(\)/);
+  assert.match(runtime, /sessionStorage\.getItem\(MODULE_THEME_BRIDGE_KEY\)/);
+  assert.match(runtime, /stone-memory-developer-semantic-theme-v1/);
+  assert.doesNotMatch(runtime, /localStorage|stone-memory-ui-theme-v1/);
   assert.match(runtime, /window\.StoneDeveloperModule/);
   assert.match(runtime, /threadId/);
   assert.match(runtime, /stone-memory-developer-thread/);
@@ -21,6 +24,7 @@ test("developer kit exposes a reusable first-frame runtime and module contract",
   assert.doesNotMatch(index, /data-stone-library/);
   assert.match(index, /stone-memory-maintainer\/SKILL\.md/);
   assert.match(app, /stone-memory-maintainer\/SKILL\.md/);
+  assert.doesNotMatch(index, /theme-studio/);
 });
 
 test("review lab uses the shared developer module shell before its styles paint", () => {

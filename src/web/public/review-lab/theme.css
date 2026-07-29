@@ -7,15 +7,35 @@
   --leaf: var(--stone-tide-accent-soft, #eef4fa);
   --pine: var(--stone-tide-accent, #4c6378);
   --pine-dark: var(--stone-tide-accent-strong, #2c4056);
-  --warm: #fff8e8;
+  --warning: var(--stone-tide-warning, #8a6542);
+  --info: var(--stone-tide-info, #5f7196);
+  --conflict: var(--stone-tide-conflict, #a65d56);
+  --fusion: var(--stone-tide-fusion, #765a96);
+  --warm: color-mix(in srgb, var(--warning) 12%, var(--stone-tide-surface, #fffef9));
   --danger: var(--stone-tide-danger, #b76e76);
 }
 
 body {
   background:
-    radial-gradient(circle at 14% 8%, rgba(255, 255, 255, .92), transparent 32rem),
-    radial-gradient(circle at 88% 18%, rgba(196, 211, 223, .22), transparent 36rem),
-    linear-gradient(180deg, var(--stone-tide-canvas, #f7fafc), var(--stone-tide-accent-soft, #eef3f7));
+    radial-gradient(
+      circle at 14% 8%,
+      color-mix(in srgb, var(--stone-tide-surface, rgba(247, 250, 252, .92)) 88%, transparent),
+      transparent 32rem
+    ),
+    radial-gradient(
+      circle at 88% 18%,
+      color-mix(in srgb, var(--stone-tide-accent-soft, #eef4fa) 54%, transparent),
+      transparent 36rem
+    ),
+    linear-gradient(
+      180deg,
+      var(--stone-tide-canvas, #f7fafc),
+      color-mix(
+        in srgb,
+        var(--stone-tide-surface-soft, rgba(244, 248, 250, .42)) 72%,
+        var(--stone-tide-canvas, #f7fafc)
+      )
+    );
   font-family: var(--stone-tide-font-body, ui-sans-serif, system-ui, sans-serif);
 }
 
@@ -37,8 +57,8 @@ body {
   color: var(--pine-dark);
   border: 1px solid var(--line);
   border-radius: 999px;
-  background: rgba(247, 250, 252, .78);
-  box-shadow: 0 10px 28px rgba(70, 92, 108, .05);
+  background: color-mix(in srgb, var(--card) 84%, transparent);
+  box-shadow: var(--stone-tide-shadow-card, 0 10px 28px rgba(70, 92, 108, .05));
   font-size: 12px;
   font-weight: 750;
 }
@@ -69,7 +89,7 @@ body {
 .status,
 .candidate {
   min-width: 0;
-  border-color: rgba(151, 169, 181, .18);
+  border-color: var(--stone-tide-line-soft, rgba(151, 169, 181, .18));
   border-radius: var(--stone-tide-radius-lg, 20px);
   background: var(--card);
   box-shadow: var(--stone-tide-shadow-panel, 0 18px 46px rgba(74, 93, 108, .10));
@@ -97,7 +117,7 @@ body {
 .rule-panel,
 .mix-controls,
 .mix-preview {
-  background: rgba(244, 248, 250, .58);
+  background: var(--stone-tide-surface-soft, rgba(244, 248, 250, .58));
 }
 
 .model,
@@ -105,8 +125,24 @@ body {
 .preset,
 .comparison-card,
 .memory-row,
-.mix-preview-list li {
-  background: rgba(255, 255, 255, .82);
+.mix-preview-list li,
+.empty,
+.candidate-chunks,
+select,
+input[type="text"],
+.model-builder input {
+  background: var(--stone-tide-surface, rgba(255, 255, 255, .82));
+}
+
+.model:has(input:checked),
+.option:has(input:checked),
+.preset.active,
+.comparison-card.active,
+.pick-row.selected {
+  color: var(--pine-dark);
+  border-color: color-mix(in srgb, var(--pine) 54%, var(--line));
+  background: var(--leaf);
+  box-shadow: inset 4px 0 var(--pine);
 }
 
 button,
@@ -122,13 +158,154 @@ textarea,
 }
 
 .primary {
-  background: var(--pine-dark);
-  box-shadow: 0 12px 26px rgba(44, 64, 86, .18);
+  border: 1px solid color-mix(in srgb, var(--pine-dark) 70%, var(--pine));
+  background: linear-gradient(135deg, var(--pine-dark), color-mix(in srgb, var(--pine) 72%, var(--pine-dark)));
+  box-shadow: var(--stone-tide-shadow-button, 0 12px 26px rgba(44, 64, 86, .18));
 }
 
 .primary:hover {
-  background: var(--pine);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--pine-dark) 82%, var(--pine)), var(--pine));
   transform: translateY(-1px);
+}
+
+.secondary {
+  color: var(--pine-dark);
+  border-color: var(--line);
+  background: var(--leaf);
+}
+
+.danger {
+  background: var(--danger);
+}
+
+select:focus,
+input:focus,
+textarea:focus {
+  outline: 3px solid color-mix(in srgb, var(--pine) 16%, transparent);
+  border-color: var(--pine);
+}
+
+.status {
+  border-color: color-mix(in srgb, var(--warning) 28%, var(--line));
+  background: color-mix(in srgb, var(--warning) 10%, var(--card));
+}
+
+.preset.private::after,
+.item-flag,
+.mix-warning,
+.mix-preview-list .mix-duplicate-group-title,
+.mix-preview-list .mix-duplicate-row,
+.item-flag.edited {
+  color: var(--warning);
+  border-color: color-mix(in srgb, var(--warning) 38%, var(--line));
+  background: color-mix(in srgb, var(--warning) 13%, var(--card));
+}
+
+.status.has-error {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 38%, var(--line));
+  background: color-mix(in srgb, var(--danger) 10%, var(--card));
+}
+
+.item-flag.conflict,
+.mix-warning.conflict {
+  color: var(--conflict);
+  border-color: color-mix(in srgb, var(--conflict) 38%, var(--line));
+  background: color-mix(in srgb, var(--conflict) 12%, var(--card));
+}
+
+.comparison-card.hybrid {
+  border-color: color-mix(in srgb, var(--fusion) 42%, var(--line));
+  background:
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--fusion) 10%, var(--card)),
+      color-mix(in srgb, var(--pine) 9%, var(--card))
+    );
+}
+
+.candidate-pick-tools,
+.inline-summary-editor,
+.evidence-panel {
+  color: var(--pine-dark);
+  border-color: color-mix(in srgb, var(--pine) 34%, var(--line));
+  background: var(--stone-tide-surface-soft, rgba(244, 248, 250, .58));
+}
+
+.mix-studio {
+  border-color: color-mix(in srgb, var(--pine) 28%, var(--line));
+}
+
+.mix-preview-list .mix-duplicate-row {
+  box-shadow: inset 3px 0 var(--warning);
+}
+
+.mix-actions .fusion-button {
+  background: var(--fusion);
+}
+
+.fusion-workshop {
+  border-color: color-mix(in srgb, var(--fusion) 30%, var(--line));
+}
+
+.fusion-workshop-head .eyebrow,
+.fusion-draft > span {
+  color: var(--fusion);
+}
+
+.fusion-workshop-head > span {
+  color: var(--fusion);
+  background: color-mix(in srgb, var(--fusion) 12%, var(--card));
+}
+
+.fusion-compare-card {
+  border-color: color-mix(in srgb, var(--fusion) 30%, var(--line));
+  background: color-mix(in srgb, var(--fusion) 5%, var(--card));
+}
+
+.fusion-original,
+.fusion-draft textarea,
+.fusion-stored-result p,
+.inline-summary-editor textarea,
+.inline-summary-editor details p {
+  color: var(--ink);
+  border-color: var(--line);
+  background: var(--card);
+}
+
+.fusion-draft textarea:focus {
+  outline-color: color-mix(in srgb, var(--fusion) 16%, transparent);
+  border-color: var(--fusion);
+}
+
+.text-action,
+.inline-summary-editor summary {
+  color: var(--pine);
+}
+
+.inline-summary-editor label,
+.inline-summary-editor details {
+  color: var(--ink);
+}
+
+.inline-summary-editor small,
+.evidence-head small,
+.evidence-panel article time,
+.evidence-panel article b {
+  color: var(--muted);
+}
+
+.inline-summary-editor details p {
+  border-left-color: color-mix(in srgb, var(--pine) 32%, var(--line));
+}
+
+.evidence-panel article {
+  border-color: var(--line);
+}
+
+.remove-pick {
+  color: var(--muted);
+  background: var(--stone-tide-surface-soft, rgba(244, 248, 250, .58));
 }
 
 @media (max-width: 720px) {

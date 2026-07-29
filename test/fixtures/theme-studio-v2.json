@@ -1,0 +1,12 @@
+{
+  "$schema": "https://stone-memory.local/schemas/ui-theme-v2.json",
+  "version": 2,
+  "name": "旧版二兼容",
+  "description": "第二版简介也应在迁移时忽略",
+  "tokens": {
+    "colors": {
+      "accent": "#654321",
+      "warning": "#8a6542"
+    }
+  }
+}

@@ -26,6 +26,10 @@
   --stone-tide-line-soft: rgba(151, 169, 181, 0.18);
   --stone-tide-status: #5fbf8f;
   --stone-tide-danger: #cf8d92;
+  --stone-tide-warning: #8a6542;
+  --stone-tide-info: #5f7196;
+  --stone-tide-conflict: #a65d56;
+  --stone-tide-fusion: #765a96;
 
   --stone-tide-radius-xs: 9px;
   --stone-tide-radius-sm: 12px;
@@ -70,13 +74,13 @@ body.tidal-visual {
   --pine-950: var(--stone-tide-ink);
   --pine-800: var(--stone-tide-accent-strong);
   --pine-700: var(--stone-tide-accent);
-  --moss-500: #7e93a4;
-  --moss-300: #b8c8d4;
-  --moss-200: #dce6ee;
+  --moss-500: var(--stone-tide-accent);
+  --moss-300: color-mix(in srgb, var(--stone-tide-accent) 42%, var(--stone-tide-line));
+  --moss-200: color-mix(in srgb, var(--stone-tide-accent-soft) 68%, var(--stone-tide-line));
   --moss-100: var(--stone-tide-accent-soft);
   --leaf-50: var(--stone-tide-canvas);
   --paper: var(--stone-tide-surface);
-  --earth: #796f68;
+  --earth: var(--stone-tide-ink-faint);
   --muted: var(--stone-tide-ink-soft);
   --line: var(--stone-tide-line);
   --danger: var(--stone-tide-danger);
@@ -118,6 +122,7 @@ body.tidal-visual .panel,
 body.tidal-visual .dashboard-head,
 body.tidal-visual .section-card,
 body.tidal-visual .library-card,
+body.tidal-visual .maintenance-card,
 body.tidal-visual .stat,
 body.tidal-visual .import-card {
   box-shadow: var(--stone-tide-shadow-card);
@@ -126,12 +131,21 @@ body.tidal-visual .import-card {
 }
 
 body.tidal-visual .primary {
-  background: var(--stone-tide-accent-strong);
+  border-color: color-mix(in srgb, var(--stone-tide-accent-strong) 70%, var(--stone-tide-accent));
+  background: linear-gradient(
+    135deg,
+    var(--stone-tide-accent-strong),
+    color-mix(in srgb, var(--stone-tide-accent) 72%, var(--stone-tide-accent-strong))
+  );
   box-shadow: var(--stone-tide-shadow-button);
 }
 
 body.tidal-visual .primary:hover {
-  background: var(--stone-tide-accent);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--stone-tide-accent-strong) 82%, var(--stone-tide-accent)),
+    var(--stone-tide-accent)
+  );
 }
 
 body.tidal-visual .secondary,

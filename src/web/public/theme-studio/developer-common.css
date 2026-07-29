@@ -4,14 +4,14 @@
  */
 
 body.tidal-visual .developer-mode-head {
-  color: #f7faf6;
+  color: var(--stone-tide-ink);
   background:
-    radial-gradient(circle at 82% 18%, color-mix(in srgb, var(--stone-tide-status) 20%, transparent), transparent 34%),
+    radial-gradient(circle at 82% 18%, color-mix(in srgb, var(--stone-tide-accent) 20%, transparent), transparent 34%),
     linear-gradient(132deg,
-      color-mix(in srgb, var(--stone-tide-ink) 88%, #101a18) 0%,
-      color-mix(in srgb, var(--stone-tide-accent-strong) 58%, var(--stone-tide-ink)) 58%,
-      color-mix(in srgb, var(--stone-tide-accent) 42%, var(--stone-tide-ink)) 100%);
-  border-color: color-mix(in srgb, var(--stone-tide-accent) 38%, transparent);
+      color-mix(in srgb, var(--stone-tide-surface) 88%, var(--stone-tide-accent-soft)) 0%,
+      color-mix(in srgb, var(--stone-tide-surface-soft) 64%, var(--stone-tide-accent-soft)) 58%,
+      color-mix(in srgb, var(--stone-tide-accent-soft) 72%, var(--stone-tide-surface)) 100%);
+  border-color: color-mix(in srgb, var(--stone-tide-accent) 38%, var(--stone-tide-line));
   box-shadow: var(--stone-tide-shadow-panel);
 }
 
@@ -22,11 +22,11 @@ body.tidal-visual .developer-mode-head .lead {
 }
 
 body.tidal-visual .developer-mode-head .eyebrow {
-  color: color-mix(in srgb, var(--stone-tide-status) 72%, #fff);
+  color: var(--stone-tide-accent-strong);
 }
 
 body.tidal-visual .developer-mode-head .lead {
-  color: rgba(247, 250, 246, 0.72);
+  color: var(--stone-tide-ink-soft);
 }
 
 body.tidal-visual .developer-orbit {
@@ -54,20 +54,20 @@ body.tidal-visual .developer-orbit i {
 
 body.tidal-visual .developer-experiment-card,
 body.tidal-visual .developer-theme-card {
-  color: #f7faf6;
-  border-color: color-mix(in srgb, var(--stone-tide-accent) 32%, transparent);
+  color: var(--stone-tide-ink);
+  border-color: color-mix(in srgb, var(--stone-tide-accent) 32%, var(--stone-tide-line));
   background:
-    radial-gradient(circle at 88% 82%, color-mix(in srgb, var(--stone-tide-status) 22%, transparent), transparent 35%),
+    radial-gradient(circle at 88% 82%, color-mix(in srgb, var(--stone-tide-accent) 18%, transparent), transparent 35%),
     linear-gradient(145deg,
-      color-mix(in srgb, var(--stone-tide-ink) 90%, #101817),
-      color-mix(in srgb, var(--stone-tide-accent-strong) 38%, var(--stone-tide-ink)) 58%,
-      color-mix(in srgb, var(--stone-tide-danger) 20%, var(--stone-tide-ink)));
-  box-shadow: var(--stone-tide-shadow-panel);
+      color-mix(in srgb, var(--stone-tide-surface) 92%, var(--stone-tide-accent-soft)),
+      color-mix(in srgb, var(--stone-tide-surface-soft) 66%, var(--stone-tide-accent-soft)) 58%,
+      color-mix(in srgb, var(--stone-tide-accent-soft) 62%, var(--stone-tide-surface)));
+  box-shadow: var(--stone-tide-shadow-card);
 }
 
 body.tidal-visual .developer-experiment-card::before {
   display: block;
-  background-image: radial-gradient(circle at 18% 16%, color-mix(in srgb, var(--stone-tide-status) 24%, transparent) 0 1px, transparent 1.5px);
+  background-image: radial-gradient(circle at 18% 16%, color-mix(in srgb, var(--stone-tide-accent) 18%, transparent) 0 1px, transparent 1.5px);
 }
 
 body.tidal-visual .developer-experiment-glow {
@@ -76,35 +76,35 @@ body.tidal-visual .developer-experiment-glow {
 }
 
 body.tidal-visual .developer-experiment-copy .eyebrow {
-  color: color-mix(in srgb, var(--stone-tide-status) 74%, #fff);
+  color: var(--stone-tide-accent-strong);
 }
 
 body.tidal-visual .developer-experiment-copy h2,
 body.tidal-visual .developer-theme-card h2 {
-  color: #f7faf6;
+  color: var(--stone-tide-ink);
 }
 
 body.tidal-visual .developer-experiment-copy > p:not(.eyebrow),
 body.tidal-visual .developer-theme-card .developer-experiment-copy > p:not(.eyebrow) {
-  color: rgba(247, 250, 246, 0.74);
+  color: var(--stone-tide-ink-soft);
 }
 
 body.tidal-visual .developer-status {
-  color: color-mix(in srgb, var(--stone-tide-ink) 82%, #101817);
-  background: color-mix(in srgb, var(--stone-tide-status) 72%, #fff);
-  border: 1px solid color-mix(in srgb, var(--stone-tide-status) 58%, transparent);
+  color: var(--stone-tide-accent-strong);
+  background: color-mix(in srgb, var(--stone-tide-accent-soft) 82%, var(--stone-tide-surface));
+  border: 1px solid color-mix(in srgb, var(--stone-tide-accent) 34%, var(--stone-tide-line));
 }
 
 body.tidal-visual .developer-contributor {
-  color: rgba(247, 250, 246, 0.82);
-  background: color-mix(in srgb, var(--stone-tide-danger) 18%, transparent);
-  border-color: color-mix(in srgb, var(--stone-tide-danger) 34%, transparent);
+  color: var(--stone-tide-ink-soft);
+  background: color-mix(in srgb, var(--stone-tide-surface) 72%, var(--stone-tide-accent-soft));
+  border-color: var(--stone-tide-line);
 }
 
 body.tidal-visual .developer-experiment-features span {
-  color: rgba(247, 250, 246, 0.74);
-  background: rgba(255, 255, 255, 0.055);
-  border-color: rgba(255, 255, 255, 0.1);
+  color: var(--stone-tide-ink-soft);
+  background: color-mix(in srgb, var(--stone-tide-surface) 74%, transparent);
+  border-color: var(--stone-tide-line-soft);
 }
 
 body.tidal-visual .developer-memory-stack i,
@@ -125,15 +125,26 @@ body.tidal-visual .developer-theme-preview b {
 }
 
 body.tidal-visual .developer-enter {
-  color: rgba(247, 250, 246, 0.76);
-  background: rgba(255, 255, 255, 0.065);
-  border-color: rgba(255, 255, 255, 0.12);
+  color: var(--stone-tide-ink);
+  background:
+    linear-gradient(
+      135deg,
+      var(--stone-tide-accent-soft),
+      color-mix(in srgb, var(--stone-tide-accent) 48%, var(--stone-tide-surface))
+    );
+  border-color: color-mix(in srgb, var(--stone-tide-accent) 58%, var(--stone-tide-line));
+  box-shadow: var(--stone-tide-shadow-button);
 }
 
 body.tidal-visual .developer-enter:hover {
-  color: #fff;
-  background: color-mix(in srgb, var(--stone-tide-accent) 24%, rgba(255, 255, 255, 0.08));
-  border-color: color-mix(in srgb, var(--stone-tide-accent) 58%, #fff);
+  color: var(--stone-tide-ink);
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--stone-tide-accent-soft) 76%, var(--stone-tide-surface)),
+      color-mix(in srgb, var(--stone-tide-accent) 62%, var(--stone-tide-surface))
+    );
+  border-color: var(--stone-tide-accent);
 }
 
 body.tidal-visual .theme-workbench {

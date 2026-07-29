@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "name": "旧版一兼容",
+  "description": "旧版简介应在迁移时忽略",
+  "tokens": {
+    "colors": {
+      "accent": "#123456"
+    }
+  }
+}
