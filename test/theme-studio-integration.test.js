@@ -23,6 +23,26 @@ test("mobile workspace navigation top-aligns wrapped labels", () => {
   assert.match(mobileNav, /padding:\s*6px 4px 0/);
 });
 
+test("mobile pages contain wide workspace content and prevent input zoom", () => {
+  const publicDir = path.join(__dirname, "..", "src", "web", "public");
+  const mainStyles = fs.readFileSync(path.join(publicDir, "styles.css"), "utf8");
+  const themeStyles = fs.readFileSync(path.join(publicDir, "theme-studio", "standalone.css"), "utf8");
+  const kitStyles = fs.readFileSync(path.join(publicDir, "developer-kit", "styles.css"), "utf8");
+  const reviewStyles = fs.readFileSync(path.join(publicDir, "review-lab", "styles.css"), "utf8");
+
+  assert.match(mainStyles, /\.workspace-grid\s*>\s*\*,\s*#workspace-main\s*\{\s*min-width:\s*0/);
+  assert.match(mainStyles, /\.timeline-chart-scroll\s*\{[^}]*max-width:\s*100%[^}]*min-width:\s*0/);
+
+  for (const styles of [mainStyles, themeStyles, kitStyles, reviewStyles]) {
+    assert.match(styles, /textarea\s*\{\s*font-size:\s*16px\s*!important/);
+  }
+
+  const compactActions = themeStyles.match(/@media \(max-width: 620px\)[\s\S]*?@media|@media \(max-width: 620px\)[\s\S]*$/)?.[0] || "";
+  assert.match(compactActions, /\.theme-inline-actions button,[\s\S]*?min-height:\s*44px/);
+  assert.match(compactActions, /\.theme-inline-actions button,[\s\S]*?font-size:\s*10px/);
+  assert.match(compactActions, /\.theme-inline-actions button,[\s\S]*?white-space:\s*normal/);
+});
+
 test("theme studio remains a single removable frontend integration", () => {
   const publicDir = path.join(__dirname, "..", "src", "web", "public");
   const html = fs.readFileSync(path.join(publicDir, "index.html"), "utf8");
@@ -167,9 +187,12 @@ test("semantic theme covers mining calendar states and preserves the developer l
   const compactLayout = standaloneCss.match(/@media \(max-width: 620px\)\s*\{([\s\S]*)\}\s*$/)?.[1] || "";
   assert.match(tokenFields, /grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(150px,\s*1fr\)\)/);
   assert.doesNotMatch(tokenFields, /grid-auto-flow|overflow-x/);
-  assert.match(compactLayout, /\.token-group-fields,[\s\S]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/);
+  assert.match(compactLayout, /\.token-group-fields,[\s\S]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
   assert.match(compactLayout, /\.theme-color-picker[\s\S]*width:\s*26px/);
   assert.match(compactLayout, /\.theme-color-picker[\s\S]*height:\s*26px/);
+  assert.match(compactLayout, /\.token-group \.theme-field \.theme-value-input[\s\S]*font-size:\s*16px\s*!important/);
+  assert.match(compactLayout, /\.token-group \.theme-field \.theme-value-input[\s\S]*transform:\s*scale\(\.8\)/);
+  assert.match(compactLayout, /\.theme-field\.is-color \.theme-value-input[\s\S]*flex-basis:\s*calc\(125% - 38\.75px\)/);
   assert.match(standalone, /theme-card-meta[\s\S]*theme-credit[\s\S]*theme-file-badge/);
   assert.match(standalone, /createUtilityGroup\("主题",\s*"命名、保存、导入与切换主题"/);
   assert.match(standalone, /createUtilityGroup\("品牌图标"/);
@@ -210,6 +233,19 @@ test("semantic theme covers mining calendar states and preserves the developer l
   assert.match(standalone, /remove\.hidden\s*=\s*false;[\s\S]*remove\.disabled\s*=\s*!logo/);
   assert.match(standaloneCss, /\.secondary,\s*\.ghost,\s*\.theme-upload\s*\{/);
   assert.match(standaloneCss, /\.advanced-json summary\s*\{[\s\S]*?border-radius:\s*0;[\s\S]*?background:\s*transparent/);
+  assert.match(standalone, /function parseShadowValue\(value\)/);
+  assert.match(standalone, /function composeShadowValue\(editor\)/);
+  assert.match(standalone, /<details class="token-group token-group-shadow theme-shadow-group">/);
+  assert.match(standalone, /partInput\("x",\s*"横向偏移"/);
+  assert.match(standalone, /partInput\("opacity",\s*"透明度 %"/);
+  assert.match(standalone, /complex old value|复杂旧值/);
+  assert.match(standalone, /theme-field theme-shadow-part[\s\S]*?theme-control[\s\S]*?class="theme-value-input"/);
+  assert.match(standalone, /theme-field theme-shadow-part is-color[\s\S]*?theme-color-picker[\s\S]*?class="theme-value-input"/);
+  assert.match(standalone, /theme-shadow-raw[\s\S]*?class="theme-field"[\s\S]*?class="theme-control"[\s\S]*?class="theme-value-input"/);
+  assert.match(standaloneCss, /\.theme-shadow-group > summary\s*\{[\s\S]*?background:\s*transparent/);
+  assert.match(standaloneCss, /\.token-group-shadow\.theme-shadow-group \.token-group-fields\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)/);
+  assert.match(compactLayout, /\.theme-shadow-parts\s*\{\s*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
+  assert.doesNotMatch(standaloneCss, /\.theme-shadow-parts input/);
   assert.match(standaloneCss, /\.theme-token-groups\s*\{\s*display:\s*contents;\s*\}/);
   assert.match(standaloneCss, /\.theme-groups\s*\{[\s\S]*?align-items:\s*start;[\s\S]*?align-content:\s*start/);
   assert.match(tokenFields, /align-items:\s*start/);

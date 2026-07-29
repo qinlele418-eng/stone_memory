@@ -195,6 +195,78 @@
     return "#397052";
   }
 
+  function parseShadowColor(value) {
+    const clean = String(value || "").trim();
+    const hex = clean.match(/^#([0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i);
+    if (hex) {
+      let digits = hex[1];
+      if (digits.length <= 4) digits = digits.split("").map(digit => `${digit}${digit}`).join("");
+      const hasAlpha = digits.length === 8;
+      return {
+        color: `#${digits.slice(0, 6).toLowerCase()}`,
+        opacity: hasAlpha ? Math.round((parseInt(digits.slice(6), 16) / 255) * 100) : 100,
+      };
+    }
+    const rgb = clean.match(/^rgba?\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)(?:\s*,\s*(\d*\.?\d+)\s*)?\)$/i);
+    if (!rgb) return null;
+    return {
+      color: `#${rgb.slice(1, 4).map(channel => Math.max(0, Math.min(255, Math.round(Number(channel)))).toString(16).padStart(2, "0")).join("")}`,
+      opacity: Math.round(Math.max(0, Math.min(1, rgb[4] === undefined ? 1 : Number(rgb[4]))) * 100),
+    };
+  }
+
+  function parseShadowValue(value) {
+    const clean = String(value || "").trim();
+    if (!clean || clean === "none") return null;
+    const colorMatch = clean.match(/(rgba?\([^)]*\)|#[0-9a-f]{3,8})\s*$/i);
+    if (!colorMatch) return null;
+    const color = parseShadowColor(colorMatch[1]);
+    const lengths = clean.slice(0, colorMatch.index).trim().split(/\s+/);
+    if (!color || lengths.length < 3 || lengths.length > 4) return null;
+    if (!lengths.every(length => /^-?(?:\d+(?:\.\d+)?|\.\d+)(?:px)?$/i.test(length) && (/px$/i.test(length) || Number(length) === 0))) return null;
+    const numbers = lengths.map(Number.parseFloat);
+    if (numbers[2] < 0) return null;
+    return {
+      x: numbers[0],
+      y: numbers[1],
+      blur: numbers[2],
+      spread: numbers[3] || 0,
+      color: color.color,
+      opacity: color.opacity,
+    };
+  }
+
+  function formatShadowNumber(value) {
+    const rounded = Math.round(Number(value) * 100) / 100;
+    return Object.is(rounded, -0) ? "0" : String(rounded);
+  }
+
+  function formatShadowLength(value) {
+    const number = Number(value);
+    return number === 0 ? "0" : `${formatShadowNumber(number)}px`;
+  }
+
+  function shadowColorToRgba(hex, opacity) {
+    const clean = String(hex || "").replace("#", "");
+    const channels = [0, 2, 4].map(index => parseInt(clean.slice(index, index + 2), 16));
+    return `rgba(${channels.join(", ")}, ${formatShadowNumber(Number(opacity) / 100)})`;
+  }
+
+  function composeShadowValue(editor) {
+    const values = {};
+    editor.querySelectorAll("[data-shadow-part]").forEach(input => { values[input.dataset.shadowPart] = input.value; });
+    const requiredNumbers = ["x", "y", "blur", "spread", "opacity"];
+    if (requiredNumbers.some(key => values[key] === "" || !Number.isFinite(Number(values[key])))) throw new Error("阴影参数必须填写有效数字");
+    if (Number(values.blur) < 0) throw new Error("阴影模糊不能小于 0");
+    if (Number(values.opacity) < 0 || Number(values.opacity) > 100) throw new Error("阴影透明度必须在 0–100 之间");
+    if (!/^#[0-9a-f]{6}$/i.test(values.color || "")) throw new Error("阴影颜色必须使用六位 HEX");
+    return `${formatShadowLength(values.x)} ${formatShadowLength(values.y)} ${formatShadowLength(values.blur)} ${formatShadowLength(values.spread)} ${shadowColorToRgba(values.color, values.opacity)}`;
+  }
+
+  function shadowValueSummary(parts) {
+    return `横向 ${formatShadowNumber(parts.x)} · 纵向 ${formatShadowNumber(parts.y)} · 模糊 ${formatShadowNumber(parts.blur)} · 透明 ${formatShadowNumber(parts.opacity)}%`;
+  }
+
   function tokenCssSuffix(group, name) {
     if (group === "colors") return colorCssNames[name] || name.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`);
     if (group === "radii") return `radius-${radiusCssNames[name] || name}`;
@@ -369,6 +441,26 @@
     return `<div class="theme-field ${definition.kind === "color" ? "is-color" : ""}"><label for="${inputId}">${escapeHtml(definition.label)}</label><div class="theme-control">${colorPicker}<input id="${inputId}" class="theme-value-input" data-path="${escapeHtml(definition.path)}" value="${escapeHtml(displayValue)}" spellcheck="false" aria-label="${escapeHtml(definition.label)}代码"></div></div>`;
   }
 
+  function renderShadowField(definition) {
+    const value = get(state.theme, definition.path);
+    const parts = parseShadowValue(value);
+    const inputId = `theme-${definition.path.replaceAll(".", "-")}`;
+    if (!parts) {
+      return `<div class="theme-shadow-field theme-shadow-raw"><header><strong>${escapeHtml(definition.label)}</strong><small>复杂旧值，保留原始 CSS 编辑</small></header><div class="theme-field"><label for="${inputId}">原始 CSS</label><div class="theme-control"><input id="${inputId}" class="theme-value-input" data-path="${escapeHtml(definition.path)}" value="${escapeHtml(value)}" spellcheck="false" aria-label="${escapeHtml(definition.label)}原始 CSS"></div></div></div>`;
+    }
+    const partInput = (part, label) => {
+      const partId = `${inputId}-${part}`;
+      return `<div class="theme-field theme-shadow-part"><label for="${partId}">${label}</label><div class="theme-control"><input id="${partId}" class="theme-value-input" inputmode="decimal" data-shadow-part="${part}" value="${escapeHtml(formatShadowNumber(parts[part]))}" aria-label="${escapeHtml(definition.label)}${label}"></div></div>`;
+    };
+    const colorId = `${inputId}-color`;
+    const colorField = `<div class="theme-field theme-shadow-part is-color"><label for="${colorId}">颜色</label><div class="theme-control"><input class="theme-color-picker" type="color" data-shadow-color-part="color" value="${escapeHtml(parts.color)}" aria-label="打开${escapeHtml(definition.label)}色盘" title="点击打开色盘"><input id="${colorId}" class="theme-value-input" data-shadow-part="color" value="${escapeHtml(parts.color)}" spellcheck="false" aria-label="${escapeHtml(definition.label)}颜色代码"></div></div>`;
+    return `<div class="theme-shadow-field" data-shadow-path="${escapeHtml(definition.path)}"><header><strong>${escapeHtml(definition.label)}</strong><small data-shadow-summary>${escapeHtml(shadowValueSummary(parts))}</small></header><div class="theme-shadow-parts">${partInput("x", "横向偏移")}${partInput("y", "纵向偏移")}${partInput("blur", "模糊")}${partInput("spread", "扩散")}${colorField}${partInput("opacity", "透明度 %")}</div></div>`;
+  }
+
+  function renderShadowGroup(group, definitions) {
+    return `<details class="token-group token-group-shadow theme-shadow-group"><summary><span><strong>${escapeHtml(group.title)}</strong><small>${escapeHtml(group.description)}；展开后分别调整位置、模糊、扩散、颜色和透明度</small></span><i aria-hidden="true">⌄</i></summary><div class="token-group-fields">${definitions.map(renderShadowField).join("")}</div></details>`;
+  }
+
   function activePresetName() {
     if (state.theme.name === state.contract.defaults.name) return "original";
     if (state.theme.name === "Pearl Tide") return "pearl";
@@ -398,6 +490,7 @@
     const definitions = fieldDefinitions();
     $("#theme-fields").innerHTML = FIELD_GROUPS.map(group => {
       const groupFields = group.paths.map(path => definitions.find(definition => definition.path === path)).filter(Boolean);
+      if (group.key === "shadow") return renderShadowGroup(group, groupFields);
       return `<section class="token-group token-group-${group.key}"><header class="token-group-head"><h3>${group.title}</h3><p>${group.description}</p></header><div class="token-group-fields">${groupFields.map(renderField).join("")}</div></section>`;
     }).join("");
     $("#theme-name").value = state.theme.name;
@@ -587,6 +680,32 @@
       document.addEventListener("input", event => {
         const input = event.target;
         if (input.id === "theme-name") { state.theme.name = input.value; return; }
+        const shadowEditor = input.closest?.("[data-shadow-path]");
+        const shadowPart = input.dataset.shadowPart || input.dataset.shadowColorPart;
+        if (shadowEditor && shadowPart) {
+          const definition = fieldDefinitions().find(item => item.path === shadowEditor.dataset.shadowPath);
+          if (!definition) return;
+          try {
+            if (input.dataset.shadowColorPart) {
+              const colorCode = shadowEditor.querySelector('[data-shadow-part="color"]');
+              if (colorCode) colorCode.value = input.value.toLowerCase();
+            } else if (input.dataset.shadowPart === "color" && /^#[0-9a-f]{6}$/i.test(input.value)) {
+              const colorPicker = shadowEditor.querySelector("[data-shadow-color-part]");
+              if (colorPicker) colorPicker.value = input.value.toLowerCase();
+            }
+            const value = validateValue("shadow", definition.label, composeShadowValue(shadowEditor));
+            applyFieldValue(definition, value);
+            shadowEditor.querySelectorAll("[data-shadow-part], [data-shadow-color-part]").forEach(control => control.removeAttribute("aria-invalid"));
+            const summary = shadowEditor.querySelector("[data-shadow-summary]");
+            const parsed = parseShadowValue(value);
+            if (summary && parsed) summary.textContent = shadowValueSummary(parsed);
+            status("正在预览，尚未保存");
+          } catch (error) {
+            input.setAttribute("aria-invalid", "true");
+            status(error.message, true);
+          }
+          return;
+        }
         const definition = fieldDefinitions().find(item => item.path === (input.dataset.colorPath || input.dataset.path));
         if (!definition) return;
         try {

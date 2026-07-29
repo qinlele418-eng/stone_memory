@@ -252,3 +252,8 @@ button:disabled { opacity: .55; cursor: wait; }
 .evidence-panel article p{margin:0;white-space:pre-wrap;line-height:1.55}
 @media(max-width:700px){.inline-summary-editor{padding:.8rem}.inline-editor-actions{align-items:stretch}.inline-editor-actions .primary,.inline-editor-actions .secondary{flex:1}.evidence-panel article{grid-template-columns:3.3rem minmax(0,1fr)}.evidence-panel article p{grid-column:1/-1}}
 @media(max-width:700px){.fusion-workshop-head,.fusion-compare-head,.fusion-save-row{align-items:stretch;flex-direction:column}.fusion-save-row small{text-align:left}.mix-preview-list .mix-duplicate-row{margin-left:3px}}
+@media(max-width:760px){
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+  select,
+  textarea{font-size:16px!important}
+}
