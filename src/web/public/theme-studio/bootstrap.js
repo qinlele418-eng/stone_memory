@@ -492,7 +492,9 @@
         returnUrl.searchParams.set("view", "developer");
         window.history.replaceState(null, "", returnUrl);
       }
-      window.location.href = "/theme-studio/";
+      const destination = new URL("/theme-studio/", window.location.origin);
+      if (threadId) destination.searchParams.set("threadId", threadId);
+      window.location.href = destination;
     };
   }
 

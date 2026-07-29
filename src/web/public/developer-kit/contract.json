@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "moduleRoot": "src/web/public/developer-modules/<module-id>",
+  "requiredFiles": ["module.json", "index.html", "app.js", "styles.css"],
+  "requiredRuntime": "/developer-kit/runtime.js",
+  "requiredComponent": "stone-module-page",
+  "rules": [
+    "只能修改自己的模块目录",
+    "不得修改核心 app.js 或另建业务写入路径",
+    "业务写入必须复用 Stone Memory 正式 API、CLI 或服务层",
+    "不得硬编码 HOME、端口、threadId、模型名和 Provider",
+    "颜色、字体、圆角和阴影必须使用 Stone Memory 主题变量",
+    "必须使用 stone-module-page，移动端和返回入口由统一组件提供"
+  ]
+}

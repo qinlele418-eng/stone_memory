@@ -1,0 +1,85 @@
+:root {
+  --stone-module-width: 1120px;
+  --stone-module-gutter: 32px;
+}
+
+html { min-height: 100%; background: var(--stone-tide-canvas, #f5f8f1); }
+body.stone-developer-module { min-height: 100dvh; }
+
+.stone-module-shell {
+  width: min(var(--stone-module-width), calc(100% - var(--stone-module-gutter)));
+  margin: 0 auto;
+  padding: 26px 0 80px;
+}
+
+.stone-module-hero {
+  padding: 18px 6px 28px;
+}
+
+.stone-module-eyebrow {
+  margin: 28px 0 7px;
+  color: var(--stone-tide-accent, #397052);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .18em;
+}
+
+.stone-module-hero h1 {
+  margin: 0;
+  font-family: var(--stone-tide-font-display, Georgia, "Noto Serif SC", serif);
+  font-size: clamp(38px, 6vw, 58px);
+  font-weight: 600;
+}
+
+.stone-module-hero > p:last-child {
+  max-width: 750px;
+  margin: 18px 0 0;
+  color: var(--stone-tide-ink-soft, #69756d);
+  line-height: 1.75;
+}
+
+.stone-module-back {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 13px;
+  color: var(--stone-tide-accent-strong, #295540);
+  text-decoration: none;
+  border: 1px solid var(--stone-tide-line, #dce6d7);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--stone-tide-surface, #fffef9) 82%, transparent);
+  box-shadow: 0 10px 28px color-mix(in srgb, var(--stone-tide-accent, #397052) 8%, transparent);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.stone-module-back:hover {
+  border-color: var(--stone-tide-accent, #397052);
+  transform: translateY(-1px);
+}
+
+.stone-module-context {
+  display: inline-flex;
+  gap: 7px;
+  align-items: center;
+  margin-left: 9px;
+  color: var(--stone-tide-ink-soft, #69756d);
+  font-size: 11px;
+}
+
+.stone-module-context::before {
+  width: 6px;
+  height: 6px;
+  background: var(--stone-tide-status, #7ea36f);
+  border-radius: 50%;
+  content: "";
+}
+
+@media (max-width: 680px) {
+  :root { --stone-module-gutter: 20px; }
+  .stone-module-shell { padding-top: 14px; }
+  .stone-module-hero { padding: 12px 2px 22px; }
+  .stone-module-eyebrow { margin-top: 22px; font-size: 10px; }
+  .stone-module-hero h1 { font-size: 34px; }
+  .stone-module-context { display: flex; width: fit-content; margin: 9px 0 0; }
+}

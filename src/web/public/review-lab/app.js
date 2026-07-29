@@ -1,17 +1,5 @@
 "use strict";
 
-const smartBackLink = document.querySelector("[data-smart-back]");
-smartBackLink?.addEventListener("click", event => {
-  try {
-    const previousUrl = new URL(document.referrer);
-    if (previousUrl.origin !== window.location.origin || previousUrl.href === window.location.href) return;
-    event.preventDefault();
-    window.history.back();
-  } catch {
-    // Keep the link's ../ fallback when this page was opened directly.
-  }
-});
-
 const RULE_KEYS = [
   "sourceAware",
   "relationshipPlatform",
@@ -452,10 +440,6 @@ async function init() {
   try {
     const requestedThread = new URLSearchParams(location.search).get("threadId") || "";
     if (!requestedThread) throw new Error("缺少当前记忆体标识，请从 Stone Memory【开发者模式】重新进入。");
-    const fallbackUrl = new URL("../", window.location.href);
-    fallbackUrl.searchParams.set("threadId", requestedThread);
-    fallbackUrl.searchParams.set("view", "developer");
-    smartBackLink.href = fallbackUrl.href;
     const data = await api(`./api/libraries${requestedThread ? `?threadId=${encodeURIComponent(requestedThread)}` : ""}`);
     const currentLibrary = data.libraries.find(row => row.threadId === requestedThread);
     if (!currentLibrary) throw new Error("当前记忆体不存在或已被删除，请返回开发者模式重新选择。");

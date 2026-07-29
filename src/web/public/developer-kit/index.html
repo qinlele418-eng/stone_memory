@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Stone Memory · 自制开发者模块</title>
+  <script src="/developer-kit/runtime.js"></script>
+  <link rel="stylesheet" href="/theme-studio/tidal-tokens.css?v=5">
+  <link rel="stylesheet" href="/developer-kit/styles.css?v=2">
+</head>
+<body>
+  <stone-module-page eyebrow="STONE MODULE WORKSHOP · CONTRACT v1" title="自制开发者模块" description="让你的 Agent 在可拆卸边界内开发实验功能。统一主题、记忆体、返回入口和移动端外壳由 Stone Memory 提供。">
+    <section class="kit-grid">
+      <article class="kit-card">
+        <span>01 · 边界</span><h2>只写自己的模块</h2>
+        <p>不得直接修改核心 <code>app.js</code>，不得另建数据库写入链，也不得硬编码用户路径、端口或线程标识。</p>
+      </article>
+      <article class="kit-card">
+        <span>02 · 复用</span><h2>核心能力走正式接口</h2>
+        <p>主题、当前记忆体、导航和请求由模块运行时提供；业务写入复用 SM 的 API、CLI 或服务层。</p>
+      </article>
+      <article class="kit-card">
+        <span>03 · 验收</span><h2>桌面与移动端同验</h2>
+        <p>模块必须在自定义主题、窄屏、接口失败和未绑定记忆体状态下保持可理解、可退出。</p>
+      </article>
+    </section>
+
+    <section class="builder-card">
+      <div class="section-head"><div><p class="eyebrow">SCAFFOLD</p><h2>生成给 Agent 的施工单</h2></div><span>不会改写项目文件</span></div>
+      <div class="builder-grid">
+        <label>模块 ID<input id="module-id" value="my-module" maxlength="48"></label>
+        <label>模块名称<input id="module-title" value="我的实验模块" maxlength="60"></label>
+        <label>贡献人<input id="module-contributor" value="@" maxlength="60"></label>
+        <label>功能简介<input id="module-summary" value="说明这个模块解决什么问题。" maxlength="180"></label>
+      </div>
+      <div class="builder-actions"><button id="generate" type="button">生成施工单</button><button id="copy-prompt" class="secondary" type="button">复制给 Agent</button></div>
+      <pre id="agent-prompt"></pre>
+    </section>
+
+    <section class="check-card">
+      <div><p class="eyebrow">ACCEPTANCE</p><h2>提交前检查</h2></div>
+      <ul>
+        <li>模块目录外没有改动</li><li>没有重复实现核心写入逻辑</li><li>没有固定用户名、AI 名、路径或模型</li>
+        <li>主题首帧无闪版</li><li>移动端可正常使用</li><li>失败时给用户可执行的说明</li>
+      </ul>
+    </section>
+    <p id="kit-status" role="status"></p>
+  </stone-module-page>
+  <script src="/developer-kit/app.js?v=2"></script>
+</body>
+</html>
