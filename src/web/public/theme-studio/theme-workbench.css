@@ -21,24 +21,15 @@ body.tidal-visual .import-card {
 }
 
 body.tidal-visual .topbar {
-  margin-top: 14px;
-  padding: 0 20px;
-  border: 1px solid var(--stone-tide-line-soft);
   border-radius: var(--stone-tide-radius-pill);
-  background: color-mix(in srgb, var(--stone-tide-surface) 84%, transparent);
-  box-shadow: var(--stone-tide-shadow-card);
-  backdrop-filter: blur(20px) saturate(118%);
-  -webkit-backdrop-filter: blur(20px) saturate(118%);
+  background: transparent;
+  box-shadow: none;
 }
 
 body.tidal-visual .sidebar {
-  padding: 18px;
-  border: 1px solid var(--stone-tide-line-soft);
   border-radius: var(--stone-tide-radius-lg);
-  background: color-mix(in srgb, var(--stone-tide-surface) 72%, transparent);
-  box-shadow: var(--stone-tide-shadow-card);
-  backdrop-filter: blur(18px) saturate(112%);
-  -webkit-backdrop-filter: blur(18px) saturate(112%);
+  background: transparent;
+  box-shadow: none;
 }
 
 body.tidal-visual .library-card,
@@ -254,10 +245,6 @@ body.tidal-visual .theme-upload {
 }
 
 @media (max-width: 760px) {
-  body.tidal-visual .sidebar {
-    padding: 12px;
-  }
-
   .theme-workbench-head,
   .theme-meta-grid {
     grid-template-columns: 1fr;

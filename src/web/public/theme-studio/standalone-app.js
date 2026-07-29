@@ -168,6 +168,7 @@
   function applyTheme() {
     const prefix = state.contract.coreTokenPrefix || "--stone-tide-";
     for (const [group, values] of Object.entries(state.theme.tokens)) {
+      if (group === "typography") continue;
       for (const [name, value] of Object.entries(values)) {
         if (typeof value !== "string") continue;
         const suffix = tokenCssSuffix(group, name);
@@ -380,8 +381,47 @@
   function choosePreset(name) {
     const original = state.contract.defaults;
     if (name === "original") state.theme = normalize(original);
-    if (name === "pearl") state.theme = normalize(merge(original, { name: "Pearl Tide", description: "来自 Tidal_Echo 默认 Light 外观的清透蓝灰主题。", tokens: { colors: { canvas: "#f7fafc", canvasWarm: "#f7fafc", ink: "#253447", inkSoft: "#5e7080", inkFaint: "#8a99a8", accent: "#4c6378", accentStrong: "#2c4056", accentSoft: "#eef4fa", surface: "rgba(247, 250, 252, 0.92)", surfaceSoft: "rgba(244, 248, 250, 0.42)", line: "rgba(120, 142, 165, 0.24)", lineSoft: "rgba(151, 169, 181, 0.18)", status: "#5fbf8f", danger: "#cf8d92" }, radii: { extraSmall: "9px", small: "12px", medium: "18px", large: "20px", pill: "999px" }, shadows: { card: "0 10px 28px rgba(70, 92, 108, 0.05)", panel: "0 18px 46px rgba(74, 93, 108, 0.10)", floating: "0 18px 50px rgba(30, 45, 62, 0.18)", button: "0 16px 32px rgba(41, 60, 78, 0.22)" }, typography: { display: "\"Cormorant Garamond\", Georgia, serif", body: "\"Noto Serif SC\", \"Songti SC\", \"STSong\", \"SimSun\", serif" }, motion: { fast: "150ms", normal: "260ms", easing: "cubic-bezier(0.22, 1, 0.36, 1)" } } }));
-    if (name === "harbor") state.theme = normalize(merge(original, { name: "Harbor", description: "来自 Tidal_Echo Harbor 外观的暖灰港湾主题。", tokens: { colors: { canvas: "#f4f2ef", canvasWarm: "#f4f2ef", ink: "#36404b", inkSoft: "#5e6b78", inkFaint: "#9197a0", accent: "#4a5d6c", accentStrong: "#4a5d6c", accentSoft: "#efebe8", surface: "rgba(244, 242, 239, 0.92)", surfaceSoft: "rgba(234, 230, 228, 0.62)", line: "rgba(74, 93, 108, 0.20)", lineSoft: "rgba(151, 169, 181, 0.18)", status: "#6fa98c", danger: "#cf8d92" }, radii: { extraSmall: "9px", small: "12px", medium: "18px", large: "20px", pill: "999px" }, shadows: { card: "0 10px 28px rgba(70, 92, 108, 0.05)", panel: "0 18px 46px rgba(74, 93, 108, 0.10)", floating: "0 18px 50px rgba(30, 45, 62, 0.18)", button: "0 16px 32px rgba(41, 60, 78, 0.22)" }, typography: { display: "\"Cormorant Garamond\", Georgia, serif", body: "\"Noto Serif SC\", \"Songti SC\", \"STSong\", \"SimSun\", serif" }, motion: { fast: "150ms", normal: "260ms", easing: "cubic-bezier(0.22, 1, 0.36, 1)" } } }));
+    const preset = {
+      pearl: {
+        name: "Pearl Tide",
+        description: "来自 Tidal_Echo 默认 Light 外观的清透蓝灰主题。",
+        colors: {
+          canvas: "#f7fafc", canvasWarm: "#f7fafc", ink: "#253447", inkSoft: "#5e7080", inkFaint: "#8a99a8",
+          accent: "#4c6378", accentStrong: "#2c4056", accentSoft: "#eef4fa",
+          surface: "rgba(247, 250, 252, 0.92)", surfaceSoft: "rgba(244, 248, 250, 0.42)",
+          line: "rgba(120, 142, 165, 0.24)", lineSoft: "rgba(151, 169, 181, 0.18)",
+          status: "#5fbf8f", danger: "#cf8d92",
+        },
+      },
+      harbor: {
+        name: "Harbor",
+        description: "来自 Tidal_Echo Harbor 外观的暖灰港湾主题。",
+        colors: {
+          canvas: "#f4f2ef", canvasWarm: "#f4f2ef", ink: "#36404b", inkSoft: "#5e6b78", inkFaint: "#9197a0",
+          accent: "#4a5d6c", accentStrong: "#4a5d6c", accentSoft: "#efebe8",
+          surface: "rgba(244, 242, 239, 0.92)", surfaceSoft: "rgba(234, 230, 228, 0.62)",
+          line: "rgba(74, 93, 108, 0.20)", lineSoft: "rgba(151, 169, 181, 0.18)",
+          status: "#6fa98c", danger: "#cf8d92",
+        },
+      },
+    }[name];
+    if (preset) {
+      state.theme = normalize(merge(original, {
+        name: preset.name,
+        description: preset.description,
+        tokens: {
+          colors: preset.colors,
+          radii: { extraSmall: "9px", small: "12px", medium: "18px", large: "20px", pill: "999px" },
+          shadows: {
+            card: "0 10px 28px rgba(70, 92, 108, 0.05)",
+            panel: "0 18px 46px rgba(74, 93, 108, 0.10)",
+            floating: "0 18px 50px rgba(30, 45, 62, 0.18)",
+            button: "0 16px 32px rgba(41, 60, 78, 0.22)",
+          },
+          motion: { fast: "150ms", normal: "260ms", easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
+        },
+      }));
+    }
     applyTheme();
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state.theme));
     renderFields();

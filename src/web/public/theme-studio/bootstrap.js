@@ -9,6 +9,7 @@
   const ORIGINAL_THEME_NAME = "Stone Memory Original";
   const MODULE_ID = "theme-studio";
   const MODULE_ORDER = 20;
+  const THEME_STYLE_VERSION = "4";
   const THEME_STYLE_FILES = [
     "tidal-tokens.css",
     "theme-coverage.css",
@@ -23,7 +24,7 @@
       if (document.querySelector(`link[data-stone-theme-style="${file}"]`)) continue;
       const link = document.createElement("link");
       link.rel = "stylesheet";
-      link.href = `/theme-studio/${file}`;
+      link.href = `/theme-studio/${file}?v=${THEME_STYLE_VERSION}`;
       link.dataset.stoneThemeStyle = file;
       document.head.append(link);
     }
@@ -64,9 +65,6 @@
     { path: "tokens.spacing.five", css: "--stone-tide-space-5", kind: "dimension", label: "间距 5" },
     { path: "tokens.spacing.six", css: "--stone-tide-space-6", kind: "dimension", label: "间距 6" },
 
-    { path: "tokens.typography.display", css: "--stone-tide-font-display", kind: "font", label: "标题字体" },
-    { path: "tokens.typography.body", css: "--stone-tide-font-body", kind: "font", label: "正文字体" },
-
     { path: "tokens.motion.fast", css: "--stone-tide-motion-fast", kind: "duration", label: "快速动效" },
     { path: "tokens.motion.normal", css: "--stone-tide-motion-normal", kind: "duration", label: "普通动效" },
     { path: "tokens.motion.easing", css: "--stone-tide-ease-soft", kind: "easing", label: "缓动曲线" },
@@ -77,7 +75,6 @@
     { key: "radii", title: "圆角", hint: "建议使用 px 或 rem。" },
     { key: "shadows", title: "阴影", hint: "使用合法的 CSS box-shadow 值。" },
     { key: "spacing", title: "间距", hint: "用于统一控制页面节奏。" },
-    { key: "typography", title: "字体", hint: "仅接受本地字体族名称，不会加载远程字体。" },
     { key: "motion", title: "动效", hint: "时长使用 ms，缓动支持 cubic-bezier。" },
   ];
 
@@ -484,7 +481,7 @@
     card.className = "developer-experiment-card developer-theme-card";
     card.dataset.developerModule = MODULE_ID;
     card.dataset.moduleOrder = String(MODULE_ORDER);
-    card.innerHTML = `<div class="developer-experiment-copy"><div class="developer-experiment-meta"><span class="developer-status active">前端工具已接入</span><span class="developer-contributor">贡献人：@钦天监秋</span></div><p class="eyebrow">Visual system · Theme studio</p><h2>界面主题工作台</h2><p>提取并调整界面的颜色、圆角、阴影、字体、动效和品牌图标；主题可以下载成 JSON，再交给其他人继续修改。</p><div class="developer-experiment-features"><span>颜色令牌</span><span>即时预览</span><span>社区素材</span></div></div><div class="developer-experiment-action"><div class="developer-memory-stack" aria-hidden="true"><i></i><i></i><i></i><b>主题方案</b></div><button class="developer-enter" id="open-theme-workbench" type="button"><span>Visual theme · v1</span><strong>打开工作台 →</strong></button></div>`;
+    card.innerHTML = `<div class="developer-experiment-copy"><div class="developer-experiment-meta"><span class="developer-status active">前端工具已接入</span><span class="developer-contributor">贡献人：@钦天监秋</span></div><p class="eyebrow">Visual system · Theme studio</p><h2>界面主题工作台</h2><p>提取并调整界面的颜色、圆角、阴影和品牌图标；主题可以下载成 JSON，再交给其他人继续修改。</p><div class="developer-experiment-features"><span>颜色令牌</span><span>即时预览</span><span>社区素材</span></div></div><div class="developer-experiment-action"><div class="developer-memory-stack" aria-hidden="true"><i></i><i></i><i></i><b>主题方案</b></div><button class="developer-enter" id="open-theme-workbench" type="button"><span>Visual theme · v1</span><strong>打开工作台 →</strong></button></div>`;
     host.append(card);
     sortDeveloperModules(host);
     card.querySelector("#open-theme-workbench").onclick = () => {

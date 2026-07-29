@@ -9,8 +9,8 @@
  */
 
 :root {
-  --stone-tide-font-display: "Cormorant Garamond", Georgia, serif;
-  --stone-tide-font-body: "Noto Serif SC", "Songti SC", "STSong", "SimSun", serif;
+  --stone-tide-font-display: Georgia, "Noto Serif SC", serif;
+  --stone-tide-font-body: Inter, "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
 
   --stone-tide-canvas: #f7fafc;
   --stone-tide-canvas-warm: #f4f2ef;

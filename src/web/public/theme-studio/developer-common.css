@@ -4,10 +4,15 @@
  */
 
 body.tidal-visual .developer-mode-head {
-  color: var(--stone-tide-ink);
-  background: var(--stone-tide-surface);
-  border-color: var(--stone-tide-line-soft);
-  box-shadow: var(--stone-tide-shadow-card);
+  color: #f7faf6;
+  background:
+    radial-gradient(circle at 82% 18%, color-mix(in srgb, var(--stone-tide-status) 20%, transparent), transparent 34%),
+    linear-gradient(132deg,
+      color-mix(in srgb, var(--stone-tide-ink) 88%, #101a18) 0%,
+      color-mix(in srgb, var(--stone-tide-accent-strong) 58%, var(--stone-tide-ink)) 58%,
+      color-mix(in srgb, var(--stone-tide-accent) 42%, var(--stone-tide-ink)) 100%);
+  border-color: color-mix(in srgb, var(--stone-tide-accent) 38%, transparent);
+  box-shadow: var(--stone-tide-shadow-panel);
 }
 
 body.tidal-visual .developer-mode-head h1,
@@ -17,11 +22,11 @@ body.tidal-visual .developer-mode-head .lead {
 }
 
 body.tidal-visual .developer-mode-head .eyebrow {
-  color: var(--stone-tide-accent);
+  color: color-mix(in srgb, var(--stone-tide-status) 72%, #fff);
 }
 
 body.tidal-visual .developer-mode-head .lead {
-  color: var(--stone-tide-ink-soft);
+  color: rgba(247, 250, 246, 0.72);
 }
 
 body.tidal-visual .developer-orbit {
@@ -49,50 +54,57 @@ body.tidal-visual .developer-orbit i {
 
 body.tidal-visual .developer-experiment-card,
 body.tidal-visual .developer-theme-card {
-  color: var(--stone-tide-ink);
-  border-color: var(--stone-tide-line-soft);
-  background: var(--stone-tide-surface);
-  box-shadow: var(--stone-tide-shadow-card);
+  color: #f7faf6;
+  border-color: color-mix(in srgb, var(--stone-tide-accent) 32%, transparent);
+  background:
+    radial-gradient(circle at 88% 82%, color-mix(in srgb, var(--stone-tide-status) 22%, transparent), transparent 35%),
+    linear-gradient(145deg,
+      color-mix(in srgb, var(--stone-tide-ink) 90%, #101817),
+      color-mix(in srgb, var(--stone-tide-accent-strong) 38%, var(--stone-tide-ink)) 58%,
+      color-mix(in srgb, var(--stone-tide-danger) 20%, var(--stone-tide-ink)));
+  box-shadow: var(--stone-tide-shadow-panel);
 }
 
 body.tidal-visual .developer-experiment-card::before {
-  display: none;
+  display: block;
+  background-image: radial-gradient(circle at 18% 16%, color-mix(in srgb, var(--stone-tide-status) 24%, transparent) 0 1px, transparent 1.5px);
 }
 
 body.tidal-visual .developer-experiment-glow {
-  display: none;
+  display: block;
+  background: radial-gradient(circle, color-mix(in srgb, var(--stone-tide-danger) 26%, transparent), transparent 65%);
 }
 
 body.tidal-visual .developer-experiment-copy .eyebrow {
-  color: var(--stone-tide-accent);
+  color: color-mix(in srgb, var(--stone-tide-status) 74%, #fff);
 }
 
 body.tidal-visual .developer-experiment-copy h2,
 body.tidal-visual .developer-theme-card h2 {
-  color: var(--stone-tide-ink);
+  color: #f7faf6;
 }
 
 body.tidal-visual .developer-experiment-copy > p:not(.eyebrow),
 body.tidal-visual .developer-theme-card .developer-experiment-copy > p:not(.eyebrow) {
-  color: var(--stone-tide-ink-soft);
+  color: rgba(247, 250, 246, 0.74);
 }
 
 body.tidal-visual .developer-status {
-  color: var(--stone-tide-accent-strong);
-  background: var(--stone-tide-accent-soft);
-  border: 1px solid var(--stone-tide-line);
+  color: color-mix(in srgb, var(--stone-tide-ink) 82%, #101817);
+  background: color-mix(in srgb, var(--stone-tide-status) 72%, #fff);
+  border: 1px solid color-mix(in srgb, var(--stone-tide-status) 58%, transparent);
 }
 
 body.tidal-visual .developer-contributor {
-  color: var(--stone-tide-ink-soft);
-  background: var(--stone-tide-surface-soft);
-  border-color: var(--stone-tide-line);
+  color: rgba(247, 250, 246, 0.82);
+  background: color-mix(in srgb, var(--stone-tide-danger) 18%, transparent);
+  border-color: color-mix(in srgb, var(--stone-tide-danger) 34%, transparent);
 }
 
 body.tidal-visual .developer-experiment-features span {
-  color: var(--stone-tide-accent-strong);
-  background: var(--stone-tide-accent-soft);
-  border-color: var(--stone-tide-line);
+  color: rgba(247, 250, 246, 0.74);
+  background: rgba(255, 255, 255, 0.055);
+  border-color: rgba(255, 255, 255, 0.1);
 }
 
 body.tidal-visual .developer-memory-stack i,
@@ -113,15 +125,15 @@ body.tidal-visual .developer-theme-preview b {
 }
 
 body.tidal-visual .developer-enter {
-  color: var(--stone-tide-accent-strong);
-  background: var(--stone-tide-accent-soft);
-  border-color: var(--stone-tide-line);
+  color: rgba(247, 250, 246, 0.76);
+  background: rgba(255, 255, 255, 0.065);
+  border-color: rgba(255, 255, 255, 0.12);
 }
 
 body.tidal-visual .developer-enter:hover {
-  color: var(--stone-tide-ink);
-  background: var(--stone-tide-surface);
-  border-color: var(--stone-tide-accent);
+  color: #fff;
+  background: color-mix(in srgb, var(--stone-tide-accent) 24%, rgba(255, 255, 255, 0.08));
+  border-color: color-mix(in srgb, var(--stone-tide-accent) 58%, #fff);
 }
 
 body.tidal-visual .theme-workbench {
