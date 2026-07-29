@@ -280,6 +280,33 @@ function renderCompositeMemoryRows(candidate, kind) {
   }).join("");
 }
 
+function storedFusionComparisonHtml(candidate) {
+  if (candidate.model !== "fusion") return "";
+  const cards = [];
+  for (const kind of ["feelings", "features"]) {
+    (candidate.fusion?.provenance?.[kind] || []).forEach((provenance, index) => {
+      if (provenance?.merged !== true) return;
+      const fused = candidate[kind]?.[index];
+      if (!fused) return;
+      const originals = (provenance.sources || []).map(source => `<article class="fusion-original">
+        <header><span class="source-chip">${escapeHtml(source.modelLabel || source.profileId || "来源模型")}</span>${source.eventTime ? `<time>${escapeHtml(formatEvidenceTime(source.eventTime))}</time>` : ""}</header>
+        <p>${escapeHtml(source.content || "来源原稿不可用")}</p>
+      </article>`).join("");
+      cards.push(`<section class="fusion-compare-card">
+        <div class="fusion-compare-head"><div><strong>${kind === "feelings" ? "同事件摘要" : "同一特征"} ${cards.length + 1}</strong><small>${provenance.sources?.length || 0} 份原稿 → 1 份融合稿</small></div><span class="item-flag edited">同事件已融合</span></div>
+        <div class="fusion-originals"><h5>融合前原稿</h5>${originals}</div>
+        <div class="fusion-draft fusion-stored-result"><span>融合后候选</span><p>${escapeHtml(fused.content)}</p></div>
+      </section>`);
+    });
+  }
+  if (!cards.length) return "";
+  return `<section class="fusion-workshop stored-fusion-workshop">
+    <div class="fusion-workshop-head"><div><p class="eyebrow">SAME-EVENT FUSION REVIEW</p><h3>同事件融合对照</h3></div><span>${escapeHtml(candidate.fusion?.writerProfile?.label || "已选择模型")}执笔</span></div>
+    <p class="meta">这是已保存的待审核融合候选。原稿仍保留，点击应用前不会写入正式记忆。</p>
+    ${cards.join("")}
+  </section>`;
+}
+
 renderCandidateDetail = function renderCandidateDetailMixed(candidate, analysis = analyzeSelection()) {
   const rules = normalizedCandidateRules(candidate);
   const activeRules = RULE_KEYS.filter(key => rules[key]).map(key => RULE_LABELS[key]);
@@ -312,7 +339,7 @@ renderCandidateDetail = function renderCandidateDetailMixed(candidate, analysis 
         <span class="badge">${escapeHtml(candidateStatus(candidate))}</span>
       </div>
     </div>
-    ${sourceSummary}${chooser}
+    ${sourceSummary}${storedFusionComparisonHtml(candidate)}${chooser}
     <div class="candidate-section"><h3>当天摘要 · ${candidate.feelings.length}</h3>${feelings}</div>
     <div class="candidate-section"><h3>人物特征 · ${candidate.features.length}</h3>${features}</div>
     ${candidate.trimmedFeelings ? `<p class="meta">超过上限的 ${candidate.trimmedFeelings} 条已从候选中截去。</p>` : ""}

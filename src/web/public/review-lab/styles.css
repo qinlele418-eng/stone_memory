@@ -219,6 +219,7 @@ button:disabled { opacity: .55; cursor: wait; }
 .fusion-draft > span { color: #5f477a; font-size: 11px; font-weight: 800; }
 .fusion-draft textarea { width: 100%; min-height: 112px; padding: 11px 12px; border: 1px solid #b9a5cc; border-radius: 11px; color: var(--pine-dark); background: #fff; font: inherit; font-size: 12px; line-height: 1.65; resize: vertical; }
 .fusion-draft textarea:focus { outline: 3px solid rgba(118,90,150,.14); border-color: #765a96; }
+.fusion-stored-result p { margin: 0; padding: 11px 12px; border: 1px solid #d7c8e4; border-radius: 11px; background: #fff; white-space: pre-wrap; line-height: 1.75; }
 .fusion-save-row { align-items: flex-start; margin-top: 14px; }
 .fusion-save-row small { color: var(--muted); line-height: 1.45; text-align: right; }
 .remove-pick { flex: 0 0 auto; min-height: 26px; width: 26px; padding: 0; border-radius: 50%; color: var(--muted); background: #edf1eb; font-size: 17px; line-height: 1; }
