@@ -10,18 +10,17 @@
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
-const { execSync, execFileSync } = require("child_process");
+const { execFileSync } = require("child_process");
 const { getCfg, getThreadDir, listThreadIds } = require("./src/config");
 const { runSubagent } = require("./src/services/subagent-runner");
-const { parseJsonArray } = require("./src/lib/json-parse");
 const { readFeelings: readDatabaseFeelings, readFeatures: readDatabaseFeatures } = require("./src/storage/memory-reader");
 const { MemoryStore } = require("./src/storage/memory-store");
 const { resolveMcpThread } = require("./src/services/mcp-thread-resolution");
 const { buildMcpRebuildPreviewArgs } = require("./src/services/mcp-rebuild-preview");
+const { buildMcpMineArgs } = require("./src/services/mcp-mine-command");
 
 const CONFIG_PATH = path.join(os.homedir(), ".stone_memory", "stmem.json");
 const PROJECT_ROOT = path.resolve(__dirname);
-const SCRIPTS_DIR = path.join(PROJECT_ROOT, "scripts");
 const LOG_FILE = path.join(os.homedir(), ".stone_memory", "logs", "mcp.log");
 const SEARCH_ONLY = process.env.STMEM_SEARCH_ONLY === "1";
 const SEARCH_THREAD_ID = String(process.env.STMEM_THREAD_ID || "").trim();
@@ -54,16 +53,6 @@ function respond(id, result) {
   }
 
   process.stdout.write(`Content-Length: ${byteLength}\r\n\r\n${body}`);
-}
-
-function subagentCall(prompt, opts = {}) {
-  try {
-    return runSubagent(prompt, opts);
-  } catch (err) {
-    const msg = err.stdout || err.stderr || err.message || String(err);
-    log(`subagent error: ${msg.slice(0, 300)}`);
-    return `Error: ${msg.slice(0, 500)}`;
-  }
 }
 
 function resolveThread(args, cfg) {
@@ -116,7 +105,7 @@ function toolTriggersCheck(args) {
   if (!found) lines.push("暂无待办，一切正常 ✅");
   return lines.join("\n");
   } catch (err) {
-    return `待办检查失败: ${err.message}`;
+    throw new Error(`待办检查失败: ${err.message}`);
   }
 }
 
@@ -124,11 +113,11 @@ function toolTriggersCheck(args) {
 
 function toolRebuild(args) {
   const cfg = loadConfig();
-  if (!cfg) return "未配置 stmem.json";
+  if (!cfg) throw new Error("未配置 stmem.json");
   const resolved = resolveThread(args, cfg);
-  if (!resolved) return "无法确定线程 ID";
+  if (!resolved) throw new Error("无法确定线程 ID");
   const cli = path.join(PROJECT_ROOT, "bin", "stmem");
-  if (!fs.existsSync(cli)) return "找不到 stmem CLI";
+  if (!fs.existsSync(cli)) throw new Error("找不到 stmem CLI");
   const tc = cfg[resolved.threadId] || {};
   const useDefaults = tc.mcpRebuildDefaultsEnabled === true;
   const rebuildArgs = buildMcpRebuildPreviewArgs(cli, resolved, {
@@ -146,7 +135,7 @@ function toolRebuild(args) {
     });
     return `${output.trim()}\n\n这是只读 dry-run；确认结果后请在前端或维护窗口显式应用，MCP 启动不会自动改写线程。`;
   } catch (err) {
-    return `重建预览失败: ${err.stderr || err.message}`;
+    throw new Error(`重建预览失败: ${String(err.stderr || err.message).trim()}`);
   }
 }
 
@@ -154,18 +143,16 @@ function toolMine(args) {
   const cfg = loadConfig();
   const resolved = resolveThread(args, cfg);
   const tid = resolved?.threadId || args.thread;
-  const script = path.join(SCRIPTS_DIR, "stmem-mine.js");
-  if (!fs.existsSync(script)) return `找不到 stmem-mine.js`;
-  const dateArg = args.date ? ` --date ${args.date}` : "";
-  const threadArg = tid ? ` --thread ${tid}` : "";
-  const forceArg = args.force ? " --force" : "";
+  const cli = path.join(PROJECT_ROOT, "bin", "stmem");
+  if (!fs.existsSync(cli)) throw new Error("找不到 stmem CLI");
+  const mineArgs = buildMcpMineArgs(cli, tid, args);
   try {
-    const out = execSync(`${process.execPath} ${script}${dateArg}${threadArg}${forceArg}`, {
-      encoding: "utf8", timeout: 600_000, cwd: path.dirname(SCRIPTS_DIR), windowsHide: true,
+    const out = execFileSync(process.execPath, mineArgs, {
+      encoding: "utf8", timeout: 600_000, cwd: PROJECT_ROOT, windowsHide: true,
     });
     return out.trim().slice(-1000) || "挖掘完成";
   } catch (err) {
-    return `挖掘失败: ${err.message}`;
+    throw new Error(`挖掘失败: ${String(err.stderr || err.message).trim()}`);
   }
 }
 
@@ -196,7 +183,7 @@ function toolStatus() {
   }
   return lines.join("\n");
   } catch (err) {
-    return `状态查询失败: ${err.message}`;
+    throw new Error(`状态查询失败: ${err.message}`);
   }
 }
 
@@ -208,7 +195,7 @@ function toolMemorySearch(args) {
     const result = searchByKeyword(args.query || "", { threadId: resolved?.threadId });
     return typeof result === "string" ? result : result.text || JSON.stringify(result);
   } catch (err) {
-    return `搜索失败: ${err.message}`;
+    throw new Error(`搜索失败: ${err.message}`);
   }
 }
 
@@ -251,27 +238,29 @@ function toolDeepSearch(args) {
   });
   log(`deep search complete: thread=${resolved.threadId} durationMs=${Date.now() - startedAt} resultChars=${result.length}`);
 
-  // 保存 topic 文件（handler 兜底，存到线程 memory 下）
+  // 将完整 Deep Search 叙事保存为专题记忆；当前只落盘，不参与下次增量检索。
   try {
     const stopWords = new Set(["小鱼","她","我","的","了","是","在","和","跟","与","有","不","也","都","就","还","要","会","能","去","来","这","那","什么","怎么","为什么","一个","赛博"]);
-    const kws = query.split(/[\s，,。！？]+/).filter(w => w.length >= 2 && !stopWords.has(w));
+    const kws = query.split(/[\s，,。！？]+/).filter(word => word.length >= 2 && !stopWords.has(word));
     const mainKw = kws[0] || query.split(/[\s，,。]+/)[0];
     if (mainKw && mainKw.length >= 2 && result && result.length > 200) {
-      const tid = resolved?.threadId;
-      if (!tid) return;
-      const topicDir = path.join(getThreadDir(tid), "memory", "topics");
-      const topicFile = path.join(topicDir, `topic_${mainKw}.md`);
+      const safeName = mainKw.replace(/[<>:"/\\|?*\u0000-\u001F]/g, "_").slice(0, 80);
+      const topicDir = path.join(getThreadDir(resolved.threadId), "memory", "topics");
+      const topicFile = path.join(topicDir, `topic_${safeName}.md`);
       fs.mkdirSync(topicDir, { recursive: true });
-      const header = `# ${mainKw}\ncreatedAt: ${new Date().toISOString()}\nupdatedAt: ${new Date().toISOString()}\n\n## 总结\n\n`;
+      const now = new Date().toISOString();
+      const header = `# ${mainKw}\ncreatedAt: ${now}\nupdatedAt: ${now}\n\n## 总结\n\n`;
       fs.writeFileSync(topicFile, header + result, "utf8");
       log(`topic saved: ${topicFile}`);
     }
-  } catch {}
+  } catch (error) {
+    log(`topic save skipped: ${error.message}`);
+  }
 
   return result;
   } catch (err) {
     log(`deep search error: ${err.message}`);
-    return `深度搜索失败: ${err.message}`;
+    throw new Error(`深度搜索失败: ${err.message}`);
   }
 }
 
@@ -325,13 +314,16 @@ function auditLoadMarks(p) {
 }
 
 function auditSaveMarks(p, data) {
-  fs.writeFileSync(p.auditMarksFile, JSON.stringify(data, null, 2), "utf8");
+  const temp = `${p.auditMarksFile}.tmp-${process.pid}`;
+  fs.writeFileSync(temp, JSON.stringify(data, null, 2), { encoding: "utf8", mode: 0o600 });
+  fs.renameSync(temp, p.auditMarksFile);
 }
 
 function toolAuditList(args) {
   try {
     const p = auditResolvePaths(args);
     const marks = auditLoadMarks(p);
+    marks.retainMarks = marks.retainMarks || {};
     const lastCutoff = marks.lastCutoffDate || `${new Date().getFullYear()}-01-01`;
     const entries = auditReadFeelings(p);
     let rc = { retain: {}, eventAnchors: {} };
@@ -375,7 +367,7 @@ function toolAuditList(args) {
     }
     return lines.join("\n");
   } catch (err) {
-    return `audit_list 失败: ${err.message}`;
+    throw new Error(`audit_list 失败: ${err.message}`);
   }
 }
 
@@ -383,35 +375,44 @@ function toolAuditMark(args) {
   try {
     const p = auditResolvePaths(args);
     const marks = auditLoadMarks(p);
+    marks.retainMarks = marks.retainMarks || {};
     const cutoffDate = (args.cutoffDate || "").trim();
     const numbers = Array.isArray(args.numbers) ? args.numbers.filter(n => Number.isInteger(n)) : [];
     const anchorType = args.type === "event" ? "event" : "retain";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(cutoffDate)) throw new Error("cutoffDate 必须是 YYYY-MM-DD");
     if (cutoffDate && cutoffDate > (marks.lastCutoffDate || "")) marks.lastCutoffDate = cutoffDate;
 
     const entries = auditReadFeelings(p);
     const seqToId = {};
     for (const e of entries) { if (typeof e.seq === "number") seqToId[e.seq] = e.id; }
     const feelingIds = numbers.map(n => seqToId[n]).filter(Boolean);
-    for (const id of feelingIds) marks.retainMarks[id] = true;
-    auditSaveMarks(p, marks);
+    if (feelingIds.length !== numbers.length) {
+      const missing = numbers.filter(number => !seqToId[number]);
+      throw new Error(`找不到摘要序号：${missing.join(", ")}`);
+    }
 
     if (feelingIds.length > 0) {
+      const cli = path.join(PROJECT_ROOT, "bin", "stmem");
+      const tmpDir = path.join(p.memoryDir, "..", "tmp");
+      const batchFile = path.join(tmpDir, `mcp-audit-anchor-${process.pid}-${Date.now()}.json`);
+      fs.mkdirSync(tmpDir, { recursive: true });
       try {
-        const rc = JSON.parse(fs.readFileSync(p.retainConfigFile, "utf8"));
-        if (anchorType === "event") {
-          rc.eventAnchors = rc.eventAnchors || {};
-          for (const id of feelingIds) rc.eventAnchors[id] = { createdAt: new Date().toISOString() };
-        } else {
-          rc.retain = rc.retain || {};
-          for (const id of feelingIds) rc.retain[id] = { anchor: false };
-        }
-        fs.writeFileSync(p.retainConfigFile, JSON.stringify(rc, null, 2), "utf8");
-      } catch {}
+        fs.writeFileSync(batchFile, JSON.stringify({
+          items: feelingIds.map(id => ({ id, type: anchorType, enabled: true })),
+        }), { encoding: "utf8", mode: 0o600 });
+        execFileSync(process.execPath, [
+          cli, "memory", "anchor", "--thread", p.threadId, "--batch-file", batchFile,
+        ], { encoding: "utf8", timeout: 30_000, cwd: PROJECT_ROOT, windowsHide: true });
+      } finally {
+        try { fs.unlinkSync(batchFile); } catch {}
+      }
     }
+    for (const id of feelingIds) marks.retainMarks[id] = true;
+    auditSaveMarks(p, marks);
     const label = anchorType === "event" ? "事件锚点" : "原文锚点";
     return `截止 ${cutoffDate}，标记${label} #${numbers.join(", #")}`;
   } catch (err) {
-    return `audit_mark 失败: ${err.message}`;
+    throw new Error(`audit_mark 失败: ${err.message}`);
   }
 }
 
@@ -448,7 +449,7 @@ function toolAuditQuery(args) {
     });
     return lines.join("\n");
   } catch (err) {
-    return `audit_query 失败: ${err.message}`;
+    throw new Error(`audit_query 失败: ${err.message}`);
   }
 }
 
@@ -462,9 +463,13 @@ const TOOLS = [
       type: "object",
       properties: {
         thread: { type: "string", description: "线程 ID，默认自动检测当前 session" },
-        window: { type: "number", description: "窗口天数，默认 stmem.json 的 windowDays" },
-        toolPairs: { type: "number", description: "保留最近 N 对工具链调用，默认 40" },
+        window: { type: "integer", minimum: 1, description: "窗口天数，默认 stmem.json 的 windowDays" },
+        toolPairs: { type: "integer", minimum: 0, description: "保留最近 N 对工具链调用" },
+        watermark: { type: "boolean", description: "使用最后一条摘要对应原文作为近期上下文水位线" },
+        summaryLimit: { type: "integer", minimum: 0, description: "最多注入最近 N 条符合条件的摘要；0 表示不限量" },
+        minImportance: { type: "integer", minimum: 0, maximum: 5, description: "仅注入 importance 不低于该值的摘要；锚点仍受保护" },
       },
+      additionalProperties: false,
     },
   },
   {
@@ -477,20 +482,25 @@ const TOOLS = [
         thread: { type: "string", description: "线程 ID，默认自动检测" },
         force: { type: "boolean", description: "整日重挖；成功后直接替换当天结果，失败保留旧结果" },
       },
+      additionalProperties: false,
     },
   },
   {
     name: "stmem_memory_status",
     description: "查看 stmem 记忆系统当前状态",
-    inputSchema: { type: "object", properties: {} },
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
     name: "stmem_memory_search",
     description: "关键词搜索记忆 feelings + 回溯原文 archive",
     inputSchema: {
       type: "object",
-      properties: { query: { type: "string", description: "搜索关键词" } },
+      properties: {
+        query: { type: "string", description: "搜索关键词" },
+        thread: { type: "string", description: "线程 ID；存在多个记忆体时必须提供" },
+      },
       required: ["query"],
+      additionalProperties: false,
     },
   },
   {
@@ -498,8 +508,12 @@ const TOOLS = [
     description: "深度记忆检索（子 agent 多级搜索 + 原文回溯）",
     inputSchema: {
       type: "object",
-      properties: { query: { type: "string", description: "搜索内容（自然语言）" } },
+      properties: {
+        query: { type: "string", description: "搜索内容（自然语言）" },
+        thread: { type: "string", description: "线程 ID；存在多个记忆体时必须提供" },
+      },
       required: ["query"],
+      additionalProperties: false,
     },
   },
   {
@@ -510,6 +524,7 @@ const TOOLS = [
       properties: {
         thread: { type: "string", description: "线程 ID，默认自动检测" },
       },
+      additionalProperties: false,
     },
   },
   {
@@ -524,6 +539,7 @@ const TOOLS = [
         type: { type: "string", enum: ["retain", "event"], description: "'retain' 保留对应原文；'event' 标记长期关键事件，供生命周期保护和巡检使用。默认 retain。" },
         thread: { type: "string", description: "线程 ID，默认自动检测" },
       },
+      additionalProperties: false,
     },
   },
   {
@@ -536,12 +552,13 @@ const TOOLS = [
         keyword: { type: "string", description: "Keyword to search in feeling content." },
         thread: { type: "string", description: "线程 ID，默认自动检测" },
       },
+      additionalProperties: false,
     },
   },
   {
     name: "stmem_memory_triggers_check",
     description: "检查当前待办事项（重建、挖掘阻塞），返回自然语言列表。适合在会话启动或睡前巡检时调用。",
-    inputSchema: { type: "object", properties: {} },
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
 ];
 
@@ -624,6 +641,7 @@ function handle(msg) {
   } else if (method === "tools/call") {
     const { name, arguments: args = {} } = params || {};
     let text;
+    let isError = false;
     try {
       if (SEARCH_ONLY) {
         deepSearchToolCalls++;
@@ -631,7 +649,7 @@ function handle(msg) {
           text = "已达到本次 Deep Search 的 5 次工具调用上限，请根据现有证据组织最终回答。";
         } else if (name === "memory_keyword_search") text = toolInternalKeywordSearch(args);
         else if (name === "memory_archive_context") text = toolInternalArchiveContext(args);
-        else text = `搜索模式不提供工具: ${name}`;
+        else throw new Error(`搜索模式不提供工具: ${name}`);
       } else if (name === "stmem_memory_rebuild") text = toolRebuild(args);
       else if (name === "stmem_memory_mine") text = toolMine(args);
       else if (name === "stmem_memory_status") text = toolStatus();
@@ -641,11 +659,12 @@ function handle(msg) {
       else if (name === "stmem_memory_audit_mark") text = toolAuditMark(args);
       else if (name === "stmem_memory_audit_query") text = toolAuditQuery(args);
       else if (name === "stmem_memory_triggers_check") text = toolTriggersCheck(args);
-      else text = `未知工具: ${name}`;
+      else throw new Error(`未知工具: ${name}`);
     } catch (err) {
       text = `工具执行错误: ${err.message}`;
+      isError = true;
     }
-    respond(id, { content: [{ type: "text", text }] });
+    respond(id, { content: [{ type: "text", text }], isError });
   } else if (id !== undefined && id !== null) {
     respond(id, {});
   }

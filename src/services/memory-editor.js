@@ -14,6 +14,21 @@ function buildAnchorEntry(previous, feeling, type, options = {}) {
   return next;
 }
 
+function applyAnchorItems(config, feelings, items) {
+  const next = {
+    ...config,
+    retain: { ...(config.retain || {}) },
+    eventAnchors: { ...(config.eventAnchors || {}) },
+  };
+  for (const item of items) {
+    const key=item.type==="event"?"eventAnchors":"retain";
+    if (item.enabled) {
+      next[key][item.id]=buildAnchorEntry(next[key][item.id],feelings.get(item.id),item.type,item);
+    } else delete next[key][item.id];
+  }
+  return next;
+}
+
 function editFeeling(threadId, input) {
   const memoryDir = path.join(getThreadDir(threadId), "memory"), store = new MemoryStore({ memoryDir, threadId });
   try {
@@ -34,18 +49,34 @@ function editFeeling(threadId, input) {
   } finally { store.close(); }
 }
 
-function setAnchor(threadId, feelingId, type, enabled, options = {}) {
-  if (!["event", "retain"].includes(type)) throw new Error("锚点类型无效");
-  const memoryDir = path.join(getThreadDir(threadId), "memory"), store = new MemoryStore({ memoryDir, threadId });
-  let feeling; try { feeling=store.db.prepare("SELECT id,source_date FROM feelings WHERE thread_id=? AND id=?").get(threadId,feelingId); } finally { store.close(); }
-  if (!feeling) throw new Error("摘要不存在");
+function setAnchors(threadId, items) {
+  if (!Array.isArray(items) || !items.length) throw new Error("锚点列表不能为空");
+  const normalized = items.map(item => {
+    const type = String(item?.type || "");
+    const id = String(item?.id || "");
+    if (!id) throw new Error("摘要 ID 不能为空");
+    if (!["event", "retain"].includes(type)) throw new Error("锚点类型无效");
+    return { ...item, id, type, enabled: item.enabled !== false };
+  });
+  const memoryDir = path.join(getThreadDir(threadId), "memory");
+  const store = new MemoryStore({ memoryDir, threadId });
+  const feelings = new Map();
+  try {
+    const statement = store.db.prepare("SELECT id,source_date FROM feelings WHERE thread_id=? AND id=?");
+    for (const item of normalized) {
+      const feeling = statement.get(threadId, item.id);
+      if (!feeling) throw new Error(`摘要不存在：${item.id}`);
+      feelings.set(item.id, feeling);
+    }
+  } finally { store.close(); }
   const file=path.join(memoryDir,"retain-config.json"); let config={retain:{},eventAnchors:{}};
   try { config={...config,...JSON.parse(fs.readFileSync(file,"utf8"))}; } catch {}
-  const key=type==="event"?"eventAnchors":"retain"; config[key]=config[key]||{};
-  if (enabled) {
-    config[key][feelingId]=buildAnchorEntry(config[key][feelingId],feeling,type,options);
-  } else delete config[key][feelingId];
+  config=applyAnchorItems(config,feelings,normalized);
   const temp=`${file}.tmp-${process.pid}`; fs.writeFileSync(temp,JSON.stringify(config,null,2)); fs.renameSync(temp,file);
-  return { id:feelingId,type,enabled:!!enabled };
+  return normalized.map(item => ({ id:item.id,type:item.type,enabled:item.enabled }));
 }
-module.exports={editFeeling,setAnchor,buildAnchorEntry};
+
+function setAnchor(threadId, feelingId, type, enabled, options = {}) {
+  return setAnchors(threadId, [{ ...options, id: feelingId, type, enabled }])[0];
+}
+module.exports={editFeeling,setAnchor,setAnchors,buildAnchorEntry,applyAnchorItems};

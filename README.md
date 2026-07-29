@@ -86,7 +86,6 @@ stone_memory/
         ├── import/done/              # 已导入的源文件
         ├── retain-config.json        # 锚点保留配置
         ├── audit-marks.json          # 审计标记
-        ├── audit-report.md           # 审计报告
         └── search-log.jsonl          # 搜索日志
 ```
 
@@ -499,7 +498,7 @@ codex mcp add stmem -- node ~/stone_memory/mcp-server.js
 
 | 工具 | 功能 |
 |------|------|
-| `stmem_memory_rebuild` | 重建线程（滚动窗口 + 记忆压缩），重建前自动全量备份 |
+| `stmem_memory_rebuild` | 生成线程重建 dry-run；正式应用须在前端或 CLI 二次确认 |
 | `stmem_memory_mine` | 触发单日挖掘（feelings + features） |
 | `stmem_memory_status` | 查看当前 stmem 状态，含各线程 archive/feelings/features 数量 |
 | `stmem_memory_search` | 关键词搜索 feelings + 回溯原文 archive |
@@ -509,11 +508,11 @@ codex mcp add stmem -- node ~/stone_memory/mcp-server.js
 | `stmem_memory_audit_query` | 按日期或关键词查询 feelings，含锚点类型显示 |
 | `stmem_memory_triggers_check` | 检查重建和挖掘阻塞待办，适合会话启动或睡前巡检时调用 |
 
-大部分工具直接调用 SM 的 services。重建（rebuild）和挖掘（mine）因需独立进程上下文，走 Node 子进程调用对应脚本。不带 API key 的用户也可以通过 subagent 模式使用。
+只读工具直接调用 SM 的 reader/service；挖掘和锚点等写操作统一经 `stmem` CLI，避免 MCP 复制写入逻辑。MCP 工具失败会返回标准 `isError`，不会把错误文字伪装成成功结果。不带 API key 的用户也可以通过 subagent 模式使用。
 
 ## Subagent 模式
 
-subagent 模式不依赖外部 API，通过宿主 Agent 的 CLI 执行挖掘/审计/搜索。
+subagent 模式不依赖外部 API，通过宿主 Agent 的 CLI 执行挖掘、压缩和 Deep Search。
 
 ### 运行时配置
 

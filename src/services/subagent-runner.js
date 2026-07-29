@@ -59,12 +59,6 @@ function resolvePlaceholders(threadId) {
     "{userName}":           getCfg("user", threadId, "用户"),
     "{{retainConfig}}":    path.join(memDir, "retain-config.json"),
     "{{archiveDir}}":      path.join(memDir, "archive"),
-    "{{searchLog}}":       path.join(memDir, "search-log.jsonl"),
-    "{{auditReport}}":     path.join(memDir, "audit-report.md"),
-    "{{auditState}}":      path.join(memDir, "audit-state.json"),
-    "{{auditMarks}}":      path.join(memDir, "audit-marks.json"),
-    "{{anchorReminders}}": path.join(memDir, "anchor-reminders.jsonl"),
-    "{{topicsDir}}":       path.join(memDir, "topics"),
     "{{memoryDir}}":       memDir,
     "{{threadDir}}":       dir,
   };

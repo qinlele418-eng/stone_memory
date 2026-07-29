@@ -12,12 +12,6 @@
 
 ## 搜索工作流
 
-### Step 0：检查话题归档（增量更新）
-
-在搜索之前，先检查 `{{topicsDir}}/topic_<关键词>.md` 是否已存在：
-- **如果存在** → 读文件头部的 `sourceDates`，取最新日期。调 `memory_archive_context` 时传 `skipBefore` 为该日期，跳过已覆盖的内容
-- **如果不存在** → 全量搜索，完成后新建话题文件
-
 ### Step 1：feelings 关键词命中 → 核心摘要
 
 从主 agent 的查询里提取关键词，调 `memory_keyword_search`：
@@ -80,11 +74,3 @@
 如果主 agent 问事实性问题（"她爱吃什么"）：
 - 使用 Stone Memory 的搜索工具查询该记忆体的 SQLite 记忆数据
 - 找到相关条目后，一句话回答；不要直接读取旧 JSONL 文件
-
-## 搜索日志
-
-完成后追加到 `{{searchLog}}`：
-
-```json
-{"timestamp":"ISO","query":"原始查询","feelingIds":["命中的id"],"archiveDates":["date"],"savedTopicId":"如果存了话题归档就填"}
-```
