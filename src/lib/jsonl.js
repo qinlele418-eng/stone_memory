@@ -52,4 +52,10 @@ function readFeelings(filePath) {
   return readJsonlLines(filePath).filter(r => r.type === "feeling");
 }
 
-module.exports = { parseJsonlFile, readJsonlLines, appendJsonlLines, readFeelings };
+/** 将已经序列化的记录组成标准 JSONL，并保留末尾记录终止符。 */
+function serializeJsonl(lines) {
+  if (!Array.isArray(lines) || lines.length === 0) return "";
+  return `${lines.join("\n")}\n`;
+}
+
+module.exports = { parseJsonlFile, readJsonlLines, appendJsonlLines, readFeelings, serializeJsonl };

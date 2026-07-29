@@ -72,6 +72,13 @@ function readMessages(memoryDir, { threadId, date = null, from = null, to = null
   });
 }
 
+function readMessageDates(memoryDir, { threadId } = {}) {
+  if (!hasDatabase(memoryDir) || !threadId) return [];
+  return withReadDatabase(memoryDir, db => db.prepare(
+    "SELECT DISTINCT source_date AS date FROM messages WHERE thread_id=? ORDER BY source_date"
+  ).all(threadId).map(row => row.date));
+}
+
 function injectionContent(row) {
   if (row.summary_mode !== "coarse" || !row.coarse_summary) return row.content;
   if (/^\d{1,2}月\d{1,2}日/u.test(row.coarse_summary)) return row.coarse_summary;
@@ -80,4 +87,4 @@ function injectionContent(row) {
   return month ? `${Number(month)}月${Number(day)}日，${row.coarse_summary}` : row.coarse_summary;
 }
 
-module.exports = { hasDatabase, readFeelings, readFeatures, readMessages };
+module.exports = { hasDatabase, readFeelings, readFeatures, readMessages, readMessageDates };

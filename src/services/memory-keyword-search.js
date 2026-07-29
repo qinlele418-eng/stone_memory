@@ -2,7 +2,11 @@ const fs = require("fs");
 const path = require("path");
 
 const { getCfg, getThreadDir, listThreadIds } = require("../config");
-const { readFeelings: readDatabaseFeelings, readMessages } = require("../storage/memory-reader");
+const {
+  readFeelings: readDatabaseFeelings,
+  readMessages,
+  readMessageDates,
+} = require("../storage/memory-reader");
 const { automaticRetainWindow } = require("./thread-rebuilder");
 
 function resolvePaths(threadId) {
@@ -211,12 +215,20 @@ function searchByKeyword(query, { maxResults = 1, threadId } = {}) {
  * 在 archive 中按关键词搜索，每个命中前后各 5 条（~10 条），重叠则合并
  * 返回多个不重叠片段，最多 10 天
  */
-function searchArchiveContext(feelingDate, keywords, { maxDays = 5, contextLines = 10, skipBefore = null, mode = "event", threadId } = {}) {
+function searchArchiveContext(feelingDate, keywords, {
+  maxDays = null,
+  contextLines = null,
+  skipBefore = null,
+  mode = "event",
+  threadId,
+} = {}) {
   const p = resolvePaths(threadId);
-  const half = Math.floor(contextLines / 2);
+  const resolvedMaxDays = maxDays == null ? (mode === "pattern" ? 30 : 3) : maxDays;
+  const resolvedContextLines = contextLines == null ? (mode === "pattern" ? 10 : 50) : contextLines;
+  const half = Math.floor(resolvedContextLines / 2);
 
-  // 全量扫描所有 archive 日期，按关键词命中数排序，取 top N
-  let allDates = [...new Set(readMessages(p.memoryDir, { threadId: p.threadId }).map(row => row.sourceDate))].sort();
+  // SQLite 迁移后只读取日期列；禁止为了列日期把全量对话正文搬进 Node。
+  let allDates = readMessageDates(p.memoryDir, { threadId: p.threadId });
 
   // 跳过已覆盖的日期（增量更新）
   if (skipBefore) {
@@ -235,20 +247,21 @@ function searchArchiveContext(feelingDate, keywords, { maxDays = 5, contextLines
     }
     if (hits > 0) dateHitCounts.push({ date: dateStr, hits });
   }
-  const priorityDates = [feelingDate];
+  const hasFeelingDate = /^\d{4}-\d{2}-\d{2}$/u.test(String(feelingDate || ""));
+  const priorityDates = hasFeelingDate ? [feelingDate] : [];
   for (const d of dateHitCounts) {
     if (d.date !== feelingDate) priorityDates.push(d.date);
   }
   priorityDates.sort((a, b) => {
-    if (a === feelingDate) return -1;
-    if (b === feelingDate) return 1;
+    if (hasFeelingDate && a === feelingDate) return -1;
+    if (hasFeelingDate && b === feelingDate) return 1;
     return (dateHitCounts.find(d => d.date === b)?.hits || 0) - (dateHitCounts.find(d => d.date === a)?.hits || 0);
   });
 
   const allSnippets = [];
 
   for (const dateStr of priorityDates) {
-    if ([...new Set(allSnippets.map(s => s.date))].length >= maxDays) break;
+    if ([...new Set(allSnippets.map(s => s.date))].length >= resolvedMaxDays) break;
 
     const messages = readArchive(p.memoryDir, p.threadId, dateStr);
     if (messages.length === 0) continue;
@@ -268,8 +281,8 @@ function searchArchiveContext(feelingDate, keywords, { maxDays = 5, contextLines
       // 模式型：每天取第一次命中 + 前后 5 条，不合并
       const firstHit = hitIndices[0];
       const start = Math.max(0, firstHit - half);
-      const end = Math.min(messages.length - 1, firstHit + half);
-      const slice = messages.slice(start, end + 1);
+      const end = Math.min(messages.length, start + resolvedContextLines);
+      const slice = messages.slice(start, end);
       const lines = [];
       lines.push(`### ${dateStr} | ${hitIndices.length} mentions, first at ${messages[firstHit].timestamp?.slice(11,16) || "?"}`);
       lines.push("");
@@ -282,56 +295,31 @@ function searchArchiveContext(feelingDate, keywords, { maxDays = 5, contextLines
       continue;
     }
 
-    // 事件型：多个命中取片段，合并重叠 + 时间间隔 ≤ 10min
-    const ranges = hitIndices.map(h => ({ start: Math.max(0, h - half), end: Math.min(messages.length - 1, h + half) }));
-    ranges.sort((a, b) => a.start - b.start);
-
-    // 合并条件 1: 范围重叠（end 相接也算）
-    const merged = [ranges[0]];
-    for (let i = 1; i < ranges.length; i++) {
-      const last = merged[merged.length - 1];
-      if (ranges[i].start <= last.end + 1) {
-        last.end = Math.max(last.end, ranges[i].end);
-      } else {
-        merged.push(ranges[i]);
+    // 事件型沿用原始 Deep Search 设计：根据当天命中跨度取时间中线，
+    // 选择离中线最近的命中作为中心，只返回一个有硬上限的原文窗口。
+    const firstHitMs = new Date(messages[hitIndices[0]].timestamp).getTime();
+    const lastHitMs = new Date(messages[hitIndices[hitIndices.length - 1]].timestamp).getTime();
+    const midpoint = firstHitMs + Math.max(0, lastHitMs - firstHitMs) / 2;
+    const center = hitIndices.reduce((best, index) => {
+      const distance = Math.abs(new Date(messages[index].timestamp).getTime() - midpoint);
+      return distance < best.distance ? { index, distance } : best;
+    }, { index: hitIndices[0], distance: Number.POSITIVE_INFINITY }).index;
+    const start = Math.max(0, center - half);
+    const end = Math.min(messages.length, start + resolvedContextLines);
+    const slice = messages.slice(start, end);
+    const lines = [];
+    const firstTs = slice[0]?.timestamp?.slice(11, 16) || "";
+    const lastTs = slice[slice.length - 1]?.timestamp?.slice(11, 16) || "";
+    lines.push(`### ${dateStr} | ${firstTs}–${lastTs} | ${slice.length} msgs | ${hitIndices.length} mentions`);
+    lines.push("");
+    for (const m of slice) {
+      const role = m.type === "user" ? p.userName : p.aiName;
+      const text = (m.text || "").replace(/^\[\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\]\s*/gm, "").trim();
+      if (text && !text.startsWith("{\"action\"")) {
+        lines.push(`**${role}**: ${text}`);
       }
     }
-
-    // 合并条件 2: 两段之间时间间隔 ≤ 10 分钟
-    let changed = true;
-    while (changed) {
-      changed = false;
-      for (let i = 1; i < merged.length; i++) {
-        const prevLastTs = new Date(messages[merged[i - 1].end].timestamp).getTime();
-        const currFirstTs = new Date(messages[merged[i].start].timestamp).getTime();
-        if (currFirstTs - prevLastTs <= 10 * 60 * 1000) {
-          merged[i - 1].end = merged[i].end;
-          merged.splice(i, 1);
-          changed = true;
-          break;
-        }
-      }
-    }
-
-    // 每天最多 2 个片段
-    const daySnippets = merged.slice(0, 2);
-
-    for (const r of daySnippets) {
-      const slice = messages.slice(r.start, r.end + 1);
-      const lines = [];
-      const firstTs = slice[0]?.timestamp?.slice(11, 16) || "";
-      const lastTs = slice[slice.length - 1]?.timestamp?.slice(11, 16) || "";
-      lines.push(`### ${dateStr} | ${firstTs}–${lastTs} | ${slice.length} msgs`);
-      lines.push("");
-      for (const m of slice) {
-        const role = m.type === "user" ? p.userName : p.aiName;
-        const text = (m.text || "").replace(/^\[\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\]\s*/gm, "").trim();
-        if (text && !text.startsWith("{\"action\"")) {
-          lines.push(`**${role}**: ${text}`);
-        }
-      }
-      allSnippets.push({ date: dateStr, hitCount: hitIndices.length, text: lines.join("\n") });
-    }
+    allSnippets.push({ date: dateStr, hitCount: hitIndices.length, text: lines.join("\n") });
   }
 
   return {

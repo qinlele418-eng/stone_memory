@@ -265,6 +265,7 @@ function toolDeepSearch(args) {
 }
 
 function toolInternalKeywordSearch(args) {
+  const startedAt = Date.now();
   const query = typeof args.query === "string" ? args.query.trim() : "";
   if (!query) return "请输入关键词。";
   const { searchByKeyword } = require("./src/services/memory-keyword-search");
@@ -272,20 +273,29 @@ function toolInternalKeywordSearch(args) {
     maxResults: Math.min(5, Math.max(1, Number(args.maxResults) || 3)),
     threadId: SEARCH_THREAD_ID,
   });
-  return result.text || "未找到匹配记忆。";
+  const text = result.text || "未找到匹配记忆。";
+  log(`deep search tool=keyword durationMs=${Date.now() - startedAt} hits=${result.hits?.length || 0} resultChars=${text.length}`);
+  return text;
 }
 
 function toolInternalArchiveContext(args) {
+  const startedAt = Date.now();
   const keywords = String(args.keywords || "").split(/\s+/).filter(word => word.length >= 2);
   if (!keywords.length) return "请输入至少一个两字以上的关键词。";
   const { searchArchiveContext } = require("./src/services/memory-keyword-search");
+  const mode = args.mode === "pattern" ? "pattern" : "event";
+  const requestedMaxDays = Number(args.maxDays);
   const result = searchArchiveContext(String(args.feelingDate || ""), keywords, {
-    maxDays: Math.min(30, Math.max(1, Number(args.maxDays) || 5)),
+    maxDays: Number.isFinite(requestedMaxDays) && requestedMaxDays > 0
+      ? Math.min(30, requestedMaxDays)
+      : (mode === "pattern" ? 30 : 3),
     skipBefore: args.skipBefore || null,
-    mode: args.mode === "pattern" ? "pattern" : "event",
+    mode,
     threadId: SEARCH_THREAD_ID,
   });
-  return result.text || "未找到相关原文。";
+  const text = result.text || "未找到相关原文。";
+  log(`deep search tool=archive mode=${mode} durationMs=${Date.now() - startedAt} snippets=${result.snippets?.length || 0} resultChars=${text.length}`);
+  return text;
 }
 
 // ── audit 工具 ──

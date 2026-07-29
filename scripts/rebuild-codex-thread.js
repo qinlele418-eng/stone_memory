@@ -23,6 +23,7 @@ const { readMessages } = require("../src/storage/memory-reader");
 const { itemKey, conversationWindow, loadRebuildPlan } = require("../src/services/rebuild-workbench");
 const { buildCodexSessionMeta, validateCodexRebuildOutput } = require("../src/services/codex-session-meta");
 const { isSystemInjection } = require("../src/lib/thread-message-filter");
+const { serializeJsonl } = require("../src/lib/jsonl");
 
 const DEFAULT_WINDOW_DAYS = 3;
 
@@ -388,7 +389,7 @@ function main() {
   const totalOriginal = lines.length;
   const totalOutput = output.length;
   const fullArchiveSize = codexArchive.getTotalBytes();
-  const outputText = output.join("\n") + "\n";
+  const outputText = serializeJsonl(output);
   validateCodexRebuildOutput(outputText,origSessionId);
   const estimatedOutputSize = Buffer.byteLength(outputText, "utf8");
   const byteReduction = fullArchiveSize > 0 ? (1 - estimatedOutputSize / fullArchiveSize) * 100 : null;

@@ -79,7 +79,7 @@ body.tidal-visual .activity-calendar,
 body.tidal-visual .mining-calendar,
 body.tidal-visual .date-list button {
   border-color: var(--stone-tide-line);
-  background: var(--stone-tide-surface);
+  background: color-mix(in srgb, var(--stone-tide-accent-soft) 52%, var(--stone-tide-surface));
 }
 
 body.tidal-visual .new-card {
@@ -94,20 +94,28 @@ body.tidal-visual .new-card span {
   box-shadow: 0 0 0 6px color-mix(in srgb, var(--stone-tide-accent) 10%, transparent);
 }
 
-body.tidal-visual .calendar-day.level-0 {
+body.tidal-visual .calendar-day.level-0,
+body.tidal-visual .conversation-legend .level-0 {
+  border-color: var(--stone-tide-line-soft);
   background: var(--stone-tide-surface);
 }
 
-body.tidal-visual .calendar-day.level-1 {
-  background: color-mix(in srgb, var(--stone-tide-accent) 16%, var(--stone-tide-canvas));
+body.tidal-visual .calendar-day.level-1,
+body.tidal-visual .conversation-legend .level-1 {
+  border-color: color-mix(in srgb, var(--stone-tide-status) 24%, var(--stone-tide-line));
+  background: color-mix(in srgb, var(--stone-tide-status) 18%, var(--stone-tide-surface));
 }
 
-body.tidal-visual .calendar-day.level-2 {
-  background: color-mix(in srgb, var(--stone-tide-accent) 38%, var(--stone-tide-canvas));
+body.tidal-visual .calendar-day.level-2,
+body.tidal-visual .conversation-legend .level-2 {
+  border-color: color-mix(in srgb, var(--stone-tide-status) 48%, var(--stone-tide-line));
+  background: color-mix(in srgb, var(--stone-tide-status) 44%, var(--stone-tide-surface));
 }
 
-body.tidal-visual .calendar-day.level-3 {
-  background: var(--stone-tide-accent);
+body.tidal-visual .calendar-day.level-3,
+body.tidal-visual .conversation-legend .level-3 {
+  border-color: color-mix(in srgb, var(--stone-tide-status) 78%, var(--stone-tide-line));
+  background: var(--stone-tide-status);
 }
 
 body.tidal-visual .calendar-day.mining-none,

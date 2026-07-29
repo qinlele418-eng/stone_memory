@@ -23,6 +23,14 @@ test("semantic theme covers mining calendar states and preserves the developer l
   for (const state of ["mining-none", "mining-pending", "mining-light", "mining-deep", "mining-failed", "mining-running"]) {
     assert.match(coverage, new RegExp(`calendar-day\\.${state}`));
   }
+  for (const level of ["level-0", "level-1", "level-2", "level-3"]) {
+    assert.ok(coverage.includes(`conversation-legend .${level}`));
+  }
+  assert.match(coverage, /calendar-day\.level-3[\s\S]*stone-tide-status/);
+  const calendarSurface = coverage.match(/body\.tidal-visual \.activity-calendar,[\s\S]*?\{([\s\S]*?)\}/)?.[1] || "";
+  const newCardSurface = coverage.match(/body\.tidal-visual \.new-card\s*\{([\s\S]*?)\}/)?.[1] || "";
+  assert.match(calendarSurface, /stone-tide-accent-soft/);
+  assert.match(newCardSurface, /stone-tide-accent-soft/);
   assert.match(developer, /developer-experiment-card[\s\S]*linear-gradient/);
   assert.doesNotMatch(developer, /developer-experiment-card::before\s*\{\s*display:\s*none/);
   assert.doesNotMatch(developer, /developer-experiment-glow\s*\{\s*display:\s*none/);

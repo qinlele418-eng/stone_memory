@@ -22,6 +22,7 @@ const os = require("os");
 const { FullArchive, dateKeyFromTs } = require("../src/services/memory-archive");
 const { getCfg, getThreadDir } = require("../src/config");
 const { resolveDateFile, listDateFiles } = require("../src/lib/archive-paths");
+const { serializeJsonl } = require("../src/lib/jsonl");
 const { readFeelings: readDatabaseFeelings, readMessages } = require("../src/storage/memory-reader");
 const { itemKey, conversationWindow, loadRebuildPlan } = require("../src/services/rebuild-workbench");
 const { isSystemInjection } = require("../src/lib/thread-message-filter");
@@ -574,7 +575,7 @@ function rebuildThread(inputPath, outputPath, dryRun, windowDays, toolPairsOverr
   const fullArchiveSize = FULL_ARCHIVE.getTotalBytes();
   const totalOutput = outputLines.length;
   const totalOriginal = messages.length;
-  const outputText = outputLines.join("\n");
+  const outputText = serializeJsonl(outputLines);
   const estimatedOutputSize = Buffer.byteLength(outputText, "utf8");
   const byteReduction = fullArchiveSize > 0 ? (1 - estimatedOutputSize / fullArchiveSize) * 100 : null;
 
