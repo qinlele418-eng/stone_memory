@@ -6,12 +6,12 @@ const path = require("path");
 const { MemoryStore } = require("../src/storage/memory-store");
 const { archiveFingerprint } = require("../src/services/mining-state");
 const { MiningReviewStore } = require("../src/services/mining-review");
+const { feelingEventTime } = require("../src/services/memory-miner");
 const {
   buildFusionPlan,
   editFusionCandidate,
   fuseReviewCandidate,
   materializeFusion,
-  preciseFeelingEventTime,
 } = require("../src/services/review-fusion");
 
 test("same-event fusion merges duplicate groups while preserving unique rows and source audit", async t => {
@@ -145,7 +145,7 @@ test("fusion rejects a rewritten feeling that moves beyond the source event time
 
 test("fusion parses Chinese zero-padded minutes without rounding them to the hour", () => {
   assert.equal(
-    preciseFeelingEventTime("7月25日，上午十一点零五分。她发来镜像自拍。", "2026-07-25"),
+    feelingEventTime({ content: "7月25日，上午十一点零五分。她发来镜像自拍。" }, "2026-07-25"),
     "2026-07-25T03:05:00.000Z",
   );
 });

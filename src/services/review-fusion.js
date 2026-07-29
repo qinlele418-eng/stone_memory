@@ -1,6 +1,6 @@
 const crypto = require("crypto");
 const { parseJsonObject } = require("../lib/json-parse");
-const { normalizeNewImportance } = require("./memory-miner");
+const { feelingEventTime, normalizeNewImportance } = require("./memory-miner");
 
 const FEATURE_CATEGORIES = new Set([
   "eat", "body", "sleep", "work", "relation",
@@ -22,7 +22,7 @@ function buildFusionPlan(sourceCandidate, parentCandidates = []) {
         index,
         kind,
         content: String(row.content || ""),
-        eventTime: kind === "feelings" ? preciseFeelingEventTime(row.content, sourceCandidate.date) || row.eventTime || null : null,
+        eventTime: kind === "feelings" ? feelingEventTime(row, sourceCandidate.date) || row.eventTime || null : null,
         category: row.category || null,
         importance: normalizeNewImportance(row.importance),
         candidateId: source.candidateId || null,
@@ -161,7 +161,7 @@ async function fuseReviewCandidate({
   const source = reviews.load(sourceCandidateId);
   if (source.status !== "review_pending") throw new Error("source hybrid candidate is no longer pending");
   if (source.profile?.id !== "hybrid") throw new Error("same-event fusion only accepts a hybrid candidate");
-  reviews._assertCurrentFingerprint(source.date, source.archiveFingerprint);
+  reviews.assertCurrentFingerprint(source.date, source.archiveFingerprint);
   const parentCandidates = (source.hybrid?.parentCandidateIds || []).map(id => reviews.load(id));
   const plan = buildFusionPlan(source, parentCandidates);
   const groupCount = plan.groups.feelings.length + plan.groups.features.length;
@@ -184,52 +184,49 @@ async function fuseReviewCandidate({
 }
 
 function editFusionCandidate({ reviews, candidateId, edits }) {
-  const candidate = reviews.load(candidateId);
-  if (candidate.status !== "review_pending" || candidate.profile?.id !== "fusion") {
-    throw new Error("only a pending fusion candidate may be edited");
-  }
-  reviews._assertCurrentFingerprint(candidate.date, candidate.archiveFingerprint);
-  const changed = [];
-  for (const kind of ["feelings", "features"]) {
-    const rows = Array.isArray(edits?.[kind]) ? edits[kind] : [];
-    for (const edit of rows) {
-      const index = Number(edit?.index);
-      const row = candidate[kind]?.[index];
-      const provenance = candidate.fusion?.provenance?.[kind]?.[index];
-      if (!Number.isInteger(index) || !row || provenance?.merged !== true) {
-        throw new Error(`only model-merged ${kind} rows may be edited`);
-      }
-      const content = String(edit?.content || "").trim();
-      if (!content || content.length > 2000) {
-        throw new Error(`edited ${kind} content must contain 1 to 2000 characters`);
-      }
-      if (content === row.content) continue;
-      if (kind === "feelings") {
-        const eventTime = preciseFeelingEventTime(content, candidate.date);
-        if (!eventTime) throw new Error("edited feeling lost its recognizable event time");
-        const sourceTimes = (provenance.sources || [])
-          .map(source => Date.parse(source.eventTime || ""))
-          .filter(Number.isFinite);
-        const earliest = sourceTimes.length ? Math.min(...sourceTimes) : Date.parse(row.eventTime || "");
-        if (!Number.isFinite(earliest) || Math.abs(Date.parse(eventTime) - earliest) > 10 * 60000) {
-          throw new Error("edited feeling changed the event time beyond the safe window");
+  return reviews.updateFusionCandidate(candidateId, candidate => {
+    const changed = [];
+    for (const kind of ["feelings", "features"]) {
+      const rows = Array.isArray(edits?.[kind]) ? edits[kind] : [];
+      for (const edit of rows) {
+        const index = Number(edit?.index);
+        const row = candidate[kind]?.[index];
+        const provenance = candidate.fusion?.provenance?.[kind]?.[index];
+        if (!Number.isInteger(index) || !row || provenance?.merged !== true) {
+          throw new Error(`only model-merged ${kind} rows may be edited`);
         }
-        row.eventTime = eventTime;
+        const content = String(edit?.content || "").trim();
+        if (!content || content.length > 2000) {
+          throw new Error(`edited ${kind} content must contain 1 to 2000 characters`);
+        }
+        if (content === row.content) continue;
+        if (kind === "feelings") {
+          const eventTime = feelingEventTime({ content }, candidate.date);
+          if (!eventTime) throw new Error("edited feeling lost its recognizable event time");
+          const sourceTimes = (provenance.sources || [])
+            .map(source => Date.parse(source.eventTime || ""))
+            .filter(Number.isFinite);
+          const earliest = sourceTimes.length ? Math.min(...sourceTimes) : Date.parse(row.eventTime || "");
+          if (!Number.isFinite(earliest) || Math.abs(Date.parse(eventTime) - earliest) > 10 * 60000) {
+            throw new Error("edited feeling changed the event time beyond the safe window");
+          }
+          row.eventTime = eventTime;
+        }
+        changed.push({
+          kind, index,
+          previousContentSha256: sha256(row.content),
+          contentSha256: sha256(content),
+          updatedAt: new Date().toISOString(),
+        });
+        row.content = content;
       }
-      changed.push({
-        kind, index,
-        previousContentSha256: sha256(row.content),
-        contentSha256: sha256(content),
-        updatedAt: new Date().toISOString(),
-      });
-      row.content = content;
     }
-  }
-  if (!changed.length) return candidate;
-  candidate.fusion.manualEdits = [...(candidate.fusion.manualEdits || []), ...changed];
-  candidate.updatedAt = new Date().toISOString();
-  reviews._write(candidate);
-  return candidate;
+    if (changed.length) {
+      candidate.fusion.manualEdits = [...(candidate.fusion.manualEdits || []), ...changed];
+      candidate.updatedAt = new Date().toISOString();
+    }
+    return candidate;
+  });
 }
 
 function materializeFusion(plan, response) {
@@ -261,7 +258,7 @@ function materializeFusion(plan, response) {
       if (!content || content.length > 2000) throw new Error(`${group.id} fused content must contain 1 to 2000 characters`);
       const sources = group.members.map(sourceRef);
       if (kind === "feelings") {
-        const eventTime = preciseFeelingEventTime(content, plan.date);
+        const eventTime = feelingEventTime({ content }, plan.date);
         if (!eventTime) throw new Error(`${group.id} fused feeling lost its recognizable event time`);
         const earliest = Math.min(...group.members.map(row => Date.parse(row.eventTime || "")).filter(Number.isFinite));
         if (!Number.isFinite(earliest) || Math.abs(Date.parse(eventTime) - earliest) > 10 * 60000) {
@@ -417,39 +414,6 @@ function ngrams(value) {
   return grams;
 }
 
-function preciseFeelingEventTime(content, targetDate) {
-  const match = String(content || "").match(
-    /(凌晨|早上|上午|中午|下午|傍晚|晚上|深夜|午夜)?\s*([零〇一二三四五六七八九十两\d]{1,4})点(?:(半)|([零〇一二三四五六七八九十两\d]{1,4})分?)?/,
-  );
-  if (!match) return null;
-  const period = match[1] || "";
-  let hour = chineseTimeNumber(match[2]);
-  let minute = match[3] ? 30 : match[4] ? chineseTimeNumber(match[4]) : 0;
-  if (!Number.isInteger(hour) || !Number.isInteger(minute) || minute < 0 || minute > 59) return null;
-  if (period === "午夜" && hour === 12) hour = 0;
-  else if (["下午", "傍晚", "晚上"].includes(period) && hour < 12) hour += 12;
-  else if (period === "中午" && hour < 11) hour += 12;
-  else if (period === "深夜" && hour >= 6 && hour < 12) hour += 12;
-  if (hour < 0 || hour > 23) return null;
-  const iso = new Date(`${targetDate}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00+08:00`);
-  return Number.isFinite(iso.getTime()) ? iso.toISOString() : null;
-}
-
-function chineseTimeNumber(value) {
-  const raw = String(value || "");
-  if (/^\d{1,2}$/.test(raw)) return Number(raw);
-  const digitMap = { 零: 0, 〇: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
-  if (!raw.includes("十")) {
-    const digits = [...raw].map(character => digitMap[character]);
-    return digits.every(Number.isInteger) ? Number(digits.join("")) : null;
-  }
-  const [tensRaw, onesRaw] = raw.split("十");
-  const tens = tensRaw ? digitMap[tensRaw] : 1;
-  const ones = onesRaw ? digitMap[onesRaw] : 0;
-  if (!Number.isInteger(tens) || !Number.isInteger(ones)) return null;
-  return tens * 10 + ones;
-}
-
 function sha256(value) {
   return crypto.createHash("sha256").update(String(value || "")).digest("hex");
 }
@@ -461,6 +425,5 @@ module.exports = {
   fuseReviewCandidate,
   groupRows,
   materializeFusion,
-  preciseFeelingEventTime,
   textSimilarity,
 };

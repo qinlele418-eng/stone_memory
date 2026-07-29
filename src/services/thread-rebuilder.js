@@ -19,13 +19,16 @@ const { readFeelings } = require("../storage/memory-reader");
 
 function cn2int(s) {
   if (!s) return null;
-  const d = { 零:0,一:1,二:2,三:3,四:4,五:5,六:6,七:7,八:8,九:9,两:2 };
+  const d = { 零:0,〇:0,一:1,二:2,三:3,四:4,五:5,六:6,七:7,八:8,九:9,两:2 };
   s = s.replace(/[分秒]$/, "");
   if (s === "半") return 30;
-  let m = s.match(/^([零一二三四五六七八九两])?十([零一二三四五六七八九两])?$/);
+  let m = s.match(/^([零〇一二三四五六七八九两])?十([零〇一二三四五六七八九两])?$/);
   if (m) return (m[1] ? d[m[1]] : 1) * 10 + (m[2] ? d[m[2]] : 0);
-  m = s.match(/^([零一二三四五六七八九两])$/);
+  m = s.match(/^([零〇一二三四五六七八九两])$/);
   if (m) return d[m[1]];
+  if (/^[零〇一二三四五六七八九两]+$/.test(s)) {
+    return Number([...s].map(character => d[character]).join(""));
+  }
   m = s.match(/^(\d+)/);
   if (m) return parseInt(m[1]);
   return null;
@@ -46,7 +49,7 @@ function parseFeelingTime(content) {
   const dotIdx = timeDesc.indexOf("点");
   if (dotIdx > 0) {
     let hStart = dotIdx - 1;
-    while (hStart >= 0 && /[零一二三四五六七八九两十\d]/.test(timeDesc[hStart])) hStart--;
+    while (hStart >= 0 && /[零〇一二三四五六七八九两十\d]/.test(timeDesc[hStart])) hStart--;
     hStart++;
     hour = cn2int(timeDesc.slice(hStart, dotIdx));
     const after = timeDesc.slice(dotIdx + 1);

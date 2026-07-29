@@ -163,6 +163,10 @@ class MiningReviewStore {
     return candidate;
   }
 
+  assertCurrentFingerprint(date, expected) {
+    this._assertCurrentFingerprint(date, expected);
+  }
+
   mix({ date, selection, enforceCountLimit = false }) {
     const refs = [
       ...(Array.isArray(selection?.feelings) ? selection.feelings : []),
@@ -326,6 +330,21 @@ class MiningReviewStore {
       discardedAt: null,
       backup: null,
     };
+    this._write(candidate);
+    return candidate;
+  }
+
+  updateFusionCandidate(id, mutate) {
+    const candidate = this.load(id);
+    if (candidate.status !== "review_pending" || candidate.profile?.id !== "fusion") {
+      throw new Error("only a pending fusion candidate may be updated");
+    }
+    this._assertCurrentFingerprint(candidate.date, candidate.archiveFingerprint);
+    const updated = mutate(candidate);
+    if (!updated || updated !== candidate) {
+      throw new Error("fusion candidate update must mutate and return the loaded candidate");
+    }
+    validateCandidate(candidate, { id, threadId: this.threadId });
     this._write(candidate);
     return candidate;
   }
