@@ -65,6 +65,38 @@ async function loadLibraries() {
   const data = await api("/api/libraries"); state.libraries = data.libraries;
 }
 
+const optionalScripts = new Map();
+function loadOptionalScript(src) {
+  if (optionalScripts.has(src)) return optionalScripts.get(src);
+  const promise = new Promise((resolve, reject) => {
+    const existing = document.querySelector(`script[data-optional-src="${src}"]`);
+    if (existing) {
+      if (existing.dataset.loaded === "true") resolve();
+      else {
+        existing.addEventListener("load", resolve, { once: true });
+        existing.addEventListener("error", reject, { once: true });
+      }
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = src;
+    script.defer = true;
+    script.dataset.optionalSrc = src;
+    script.onload = () => { script.dataset.loaded = "true"; resolve(); };
+    script.onerror = () => reject(new Error(`开发者模块加载失败：${src}`));
+    document.head.append(script);
+  });
+  optionalScripts.set(src, promise);
+  return promise;
+}
+
+function loadDeveloperModules() {
+  return Promise.all([
+    loadOptionalScript("/review-lab/bootstrap.js"),
+    loadOptionalScript("/developer-kit/bootstrap.js"),
+  ]).catch(error => showToast(error.message, "error"));
+}
+
 function welcome() {
   app.innerHTML = `<section class="welcome"><div class="welcome-content">${stoneSvg()}<h1>Stone Memory</h1><p class="cn-title">磐石记忆</p><blockquote>“蒲苇韧如丝，磐石无转移”</blockquote><button class="primary" id="create">点击创建</button></div></section>`;
   document.querySelector("#create").onclick = () => { resetCreateForm(); wizard(); };
@@ -256,6 +288,7 @@ function renderDeveloperMode(library) {
   document.querySelectorAll(".side-nav button").forEach(button => button.classList.toggle("active", button.dataset.view === "developer"));
   const main=document.querySelector("#workspace-main");
   main.innerHTML=`<div class="dashboard-head developer-mode-head"><div><p class="eyebrow">Stone Memory Lab</p><h1>开发者模式</h1><p class="lead">这里不是档案柜，是 Stone Memory 正在生长的实验室。</p></div><div class="developer-orbit" aria-hidden="true"><span></span><i></i></div></div><section class="developer-lab-intro"><span class="developer-live-dot"></span><p>体验已经通过原型验证、但仍需要真实使用反馈的新能力。实验功能可能调整参数与行为，进入正式栏目之前不会改变默认流程。</p></section><div id="developer-module-host" class="developer-module-host" aria-live="polite"></div>`;
+  loadDeveloperModules();
 }
 
 function renderMemoryHub(library) {

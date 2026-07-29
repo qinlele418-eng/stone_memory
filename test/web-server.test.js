@@ -347,7 +347,8 @@ test("developer experiments register through removable bootstraps instead of app
 
   assert.match(appSource, /id="developer-module-host"/);
   assert.doesNotMatch(appSource, /enter-review-lab|贡献人：@小思飞刀/);
-  assert.match(indexSource, /\/review-lab\/bootstrap\.js/);
+  assert.doesNotMatch(indexSource, /\/review-lab\/bootstrap\.js/);
+  assert.match(appSource, /loadOptionalScript\("\/review-lab\/bootstrap\.js"\)/);
   assert.match(indexSource, /\/theme-studio\/bootstrap\.js/);
   assert.match(reviewBootstrap, /dataModule = MODULE_ID|dataset\.developerModule = MODULE_ID/);
   assert.match(themeBootstrap, /dataModule = MODULE_ID|dataset\.developerModule = MODULE_ID/);

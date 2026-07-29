@@ -2,6 +2,7 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
+const zlib = require("zlib");
 const crypto = require("crypto");
 const { spawn, spawnSync } = require("child_process");
 const { URL } = require("url");
@@ -449,10 +450,34 @@ function overview(threadId) {
 function serveStatic(req, res, pathname) {
   const requested = pathname === "/" ? "index.html" : pathname.endsWith("/") ? `${pathname.slice(1)}index.html` : pathname.slice(1);
   const file = path.resolve(PUBLIC_DIR, requested);
-  if (!file.startsWith(PUBLIC_DIR) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) return false;
+  if (!file.startsWith(PUBLIC_DIR) || !fs.existsSync(file)) return false;
+  const stat = fs.statSync(file);
+  if (stat.isDirectory()) return false;
   const types = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".json": "application/json; charset=utf-8", ".svg": "image/svg+xml" };
-  res.writeHead(200, { "content-type": types[path.extname(file)] || "application/octet-stream", "cache-control": "no-cache" });
-  fs.createReadStream(file).pipe(res);
+  const extension = path.extname(file);
+  const gzip = /\bgzip\b/.test(req.headers["accept-encoding"] || "") && new Set([".html", ".css", ".js", ".json", ".svg"]).has(extension);
+  const etag = `W/"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}${gzip ? "-gz" : ""}"`;
+  const headers = {
+    "content-type": types[extension] || "application/octet-stream",
+    "cache-control": "no-cache",
+    etag,
+    "last-modified": stat.mtime.toUTCString(),
+    vary: "Accept-Encoding",
+  };
+  if (req.headers["if-none-match"] === etag) {
+    res.writeHead(304, headers);
+    res.end();
+    return true;
+  }
+  if (gzip) {
+    headers["content-encoding"] = "gzip";
+    res.writeHead(200, headers);
+    fs.createReadStream(file).pipe(zlib.createGzip({ level: zlib.constants.Z_BEST_SPEED })).pipe(res);
+  } else {
+    headers["content-length"] = stat.size;
+    res.writeHead(200, headers);
+    fs.createReadStream(file).pipe(res);
+  }
   return true;
 }
 

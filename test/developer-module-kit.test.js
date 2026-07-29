@@ -33,9 +33,11 @@ test("review lab uses the shared developer module shell before its styles paint"
   assert.doesNotMatch(app, /smartBackLink|data-smart-back/);
 });
 
-test("main developer mode loads the module workshop entry", () => {
+test("main developer mode lazy-loads the module workshop entry", () => {
   const html = fs.readFileSync(path.join(publicDir, "index.html"), "utf8");
-  assert.match(html, /developer-kit\/bootstrap\.js/);
+  const app = fs.readFileSync(path.join(publicDir, "app.js"), "utf8");
+  assert.doesNotMatch(html, /developer-kit\/bootstrap\.js/);
+  assert.match(app, /loadOptionalScript\("\/developer-kit\/bootstrap\.js"\)/);
 });
 
 test("theme studio applies the saved theme before standalone CSS paints", () => {
