@@ -212,15 +212,18 @@ function runSubagent(prompt, opts = {}) {
     finalPrompt = `${opsContent}\n\n---\n\n${prompt}`;
   }
 
-  const invocation = resolveExecutableInvocation(buildStdinInvocation(runtimeName, {
+  const baseInvocation = buildStdinInvocation(runtimeName, {
     ...opts, opsFile, mcpConfig, model, reasoning,
-  }));
+  });
+  const childEnv = { ...process.env, ...(baseInvocation.env || {}) };
+  const invocation = resolveExecutableInvocation(baseInvocation, { env: childEnv });
   try {
     const out = execFileSync(invocation.file, invocation.args, {
       input: finalPrompt,
       encoding: "utf8",
       timeout,
       maxBuffer: 10 * 1024 * 1024,
+      env: childEnv,
       windowsHide: true,
     });
     if (!out || !out.trim()) {

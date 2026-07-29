@@ -62,12 +62,14 @@ function isLiteralEmptyArray(text) {
   return /^\s*(?:```(?:json)?\s*)?\[\s*\](?:\s*```)?\s*$/iu.test(String(text || ""));
 }
 
-function parseMiningArray(reply, message = "model output is not a JSON array") {
+function parseMiningArray(reply, message = "model output is not a JSON array", expectedKey = null) {
   const parsed = parseJsonArray(String(reply || ""));
-  if (!parsed.length && !isLiteralEmptyArray(reply)) {
-    throw new MiningError("OUTPUT_INVALID", message);
+  if (parsed.length || isLiteralEmptyArray(reply)) return parsed;
+  const envelope = parseJsonObject(String(reply || ""));
+  if (expectedKey && envelope && !Array.isArray(envelope) && Array.isArray(envelope[expectedKey])) {
+    return envelope[expectedKey];
   }
-  return parsed;
+  throw new MiningError("OUTPUT_INVALID", message);
 }
 
 function subagentSafe(prompt, opts = {}) {
@@ -512,14 +514,7 @@ class MemoryMiner {
     if (!this.deepseekConfig?.apiKey) {
       try {
         const reply = subagentSafe(`${systemPrompt}\n\n对话内容：\n${conversationText}\n\n请输出 JSON 数组。`, { threadId: this.threadId });
-        const parsed = parseJsonArray(reply);
-        const literalEmpty = /^\s*(?:```(?:json)?\s*)?\[\s*\](?:\s*```)?\s*$/i.test(reply);
-        if (!parsed.length && !literalEmpty) {
-          return {
-            ok: false, code: "SUBAGENT_OUTPUT_INVALID", reason: "Subagent 返回了内容，但不是 miner 要求的 JSON 数组", input,
-            actualResponse: { content: String(reply).slice(0, 20000), contentTruncated: String(reply).length > 20000 },
-          };
-        }
+        const parsed = parseMiningArray(reply, "Subagent 返回了内容，但不是 feelings JSON 数组", "feelings");
         return {
           ok: true,
           code: parsed.length ? "SUBAGENT_OK" : "SUBAGENT_OK_EMPTY_RESULT",
@@ -559,7 +554,7 @@ ${instruction ? `- 用户补充要求：${instruction}` : ""}
 
 当天已有摘要的前五条仅用于模仿叙述视角和语气，不是待总结内容，也不要重复：
 ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`).join("\n") : "（当天尚无摘要）"}`;
-    const raw = sortFeelingsChronologically(await this._extractViaSubagent(messages, prompt) || []);
+    const raw = sortFeelingsChronologically(await this._extractViaSubagent(messages, prompt, { expectedKey: "feelings" }) || []);
     const existing = new Set(this.store.listFeelings({ date: targetDate }).map(row => row.content.trim()));
     const feelings = raw.filter(row => row?.content?.trim() && !existing.has(row.content.trim())).map(row => ({
       id: `mem_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`,
@@ -687,7 +682,7 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
       const result = await this._extractViaSubagent(
         chunks[index],
         this._chunkPrompt(datedPrompt, index, chunks.length, raw, isFeature ? "features" : label),
-        { model },
+        { model, expectedKey: isFeature ? "features" : "feelings" },
       );
       if (!isFeature) {
         this._recordFeelingChunk(chunks[index], index, chunks.length, Array.isArray(result) ? result : [], "api", { model });
@@ -729,6 +724,7 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
         const parsed = parseMiningArray(
           reply,
           `${targetDate}: subagent chunk ${index + 1}/${chunks.length} output is not a feelings JSON array`,
+          "feelings",
         );
         cache.chunks[index] = parsed;
         this._recordFeelingChunk(chunks[index], index, chunks.length, parsed, "subagent");
@@ -874,6 +870,7 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
         const result = await this._extractViaSubagent(
           chunks[index],
           this._chunkPrompt(datedPrompt, index, chunks.length, raw, isFeature ? "features" : "feelings"),
+          { expectedKey: isFeature ? "features" : "feelings" },
         );
         const entries = Array.isArray(result) ? result : [];
         cache.chunks[index] = entries;
@@ -904,7 +901,7 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
     return bj.toISOString().slice(0, 10);
   }
 
-  async _extractViaSubagent(messages, prompt, { model: subagentModel = null } = {}) {
+  async _extractViaSubagent(messages, prompt, { model: subagentModel = null, expectedKey = null } = {}) {
 
     // 如果配置了独立 API key，用原来的直接调用（更快）
     if (this.deepseekConfig?.apiKey) {
@@ -925,7 +922,7 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
           const data = await response.json();
           const reply = data?.choices?.[0]?.message?.content;
           if (!reply || !reply.trim()) throw new MiningError("OUTPUT_EMPTY", "API returned empty content");
-          const parsed = parseMiningArray(reply, "API output is not a JSON array");
+          const parsed = parseMiningArray(reply, "API output is not a JSON array", expectedKey);
           return parsed;
         } catch (err) {
           lastErr = err;
@@ -943,7 +940,7 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
     const conversationText = this._buildConversationText(messages);
     const subPrompt = `${prompt}\n\n对话内容：\n${conversationText}\n\n请输出 JSON 数组。`;
     const reply = subagentSafe(subPrompt, { threadId: this.threadId, model: subagentModel || undefined });
-    return parseMiningArray(reply, "Subagent output is not a JSON array");
+    return parseMiningArray(reply, "Subagent output is not a JSON array", expectedKey);
   }
 
   _readState() {

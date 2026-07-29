@@ -39,6 +39,27 @@ test("only an explicit empty JSON array is accepted as a successful empty mining
     error.code === "OUTPUT_INVALID");
 });
 
+test("mining accepts only the envelope belonging to the active channel", () => {
+  const reply = JSON.stringify({
+    feelings: [{ content: "7月29日，上午九点。记录一件事。", importance: 2 }],
+    features: [{ content: "她重视格式正确", category: "preference", importance: 3 }],
+  });
+  assert.deepEqual(parseMiningArray(reply, "invalid feelings", "feelings"), [{
+    content: "7月29日，上午九点。记录一件事。",
+    importance: 2,
+  }]);
+  assert.deepEqual(parseMiningArray(reply, "invalid features", "features"), [{
+    content: "她重视格式正确",
+    category: "preference",
+    importance: 3,
+  }]);
+  assert.deepEqual(parseMiningArray('{"feelings":[]}', "invalid feelings", "feelings"), []);
+  assert.throws(
+    () => parseMiningArray('{"unrelated":[{"content":"wrong"}]}', "invalid feelings", "feelings"),
+    error => error.code === "OUTPUT_INVALID",
+  );
+});
+
 test("accompany operations use a neutral AI fallback when no identity is configured", t => {
   const miner = minerFixture(t, [{ text: "今天的对话" }]);
   const prompt = miner._readOperationsPrompt();

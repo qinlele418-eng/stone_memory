@@ -44,10 +44,22 @@ function parseCommandLine(input) {
   return parts;
 }
 
+const ENV_ASSIGNMENT = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/;
+
 function commandInvocation(command, { remove = [] } = {}) {
-  const [file, ...rawArgs] = parseCommandLine(command);
+  const parts = parseCommandLine(command);
+  const env = {};
+  let index = 0;
+  while (index < parts.length) {
+    const match = ENV_ASSIGNMENT.exec(parts[index]);
+    if (!match) break;
+    env[match[1]] = match[2];
+    index++;
+  }
+  const [file, ...rawArgs] = parts.slice(index);
+  if (!file) throw new Error("runtime command is empty");
   const removals = new Set(remove);
-  return { file, args: rawArgs.filter(arg => !removals.has(arg)) };
+  return { file, args: rawArgs.filter(arg => !removals.has(arg)), env };
 }
 
 function appendOption(args, flag, value) {
