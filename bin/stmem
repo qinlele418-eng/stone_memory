@@ -42,6 +42,7 @@ if (!cmd || cmd === "--help" || cmd === "-h") {
   stmem mine [--thread <id>] --targeted --batch-file <json>  对选中的对话精准补挖并追加摘要
   stmem mine-review preview|list|mix|apply|discard            可审阅候选与按日替换
   stmem rebuild --thread <id> [--window N] [--tool-pairs N]  预览重建
+  stmem rebuild --thread <id> --queue           安全排队，下次主 MCP 启动时应用
   stmem rebuild --thread <id> --summary-limit N --min-importance N  临时筛选本次注入摘要
   stmem rebuild --thread <id> --apply           实际写入
   stmem rebuild --thread <id> --check           检查活动线程结构完整性

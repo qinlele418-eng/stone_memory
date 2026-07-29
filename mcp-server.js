@@ -2,7 +2,7 @@
 /**
  * STMEM MCP Server — stdio JSON-RPC
  *
- * 工具: stmem_memory_rebuild, _mine, _status, _search, _deep_search,
+ * 工具: stmem_memory_rebuild, _rebuild_preview, _mine, _status, _search, _deep_search,
  *       _audit_list, _audit_mark, _audit_query, _triggers_check
  * 订阅用户无 API key 时自动用 claude -p（OAuth token）
  */
@@ -16,7 +16,7 @@ const { runSubagent } = require("./src/services/subagent-runner");
 const { readFeelings: readDatabaseFeelings, readFeatures: readDatabaseFeatures } = require("./src/storage/memory-reader");
 const { MemoryStore } = require("./src/storage/memory-store");
 const { resolveMcpThread } = require("./src/services/mcp-thread-resolution");
-const { buildMcpRebuildPreviewArgs } = require("./src/services/mcp-rebuild-preview");
+const { buildMcpRebuildPreviewArgs, buildMcpRebuildQueueArgs } = require("./src/services/mcp-rebuild-preview");
 const { buildMcpMineArgs } = require("./src/services/mcp-mine-command");
 
 const CONFIG_PATH = path.join(os.homedir(), ".stone_memory", "stmem.json");
@@ -26,6 +26,7 @@ const SEARCH_ONLY = process.env.STMEM_SEARCH_ONLY === "1";
 const SEARCH_THREAD_ID = String(process.env.STMEM_THREAD_ID || "").trim();
 const MAX_DEEP_SEARCH_TOOL_CALLS = 5;
 let deepSearchToolCalls = 0;
+const rebuildPreviews = new Map();
 
 /** 获取 feeling 的完整日期字符串，优先从 createdAt 取年份，无 createdAt 时从月份推断（跨年保护） */
 function feelingDate(month, day, feeling) {
@@ -41,6 +42,23 @@ function loadConfig() {
 
 function log(msg) {
   try { fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] ${msg}\n`, "utf8"); } catch {}
+}
+
+function runPendingRebuilds() {
+  const cli = path.join(PROJECT_ROOT, "bin", "stmem");
+  if (!fs.existsSync(cli)) return;
+  try {
+    const output = execFileSync(process.execPath, [cli, "rebuild", "--run-pending"], {
+      encoding: "utf8",
+      timeout: 120000,
+      maxBuffer: 10 * 1024 * 1024,
+      windowsHide: true,
+      cwd: PROJECT_ROOT,
+    });
+    if (!/no pending rebuilds/.test(output)) log(`pending rebuild completed: ${output.trim().slice(-500)}`);
+  } catch (error) {
+    log(`pending rebuild failed and retained for retry: ${String(error.stderr || error.message).trim()}`);
+  }
 }
 
 function respond(id, result) {
@@ -111,7 +129,7 @@ function toolTriggersCheck(args) {
 
 // ── 工具实现 ──
 
-function toolRebuild(args) {
+function resolveRebuildCommand(args, builder) {
   const cfg = loadConfig();
   if (!cfg) throw new Error("未配置 stmem.json");
   const resolved = resolveThread(args, cfg);
@@ -120,11 +138,16 @@ function toolRebuild(args) {
   if (!fs.existsSync(cli)) throw new Error("找不到 stmem CLI");
   const tc = cfg[resolved.threadId] || {};
   const useDefaults = tc.mcpRebuildDefaultsEnabled === true;
-  const rebuildArgs = buildMcpRebuildPreviewArgs(cli, resolved, {
+  const rebuildArgs = builder(cli, resolved, {
     ...args,
     summaryLimit: args.summaryLimit ?? (useDefaults ? Math.max(0, Number(tc.mcpSummaryLimit) || 0) : 0),
     minImportance: args.minImportance ?? (useDefaults ? Math.max(0, Math.min(5, Number(tc.mcpMinImportance) || 0)) : 0),
   });
+  return { rebuildArgs, resolved };
+}
+
+function toolRebuildPreview(args) {
+  const { rebuildArgs, resolved } = resolveRebuildCommand(args, buildMcpRebuildPreviewArgs);
   try {
     const output = execFileSync(process.execPath, rebuildArgs, {
       encoding: "utf8",
@@ -133,9 +156,35 @@ function toolRebuild(args) {
       windowsHide: true,
       cwd: PROJECT_ROOT,
     });
-    return `${output.trim()}\n\n这是只读 dry-run；确认结果后请在前端或维护窗口显式应用，MCP 启动不会自动改写线程。`;
+    const { rebuildArgs: queueArgs } = resolveRebuildCommand(args, buildMcpRebuildQueueArgs);
+    rebuildPreviews.set(resolved.threadId, queueArgs);
+    return `${output.trim()}\n\n这是只读 dry-run。确认结果无误后，可调用 stmem_memory_rebuild 将这组原样参数写入安全队列。`;
   } catch (err) {
     throw new Error(`重建预览失败: ${String(err.stderr || err.message).trim()}`);
+  }
+}
+
+function toolRebuild(args) {
+  const cfg = loadConfig();
+  if (!cfg) throw new Error("未配置 stmem.json");
+  const resolved = resolveThread(args, cfg);
+  if (!resolved?.threadId) throw new Error("无法确定线程 ID");
+  const rebuildArgs = rebuildPreviews.get(resolved.threadId);
+  if (!rebuildArgs) {
+    throw new Error("当前 MCP 会话中没有该线程的已确认预览；请先调用 stmem_memory_rebuild_preview");
+  }
+  try {
+    execFileSync(process.execPath, rebuildArgs, {
+      encoding: "utf8",
+      timeout: 30000,
+      maxBuffer: 1024 * 1024,
+      windowsHide: true,
+      cwd: PROJECT_ROOT,
+    });
+    rebuildPreviews.delete(resolved.threadId);
+    return `已将线程 ${resolved.threadId} 的 rebuild 写入安全队列。不会在当前活动会话中改写线程；下一次主 MCP 启动时将通过 stmem CLI 自动应用。`;
+  } catch (err) {
+    throw new Error(`重建排队失败: ${String(err.stderr || err.message).trim()}`);
   }
 }
 
@@ -468,7 +517,18 @@ function toolAuditQuery(args) {
 const TOOLS = [
   {
     name: "stmem_memory_rebuild",
-    description: "Generate a read-only thread rebuild dry-run. Applying a rebuild requires explicit confirmation in the web UI or a maintenance CLI command; MCP startup never rewrites a thread.",
+    description: "Queue the exact parameters from this MCP session's latest successful rebuild preview. Call stmem_memory_rebuild_preview first. The queue is applied safely on the next main MCP startup.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        thread: { type: "string", description: "线程 ID，默认自动检测当前 session" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "stmem_memory_rebuild_preview",
+    description: "Generate a read-only thread rebuild dry-run without queuing or applying it.",
     inputSchema: {
       type: "object",
       properties: {
@@ -609,6 +669,7 @@ let data = "";
 // Some launchers create the stdio pipe before they write the first MCP frame.
 // Keep the server alive during that short gap instead of exiting with code 0.
 const stdioKeepAlive = setInterval(() => {}, 60_000);
+if (!SEARCH_ONLY && process.env.STMEM_SKIP_PENDING_REBUILDS !== "1") runPendingRebuilds();
 process.stdin.setEncoding("utf8");
 process.stdin.resume();
 process.stdin.once("end", () => clearInterval(stdioKeepAlive));
@@ -661,6 +722,7 @@ function handle(msg) {
         else if (name === "memory_archive_context") text = toolInternalArchiveContext(args);
         else throw new Error(`搜索模式不提供工具: ${name}`);
       } else if (name === "stmem_memory_rebuild") text = toolRebuild(args);
+      else if (name === "stmem_memory_rebuild_preview") text = toolRebuildPreview(args);
       else if (name === "stmem_memory_mine") text = toolMine(args);
       else if (name === "stmem_memory_status") text = toolStatus();
       else if (name === "stmem_memory_search") text = toolMemorySearch(args);

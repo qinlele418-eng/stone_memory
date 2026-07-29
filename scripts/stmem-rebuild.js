@@ -8,6 +8,31 @@ const os = require("os");
 
 function main() {
   const args = process.argv.slice(3);
+  const {
+    enqueueRebuild,
+    readQueue,
+    removeQueuedRebuild,
+    buildQueuedApplyArgs,
+  } = require("../src/services/rebuild-queue");
+  if (args.includes("--run-pending")) {
+    const cli = path.join(path.dirname(__dirname), "bin", "stmem");
+    const rows = readQueue();
+    if (!rows.length) {
+      console.log("[stmem] no pending rebuilds");
+      return;
+    }
+    let failed = false;
+    for (const row of rows) {
+      const result = spawnSync(process.execPath, [cli, ...buildQueuedApplyArgs(row)], {
+        stdio: "inherit",
+        cwd: path.dirname(__dirname),
+      });
+      if (result.status === 0) removeQueuedRebuild(row.threadId);
+      else failed = true;
+    }
+    if (failed) process.exit(1);
+    return;
+  }
   const apply = args.includes("--apply");
   const threadId = args.find((a, i) => a === "--thread" && i + 1 < args.length)
     ? args[args.indexOf("--thread") + 1] : null;
@@ -23,6 +48,18 @@ function main() {
   if (!threadId) {
     console.log("请指定 --thread <id>");
     process.exit(1);
+  }
+  if (args.includes("--queue")) {
+    const request = enqueueRebuild({
+      threadId,
+      window: windowIdx >= 0 ? args[windowIdx + 1] : getCfg("windowDays", threadId, 3),
+      toolPairs: toolPairsIdx >= 0 ? args[toolPairsIdx + 1] : getCfg("keepToolPairs", threadId, 30),
+      summaryLimit: summaryLimitIdx >= 0 ? args[summaryLimitIdx + 1] : 0,
+      minImportance: minImportanceIdx >= 0 ? args[minImportanceIdx + 1] : 0,
+      watermark,
+    });
+    console.log(JSON.stringify({ queued: true, ...request }, null, 2));
+    return;
   }
   if (args.includes("--check") || args.includes("--repair")) {
     const { checkThreadIntegrity, repairThreadIntegrity } = require("../src/services/rebuild-workbench");

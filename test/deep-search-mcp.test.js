@@ -8,7 +8,7 @@ function callServer(messages, env = {}) {
   const input = messages.map(message => JSON.stringify(message)).join("\n") + "\n";
   const child = spawnSync(process.execPath, [server], {
     env: Object.fromEntries(Object.entries({
-      ...process.env, ...env,
+      ...process.env, STMEM_SKIP_PENDING_REBUILDS: "1", ...env,
     }).filter(([key]) => key !== "NODE_TEST_CONTEXT")),
     input,
     encoding: "utf8",
@@ -40,8 +40,8 @@ test("main MCP advertises multi-memory and rebuild controls and reports real too
   const tools = new Map(responses[0].result.tools.map(tool => [tool.name, tool]));
   assert.ok(tools.get("stmem_memory_search").inputSchema.properties.thread);
   assert.ok(tools.get("stmem_memory_deep_search").inputSchema.properties.thread);
-  assert.ok(tools.get("stmem_memory_rebuild").inputSchema.properties.summaryLimit);
-  assert.ok(tools.get("stmem_memory_rebuild").inputSchema.properties.watermark);
+  assert.deepEqual(Object.keys(tools.get("stmem_memory_rebuild").inputSchema.properties), ["thread"]);
+  assert.ok(tools.get("stmem_memory_rebuild_preview").inputSchema.properties.summaryLimit);
   assert.equal(responses[1].result.isError, true);
   assert.match(responses[1].result.content[0].text, /未知工具/);
 });

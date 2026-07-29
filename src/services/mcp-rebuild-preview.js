@@ -14,4 +14,10 @@ function buildMcpRebuildPreviewArgs(cli, resolved, args = {}) {
   return result;
 }
 
-module.exports = { buildMcpRebuildPreviewArgs };
+function buildMcpRebuildQueueArgs(cli, resolved, args = {}) {
+  const result = buildMcpRebuildPreviewArgs(cli, resolved, args);
+  result.push("--queue");
+  return result;
+}
+
+module.exports = { buildMcpRebuildPreviewArgs, buildMcpRebuildQueueArgs };
