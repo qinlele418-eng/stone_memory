@@ -58,6 +58,18 @@ function miningChunkTimeRange(messages) {
   return { startTime, endTime, label: `${format(startTime)}–${format(endTime)}` };
 }
 
+function isLiteralEmptyArray(text) {
+  return /^\s*(?:```(?:json)?\s*)?\[\s*\](?:\s*```)?\s*$/iu.test(String(text || ""));
+}
+
+function parseMiningArray(reply, message = "model output is not a JSON array") {
+  const parsed = parseJsonArray(String(reply || ""));
+  if (!parsed.length && !isLiteralEmptyArray(reply)) {
+    throw new MiningError("OUTPUT_INVALID", message);
+  }
+  return parsed;
+}
+
 function subagentSafe(prompt, opts = {}) {
   try {
     return runSubagent(prompt, opts);
@@ -204,6 +216,7 @@ class MemoryMiner {
     this.aiName = personaConfig?.aiName || "AI";
     this.userName = personaConfig?.userName || "用户";
     this.purpose = personaConfig?.purpose || "accompany";
+    this.runtime = personaConfig?.runtime || null;
     this.memoryDir = memoryDir;
     this.minedDir = path.join(memoryDir, "mined");
     this.chunkCacheDir = path.join(this.minedDir, "chunk-cache");
@@ -218,6 +231,7 @@ class MemoryMiner {
     this.channelState = new Set();
     this.pendingFeelings = [];
     this.pendingFeatures = [];
+    this.chunkReport = [];
   }
 
   start(dailyAtHour = 3) {
@@ -285,6 +299,8 @@ class MemoryMiner {
     try {
       this.pendingFeelings = [];
       this.pendingFeatures = [];
+      this.chunkReport = [];
+      if (force) this._assertForceRemineSafe(targetDate);
       if (force) this._deleteStateKeys([`feeling:${targetDate}`, `feature:${targetDate}`]);
       if (force) this._clearChunkCaches(targetDate);
       const state = force ? {} : this._readState();
@@ -343,6 +359,7 @@ class MemoryMiner {
         this.store.replaceDay(targetDate, { feelings: this.pendingFeelings, features: this.pendingFeatures, source, dayState: {
           status: completionStatus, messageCount: messages.length, archiveFingerprint: fingerprint,
           feelingCount, featureCount,
+          chunkReport: this.chunkReport,
           attempt, completedAt, errorCode: null, errorMessage: null, failedAt: null, nextRetryAt: null, updatedAt: completedAt,
         }});
         this._clearChunkCaches(targetDate);
@@ -375,6 +392,7 @@ class MemoryMiner {
         status: blocked ? "blocked" : partial ? "partial_failed" : "failed",
         messageCount: messages.length, archiveFingerprint: fingerprint,
         attempt, errorCode: err.code || "MINING_FAILED", errorMessage: err.message,
+        chunkReport: this.chunkReport,
         failedAt: failedAt.toISOString(),
         ...(blocked ? { nextRetryAt: null } : { nextRetryAt: new Date(failedAt.getTime() + retryDelayMs(attempt)).toISOString() }),
         updatedAt: failedAt.toISOString(),
@@ -430,6 +448,26 @@ class MemoryMiner {
     return splitMiningMessages(messages, {
       render: rows => this._buildConversationText(rows),
     });
+  }
+
+  _recordFeelingChunk(chunk, index, total, entries, channel, engine = {}) {
+    if (!Array.isArray(this.chunkReport)) this.chunkReport = [];
+    const range = miningChunkTimeRange(chunk);
+    this.chunkReport[index] = {
+      index: index + 1,
+      total,
+      channel,
+      runtime: channel === "subagent" ? (engine.runtime || this.runtime) : null,
+      provider: channel === "api" ? (this.deepseekConfig?.provider || null) : null,
+      model: engine.model || (channel === "api" ? (this.deepseekConfig?.model || null) : null),
+      startTime: range.startTime,
+      endTime: range.endTime,
+      timeLabel: range.label,
+      messageCount: chunk.length,
+      inputBytes: byteLength(this._buildConversationText(chunk)),
+      outputCount: entries.length,
+      empty: entries.length === 0,
+    };
   }
 
   _chunkPrompt(prompt, index, total, previousEntries = [], label = "摘要") {
@@ -560,6 +598,7 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
     if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) throw new Error("review preview requires a YYYY-MM-DD date");
     const messages = this.store.listMessages({ date: targetDate }).filter(row => !isInjectedMemoryBlock(row.text));
     const chunks = this._messageChunks(messages);
+    this.chunkReport = [];
     const fingerprint = archiveFingerprint(messages);
     const overlay = String(promptOverlay || "").trim();
     if (!messages.length) {
@@ -568,6 +607,7 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
         archiveFingerprint: fingerprint,
         messageCount: 0,
         chunkCount: 0,
+        chunkReport: [],
         feelings: [],
         features: [],
         promptHash: crypto.createHash("sha256").update(overlay).digest("hex"),
@@ -618,6 +658,10 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
         if (!parsed || !Array.isArray(parsed.feelings) || !Array.isArray(parsed.features)) {
           throw new MiningError("OUTPUT_INVALID", `${targetDate}: review chunk ${index + 1}/${chunks.length} output is not a feelings/features JSON object`);
         }
+        this._recordFeelingChunk(chunks[index], index, chunks.length, parsed.feelings, "subagent", {
+          runtime: runtime || this.runtime,
+          model,
+        });
         feelings.push(...parsed.feelings);
         features.push(...parsed.features);
       }
@@ -628,6 +672,7 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
       archiveFingerprint: fingerprint,
       messageCount: messages.length,
       chunkCount: chunks.length,
+      chunkReport: this.chunkReport,
       feelings,
       features,
       promptHash: crypto.createHash("sha256").update(promptParts.join("\n\n---\n\n")).digest("hex"),
@@ -644,6 +689,9 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
         this._chunkPrompt(datedPrompt, index, chunks.length, raw, isFeature ? "features" : label),
         { model },
       );
+      if (!isFeature) {
+        this._recordFeelingChunk(chunks[index], index, chunks.length, Array.isArray(result) ? result : [], "api", { model });
+      }
       if (Array.isArray(result)) raw.push(...result);
     }
     return raw;
@@ -664,6 +712,7 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
     for (let index = 0; index < chunks.length; index++) {
       const cached = cache.chunks[index];
       if (cached) {
+        this._recordFeelingChunk(chunks[index], index, chunks.length, cached, "subagent");
         feelings.push(...cached);
         continue;
       }
@@ -677,11 +726,12 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
         const reply = hasOps
           ? subagentSafe(prompt, { opsFile, threadId: this.threadId })
           : subagentSafe(prompt, { threadId: this.threadId });
-        const parsed = parseJsonArray(reply);
-        if (!Array.isArray(parsed)) {
-          throw new MiningError("OUTPUT_INVALID", `${targetDate}: subagent chunk ${index + 1}/${chunks.length} output is not a feelings JSON array`);
-        }
+        const parsed = parseMiningArray(
+          reply,
+          `${targetDate}: subagent chunk ${index + 1}/${chunks.length} output is not a feelings JSON array`,
+        );
         cache.chunks[index] = parsed;
+        this._recordFeelingChunk(chunks[index], index, chunks.length, parsed, "subagent");
         this._saveChunkCache(targetDate, "feelings-subagent", cache);
         feelings.push(...parsed);
       } catch (error) {
@@ -712,6 +762,29 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
       type: "memory",
       text: entry.content,
     }));
+  }
+
+  _assertForceRemineSafe(targetDate) {
+    const feelings = this.store.listFeelings({ date: targetDate });
+    if (!feelings.length) return;
+    const ids = new Set(feelings.map(row => row.id));
+    let anchors = { retain: {}, eventAnchors: {} };
+    try {
+      anchors = { ...anchors, ...JSON.parse(fs.readFileSync(path.join(this.memoryDir, "retain-config.json"), "utf8")) };
+    } catch {}
+    const protectedIds = new Set([
+      ...Object.keys(anchors.retain || {}).filter(id => ids.has(id)),
+      ...Object.keys(anchors.eventAnchors || {}).filter(id => ids.has(id)),
+      ...feelings.filter(row => row.source === "manual" || row.summary_mode !== "daily" || row.coarse_summary || row.coarse_terms)
+        .map(row => row.id),
+    ]);
+    if (protectedIds.size) {
+      throw new MiningError(
+        "REMINE_MANUAL_STATE_CONFLICT",
+        `${targetDate} 有 ${protectedIds.size} 条摘要包含锚点、手动编辑或压缩状态，不能整日覆盖；请先处理这些人工状态`,
+        { feelingIds: [...protectedIds] },
+      );
+    }
   }
 
   async _mineFeaturesFromFeelings({ targetDate, prompt, stateKey }) {
@@ -791,6 +864,7 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
     console.log(`[memory-miner] ${targetDate}: ${label} — ${messages.length} messages in ${chunks.length} chunk(s), extracting...`);
     for (let index = 0; index < chunks.length; index++) {
       if (cache.chunks[index]) {
+        if (label === "feelings") this._recordFeelingChunk(chunks[index], index, chunks.length, cache.chunks[index], "api");
         raw.push(...cache.chunks[index]);
         continue;
       }
@@ -803,6 +877,7 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
         );
         const entries = Array.isArray(result) ? result : [];
         cache.chunks[index] = entries;
+        if (label === "feelings") this._recordFeelingChunk(chunks[index], index, chunks.length, entries, "api");
         this._saveChunkCache(targetDate, label, cache);
         raw.push(...entries);
       } catch (error) {
@@ -850,10 +925,7 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
           const data = await response.json();
           const reply = data?.choices?.[0]?.message?.content;
           if (!reply || !reply.trim()) throw new MiningError("OUTPUT_EMPTY", "API returned empty content");
-          const parsed = parseJsonArray(reply);
-          if (!Array.isArray(parsed) || (parsed.length === 0 && !/^\s*(?:```(?:json)?\s*)?\[\s*\]/i.test(reply))) {
-            throw new MiningError("OUTPUT_INVALID", "API output is not a JSON array");
-          }
+          const parsed = parseMiningArray(reply, "API output is not a JSON array");
           return parsed;
         } catch (err) {
           lastErr = err;
@@ -871,7 +943,7 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
     const conversationText = this._buildConversationText(messages);
     const subPrompt = `${prompt}\n\n对话内容：\n${conversationText}\n\n请输出 JSON 数组。`;
     const reply = subagentSafe(subPrompt, { threadId: this.threadId, model: subagentModel || undefined });
-    return parseJsonArray(reply);
+    return parseMiningArray(reply, "Subagent output is not a JSON array");
   }
 
   _readState() {
@@ -944,6 +1016,8 @@ module.exports = {
   sortFeelingsChronologically,
   feelingEventTime,
   miningChunkTimeRange,
+  isLiteralEmptyArray,
+  parseMiningArray,
   buildFeelingPrompt,
   buildFeaturePrompt,
 };

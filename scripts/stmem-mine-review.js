@@ -8,6 +8,7 @@ const {
   buildReviewOverlay,
   nearDuplicateHints,
 } = require("../src/services/mining-review");
+const { resolveMiningApiCredentials } = require("../src/services/mining-engine-config");
 
 async function main() {
   const args = process.argv.slice(2);
@@ -72,6 +73,7 @@ async function main() {
         userName: getCfg("user", threadId),
         userGender: getCfg("userGender", threadId, "female"),
         purpose: getCfg("purpose", threadId),
+        runtime: getCfg("runtime", threadId, "claude"),
       },
     });
     try {
@@ -122,13 +124,11 @@ function resolveProfile(threadId, requested = {}) {
   if (channel === "api") {
     if (requested.reasoning) throw new Error("reasoning effort is only supported by the Codex subagent");
     const provider = String(requested.provider || thread.apiProvider || "deepseek");
-    const credential = config.apiKeys?.[provider] || {};
-    const model = String(requested.model || credential.model || "").trim();
+    const model = String(requested.model || config.apiKeys?.[provider]?.model || "").trim();
     if (model && !/^[A-Za-z0-9._:/+-]{1,128}$/.test(model)) throw new Error("review model name contains unsupported characters");
-    const baseUrl = String(credential.baseUrl || (provider === "deepseek" ? "https://api.deepseek.com" : "")).trim();
-    if (!credential.key) throw new Error(`API profile ${provider} has no configured key`);
-    if (!model) throw new Error(`API profile ${provider} has no model`);
-    if (!baseUrl) throw new Error(`API profile ${provider} has no baseUrl`);
+    const deepseekConfig = resolveMiningApiCredentials({
+      config, threadId, provider, model,
+    });
     return {
       profile: {
         id: String(requested.id || `${provider}:${model}`),
@@ -138,7 +138,7 @@ function resolveProfile(threadId, requested = {}) {
         model,
         reasoning: requested.reasoning || null,
       },
-      deepseekConfig: { apiKey: credential.key, baseUrl, model },
+      deepseekConfig,
       subagentModel: null,
     };
   }

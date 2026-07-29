@@ -4,7 +4,7 @@ const Database = require("better-sqlite3");
 const { resolveDatabasePath } = require("./database-location");
 const { messageIdentity } = require("../lib/message-identity");
 
-const SCHEMA_VERSION = 10;
+const SCHEMA_VERSION = 11;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS mining_day_state (
   completed_at TEXT,
   failed_at TEXT,
   next_retry_at TEXT,
+  chunk_report TEXT,
   updated_at TEXT NOT NULL,
   PRIMARY KEY(thread_id, source_date)
 );
@@ -230,6 +231,8 @@ function migrateColumns(db) {
   const threadColumns = new Set(db.pragma("table_info(threads)").map(column => column.name));
   if (!threadColumns.has("parent_thread_id")) db.exec("ALTER TABLE threads ADD COLUMN parent_thread_id TEXT REFERENCES threads(id)");
   if (!threadColumns.has("memories_flow_to_parent")) db.exec("ALTER TABLE threads ADD COLUMN memories_flow_to_parent INTEGER NOT NULL DEFAULT 1 CHECK(memories_flow_to_parent IN (0,1))");
+  const miningColumns = new Set(db.pragma("table_info(mining_day_state)").map(column => column.name));
+  if (!miningColumns.has("chunk_report")) db.exec("ALTER TABLE mining_day_state ADD COLUMN chunk_report TEXT");
 }
 
 module.exports = { openDatabase, SCHEMA_VERSION };

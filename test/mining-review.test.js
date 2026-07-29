@@ -58,6 +58,23 @@ test("near duplicates are hints only while exact duplicates are handled by mix",
   assert.ok(hybrid.hybrid.nearDuplicateHints.length >= 1);
 });
 
+test("review candidates preserve sanitized shared chunk diagnostics", t => {
+  const fixture = reviewFixture(t);
+  const candidate = fixture.createCandidate({
+    profile: { id: "api:test-model", channel: "api", provider: "test", model: "test-model" },
+    chunkReport: [{
+      index: 1, total: 1, channel: "api", provider: "test", model: "test-model",
+      timeLabel: "08:00–09:00", messageCount: 12, inputBytes: 2048, outputCount: 0, empty: true,
+    }],
+    feelings: [],
+  });
+  assert.deepEqual(candidate.chunkReport, [{
+    index: 1, total: 1, channel: "api", runtime: null, provider: "test", model: "test-model",
+    startTime: null, endTime: null, timeLabel: "08:00–09:00",
+    messageCount: 12, inputBytes: 2048, outputCount: 0, empty: true,
+  }]);
+});
+
 test("edited hybrid keeps original provenance and sorts feelings by event time", t => {
   const fixture = reviewFixture(t);
   const first = fixture.createCandidate({

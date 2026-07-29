@@ -203,6 +203,15 @@ test("mining reports count real memories instead of stale day-state counters", t
   ]),[["2026-07-04",1,1,1]]);
 });
 
+test("web mining adds force only for explicitly confirmed completed dates", () => {
+  assert.deepEqual(miningCommandArgs("thread-1", "2026-07-04", "subagent"), [
+    "mine", "--thread", "thread-1", "--date", "2026-07-04", "--subagent",
+  ]);
+  assert.deepEqual(miningCommandArgs("thread-1", "2026-07-04", "api", true), [
+    "mine", "--thread", "thread-1", "--date", "2026-07-04", "--api", "--force",
+  ]);
+});
+
 test("rebuild preview shows the newest conversation and tool pair first", () => {
   const claudeRows = [
     { type: "user", timestamp: "2026-07-19T01:00:00Z", message: { content: [{ type: "text", text: "较早对话" }] } },

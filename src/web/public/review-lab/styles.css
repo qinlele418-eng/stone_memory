@@ -142,6 +142,7 @@ button:disabled { opacity: .55; cursor: wait; }
 .rule-grid .option { min-height: 104px; }
 .rule-grid .option:last-child { grid-column: 1 / -1; }
 .status.has-error { background: #fff0ea; border-color: #e3b4a9; }
+.candidate-chunks{margin:12px 0;padding:12px 14px;background:rgba(255,255,255,.55);border:1px solid var(--line);border-radius:12px;color:var(--muted);font-size:12px}.candidate-chunks summary{cursor:pointer;color:var(--pine);font-weight:700}.candidate-chunks ul{margin:9px 0 0;padding-left:19px}.candidate-chunks li{margin:4px 0;line-height:1.5}
 .comparison-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 .comparison-head > p { max-width: 340px; margin: 18px 0 0; color: var(--muted); text-align: right; }
 .comparison-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; margin-top: 19px; }

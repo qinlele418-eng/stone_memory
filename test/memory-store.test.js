@@ -97,5 +97,5 @@ test("schema migration preserves old rows and allows distinct messages at one ti
     ["user", "first"],
     ["assistant", "second"],
   ]);
-  assert.equal(store.db.prepare("SELECT MAX(version) version FROM schema_migrations").get().version, 10);
+  assert.equal(store.db.prepare("SELECT MAX(version) version FROM schema_migrations").get().version, 11);
 });

@@ -124,6 +124,7 @@ class MiningReviewStore {
       archiveFingerprint: String(input.archiveFingerprint),
       messageCount: Number(input.messageCount) || 0,
       chunkCount: Number(input.chunkCount) || 0,
+      chunkReport: sanitizeChunkReport(input.chunkReport),
       priorCounts: {
         feelings: Number(input.priorCounts?.feelings) || 0,
         features: Number(input.priorCounts?.features) || 0,
@@ -468,6 +469,24 @@ function sanitizeProfile(profile) {
     model: profile?.model ? String(profile.model) : null,
     reasoning: profile?.reasoning ? String(profile.reasoning) : null,
   };
+}
+
+function sanitizeChunkReport(rows) {
+  return (Array.isArray(rows) ? rows : []).slice(0, 100).map((row, index) => ({
+    index: Number(row.index) || index + 1,
+    total: Number(row.total) || 0,
+    channel: ["api", "subagent"].includes(row.channel) ? row.channel : null,
+    runtime: ["codex", "claude"].includes(row.runtime) ? row.runtime : null,
+    provider: row.provider ? String(row.provider).slice(0, 128) : null,
+    model: row.model ? String(row.model).slice(0, 128) : null,
+    startTime: row.startTime || null,
+    endTime: row.endTime || null,
+    timeLabel: row.timeLabel ? String(row.timeLabel).slice(0, 128) : null,
+    messageCount: Math.max(0, Number(row.messageCount) || 0),
+    inputBytes: Math.max(0, Number(row.inputBytes) || 0),
+    outputCount: Math.max(0, Number(row.outputCount) || 0),
+    empty: row.empty === true,
+  }));
 }
 
 function reviewMessages(store, date) {

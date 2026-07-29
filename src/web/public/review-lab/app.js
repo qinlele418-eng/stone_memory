@@ -259,6 +259,12 @@ function renderCandidateDetail(candidate) {
   const features = candidate.features?.length
     ? `<ul class="memory-list">${candidate.features.map(row => `<li class="memory-row">${escapeHtml(row.content)}<small>${escapeHtml(row.category)} · importance ${row.importance}</small></li>`).join("")}</ul>`
     : '<div class="empty">这份候选没有 features。</div>';
+  const chunks = (candidate.chunkReport || []).map(chunk => {
+    const engine = chunk.channel === "api"
+      ? [chunk.provider, chunk.model].filter(Boolean).join(" / ")
+      : ["Subagent", chunk.runtime, chunk.model].filter(Boolean).join(" / ");
+    return `<li>${escapeHtml(chunk.timeLabel || `第 ${chunk.index} 块`)} · ${chunk.messageCount || 0} 条 / ${Math.round((chunk.inputBytes || 0) / 1024)}KB → ${chunk.outputCount || 0} 条摘要${chunk.empty ? "（明确返回空数组）" : ""}${engine ? ` · ${escapeHtml(engine)}` : ""}</li>`;
+  }).join("");
   return `<div class="candidate-detail">
     <div class="candidate-head">
       <div><p class="eyebrow">SELECTED CANDIDATE</p><h2>${escapeHtml(candidate.modelLabel)}</h2>
@@ -269,6 +275,7 @@ function renderCandidateDetail(candidate) {
       </div>
     </div>
     <p class="rule-summary">${activeRules.length ? `已启用：${activeRules.map(escapeHtml).join("、")}` : "未追加规则，使用作者原版。"}</p>
+    ${chunks ? `<details class="candidate-chunks"><summary>查看 ${candidate.chunkReport.length} 个分块结果</summary><ul>${chunks}</ul></details>` : ""}
     <div class="candidate-section"><h3>当天摘要 · ${candidate.feelings.length}</h3>${feelings}</div>
     <div class="candidate-section"><h3>人物特征 · ${candidate.features.length}</h3>${features}</div>
     ${candidate.trimmedFeelings ? `<p class="meta">超过上限的 ${candidate.trimmedFeelings} 条已从候选中截去。</p>` : ""}

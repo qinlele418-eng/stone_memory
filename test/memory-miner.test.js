@@ -10,6 +10,8 @@ const {
   sortFeelingsChronologically,
   feelingEventTime,
   miningChunkTimeRange,
+  isLiteralEmptyArray,
+  parseMiningArray,
   buildFeelingPrompt,
 } = require("../src/services/memory-miner");
 
@@ -25,6 +27,16 @@ test("feeling prompts keep ordinary events instead of treating weak features as 
 
 test("new mining normalizes importance to 2, 3, or 5", () => {
   assert.deepEqual([1, 2, 3, 4, 5, null].map(normalizeNewImportance), [2, 2, 3, 3, 5, 2]);
+});
+
+test("only an explicit empty JSON array is accepted as a successful empty mining result", () => {
+  assert.equal(isLiteralEmptyArray("[]"), true);
+  assert.equal(isLiteralEmptyArray("```json\n[]\n```"), true);
+  assert.deepEqual(parseMiningArray("[]"), []);
+  assert.throws(() => parseMiningArray("今天没有值得记录的内容。"), error =>
+    error.code === "OUTPUT_INVALID");
+  assert.throws(() => parseMiningArray("{\"feelings\":[]}"), error =>
+    error.code === "OUTPUT_INVALID");
 });
 
 test("accompany operations use a neutral AI fallback when no identity is configured", t => {
@@ -106,6 +118,12 @@ test("review preview returns candidate material without publishing the day", asy
   });
   assert.equal(preview.messageCount, 1);
   assert.equal(preview.chunkCount, 1);
+  assert.deepEqual(preview.chunkReport.map(row => ({
+    channel: row.channel,
+    model: row.model,
+    outputCount: row.outputCount,
+    empty: row.empty,
+  })), [{ channel: "api", model: "test-model", outputCount: 1, empty: false }]);
   assert.equal(preview.feelings.length, 1);
   assert.equal(preview.features.length, 1);
   assert.match(preview.promptHash, /^[0-9a-f]{64}$/);
@@ -186,6 +204,15 @@ test("API channel mines large dialogue in chunks and accepts an empty final tail
   });
   assert.equal(calls, 3);
   assert.equal(miner.pendingFeelings.length, 2);
+  assert.deepEqual(miner.chunkReport.map(row => ({
+    outputCount: row.outputCount,
+    empty: row.empty,
+    channel: row.channel,
+  })), [
+    { outputCount: 1, empty: false, channel: "api" },
+    { outputCount: 1, empty: false, channel: "api" },
+    { outputCount: 0, empty: true, channel: "api" },
+  ]);
   assert.doesNotMatch(prompts[0], /上一块最后/);
   assert.match(prompts[1], /上一块最后 1 条/);
   assert.match(prompts[1], /第1块事件/);
@@ -355,4 +382,18 @@ test("failed forced remine restores the previous result and completion state", a
   await assert.rejects(() => miner.mine(date, { force: true }), /remine failed/);
   assert.deepEqual(miner.store.listFeelings({ date }).map(row => row.content), ["old"]);
   assert.equal(miner.store.getDayState(date).status, "completed");
+});
+
+test("forced remine refuses to overwrite anchored summaries", async t => {
+  const miner = minerFixture(t, [{ text: "conversation" }]);
+  const date = "2026-06-12";
+  miner.store.replaceDay(date, { feelings: [{ content: "old", importance: 3 }] });
+  const [feeling] = miner.store.listFeelings({ date });
+  fs.writeFileSync(path.join(miner.memoryDir, "retain-config.json"), JSON.stringify({
+    retain: {},
+    eventAnchors: { [feeling.id]: { anchor: true } },
+  }));
+  await assert.rejects(() => miner.mine(date, { force: true }), error =>
+    error.code === "REMINE_MANUAL_STATE_CONFLICT");
+  assert.deepEqual(miner.store.listFeelings({ date }).map(row => row.content), ["old"]);
 });

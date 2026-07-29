@@ -18,6 +18,7 @@ const { MemoryMiner } = require("../src/services/memory-miner");
 const { getCfg, getThreadDir, listThreadIds, loadConfig } = require("../src/config");
 const { MemoryStore } = require("../src/storage/memory-store");
 const { requiresRemine, shouldAttempt } = require("../src/services/mining-state");
+const { resolveMiningApiCredentials } = require("../src/services/mining-engine-config");
 
 function resolveApiConfig(tid, forceApi, forceSub, { diagnostic = false, model = "" } = {}) {
   if (forceSub) return {};  // 强制 subagent
@@ -26,31 +27,13 @@ function resolveApiConfig(tid, forceApi, forceSub, { diagnostic = false, model =
   const mode = forceApi ? "api" : (tc.minerMode || "subagent");
   if (mode !== "api") return {};
 
-  const provider = tc.apiProvider || "deepseek";
-  const globalKeys = loadConfig().apiKeys || {};
-  const cred = globalKeys[provider] || {};
-  const baseUrl = cred.baseUrl || (provider === "deepseek" ? "https://api.deepseek.com" : "");
-  if (!cred || !cred.key) {
-    if (diagnostic) return { apiKey: "", baseUrl, model: cred.model || "", provider };
-    if (forceApi) throw new Error(`API 模式未找到 ${provider} 的 API Key`);
-    console.warn(`[stmem] 线程 ${tid} 配置了 api 模式但未找到 ${provider} 的 key，回退 subagent`);
-    return {};
-  }
-  const selectedModel = String(model || cred.model || "").trim();
-  if (!selectedModel) {
-    if (diagnostic) return { apiKey: cred.key, baseUrl, model: "", provider };
-    throw new Error(`API 模式缺少 ${provider} 模型名。请在创建记忆体或设置页填写上游实际可用的模型名`);
-  }
-  if (!baseUrl) {
-    if (diagnostic) return { apiKey: cred.key, baseUrl: "", model: String(cred.model).trim(), provider };
-    throw new Error(`API 模式缺少 ${provider} Base URL。非 DeepSeek 服务必须填写兼容 chat/completions 的地址`);
-  }
-
-  return {
-    apiKey: cred.key,
-    baseUrl,
-    model: selectedModel,
-  };
+  return resolveMiningApiCredentials({
+    config: loadConfig(),
+    threadId: tid,
+    provider: tc.apiProvider,
+    model,
+    diagnostic,
+  });
 }
 
 function processFile(tid) {
@@ -123,7 +106,31 @@ async function main() {
     return;
   }
 
-  const deepseekConfig = resolveApiConfig(tid, forceApi, forceSub, { diagnostic: check, model });
+  let deepseekConfig;
+  try {
+    deepseekConfig = resolveApiConfig(tid, forceApi, forceSub, { diagnostic: check, model });
+  } catch (error) {
+    if (targetDate && /^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
+      const store = new MemoryStore({ memoryDir, threadId: tid });
+      try {
+        const current = store.getDayState(targetDate);
+        const failedAt = new Date().toISOString();
+        store.setDayState(targetDate, {
+          status: "failed",
+          messageCount: store.listMessages({ date: targetDate }).length,
+          attempt: Number(current?.attempt || 0) + 1,
+          errorCode: "MINING_CONFIG_INVALID",
+          errorMessage: error.message,
+          failedAt,
+          nextRetryAt: null,
+          updatedAt: failedAt,
+        });
+      } finally {
+        store.close();
+      }
+    }
+    throw error;
+  }
   const modeLabel = deepseekConfig.apiKey ? `api (${deepseekConfig.baseUrl})` : "subagent";
 
   const miner = new MemoryMiner({
@@ -135,6 +142,7 @@ async function main() {
       userName: getCfg("user", tid),
       userGender: getCfg("userGender", tid, "female"),
       purpose: getCfg("purpose", tid),
+      runtime: getCfg("runtime", tid, "claude"),
     },
   });
 

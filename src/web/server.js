@@ -63,9 +63,15 @@ function miningDatesFromStore(store,threadId) {
     COALESCE(s.status,'pending') status,
     (SELECT COUNT(*) FROM feelings f WHERE f.thread_id=m.thread_id AND f.source_date=m.source_date) feelingCount,
     (SELECT COUNT(*) FROM features x WHERE x.thread_id=m.thread_id AND x.source_date=m.source_date) featureCount,
-    s.updated_at updatedAt,s.error_message errorMessage
+    s.updated_at updatedAt,s.error_message errorMessage,s.chunk_report chunkReport
     FROM messages m LEFT JOIN mining_day_state s ON s.thread_id=m.thread_id AND s.source_date=m.source_date
-    WHERE m.thread_id=? GROUP BY m.source_date ORDER BY m.source_date DESC`).all(threadId);
+    WHERE m.thread_id=? GROUP BY m.source_date ORDER BY m.source_date DESC`).all(threadId)
+    .map(row=>({...row,chunkReport:safeJsonArray(row.chunkReport)}));
+}
+
+function safeJsonArray(value) {
+  try { const parsed=JSON.parse(value||"[]"); return Array.isArray(parsed)?parsed:[]; }
+  catch { return []; }
 }
 
 function miningDates(threadId) {
@@ -74,8 +80,8 @@ function miningDates(threadId) {
   finally{store.close();}
 }
 
-function miningCommandArgs(threadId, date, mode) {
-  return ["mine","--thread",threadId,"--date",date,mode==="api"?"--api":"--subagent"];
+function miningCommandArgs(threadId, date, mode, force = false) {
+  return ["mine","--thread",threadId,"--date",date,mode==="api"?"--api":"--subagent",...(force?["--force"]:[])];
 }
 
 function miningCheckCommandArgs(threadId, date, mode) {
@@ -262,7 +268,7 @@ async function executeMiningJob(job) {
   for(const date of job.dates){
     if(job.cancelRequested)break;
     job.currentDate=date;job.updatedAt=new Date().toISOString();
-    try{await runStmemAsync(miningCommandArgs(job.threadId,date,job.mode));job.results.push({date,status:"completed"});}
+    try{await runStmemAsync(miningCommandArgs(job.threadId,date,job.mode,job.forceDates.includes(date)));job.results.push({date,status:"completed"});}
     catch(error){
       if(job.cancelRequested){job.results.push({date,status:"cancelled"});break;}
       job.results.push({date,status:"failed",error:String(error.message||error).slice(0,500)});
@@ -637,7 +643,9 @@ async function handleApi(req, res, url) {
       const available=new Set(miningDates(threadId).map(row=>row.date));
       const dates=[...new Set(Array.isArray(body.dates)?body.dates.map(String):[])].filter(date=>/^\d{4}-\d{2}-\d{2}$/.test(date)&&available.has(date)).sort();
       if(!dates.length)throw new Error("请至少选择一个有对话的日期");
-      const now=new Date().toISOString(),job={id:crypto.randomUUID(),threadId,mode,dates,status:"queued",currentDate:null,completed:0,results:[],cancelRequested:false,createdAt:now,updatedAt:now};
+      const requestedForceDates=new Set(Array.isArray(body.forceDates)?body.forceDates.map(String):[]);
+      const forceDates=dates.filter(date=>requestedForceDates.has(date));
+      const now=new Date().toISOString(),job={id:crypto.randomUUID(),threadId,mode,dates,forceDates,status:"queued",currentDate:null,completed:0,results:[],cancelRequested:false,createdAt:now,updatedAt:now};
       miningJobs.set(threadId,job);
       executeMiningJob(job).catch(cause=>{job.status="failed";job.currentDate=null;job.error=String(cause.message||cause).slice(0,500);job.updatedAt=new Date().toISOString();});
       return json(res,202,{job});

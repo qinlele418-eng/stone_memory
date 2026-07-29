@@ -136,17 +136,20 @@ class MemoryStore {
       completedAt: value("completedAt", "completed_at"),
       failedAt: value("failedAt", "failed_at"),
       nextRetryAt: value("nextRetryAt", "next_retry_at"),
+      chunkReport: Object.prototype.hasOwnProperty.call(patch, "chunkReport")
+        ? JSON.stringify(patch.chunkReport || [])
+        : (current.chunk_report ?? null),
       updatedAt: patch.updatedAt || new Date().toISOString(),
     };
     this.db.prepare(`INSERT INTO mining_day_state
-      (thread_id,source_date,status,message_count,feeling_count,feature_count,attempt,error_code,error_message,archive_fingerprint,started_at,completed_at,failed_at,next_retry_at,updated_at)
-      VALUES (@threadId,@sourceDate,@status,@messageCount,@feelingCount,@featureCount,@attempt,@errorCode,@errorMessage,@archiveFingerprint,@startedAt,@completedAt,@failedAt,@nextRetryAt,@updatedAt)
+      (thread_id,source_date,status,message_count,feeling_count,feature_count,attempt,error_code,error_message,archive_fingerprint,started_at,completed_at,failed_at,next_retry_at,chunk_report,updated_at)
+      VALUES (@threadId,@sourceDate,@status,@messageCount,@feelingCount,@featureCount,@attempt,@errorCode,@errorMessage,@archiveFingerprint,@startedAt,@completedAt,@failedAt,@nextRetryAt,@chunkReport,@updatedAt)
       ON CONFLICT(thread_id,source_date) DO UPDATE SET
       status=excluded.status,message_count=excluded.message_count,feeling_count=excluded.feeling_count,
       feature_count=excluded.feature_count,attempt=excluded.attempt,error_code=excluded.error_code,
       error_message=excluded.error_message,archive_fingerprint=excluded.archive_fingerprint,
       started_at=excluded.started_at,completed_at=excluded.completed_at,failed_at=excluded.failed_at,
-      next_retry_at=excluded.next_retry_at,updated_at=excluded.updated_at`).run(row);
+      next_retry_at=excluded.next_retry_at,chunk_report=excluded.chunk_report,updated_at=excluded.updated_at`).run(row);
     return this.getDayState(date);
   }
 
