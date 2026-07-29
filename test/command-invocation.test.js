@@ -15,7 +15,28 @@ test("runtime commands become executable and argument arrays without shell expan
   assert.deepEqual(invocation, {
     file: "claude",
     args: ["--bare", "--model", "model; touch /tmp/unsafe"],
+    env: {},
   });
+});
+
+test("leading VAR=value tokens become env instead of the executable name", () => {
+  assert.deepEqual(commandInvocation("STMEM_MINER=1 claude -p --bare", { remove: ["-p"] }), {
+    file: "claude",
+    args: ["--bare"],
+    env: { STMEM_MINER: "1" },
+  });
+  assert.deepEqual(commandInvocation("A=1 B=2 codex exec"), {
+    file: "codex",
+    args: ["exec"],
+    env: { A: "1", B: "2" },
+  });
+  // `=` after the executable is a plain argument, not an env assignment.
+  assert.deepEqual(commandInvocation("claude --flag FOO=bar"), {
+    file: "claude",
+    args: ["--flag", "FOO=bar"],
+    env: {},
+  });
+  assert.throws(() => commandInvocation("ONLY=env"), /runtime command is empty/);
 });
 
 test("runtime command parser rejects malformed quoting", () => {

@@ -199,6 +199,7 @@ function runSubagent(prompt, opts = {}) {
       timeout,
       maxBuffer: 10 * 1024 * 1024,
       cwd: PROJECT_ROOT,
+      env: { ...process.env, ...invocation.env },
       windowsHide: true,
     });
     if (!out || !out.trim()) {
