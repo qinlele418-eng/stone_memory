@@ -130,6 +130,17 @@ function buildStdinInvocation(runtimeName, opts = {}) {
   }
   if (opts.mcpConfig && flags.mcpConfig) {
     appendOption(invocation.args, flags.mcpConfig, opts.mcpConfig);
+  } else if (opts.mcpConfig && runtimeName === "codex") {
+    appendCodexMcpConfig(invocation.args, opts.mcpConfig);
+  }
+  if (runtimeName === "claude" && opts.strictMcpConfig) {
+    invocation.args.push("--strict-mcp-config");
+  }
+  if (runtimeName === "claude" && opts.permissionMode) {
+    appendOption(invocation.args, "--permission-mode", opts.permissionMode);
+  }
+  if (runtimeName === "claude" && Array.isArray(opts.allowedTools) && opts.allowedTools.length) {
+    invocation.args.push(`--allowedTools=${opts.allowedTools.join(",")}`);
   }
   if (opts.model && flags.model) {
     if (!/^[A-Za-z0-9._:/+-]{1,128}$/.test(String(opts.model))) {
@@ -145,6 +156,26 @@ function buildStdinInvocation(runtimeName, opts = {}) {
     appendOption(invocation.args, "-c", `model_reasoning_effort=${JSON.stringify(opts.reasoning)}`);
   }
   return invocation;
+}
+
+function appendCodexMcpConfig(args, configPath) {
+  const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+  const servers = config.mcpServers || config.mcp_servers || {};
+  for (const [rawName, server] of Object.entries(servers)) {
+    const name = String(rawName).replace(/[^A-Za-z0-9_-]/g, "_");
+    if (!name || !server?.command) continue;
+    appendOption(args, "-c", `mcp_servers.${name}.command=${JSON.stringify(String(server.command))}`);
+    if (Array.isArray(server.args)) {
+      appendOption(args, "-c", `mcp_servers.${name}.args=${JSON.stringify(server.args.map(String))}`);
+    }
+    if (server.cwd) appendOption(args, "-c", `mcp_servers.${name}.cwd=${JSON.stringify(String(server.cwd))}`);
+    for (const [key, value] of Object.entries(server.env || {})) {
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
+      appendOption(args, "-c", `mcp_servers.${name}.env.${key}=${JSON.stringify(String(value))}`);
+    }
+    appendOption(args, "-c", `mcp_servers.${name}.required=true`);
+    appendOption(args, "-c", `mcp_servers.${name}.default_tools_approval_mode="auto"`);
+  }
 }
 
 /**
@@ -237,6 +268,7 @@ module.exports = {
   buildCommand,
   buildStdinCmd,
   buildStdinInvocation,
+  appendCodexMcpConfig,
   getRuntimeConfig,
   resolvePlaceholders,
   extractSubagentFailure,

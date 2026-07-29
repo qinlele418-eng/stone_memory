@@ -23,6 +23,10 @@ const CONFIG_PATH = path.join(os.homedir(), ".stone_memory", "stmem.json");
 const PROJECT_ROOT = path.resolve(__dirname);
 const SCRIPTS_DIR = path.join(PROJECT_ROOT, "scripts");
 const LOG_FILE = path.join(os.homedir(), ".stone_memory", "logs", "mcp.log");
+const SEARCH_ONLY = process.env.STMEM_SEARCH_ONLY === "1";
+const SEARCH_THREAD_ID = String(process.env.STMEM_THREAD_ID || "").trim();
+const MAX_DEEP_SEARCH_TOOL_CALLS = 5;
+let deepSearchToolCalls = 0;
 
 /** 获取 feeling 的完整日期字符串，优先从 createdAt 取年份，无 createdAt 时从月份推断（跨年保护） */
 function feelingDate(month, day, feeling) {
@@ -64,7 +68,7 @@ function subagentCall(prompt, opts = {}) {
 
 function resolveThread(args, cfg) {
   const config = cfg || {};
-  const sessionId = resolveMcpThread(args, config, listThreadIds());
+  const sessionId = SEARCH_THREAD_ID || resolveMcpThread(args, config, listThreadIds());
   const tc = config[sessionId] || {};
   return {
     threadId: sessionId,
@@ -215,34 +219,37 @@ function toolDeepSearch(args) {
 
   const cfg = loadConfig();
   const resolved = resolveThread(args, cfg);
-  const { searchByKeyword, searchArchiveContext } = require("./src/services/memory-keyword-search");
+  const opsFile = path.join(PROJECT_ROOT, "operations", "memory-subagent-operations.md");
+  const tmpDir = path.join(getThreadDir(resolved.threadId), "tmp");
+  const mcpConfig = path.join(tmpDir, "deep-search-mcp.json");
+  fs.mkdirSync(tmpDir, { recursive: true });
+  fs.writeFileSync(mcpConfig, JSON.stringify({
+    mcpServers: {
+      stone_memory_search: {
+        command: process.execPath,
+        args: [path.join(PROJECT_ROOT, "mcp-server.js")],
+        cwd: PROJECT_ROOT,
+        env: { STMEM_SEARCH_ONLY: "1", STMEM_THREAD_ID: resolved.threadId },
+      },
+    },
+  }, null, 2), { mode: 0o600 });
 
-  // 先用 keyword search 找到相关 feelings + archive 上下文
-  const kwResult = searchByKeyword(query, { maxResults: 3, threadId: resolved?.threadId });
-  const archiveHits = [];
-  if (kwResult.hits?.length) {
-    for (const hit of kwResult.hits.slice(0, 3)) {
-      if (hit.utcTime) {
-        const startMs = new Date(hit.utcTime).getTime() - 5 * 60 * 1000;
-        const ctx = searchArchiveContext(new Date(startMs).toISOString().slice(0, 10), query.split(/\s+/).filter(w => w.length >= 2), {
-          maxDays: 3, mode: "event", threadId: resolved?.threadId,
-        });
-        if (ctx.text) archiveHits.push(ctx.text);
-      }
-    }
-  }
-
-  // 构造 prompt，把搜索结果直接喂给 sub-agent
-  const searchContext = [
-    kwResult.text ? `## 关键词匹配\n\n${kwResult.text}` : "",
-    archiveHits.length ? `## 原文上下文\n\n${archiveHits.slice(0, 2).join("\n\n")}` : "",
-  ].filter(Boolean).join("\n\n");
-
-  const prompt = searchContext
-    ? `你是一个记忆检索助手。以下是关键词搜索结果和相关对话原文，请基于这些信息用第一人称叙事回答用户的查询。\n\n${searchContext}\n\n---\n\n用户查询：${query}`
-    : `你是一个记忆检索助手。用户的查询是：${query}`;
-
-  const result = subagentCall(prompt, { threadId: resolved?.threadId });
+  const prompt = `你是一个记忆检索助手。请严格按深度搜索工作流调用搜索工具。以下是用户的查询：${query}\n\n对于关键词搜索结果和相关对话原文，请基于这些信息用第一人称叙事回答用户的查询。最多调用 5 次搜索工具。最终只输出叙事正文。`;
+  const startedAt = Date.now();
+  log(`deep search start: thread=${resolved.threadId} queryChars=${query.length}`);
+  const result = runSubagent(prompt, {
+    threadId: resolved.threadId,
+    opsFile,
+    mcpConfig,
+    timeout: 120_000,
+    strictMcpConfig: true,
+    permissionMode: "auto",
+    allowedTools: [
+      "mcp__stone_memory_search__memory_keyword_search",
+      "mcp__stone_memory_search__memory_archive_context",
+    ],
+  });
+  log(`deep search complete: thread=${resolved.threadId} durationMs=${Date.now() - startedAt} resultChars=${result.length}`);
 
   // 保存 topic 文件（handler 兜底，存到线程 memory 下）
   try {
@@ -266,6 +273,30 @@ function toolDeepSearch(args) {
     log(`deep search error: ${err.message}`);
     return `深度搜索失败: ${err.message}`;
   }
+}
+
+function toolInternalKeywordSearch(args) {
+  const query = typeof args.query === "string" ? args.query.trim() : "";
+  if (!query) return "请输入关键词。";
+  const { searchByKeyword } = require("./src/services/memory-keyword-search");
+  const result = searchByKeyword(query, {
+    maxResults: Math.min(5, Math.max(1, Number(args.maxResults) || 3)),
+    threadId: SEARCH_THREAD_ID,
+  });
+  return result.text || "未找到匹配记忆。";
+}
+
+function toolInternalArchiveContext(args) {
+  const keywords = String(args.keywords || "").split(/\s+/).filter(word => word.length >= 2);
+  if (!keywords.length) return "请输入至少一个两字以上的关键词。";
+  const { searchArchiveContext } = require("./src/services/memory-keyword-search");
+  const result = searchArchiveContext(String(args.feelingDate || ""), keywords, {
+    maxDays: Math.min(30, Math.max(1, Number(args.maxDays) || 5)),
+    skipBefore: args.skipBefore || null,
+    mode: args.mode === "pattern" ? "pattern" : "event",
+    threadId: SEARCH_THREAD_ID,
+  });
+  return result.text || "未找到相关原文。";
 }
 
 // ── audit 工具 ──
@@ -514,11 +545,46 @@ const TOOLS = [
   },
 ];
 
+const SEARCH_TOOLS = [
+  {
+    name: "memory_keyword_search",
+    description: "Search feelings by keyword and return the narrative backbone with its event-window conversation. Use this first.",
+    inputSchema: {
+      type: "object", required: ["query"],
+      properties: {
+        query: { type: "string", description: "Space-separated Chinese keywords." },
+        maxResults: { type: "integer", minimum: 1, maximum: 5 },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "memory_archive_context",
+    description: "Search archive context across dates using keywords from the feeling result.",
+    inputSchema: {
+      type: "object", required: ["feelingDate", "keywords"],
+      properties: {
+        feelingDate: { type: "string", description: "Core feeling date in YYYY-MM-DD." },
+        keywords: { type: "string", description: "Space-separated keywords." },
+        maxDays: { type: "integer", minimum: 1, maximum: 30 },
+        skipBefore: { type: "string", description: "Only search dates after YYYY-MM-DD." },
+        mode: { type: "string", enum: ["event", "pattern"] },
+      },
+      additionalProperties: false,
+    },
+  },
+];
+
 // ── MCP 协议（支持 Content-Length + newline JSON 双模式） ──
 
 let rpcMode = "content-length";
 let data = "";
+// Some launchers create the stdio pipe before they write the first MCP frame.
+// Keep the server alive during that short gap instead of exiting with code 0.
+const stdioKeepAlive = setInterval(() => {}, 60_000);
 process.stdin.setEncoding("utf8");
+process.stdin.resume();
+process.stdin.once("end", () => clearInterval(stdioKeepAlive));
 process.stdin.on("data", (chunk) => {
   data += chunk;
   while (true) {
@@ -554,12 +620,19 @@ function handle(msg) {
   if (method === "initialize") {
     respond(id, { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "stmem-mcp", version: "2.0.0" } });
   } else if (method === "tools/list") {
-    respond(id, { tools: TOOLS });
+    respond(id, { tools: SEARCH_ONLY ? SEARCH_TOOLS : TOOLS });
   } else if (method === "tools/call") {
     const { name, arguments: args = {} } = params || {};
     let text;
     try {
-      if (name === "stmem_memory_rebuild") text = toolRebuild(args);
+      if (SEARCH_ONLY) {
+        deepSearchToolCalls++;
+        if (deepSearchToolCalls > MAX_DEEP_SEARCH_TOOL_CALLS) {
+          text = "已达到本次 Deep Search 的 5 次工具调用上限，请根据现有证据组织最终回答。";
+        } else if (name === "memory_keyword_search") text = toolInternalKeywordSearch(args);
+        else if (name === "memory_archive_context") text = toolInternalArchiveContext(args);
+        else text = `搜索模式不提供工具: ${name}`;
+      } else if (name === "stmem_memory_rebuild") text = toolRebuild(args);
       else if (name === "stmem_memory_mine") text = toolMine(args);
       else if (name === "stmem_memory_status") text = toolStatus();
       else if (name === "stmem_memory_search") text = toolMemorySearch(args);
