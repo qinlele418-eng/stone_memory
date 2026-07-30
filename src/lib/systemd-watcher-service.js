@@ -4,7 +4,7 @@ const path = require("path");
 
 function systemdUserPath(home) {
   return [
-    path.join(home, ".local", "bin"),
+    path.posix.join(home, ".local", "bin"),
     "/usr/local/sbin",
     "/usr/local/bin",
     "/usr/sbin",
