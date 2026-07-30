@@ -6,9 +6,10 @@
     "stmem": "./bin/stmem"
   },
   "engines": {
-    "node": ">=18"
+    "node": "22.x"
   },
   "scripts": {
+    "preinstall": "node scripts/check-node-version.js",
     "start": "node bin/stmem web",
     "web": "node bin/stmem web",
     "test": "node --test"

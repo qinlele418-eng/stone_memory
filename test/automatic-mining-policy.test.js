@@ -2,34 +2,53 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { shouldAutoMineDate } = require("../src/services/automatic-mining-policy");
+const {
+  resolveAutomaticActions,
+  shouldAutoMineDate,
+} = require("../src/services/automatic-mining-policy");
 
-test("full mining only bootstraps dates that existed when the memory body was registered", () => {
-  const config = {
-    createdDate: "2026-07-15",
+test("conversation sync and memory mining are independent switches", () => {
+  assert.deepEqual(resolveAutomaticActions({}), {
+    sync: true, mine: true, compact: false,
+  });
+  assert.deepEqual(resolveAutomaticActions({
+    automaticFullMining: false,
+    automaticMemoryMaintenance: false,
+  }), { sync: false, mine: false, compact: false });
+  assert.deepEqual(resolveAutomaticActions({
     automaticFullMining: true,
     automaticMemoryMaintenance: false,
-  };
-  assert.equal(shouldAutoMineDate("2026-07-14", config), true);
-  assert.equal(shouldAutoMineDate("2026-07-15", config), true);
-  assert.equal(shouldAutoMineDate("2026-07-27", config), false);
-});
-
-test("maintenance owns dates created after registration", () => {
-  const config = {
-    createdDate: "2026-07-15",
+  }), { sync: true, mine: false, compact: false });
+  assert.deepEqual(resolveAutomaticActions({
     automaticFullMining: false,
     automaticMemoryMaintenance: true,
-  };
-  assert.equal(shouldAutoMineDate("2026-07-14", config), false);
-  assert.equal(shouldAutoMineDate("2026-07-15", config), true);
-  assert.equal(shouldAutoMineDate("2026-07-27", config), true);
+  }), { sync: false, mine: true, compact: false });
+  assert.deepEqual(resolveAutomaticActions({
+    automaticFullMining: true,
+    automaticMemoryMaintenance: true,
+  }), { sync: true, mine: true, compact: false });
 });
 
-test("disabling both automatic lanes never mines", () => {
+test("automatic compression requires its own explicit switch", () => {
+  assert.equal(resolveAutomaticActions({
+    autoCompact: { enabled: true },
+  }).compact, false);
+  assert.equal(resolveAutomaticActions({
+    automaticCompression: true,
+  }).compact, true);
+});
+
+test("automatic mining only considers completed dates", () => {
   assert.equal(shouldAutoMineDate("2026-07-27", {
-    createdDate: "2026-07-15",
-    automaticFullMining: false,
+    today: "2026-07-30",
+    automaticMemoryMaintenance: true,
+  }), true);
+  assert.equal(shouldAutoMineDate("2026-07-30", {
+    today: "2026-07-30",
+    automaticMemoryMaintenance: true,
+  }), false);
+  assert.equal(shouldAutoMineDate("2026-07-27", {
+    today: "2026-07-30",
     automaticMemoryMaintenance: false,
   }), false);
 });

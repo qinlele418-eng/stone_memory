@@ -29,6 +29,7 @@ const INIT_SCHEMA = {
     contextWindowTokens: { type: ["integer", "null"], minimum: 1 },
     automaticFullMining: { type: "boolean", default: true },
     automaticMemoryMaintenance: { type: "boolean", default: true },
+    automaticCompression: { type: "boolean", default: false },
   },
 };
 
@@ -53,6 +54,7 @@ function buildInitTemplate(runtime = "codex") {
     mcpMinImportance: 0,
     automaticFullMining: true,
     automaticMemoryMaintenance: true,
+    automaticCompression: false,
   };
 }
 

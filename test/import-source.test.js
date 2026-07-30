@@ -30,6 +30,39 @@ test("plain type fields use role normalization instead of native-format assumpti
   assert.equal(source.records[0].message.type, "user");
 });
 
+test("Claude internal transport records stay in full but never enter normalized messages", () => {
+  const root = tempDir();
+  const sourceFile = path.join(root, "claude.jsonl");
+  const fullDir = path.join(root, "archive", "full");
+  const store = new (require("../src/storage/memory-store").MemoryStore)({ memoryDir: root, threadId: "thread-claude" });
+  const rows = [
+    { type: "queue-operation", timestamp: "2026-07-16T08:00:00.000Z", content: "示例用户消息" },
+    { type: "system_template", timestamp: "2026-07-16T08:00:00.002Z", content: "内部模板" },
+    { type: "user", timestamp: "2026-07-16T08:00:00.004Z", message: { content: "示例用户消息" } },
+  ];
+  fs.writeFileSync(sourceFile, rows.map(JSON.stringify).join("\n") + "\n");
+  try {
+    const source = readImportSource({ filePath: sourceFile });
+    assert.equal(source.preview.valid, 1);
+    assert.equal(source.preview.filtered, 2);
+    assert.deepEqual(source.preview.filteredReasons, {
+      claude_queue_operation: 1,
+      claude_system_template: 1,
+    });
+    const result = ingestRecords(source.records, { memoryStore: store, fullDir, format: "claude" });
+    assert.equal(result.imported, 1);
+    assert.equal(result.filtered, 2);
+    assert.equal(result.fullBacked, 3);
+    assert.deepEqual(store.listMessages({ date: "2026-07-16" }).map(row => row.text), ["示例用户消息"]);
+    const full = fs.readFileSync(path.join(fullDir, "2026", "07", "2026-07-16.jsonl"), "utf8")
+      .trim().split("\n").map(JSON.parse);
+    assert.deepEqual(full, rows);
+  } finally {
+    store.close();
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
 test("JSON import preserves extras only in full and is idempotent", () => {
   const root = tempDir();
   const sourceFile = path.join(root, "source.json");

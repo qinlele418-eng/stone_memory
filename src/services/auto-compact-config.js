@@ -1,9 +1,11 @@
 function resolveAutoCompactConfig(threadConfig = {}) {
-  const raw = threadConfig.autoCompact;
-  if (!raw || raw.enabled !== true) return { enabled: false };
+  // automaticCompression is a new consent switch. Deliberately do not inherit
+  // legacy autoCompact.enabled=true after an upgrade.
+  if (threadConfig.automaticCompression !== true) return { enabled: false };
+  const raw = threadConfig.autoCompact || {};
 
-  const maxChars = positiveInteger(raw.maxChars);
-  const stopChars = positiveInteger(raw.stopChars ?? raw.maxChars);
+  const maxChars = positiveInteger(raw.maxChars ?? 80000);
+  const stopChars = positiveInteger(raw.stopChars ?? 60000);
   if (maxChars == null) return { enabled: false, error: "autoCompact.maxChars 必须是正整数" };
   if (stopChars == null) return { enabled: false, error: "autoCompact.stopChars 必须是正整数" };
   if (stopChars > maxChars) return { enabled: false, error: "autoCompact.stopChars 不能高于 maxChars" };

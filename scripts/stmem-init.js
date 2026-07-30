@@ -14,6 +14,7 @@
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
+const { watcherServiceContent } = require("../src/lib/systemd-watcher-service");
 const readline = require("readline");
 
 const STONE = path.join(os.homedir(), ".stone_memory");
@@ -99,7 +100,8 @@ async function interactiveInit(threadId) {
   return { threadId, libraryName: label, ai, user, userGender, runtime, purpose, sessionDir, minerMode,
     apiProvider, apiKey, baseUrl, model, windowDays, keepToolPairs,
     automaticFullMining: existing.automaticFullMining !== false,
-    automaticMemoryMaintenance: existing.automaticMemoryMaintenance !== false };
+    automaticMemoryMaintenance: existing.automaticMemoryMaintenance !== false,
+    automaticCompression: existing.automaticCompression === true };
 }
 
 async function main() {
@@ -157,7 +159,7 @@ async function main() {
 
   // 全局开关只作为总闸；任一线程明确启用自动任务时打开总闸，
   // 实际是否挖掘仍由 watcher 逐线程读取 automatic* 配置决定。
-  if (tc.automaticFullMining || tc.automaticMemoryMaintenance) {
+  if (tc.automaticFullMining || tc.automaticMemoryMaintenance || tc.automaticCompression) {
     try { fs.rmSync(path.join(STONE, ".watcher-off"), { force: true }); } catch {}
     try { fs.rmSync(path.join(STONE, ".miner-off"), { force: true }); } catch {}
   }
@@ -179,20 +181,12 @@ function startWatcher() {
     const serviceFile = path.join(serviceDir, "stmem-watcher.service");
     try {
       fs.mkdirSync(serviceDir, { recursive: true });
-      fs.writeFileSync(serviceFile, `[Unit]
-Description=STMEM Memory Watcher
-After=default.target
-
-[Service]
-Type=simple
-ExecStart=${process.execPath} ${watcherScript}
-ExecStopPost=/bin/rm -f ${pidFile}
-Restart=on-failure
-RestartSec=30
-
-[Install]
-WantedBy=default.target
-`);
+      fs.writeFileSync(serviceFile, watcherServiceContent({
+        nodePath: process.execPath,
+        watcherScript,
+        home: os.homedir(),
+        pidFile,
+      }));
       const { execSync: es } = require("child_process");
       try {
         es("systemctl --user daemon-reload 2>/dev/null", { stdio: "pipe" });

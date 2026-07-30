@@ -84,6 +84,7 @@ function createThread(input, { allowExisting = false, requireSession = true } = 
       : (Math.max(0, Number(input.contextWindowTokens) || 0) || null),
     automaticFullMining: input.automaticFullMining !== false,
     automaticMemoryMaintenance: input.automaticMemoryMaintenance !== false,
+    automaticCompression: input.automaticCompression === true,
   };
   if (input.minerMode === "api") {
     const existingKey = config.apiKeys?.[input.apiProvider]?.key;

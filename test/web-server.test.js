@@ -300,6 +300,8 @@ test("machine init contract keeps display name separate from the real thread id"
   assert.match(template.threadId, /真实线程ID/);
   assert.equal(template.runtime, "codex");
   assert.match(template.sessionDir, /\.codex[\\/]sessions$/);
+  assert.equal(template.automaticCompression, false);
+  assert.equal(INIT_SCHEMA.properties.automaticCompression.default, false);
   assert.deepEqual(INIT_SCHEMA.required, [
     "libraryName", "threadId", "ai", "user", "runtime", "purpose", "sessionDir", "minerMode",
   ]);

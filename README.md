@@ -95,7 +95,19 @@ stone_memory/
 
 ## 安装
 
-运行要求 Node.js 18 或更高版本。运行时依赖只有：
+当前正式支持 **Node.js 22.x LTS**。不要使用 Node 24：当前锁定的
+`better-sqlite3` 在 Windows + Node 24 下可能没有可用的预编译包，安装时会转为本地
+C++ 编译，并因缺少 Visual Studio Build Tools 而失败。`npm install` / `npm ci`
+会在版本不符合时直接停止并给出提示。
+
+先确认版本：
+
+```bash
+node --version
+# 应显示 v22.x.x
+```
+
+运行时依赖只有：
 
 - `better-sqlite3`：共享 SQLite 数据库
 - `@node-rs/jieba`：中文特征词提取
@@ -123,6 +135,10 @@ stmem init --thread <线程ID>
 > 如果 `~/.local/bin` 不在 PATH 中，在 `.bashrc` 加一行：`export PATH="$HOME/.local/bin:$PATH"`
 
 ### Windows
+
+请先安装 Node.js 22 LTS，并运行 `node --version` 确认是 `v22.x.x`。如果已经安装
+Node 24，请先切换或降级到 Node 22，再执行下面的依赖安装；不需要安装 Visual Studio
+C++ 工具链。
 
 **方式一：将 bin/ 加入 PATH（推荐）**
 

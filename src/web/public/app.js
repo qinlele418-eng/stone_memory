@@ -3,12 +3,12 @@ const toast = document.querySelector("#toast");
 
 const state = {
   libraries: [], step: 1, imports: [],
-  form: { libraryName: "", threadId: "", ai: "", user: "", userGender: "unspecified", runtime: "codex", purpose: "accompany", sessionDir: "", minerMode: "subagent", apiProvider: "", apiKey: "", baseUrl: "", model: "", windowDays: 3, keepToolPairs: 30, automaticFullMining: true, automaticMemoryMaintenance: true },
+  form: { libraryName: "", threadId: "", ai: "", user: "", userGender: "unspecified", runtime: "codex", purpose: "accompany", sessionDir: "", minerMode: "subagent", apiProvider: "", apiKey: "", baseUrl: "", model: "", windowDays: 3, keepToolPairs: 30, automaticFullMining: true, automaticMemoryMaintenance: true, automaticCompression: false },
 };
 
 function resetCreateForm() {
   state.step = 1; state.imports = [];
-  state.form = { libraryName: "", threadId: "", ai: "", user: "", userGender: "unspecified", runtime: "codex", purpose: "accompany", sessionDir: "", minerMode: "subagent", apiProvider: "", apiKey: "", baseUrl: "", model: "", windowDays: 3, keepToolPairs: 30, automaticFullMining: true, automaticMemoryMaintenance: true };
+  state.form = { libraryName: "", threadId: "", ai: "", user: "", userGender: "unspecified", runtime: "codex", purpose: "accompany", sessionDir: "", minerMode: "subagent", apiProvider: "", apiKey: "", baseUrl: "", model: "", windowDays: 3, keepToolPairs: 30, automaticFullMining: true, automaticMemoryMaintenance: true, automaticCompression: false };
 }
 
 function stoneSvg(className = "hero-stone") {
@@ -39,7 +39,7 @@ function formatBeijingClock(value) {
 }
 function formatChineseDate(value) { const parts=String(value||"").split("-").map(Number);return parts.length===3&&parts.every(Number.isFinite)?`${parts[1]}月${parts[2]}日`:String(value||""); }
 function formatContextUsage(usage) { if(!usage)return "暂无数据"; return usage.maxTokens?`${formatTokens(usage.usedTokens)} / ${formatTokens(usage.maxTokens)} tokens`:`${formatTokens(usage.usedTokens)} tokens`; }
-function contextUsageHint(data) { const usage=data.contextUsage;if(!usage)return data.automaticFullMining?"等待线程产生下一条模型 usage":"开启自动挖掘全量对话后实时统计";const percent=usage.percent==null?"":`${usage.percent.toFixed(1)}% · `;return `${percent}最近一次模型调用${usage.maxTokens?"":" · 可在设置中填写窗口上限"}`; }
+function contextUsageHint(data) { const usage=data.contextUsage;if(!usage)return data.automaticFullMining?"等待线程产生下一条模型 usage":"开启自动录入全量对话后实时统计";const percent=usage.percent==null?"":`${usage.percent.toFixed(1)}% · `;return `${percent}最近一次模型调用${usage.maxTokens?"":" · 可在设置中填写窗口上限"}`; }
 function calendarPageForDate(calendar, date) {
   if (!calendar?.month || !date) return calendar?.page || 1;
   const [currentYear,currentMonth]=calendar.month.split("-").map(Number),[targetYear,targetMonth]=date.slice(0,7).split("-").map(Number);
@@ -215,7 +215,7 @@ async function uploadFiles(files) {
 
 function renderImports() {
   const list = document.querySelector("#import-list"); if (!list) return;
-  list.innerHTML = state.imports.map((item, index) => `<article class="import-card" data-index="${index}"><div class="import-head"><div><strong>${escapeHtml(item.filename)}</strong><div class="import-meta">原始记录 ${item.totalRows} 条 · 将导入纯对话 ${item.valid} 条 · 自动过滤 ${item.invalid} 条 · ${item.firstDate || "-"} 至 ${item.lastDate || "-"}</div></div></div>${previewTable(item)}${pagination(item)}</article>`).join("");
+  list.innerHTML = state.imports.map((item, index) => `<article class="import-card" data-index="${index}"><div class="import-head"><div><strong>${escapeHtml(item.filename)}</strong><div class="import-meta">原始记录 ${item.totalRows} 条 · 将导入纯对话 ${item.valid} 条 · 自动过滤 ${(item.invalid || 0) + (item.filtered || 0)} 条${item.filtered ? `（其中内部运输/模板 ${item.filtered} 条）` : ""} · ${item.firstDate || "-"} 至 ${item.lastDate || "-"}</div></div></div>${previewTable(item)}${pagination(item)}</article>`).join("");
   list.querySelectorAll(".import-card").forEach(card => {
     const index = Number(card.dataset.index), item = state.imports[index];
     bindPagination(card, item.page, item.totalPages, page => loadImportPage(index, page));
@@ -236,8 +236,9 @@ function finishStep() {
   const panel = document.querySelector("#wizard-panel");
   panel.innerHTML = `<p class="eyebrow">第三步 · 开始生长</p><h1>一切准备好了</h1><p class="lead">确认自动化选项。以后都可以在记忆体设置中修改。</p>
     <div class="summary-box"><dl><dt>记忆体名字</dt><dd>${escapeHtml(state.form.libraryName)}</dd><dt>真实线程 ID</dt><dd>${escapeHtml(state.form.threadId)}</dd><dt>对话来源</dt><dd>${escapeHtml(state.form.runtime)}</dd><dt>待导入</dt><dd>${state.imports.reduce((sum, item) => sum + item.valid, 0)} 条对话</dd></dl></div>
-    <label class="check-card"><input type="checkbox" name="automaticFullMining" ${state.form.automaticFullMining ? "checked" : ""}><span><strong>自动补挖注册前的历史对话</strong>只处理创建记忆体时已经存在、但尚未挖掘的日期，不接管之后的新对话。</span></label>
-    <label class="check-card"><input type="checkbox" name="automaticMemoryMaintenance" ${state.form.automaticMemoryMaintenance ? "checked" : ""}><span><strong>自动维护注册后的新对话</strong>持续挖掘新日期，并在记忆超过容量阈值后按规则压缩。</span></label>
+    <label class="check-card"><input type="checkbox" name="automaticFullMining" ${state.form.automaticFullMining ? "checked" : ""}><span><strong>自动录入全量对话</strong>当前记忆体绑定主线程的对话将实时录入。</span></label>
+    <label class="check-card"><input type="checkbox" name="automaticMemoryMaintenance" ${state.form.automaticMemoryMaintenance ? "checked" : ""}><span><strong>自动挖掘当日摘要和特征</strong>在时间戳跨天时自动开启挖掘。</span></label>
+    <label class="check-card"><input type="checkbox" name="automaticCompression" ${state.form.automaticCompression ? "checked" : ""}><span><strong>自动压缩摘要（测试功能）</strong>当前仍在测试，建议暂时不要开启。</span></label>
     <div class="wizard-actions"><button class="ghost" id="back">上一步</button><button class="primary" id="finish">创建我的记忆</button></div>`;
   document.querySelector("#back").onclick = () => { syncForm(); state.step = 2; wizard(); };
   document.querySelector("#finish").onclick = createLibrary;
@@ -273,7 +274,7 @@ function workspace(data) {
   const statusText=data.attention||(!automationReady?"自动挖掘未完全开启":"记忆运行正常");
   app.innerHTML = `<section class="workspace" data-thread-id="${escapeHtml(data.threadId)}" data-library-name="${escapeHtml(data.libraryName)}"><div class="shell workspace-grid"><aside class="sidebar"><a class="back-link" href="#">← 返回记忆体</a><h2 class="side-title">${escapeHtml(data.libraryName)}</h2><nav class="side-nav" aria-label="记忆体导航"><button class="active" data-view="overview">概览</button><button data-view="maintenance">维护</button><button data-view="archive">记忆档案</button><button data-view="developer">开发者模式</button><button data-view="settings">设置</button></nav></aside><main id="workspace-main"><div class="dashboard-head"><div><p class="eyebrow">Stone Memory</p><h1>${escapeHtml(data.libraryName)}</h1><div class="status-line ${automationReady&&!data.attention?"":"warning"}"><span class="status-dot"></span>${escapeHtml(statusText)}</div></div>${stoneSvg("mini-stone")}</div>
     ${rebuild?`<section class="section-card"><h2>当前线程已插入内容</h2><div class="overview-grid"><div><span>人设 / 规则</span><strong>${rebuild.injectedRules||0} 份</strong><small>${(rebuild.injectedRuleNames||[]).map(escapeHtml).join("、")||"无"}</small></div><div><span>原文对话</span><strong>${(rebuild.recentMessages||0)+(rebuild.retainedMessages||0)} 条</strong><small>近期 ${rebuild.recentMessages||0} 条（${rebuild.windowDays} 个活跃日） · 锚点实际注入 ${rebuild.retainedMessages||0} 条（${rebuild.retainAnchors||0} 个锚点）</small></div><div><span>摘要</span><strong>${rebuild.injectedFeelings||0} 条</strong><small>仅统计本次实际写入线程的摘要</small></div><div><span>工具链</span><strong>${rebuild.preservedToolPairs||0} 组</strong><small>上次 rebuild 的保留结果</small></div></div></section>`:`<section class="section-card"><h2>当前线程已插入内容</h2><div class="overview-empty-guide"><p>当前还没有线程注入报告。请前往【维护】，先通过【对话导入】补充记录、在【记忆挖掘】中生成摘要，再通过【线程重建】将人设、摘要与近期对话写入当前线程，完成记忆体构建。</p><button class="secondary" id="overview-maintenance">前往维护 →</button></div></section>`}
-    <section class="section-card"><h2>线程与记忆状态</h2><div class="overview-grid"><div><span>当前上下文窗口</span><strong>${formatContextUsage(data.contextUsage)}</strong><small>${contextUsageHint(data)}</small></div><div><span>最近重建</span><strong>${rebuild?escapeHtml(formatBeijingTime(rebuild.completedAt)):"暂无记录"}</strong><small>${rebuild?`${escapeHtml(rebuild.runtime)} · ${escapeHtml(rebuild.trigger||"cli")} · 北京时间`:"等待第一次正式 rebuild"}</small></div><div><span>上次挖掘</span><strong>${data.lastMinedAt?escapeHtml(formatBeijingTime(data.lastMinedAt)):"尚未挖掘"}</strong><small>待挖掘 ${data.pendingMiningDays||0} 天</small></div><div><span>自动化</span><strong>${data.automaticFullMining||data.automaticMemoryMaintenance?"已配置":"已关闭"}</strong><small>历史补挖 ${data.automaticFullMining?"开":"关"} · 新对话维护 ${data.automaticMemoryMaintenance?"开":"关"}</small></div></div></section>
+    <section class="section-card"><h2>线程与记忆状态</h2><div class="overview-grid"><div><span>当前上下文窗口</span><strong>${formatContextUsage(data.contextUsage)}</strong><small>${contextUsageHint(data)}</small></div><div><span>最近重建</span><strong>${rebuild?escapeHtml(formatBeijingTime(rebuild.completedAt)):"暂无记录"}</strong><small>${rebuild?`${escapeHtml(rebuild.runtime)} · ${escapeHtml(rebuild.trigger||"cli")} · 北京时间`:"等待第一次正式 rebuild"}</small></div><div><span>上次挖掘</span><strong>${data.lastMinedAt?escapeHtml(formatBeijingTime(data.lastMinedAt)):"尚未挖掘"}</strong><small>待挖掘 ${data.pendingMiningDays||0} 天</small></div><div><span>自动化</span><strong>${data.automaticFullMining||data.automaticMemoryMaintenance||data.automaticCompression?"已配置":"已关闭"}</strong><small>对话录入 ${data.automaticFullMining?"开":"关"} · 摘要挖掘 ${data.automaticMemoryMaintenance?"开":"关"} · 自动压缩（测试）${data.automaticCompression?"开":"关"}</small></div></div></section>
     <section class="section-card"><h2>最近生成摘要</h2>${data.recent.length ? data.recent.map(item => `<article class="memory-row"><div class="memory-time">${escapeHtml(item.sourceDate)} ${escapeHtml(item.eventTime || "")}</div><p>${escapeHtml(item.content)}</p><span class="badge">importance ${item.importance}</span><span class="badge">${escapeHtml(item.summaryMode)}</span></article>`).join("") : `<div class="empty">还没有摘要。导入对话后，第一次挖掘会让记忆在这里出现。</div>`}</section></main></div></section>`;
   document.querySelector(".back-link").onclick = event => { event.preventDefault(); lobby(); };
   document.querySelector('[data-view="maintenance"]').onclick = () => renderMaintenance(data);
@@ -504,8 +505,9 @@ async function renderSettings(library) {
       <div class="field"><label for="setting-window">默认保留对话天数</label><input id="setting-window" name="windowDays" type="number" min="1" max="365" value="${config.windowDays}"></div>
       <div class="field"><label for="setting-tools">默认保留工具链组数</label><input id="setting-tools" name="keepToolPairs" type="number" min="0" max="500" value="${config.keepToolPairs}"></div>
       <div class="field full"><label for="setting-context-window">上下文窗口上限（tokens，可选）</label><input id="setting-context-window" name="contextWindowTokens" type="number" min="1000" step="1000" value="${config.contextWindowTokens||""}" placeholder="例如 1000000"><small>Claude 建议填写；Codex 通常能自动识别。手动值优先。</small></div>
-      <label class="check-card full"><input type="checkbox" name="automaticFullMining" ${config.automaticFullMining ? "checked" : ""}><span><strong>自动补挖注册前的历史对话</strong>只处理创建记忆体时已经存在、但尚未挖掘的日期；不会持续挖之后的新日期。</span></label>
-      <label class="check-card full"><input type="checkbox" name="automaticMemoryMaintenance" ${config.automaticMemoryMaintenance ? "checked" : ""}><span><strong>自动维护注册后的新对话</strong>监听创建后的新日期，并按已配置水位执行压缩。</span></label>
+      <label class="check-card full"><input type="checkbox" name="automaticFullMining" ${config.automaticFullMining ? "checked" : ""}><span><strong>自动录入全量对话</strong>当前记忆体绑定主线程的对话将实时录入。</span></label>
+      <label class="check-card full"><input type="checkbox" name="automaticMemoryMaintenance" ${config.automaticMemoryMaintenance ? "checked" : ""}><span><strong>自动挖掘当日摘要和特征</strong>在时间戳跨天时自动开启挖掘。</span></label>
+      <label class="check-card full"><input type="checkbox" name="automaticCompression" ${config.automaticCompression ? "checked" : ""}><span><strong>自动压缩摘要（测试功能）</strong>当前仍在测试，建议暂时不要开启。</span></label>
       <div class="integrity full">纯对话 archive 保存在本地共享 SQLite 的 messages 表；memory/archive/full 才是按天保存的原始线程文件备份。</div>
     </div><div class="wizard-actions"><button class="danger-button" id="delete-library" type="button">删除记忆体</button><button class="primary" type="submit">保存设置</button></div></form>`;
     const miner = card.querySelector("#setting-miner"), apiFields = card.querySelector("#setting-api-fields");
@@ -522,6 +524,7 @@ async function renderSettings(library) {
       values.windowDays = Number(values.windowDays); values.keepToolPairs = Number(values.keepToolPairs); values.contextWindowTokens = values.contextWindowTokens ? Number(values.contextWindowTokens) : 0;
       values.automaticFullMining = form.elements.automaticFullMining.checked;
       values.automaticMemoryMaintenance = form.elements.automaticMemoryMaintenance.checked;
+      values.automaticCompression = form.elements.automaticCompression.checked;
       button.disabled = true; button.textContent = "正在保存…";
       try {
         const result = await api(`/api/libraries/${encodeURIComponent(library.threadId)}/settings`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(values) });

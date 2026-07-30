@@ -8,10 +8,9 @@ const { MemoryStore } = require("../src/storage/memory-store");
 
 test("shared ingest handles Claude and Codex, deduplicates, and sorts late messages", t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-ingest-"));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const fullDir = path.join(root, "archive", "full");
   const store = new MemoryStore({ memoryDir: root, threadId: "thread-test" });
-  t.after(() => store.close());
+  t.after(() => { store.close(); fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); });
   const messages = [
     { timestamp: "2026-05-12T02:00:00Z", type: "assistant", message: { content: [{ type: "text", text: "later" }] } },
     { timestamp: "2026-05-12T01:00:00Z", type: "user", message: { content: "earlier" } },
@@ -33,20 +32,33 @@ test("thread parser accepts newline and adjacent JSON objects", () => {
 
 test("native thread ingest preserves conversation text longer than 2000 characters", t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-ingest-long-"));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const store = new MemoryStore({ memoryDir: root, threadId: "thread-test" });
-  t.after(() => store.close());
+  t.after(() => { store.close(); fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); });
   const text = "长".repeat(2500);
   ingestMessages([{ timestamp: "2026-05-12T01:00:00Z", type: "user", message: { content: text } }], { memoryStore: store });
   assert.equal(store.listMessages({ date: "2026-05-12" })[0].text, text);
 });
 
-test("memory_context blocks stay in full backup but never enter the conversation archive", t => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-ingest-memory-block-"));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+test("native Claude transport records are backed up but excluded from conversation ingest", t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-ingest-claude-internal-"));
   const fullDir = path.join(root, "archive", "full");
   const store = new MemoryStore({ memoryDir: root, threadId: "thread-test" });
-  t.after(() => store.close());
+  t.after(() => { store.close(); fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); });
+  const rows = [
+    { type: "queue-operation", timestamp: "2026-07-16T08:00:00.000Z", content: "同一句用户消息" },
+    { type: "user", timestamp: "2026-07-16T08:00:00.004Z", message: { content: "同一句用户消息" } },
+  ];
+  const result = ingestMessages(rows, { memoryStore: store, fullDir });
+  assert.equal(result.filtered, 1);
+  assert.equal(result.fullBacked, 2);
+  assert.deepEqual(store.listMessages({ date: "2026-07-16" }).map(row => row.text), ["同一句用户消息"]);
+});
+
+test("memory_context blocks stay in full backup but never enter the conversation archive", t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-ingest-memory-block-"));
+  const fullDir = path.join(root, "archive", "full");
+  const store = new MemoryStore({ memoryDir: root, threadId: "thread-test" });
+  t.after(() => { store.close(); fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); });
   const block = "<memory_context>\n## 7月1日\n- 一条旧摘要\n</memory_context>";
   const result = ingestMessages([
     { timestamp: "2026-07-01T01:00:00Z", type: "user", message: { content: block } },
@@ -59,9 +71,8 @@ test("memory_context blocks stay in full backup but never enter the conversation
 
 test("ingest removes memory_context blocks left by older archive versions", t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-ingest-memory-cleanup-"));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const store = new MemoryStore({ memoryDir: root, threadId: "thread-test" });
-  t.after(() => store.close());
+  t.after(() => { store.close(); fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); });
   store.insertMessages([{
     timestamp: "2026-07-01T01:00:00Z", sourceDate: "2026-07-01", role: "user",
     text: "<memory_context>\n旧污染\n</memory_context>",
@@ -73,7 +84,6 @@ test("ingest removes memory_context blocks left by older archive versions", t =>
 
 test("opening an existing memory store automatically repairs legacy memory_context rows", t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-open-memory-cleanup-"));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const first = new MemoryStore({ memoryDir: root, threadId: "thread-test" });
   first.insertMessages([
     { timestamp: "2026-07-01T01:00:00Z", sourceDate: "2026-07-01", role: "user", text: "<memory_context>\n旧污染\n</memory_context>" },
@@ -83,7 +93,7 @@ test("opening an existing memory store automatically repairs legacy memory_conte
   first.close();
 
   const reopened = new MemoryStore({ memoryDir: root, threadId: "thread-test" });
-  t.after(() => reopened.close());
+  t.after(() => { reopened.close(); fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); });
   assert.equal(reopened.removedInjectedMemoryBlocks, 2);
   assert.deepEqual(reopened.listMessages({ date: "2026-07-01" }).map(row => row.text), [
     "我在聊天中提到了 <memory_context> 这个标签，但这不是完整记忆块。",

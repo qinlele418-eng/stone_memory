@@ -24,8 +24,7 @@ const { listJsonlRecursive } = require("../src/lib/archive-paths");
 const { requiresRemine, shouldAttempt } = require("../src/services/mining-state");
 const { resolveAutoCompactConfig } = require("../src/services/auto-compact-config");
 const { ingestThreadFile: ingestSharedThreadFile } = require("../src/services/thread-ingest");
-const { MemoryStore } = require("../src/storage/memory-store");
-const { shouldAutoMineDate } = require("../src/services/automatic-mining-policy");
+const { resolveAutomaticActions, shouldAutoMineDate } = require("../src/services/automatic-mining-policy");
 const { processMatches } = require("../src/lib/process-identity");
 const { findThreadSessionFile } = require("../src/lib/thread-session-file");
 const { latestContextUsage } = require("../src/lib/thread-context-usage");
@@ -228,18 +227,19 @@ async function flushSync(tid) {
   try {
     while (state.dirty) {
       state.dirty = false;
-      if (!fs.existsSync(path.join(os.homedir(), ".stone_memory", ".archive-off"))) {
+      const config = loadConfig()[tid] || {};
+      const actions = resolveAutomaticActions(config);
+      if (actions.sync && !fs.existsSync(path.join(os.homedir(), ".stone_memory", ".archive-off"))) {
         await syncFromThread(tid);
       }
       const latestArchiveDate = scanArchiveDates(tid).at(-1) || null;
       const dateChanged = state.latestArchiveDate && latestArchiveDate && state.latestArchiveDate !== latestArchiveDate;
       state.latestArchiveDate = latestArchiveDate;
-      if (dateChanged) {
+      if (dateChanged && actions.mine) {
         log(`[${tid}] SQLite 对话日期已推进到 ${latestArchiveDate}，按 mining state 检查待挖日期`);
         await checkAndMine(tid);
       }
-      const config = loadConfig()[tid] || {};
-      if (config.automaticFullMining === true) {
+      if (actions.sync) {
         const usage = latestContextUsage(findThreadSessionFile(config.sessionDir, tid), config.runtime || "claude");
         if (usage) updateContextUsage(tid, usage);
       }
@@ -294,18 +294,11 @@ async function checkAndMine(tid) {
   const miningState = loadMiningState(tid);
   const bjToday = beijingToday();
   const threadConfig = loadConfig()[tid] || {};
-  const fullMining = threadConfig.automaticFullMining === true;
-  const maintenance = threadConfig.automaticMemoryMaintenance === true;
-  if (!fullMining && !maintenance) return false;
+  const actions = resolveAutomaticActions(threadConfig);
+  if (!actions.mine) return false;
 
   const minerOff = fs.existsSync(path.join(STOP, ".miner-off"));
 
-  let createdDate = bjToday;
-  const store = new MemoryStore({ memoryDir: path.join(getThreadDir(tid), "memory"), threadId: tid });
-  try {
-    const createdAt = store.getThread()?.created_at;
-    if (createdAt) createdDate = new Date(new Date(createdAt).getTime() + 8 * 3600 * 1000).toISOString().slice(0,10);
-  } finally { store.close(); }
   const messagesByDate = new Map();
   const messagesFor = date => {
     if (!messagesByDate.has(date)) messagesByDate.set(date, readArchiveDay(tid, date));
@@ -313,9 +306,8 @@ async function checkAndMine(tid) {
   };
   const pending = archiveDates.filter(d => d < bjToday
     && shouldAutoMineDate(d, {
-      createdDate,
-      automaticFullMining: fullMining,
-      automaticMemoryMaintenance: maintenance,
+      today: bjToday,
+      automaticMemoryMaintenance: actions.mine,
     })
     && (shouldAttempt(miningState, d, messagesFor(d)) || requiresRemine(miningState, d, messagesFor(d))));
 
@@ -391,8 +383,8 @@ async function main() {
         // 启动时同步一次，之后这里只承担低频漏事件兜底。
         await flushSync(tid);
         const minedAny = await checkAndMine(tid);
-        const maintenance = loadConfig()[tid]?.automaticMemoryMaintenance === true;
-        if (maintenance && (!compactChecked.has(tid) || minedAny)) {
+        const actions = resolveAutomaticActions(loadConfig()[tid] || {});
+        if (actions.compact && (!compactChecked.has(tid) || minedAny)) {
           compactChecked.add(tid);
           await runAutoCompact(tid);
         }

@@ -10,6 +10,7 @@ const path = require("path");
 const os = require("os");
 const readline = require("readline");
 const { execSync, spawn } = require("child_process");
+const { watcherServiceContent } = require("../src/lib/systemd-watcher-service");
 
 const PROJECT = path.resolve(__dirname, "..");
 const DATA = path.join(os.homedir(), ".stone_memory");
@@ -79,19 +80,11 @@ function startBackgroundWatcher() {
       const serviceDir = path.join(os.homedir(), ".config", "systemd", "user");
       const serviceFile = path.join(serviceDir, "stmem-watcher.service");
       fs.mkdirSync(serviceDir, { recursive: true });
-      fs.writeFileSync(serviceFile, `[Unit]
-Description=STMEM Memory Watcher
-After=default.target
-
-[Service]
-Type=simple
-ExecStart=${process.execPath} ${watcherScript}
-Restart=on-failure
-RestartSec=30
-
-[Install]
-WantedBy=default.target
-`);
+      fs.writeFileSync(serviceFile, watcherServiceContent({
+        nodePath: process.execPath,
+        watcherScript,
+        home: os.homedir(),
+      }));
       execSync("systemctl --user daemon-reload 2>/dev/null", { stdio: "pipe" });
       execSync("systemctl --user enable stmem-watcher.service 2>/dev/null", { stdio: "pipe" });
       execSync("systemctl --user start stmem-watcher.service 2>/dev/null", { stdio: "pipe" });

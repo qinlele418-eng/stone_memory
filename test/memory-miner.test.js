@@ -155,7 +155,6 @@ test("review preview returns candidate material without publishing the day", asy
 });
 function minerFixture(t, messages) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-miner-"));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const miner = new MemoryMiner({
     memoryDir: dir, threadId: "test", archive: { readDay: () => messages }, deepseekConfig: {},
     personaConfig: { purpose: "accompany" },
@@ -164,6 +163,10 @@ function minerFixture(t, messages) {
     timestamp: row.timestamp || `2026-06-12T00:00:0${i}.000Z`, sourceDate: "2026-06-12",
     role: row.type || "user", text: row.text || `message ${i}`,
   })));
+  t.after(() => {
+    miner.store.close();
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  });
   return miner;
 }
 

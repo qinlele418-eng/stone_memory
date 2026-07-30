@@ -324,6 +324,7 @@ function publicThreadSettings(threadId) {
     contextWindowTokens: entry.contextWindowTokens || null,
     automaticFullMining: entry.automaticFullMining !== false,
     automaticMemoryMaintenance: entry.automaticMemoryMaintenance !== false,
+    automaticCompression: entry.automaticCompression === true,
   };
 }
 
@@ -366,7 +367,7 @@ function previewRows(source, page = 1) {
   // 用户在这里确认的是最终进入 archive 的纯对话，而不是线程文件的内部事件。
   // session_meta、工具状态、推理元数据等没有 message 的原始记录由现有清洗链过滤，
   // 不应伪装成“无法识别”的坏数据污染预览。
-  const validRows = source.records.filter(record => isArchiveConversation(record.message)).map((record, index) => ({
+  const validRows = source.records.filter(record => !record.excludedReason && isArchiveConversation(record.message)).map((record, index) => ({
     index,
     timestamp: record.message.timestamp,
     role: record.message.type,
@@ -424,6 +425,7 @@ function listLibraries() {
         ai: tc.ai || "", user: tc.user || "", counts, lastMinedAt: latest?.completedAt || null,
         automaticFullMining: tc.automaticFullMining !== false,
         automaticMemoryMaintenance: tc.automaticMemoryMaintenance !== false,
+        automaticCompression: tc.automaticCompression === true,
       };
     } finally { store.close(); }
   });
@@ -936,7 +938,7 @@ async function handleApi(req, res, url) {
     const imported={imported:0,fullBacked:0,files:0};
     for(const {token,item} of items){
       runStmem(["import","--thread",threadId,"--source",item.filePath,"--apply"]);
-      imported.imported+=item.source.preview.valid;imported.fullBacked+=item.source.preview.valid;imported.files++;
+      imported.imported+=item.source.preview.valid;imported.fullBacked+=item.source.preview.valid+(item.source.preview.filtered||0);imported.files++;
       fs.rmSync(path.dirname(item.filePath),{recursive:true,force:true});previews.delete(token);
     }
     return json(res,200,imported);
@@ -959,7 +961,7 @@ async function handleApi(req, res, url) {
         if (!item) throw new Error("有一个导入预览已经过期，请重新上传");
         runStmem(["import", "--thread", created.threadId, "--source", item.filePath, "--apply"]);
         imported.imported += item.source.preview.valid;
-        imported.fullBacked += item.source.preview.valid;
+        imported.fullBacked += item.source.preview.valid + (item.source.preview.filtered || 0);
         imported.files++;
         fs.rmSync(path.dirname(item.filePath), { recursive: true, force: true });
         previews.delete(token);

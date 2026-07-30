@@ -45,6 +45,13 @@ function isArchiveConversation(row) {
     && !row.text.includes("<!-- stmem-rule:");
 }
 
+function internalRecordReason(raw) {
+  const type = String(raw?.type || "").toLowerCase();
+  if (type === "queue-operation") return "claude_queue_operation";
+  if (type === "system_template") return "claude_system_template";
+  return null;
+}
+
 function hash(value) { return crypto.createHash("sha256").update(value).digest("hex"); }
 function fullKey(row) { return hash(JSON.stringify(row)); }
 function timeValue(row) { const n = new Date(row.timestamp || "").getTime(); return Number.isFinite(n) ? n : 0; }
@@ -84,10 +91,22 @@ function ingestMessages(messages, { fullDir = null, memoryStore = null } = {}) {
 function ingestRecords(records, { fullDir = null, memoryStore = null, format = "generic" } = {}) {
   const archiveByDate = new Map(), fullByDate = new Map();
   let invalid = 0;
+  let filtered = 0;
+  const filteredReasons = {};
   for (const record of records) {
     const raw = record.raw;
     const row = record.message;
-    const date = beijingDateKey(row?.timestamp);
+    const reason = record.excludedReason || internalRecordReason(raw);
+    const date = beijingDateKey(row?.timestamp || (reason ? raw?.timestamp : null));
+    if (reason && date) {
+      if (fullDir) {
+        if (!fullByDate.has(date)) fullByDate.set(date, []);
+        fullByDate.get(date).push(raw);
+      }
+      filtered++;
+      filteredReasons[reason] = (filteredReasons[reason] || 0) + 1;
+      continue;
+    }
     if (!row || !date || !row.text) { invalid++; continue; }
     if (fullDir) {
       if (!fullByDate.has(date)) fullByDate.set(date, []);
@@ -109,7 +128,7 @@ function ingestRecords(records, { fullDir = null, memoryStore = null, format = "
     throw new Error("memoryStore is required for normalized message ingest");
   }
   if (fullDir) for (const [date, rows] of fullByDate) fullBacked += mergeDateFile(fullDir, date, rows, fullKey, false);
-  return { imported, dates: archiveByDate.size, fullBacked, invalid, format };
+  return { imported, dates: archiveByDate.size, fullBacked, invalid, filtered, filteredReasons, format };
 }
 
 function ingestThreadFile(filePath, options) {
@@ -119,5 +138,5 @@ function ingestThreadFile(filePath, options) {
 
 module.exports = {
   parseThreadMessages, beijingDateKey, isSystemTemplate, isArchiveConversation,
-  ingestMessages, ingestRecords, ingestThreadFile,
+  internalRecordReason, ingestMessages, ingestRecords, ingestThreadFile,
 };

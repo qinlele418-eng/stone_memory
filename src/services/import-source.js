@@ -1,7 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const Database = require("better-sqlite3");
-const { parseThreadMessages, beijingDateKey } = require("./thread-ingest");
+const { parseThreadMessages, beijingDateKey, internalRecordReason } = require("./thread-ingest");
 const { normalizeThreadMessage } = require("../lib/thread-message");
 
 const FIELD_CANDIDATES = {
@@ -80,16 +80,23 @@ function readImportSource({ filePath, table, timeField, roleField, contentField 
   const records = [];
   const detected = new Set();
   const roles = {};
-  let valid = 0, invalid = 0;
+  let valid = 0, invalid = 0, filtered = 0;
+  const filteredReasons = {};
   const dates = [];
   for (const raw of source.rows) {
     const hasExplicitMapping = timeField || roleField || contentField;
     const nativeShape = raw?.type === "response_item" || raw?.message?.content !== undefined;
     const native = !hasExplicitMapping && nativeShape ? normalizeThreadMessage(raw) : null;
     const mapped = native ? { message: native, fields: {} } : mapGenericRow(raw, mapping);
-    records.push({ raw, message: mapped.message });
+    const excludedReason = internalRecordReason(raw);
+    records.push({ raw, message: mapped.message, excludedReason });
     Object.values(mapped.fields).filter(Boolean).forEach(field => detected.add(field));
     if (!mapped.message) { invalid++; continue; }
+    if (excludedReason) {
+      filtered++;
+      filteredReasons[excludedReason] = (filteredReasons[excludedReason] || 0) + 1;
+      continue;
+    }
     valid++;
     roles[mapped.message.type] = (roles[mapped.message.type] || 0) + 1;
     dates.push(beijingDateKey(mapped.message.timestamp));
@@ -103,6 +110,8 @@ function readImportSource({ filePath, table, timeField, roleField, contentField 
       totalRows: source.rows.length,
       valid,
       invalid,
+      filtered,
+      filteredReasons,
       roles,
       firstDate: dates[0] || null,
       lastDate: dates.at(-1) || null,

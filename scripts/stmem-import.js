@@ -41,7 +41,8 @@ function sourceFiles(options, importDir, doneDir) {
 function printPreview(fp, preview) {
   console.log(`\n  ${fp}`);
   console.log(`    来源: ${preview.format}${preview.table ? ` / ${preview.table}` : ""}`);
-  console.log(`    总行数: ${preview.totalRows}，可导入: ${preview.valid}，无效: ${preview.invalid}`);
+  console.log(`    总行数: ${preview.totalRows}，可导入: ${preview.valid}，内部记录过滤: ${preview.filtered || 0}，无效: ${preview.invalid}`);
+  if (preview.filtered) console.log(`    过滤原因: ${JSON.stringify(preview.filteredReasons)}`);
   console.log(`    日期: ${preview.firstDate || "-"} → ${preview.lastDate || "-"}，角色: ${JSON.stringify(preview.roles)}`);
   if (preview.detectedFields.length) console.log(`    识别字段: ${preview.detectedFields.join(", ")}`);
 }
