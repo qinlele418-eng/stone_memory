@@ -9,6 +9,7 @@ test("developer kit exposes a reusable first-frame runtime and module contract",
   const runtime = fs.readFileSync(path.join(publicDir, "developer-kit", "runtime.js"), "utf8");
   const contract = JSON.parse(fs.readFileSync(path.join(publicDir, "developer-kit", "contract.json"), "utf8"));
   const index = fs.readFileSync(path.join(publicDir, "developer-kit", "index.html"), "utf8");
+  const app = fs.readFileSync(path.join(publicDir, "developer-kit", "app.js"), "utf8");
 
   assert.match(runtime, /applyFirstFrameTheme\(\)/);
   assert.match(runtime, /window\.StoneDeveloperModule/);
@@ -18,6 +19,8 @@ test("developer kit exposes a reusable first-frame runtime and module contract",
   assert.match(index, /<stone-module-page/);
   assert.doesNotMatch(index, /stone-module-context/);
   assert.doesNotMatch(index, /data-stone-library/);
+  assert.match(index, /stone-memory-maintainer\/SKILL\.md/);
+  assert.match(app, /stone-memory-maintainer\/SKILL\.md/);
 });
 
 test("review lab uses the shared developer module shell before its styles paint", () => {

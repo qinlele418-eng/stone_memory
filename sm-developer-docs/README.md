@@ -10,6 +10,16 @@
 4. [frontend-modules.md](./frontend-modules.md)：开发者模式前端的可拆卸接入、统一卡片与主题契约。
 5. [test-reports/](./test-reports/)：社区模型对比、挖掘效果与真实使用测试。
 6. [proposals/](./proposals/)：尚未进入正式实现的新功能建议。
+7. [Stone Memory Maintainer Skill](./skills/stone-memory-maintainer/SKILL.md)：给编码 Agent 使用的脱敏维护流程与架构护栏。
+
+## 让 Agent 参与开发
+
+让 Codex、Claude Code或其他编码 Agent 修改 Stone Memory 前，优先把
+`skills/stone-memory-maintainer/` 作为 Skill 加载，或明确要求它完整阅读其中的
+`SKILL.md`。该 Skill会引导 Agent先读取适用的 `AGENTS.md`、定位正式CLI和共享服务、
+保护私人数据、按风险运行测试，并区分本地修改、提交与推送权限。
+
+Skill不会提供任何内测用户对话、真实线程、私人路径或未公开设计，只包含可以跨贡献者复用的维护方法。
 
 ## 最重要的原则
 

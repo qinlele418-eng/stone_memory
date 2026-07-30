@@ -25,7 +25,8 @@ Issue请包含：
 ## 提交代码
 
 1. 从最新main创建分支。
-2. 修改前阅读同目录 `AGENTS.md`。
+2. 修改前阅读同目录 `AGENTS.md`；使用编码 Agent 时，优先加载
+   [`stone-memory-maintainer`](./skills/stone-memory-maintainer/SKILL.md) Skill。
 3. 添加或更新回归测试。
 4. 运行相关测试与完整 `npm test`。
 5. 通过PR提交，不要直接推送main。

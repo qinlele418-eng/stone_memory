@@ -1,0 +1,4 @@
+interface:
+  display_name: "Stone Memory Maintainer"
+  short_description: "安全维护、审查与扩展 Stone Memory 项目"
+  default_prompt: "Use $stone-memory-maintainer to inspect this Stone Memory task, follow its official write paths, and verify the change safely."

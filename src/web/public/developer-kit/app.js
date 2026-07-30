@@ -17,6 +17,8 @@
 目标：${value("#module-summary")}
 工作目录：src/web/public/developer-modules/${id}/
 
+开工前先完整阅读 sm-developer-docs/skills/stone-memory-maintainer/SKILL.md。
+
 必须遵守：
 1. 只能修改自己的模块目录；不得修改核心 app.js。
 2. 使用 /developer-kit/runtime.js，并用 <stone-module-page> 作为唯一页面外壳。

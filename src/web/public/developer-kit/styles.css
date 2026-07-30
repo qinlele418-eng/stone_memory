@@ -18,6 +18,7 @@ code { padding: 2px 5px; background: var(--stone-tide-accent-soft); border-radiu
 .builder-card, .check-card { margin-top: 18px; padding: 26px; border-radius: var(--stone-tide-radius-lg); }
 .section-head { display: flex; justify-content: space-between; gap: 20px; }
 .section-head > span { color: var(--stone-tide-ink-faint); font-size: 11px; }
+.skill-notice { margin: 16px 0 0; color: var(--stone-tide-ink-soft); font-size: 12px; line-height: 1.6; }
 .builder-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 22px; }
 label { color: var(--stone-tide-ink-soft); font-size: 12px; font-weight: 700; }
 input { width: 100%; min-height: 44px; margin-top: 7px; padding: 0 12px; color: var(--stone-tide-ink); border: 1px solid var(--stone-tide-line); border-radius: var(--stone-tide-radius-sm); background: var(--stone-tide-surface-soft); }
