@@ -18,6 +18,7 @@ const { MemoryStore } = require("./src/storage/memory-store");
 const { resolveMcpThread } = require("./src/services/mcp-thread-resolution");
 const { buildMcpRebuildPreviewArgs, buildMcpRebuildQueueArgs } = require("./src/services/mcp-rebuild-preview");
 const { buildMcpMineArgs } = require("./src/services/mcp-mine-command");
+const { DreamReader } = require("./src/services/dream-reader");
 
 const CONFIG_PATH = path.join(os.homedir(), ".stone_memory", "stmem.json");
 const PROJECT_ROOT = path.resolve(__dirname);
@@ -234,6 +235,46 @@ function toolStatus() {
   } catch (err) {
     throw new Error(`状态查询失败: ${err.message}`);
   }
+}
+
+function resolveDreamRead(args) {
+  const cfg = loadConfig();
+  if (!cfg) throw new Error("未配置 stmem.json");
+  const resolved = resolveThread(args, cfg);
+  return { reader: new DreamReader(), threadId: resolved.threadId };
+}
+
+function toolDreamLatest(args) {
+  const { reader, threadId } = resolveDreamRead(args);
+  const dream = reader.latest(threadId);
+  return JSON.stringify(dream || {
+    threadId,
+    date: null,
+    dreamType: null,
+    title: "",
+    body: "",
+    found: false,
+    message: "暂无梦境",
+  });
+}
+
+function toolDreamStatus(args) {
+  const { reader, threadId } = resolveDreamRead(args);
+  return JSON.stringify(reader.coverage(threadId));
+}
+
+function toolDreamGet(args) {
+  const { reader, threadId } = resolveDreamRead(args);
+  const dream = reader.get(threadId, args.date);
+  return JSON.stringify(dream || {
+    threadId,
+    date: args.date,
+    dreamType: null,
+    title: "",
+    body: "",
+    found: false,
+    message: "指定日期没有梦境",
+  });
 }
 
 function toolMemorySearch(args) {
@@ -561,6 +602,41 @@ const TOOLS = [
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
+    name: "stmem_dream_latest",
+    description: "Read the latest available dream for one memory thread.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        thread: { type: "string", description: "线程 ID；存在多个记忆体时必须提供" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "stmem_dream_status",
+    description: "Read dream coverage, including available and missing eligible dates.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        thread: { type: "string", description: "线程 ID；存在多个记忆体时必须提供" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "stmem_dream_get",
+    description: "Read the dream for an exact date without falling back to another date.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        thread: { type: "string", description: "线程 ID；存在多个记忆体时必须提供" },
+        date: { type: "string", description: "梦境日期 YYYY-MM-DD" },
+      },
+      required: ["date"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "stmem_memory_search",
     description: "关键词搜索记忆 feelings + 回溯原文 archive",
     inputSchema: {
@@ -725,6 +801,9 @@ function handle(msg) {
       else if (name === "stmem_memory_rebuild_preview") text = toolRebuildPreview(args);
       else if (name === "stmem_memory_mine") text = toolMine(args);
       else if (name === "stmem_memory_status") text = toolStatus();
+      else if (name === "stmem_dream_latest") text = toolDreamLatest(args);
+      else if (name === "stmem_dream_status") text = toolDreamStatus(args);
+      else if (name === "stmem_dream_get") text = toolDreamGet(args);
       else if (name === "stmem_memory_search") text = toolMemorySearch(args);
       else if (name === "stmem_memory_deep_search") text = toolDeepSearch(args);
       else if (name === "stmem_memory_audit_list") text = toolAuditList(args);

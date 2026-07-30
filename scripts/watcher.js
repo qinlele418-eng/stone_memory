@@ -25,10 +25,12 @@ const { requiresRemine, shouldAttempt } = require("../src/services/mining-state"
 const { resolveAutoCompactConfig } = require("../src/services/auto-compact-config");
 const { ingestThreadFile: ingestSharedThreadFile } = require("../src/services/thread-ingest");
 const { resolveAutomaticActions, shouldAutoMineDate } = require("../src/services/automatic-mining-policy");
+const { runAutomaticDream } = require("../src/services/automatic-dream-hook");
 const { processMatches } = require("../src/lib/process-identity");
 const { findThreadSessionFile } = require("../src/lib/thread-session-file");
 const { latestContextUsage } = require("../src/lib/thread-context-usage");
 const { updateContextUsage } = require("../src/services/rebuild-log");
+const { MemoryStore } = require("../src/storage/memory-store");
 const LOG_DIR = path.join(os.homedir(), ".stone_memory", "logs");
 let workerLockDir = null;
 
@@ -111,10 +113,28 @@ async function runMining(tid, dateStr, { force = false } = {}) {
     log(`[${tid}] 完成 ${dateStr}: ${lastLines}`);
 
     const store = new MemoryStore({ memoryDir: path.join(getThreadDir(tid), "memory"), threadId: tid });
-    const feelingCount = store.listFeelings({ date: dateStr }).length;
-    const featureCount = store.listFeatures({ date: dateStr }).length;
-    store.close();
+    let feelingCount;
+    let featureCount;
+    try {
+      feelingCount = store.listFeelings({ date: dateStr }).length;
+      featureCount = store.listFeatures({ date: dateStr }).length;
+    } finally {
+      store.close();
+    }
     log(`[${tid}] ${dateStr} 产出: ${feelingCount} feelings, ${featureCount} features`);
+
+    const dream = runAutomaticDream({
+      threadId: tid,
+      date: dateStr,
+      today: beijingToday(),
+      force,
+      cliPath: path.join(path.dirname(__dirname), "bin", "stmem"),
+    });
+    if (dream.attempted && dream.ok) {
+      log(`[${tid}] ${dateStr} 梦境生成完成: ${dream.output}`);
+    } else if (dream.attempted) {
+      log(`[${tid}] ${dateStr} 梦境生成失败（不重试）: ${dream.error.message}`);
+    }
     return true;
   } catch (err) {
     log(`[${tid}] 挖掘 ${dateStr} 失败: ${err.message}`);
