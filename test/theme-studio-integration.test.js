@@ -147,6 +147,8 @@ test("semantic theme covers mining calendar states and preserves the developer l
   assert.match(standalone, /if\s*\(group === "typography"\)\s*continue/);
   assert.doesNotMatch(standalone, /Cormorant Garamond|Songti SC|STSong|SimSun/);
   assert.match(standalone, /garden:[\s\S]*shadows:\s*\{[\s\S]*rgba\(153,\s*95,\s*143/);
+  assert.match(standalone, /sakuraNight:[\s\S]*name:\s*"樱夜黑粉"[\s\S]*contributor:\s*"@钦天监秋"/);
+  assert.match(standalone, /data-community-theme="sakuraNight"[\s\S]*贡献人：@钦天监秋/);
   assert.match(standalone, /tokens:\s*\{\s*colors:\s*preset\.colors,\s*shadows:\s*preset\.shadows\s*\}/);
   assert.match(bootstrap, /theme-studio\/\$\{file\}\?v=\$\{THEME_STYLE_VERSION\}/);
 
