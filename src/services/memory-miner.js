@@ -72,6 +72,22 @@ function parseMiningArray(reply, message = "model output is not a JSON array", e
   throw new MiningError("OUTPUT_INVALID", message);
 }
 
+function validateMiningEntries(entries, expectedKey = "feelings") {
+  if (!Array.isArray(entries)) throw new MiningError("OUTPUT_INVALID", `${expectedKey} output is not an array`);
+  entries.forEach((entry, index) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new MiningError("OUTPUT_INVALID", `${expectedKey}[${index}] is not an object`);
+    }
+    if (typeof entry.content !== "string" || !entry.content.trim()) {
+      throw new MiningError("OUTPUT_INVALID", `${expectedKey}[${index}].content is missing`);
+    }
+    if (!Number.isFinite(Number(entry.importance))) {
+      throw new MiningError("OUTPUT_INVALID", `${expectedKey}[${index}].importance is invalid`);
+    }
+  });
+  return entries;
+}
+
 function subagentSafe(prompt, opts = {}) {
   try {
     return runSubagent(prompt, opts);
@@ -234,6 +250,7 @@ class MemoryMiner {
     this.pendingFeelings = [];
     this.pendingFeatures = [];
     this.chunkReport = [];
+    this._runSubagent = subagentSafe;
   }
 
   start(dailyAtHour = 3) {
@@ -469,6 +486,8 @@ class MemoryMiner {
       inputBytes: byteLength(this._buildConversationText(chunk)),
       outputCount: entries.length,
       empty: entries.length === 0,
+      recoveryStatus: engine.recovery?.status || null,
+      recoveryMessage: engine.recovery?.message || null,
     };
   }
 
@@ -860,7 +879,11 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
     console.log(`[memory-miner] ${targetDate}: ${label} — ${messages.length} messages in ${chunks.length} chunk(s), extracting...`);
     for (let index = 0; index < chunks.length; index++) {
       if (cache.chunks[index]) {
-        if (label === "feelings") this._recordFeelingChunk(chunks[index], index, chunks.length, cache.chunks[index], "api");
+        if (label === "feelings") {
+          this._recordFeelingChunk(chunks[index], index, chunks.length, cache.chunks[index], "api", {
+            recovery: cache.recoveries?.[index] || null,
+          });
+        }
         raw.push(...cache.chunks[index]);
         continue;
       }
@@ -874,7 +897,13 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
         );
         const entries = Array.isArray(result) ? result : [];
         cache.chunks[index] = entries;
-        if (label === "feelings") this._recordFeelingChunk(chunks[index], index, chunks.length, entries, "api");
+        cache.recoveries ||= {};
+        if (this._lastApiRecovery) cache.recoveries[index] = this._lastApiRecovery;
+        if (label === "feelings") {
+          this._recordFeelingChunk(chunks[index], index, chunks.length, entries, "api", {
+            recovery: this._lastApiRecovery,
+          });
+        }
         this._saveChunkCache(targetDate, label, cache);
         raw.push(...entries);
       } catch (error) {
@@ -905,42 +934,126 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
 
     // 如果配置了独立 API key，用原来的直接调用（更快）
     if (this.deepseekConfig?.apiKey) {
+      this._lastApiRecovery = null;
       const { apiKey, baseUrl = "https://api.deepseek.com", model: rawModel } = this.deepseekConfig;
-      if (!String(rawModel || "").trim()) throw new MiningError("API_MODEL_MISSING", "API 模式没有配置模型名");
+      if (!String(rawModel || "").trim()) {
+        return this._subagentTakeoverChunk({
+          messages,
+          prompt,
+          expectedKey: expectedKey || "feelings",
+          reason: "API 模式没有配置模型名",
+        });
+      }
       const model = rawModel.replace(/\[\d+[km]\]/i, "");
       const conversationText = this._buildConversationText(messages);
-      // 重试 3 次：网络闪断自动恢复
-      let lastErr;
-      for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-          const response = await fetch(`${baseUrl}/chat/completions`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-            body: JSON.stringify({ model, messages: [{ role: "system", content: prompt }, { role: "user", content: conversationText }], temperature: 0.5, max_tokens: 4000 }),
-          });
-          if (!response.ok) { const errText = await response.text().catch(() => ""); throw new Error(`API ${response.status}: ${errText.slice(0, 200)}`); }
-          const data = await response.json();
-          const reply = data?.choices?.[0]?.message?.content;
-          if (!reply || !reply.trim()) throw new MiningError("OUTPUT_EMPTY", "API returned empty content");
-          const parsed = parseMiningArray(reply, "API output is not a JSON array", expectedKey);
-          return parsed;
-        } catch (err) {
-          lastErr = err;
-          if (attempt < 2) {
-            const delay = Math.min(1000 * Math.pow(2, attempt), 8000);
-            console.log(`[memory-miner] API retry ${attempt + 1}/3 after ${delay}ms: ${err.message}`);
-            await new Promise(r => setTimeout(r, delay));
-          }
+      let reply;
+      try {
+        const response = await fetch(`${baseUrl}/chat/completions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify({ model, messages: [{ role: "system", content: prompt }, { role: "user", content: conversationText }], temperature: 0.5, max_tokens: 4000 }),
+        });
+        if (!response.ok) {
+          const errText = await response.text().catch(() => "");
+          throw new Error(`API ${response.status}: ${errText.slice(0, 200)}`);
         }
+        const data = await response.json();
+        reply = data?.choices?.[0]?.message?.content;
+        if (!reply || !reply.trim()) throw new MiningError("OUTPUT_EMPTY", "API returned empty content");
+      } catch (apiError) {
+        return this._subagentTakeoverChunk({
+          messages,
+          prompt,
+          expectedKey: expectedKey || "feelings",
+          reason: `API 单次调用失败：${String(apiError.message || apiError).slice(0, 240)}`,
+        });
       }
-      throw lastErr;
+      try {
+        return validateMiningEntries(
+          parseMiningArray(reply, "API output is not a JSON array", expectedKey),
+          expectedKey || "items",
+        );
+      } catch (parseError) {
+        if (parseError.code !== "OUTPUT_INVALID") throw parseError;
+        return this._recoverInvalidApiChunk({
+          rawReply: reply,
+          messages,
+          prompt,
+          expectedKey: expectedKey || "feelings",
+        });
+      }
     }
 
     // 无独立 API key → 用 claude -p（订阅/OAuth 用户）
     const conversationText = this._buildConversationText(messages);
     const subPrompt = `${prompt}\n\n对话内容：\n${conversationText}\n\n请输出 JSON 数组。`;
-    const reply = subagentSafe(subPrompt, { threadId: this.threadId, model: subagentModel || undefined });
-    return parseMiningArray(reply, "Subagent output is not a JSON array", expectedKey);
+    const reply = this._runSubagent(subPrompt, { threadId: this.threadId, model: subagentModel || undefined });
+    return validateMiningEntries(
+      parseMiningArray(reply, "Subagent output is not a JSON array", expectedKey),
+      expectedKey || "items",
+    );
+  }
+
+  _recoverInvalidApiChunk({ rawReply, messages, prompt, expectedKey }) {
+    const schema = expectedKey === "features"
+      ? '[{"content":"事实","category":"eat|body|sleep|work|relation|habit|location|preference|misc","importance":2|3|5}]'
+      : '[{"content":"带日期时间的摘要","importance":2|3|5}]';
+    const repairPrompt = `你是 Stone Memory 的 JSON 格式修复员。下面是 API 已经写好的 ${expectedKey} 候选，但本地 JSON/schema 校验未通过。
+
+只修复 JSON 语法、数组包裹、字段名、引号、逗号和字段类型；不得润色、删减、增加事件，不得改变 content 的文字或 importance 的含义。
+目标格式：${schema}
+如果原文已经损坏到无法可靠恢复，输出且只输出 <UNREPAIRABLE>。
+
+API 原始输出：
+<raw>
+${String(rawReply || "")}
+</raw>`;
+    let repairedReply = "";
+    try {
+      repairedReply = this._runSubagent(repairPrompt, { threadId: this.threadId });
+      if (!/<UNREPAIRABLE>/i.test(String(repairedReply))) {
+        const repaired = validateMiningEntries(
+          parseMiningArray(repairedReply, "Subagent could not repair API JSON", expectedKey),
+          expectedKey,
+        );
+        if (!repaired.length && !isLiteralEmptyArray(rawReply)) {
+          throw new MiningError("OUTPUT_INVALID", "Subagent repair unexpectedly discarded all API candidates");
+        }
+        this._lastApiRecovery = {
+          status: "format_repaired",
+          message: "API 返回格式未通过校验，已由 Subagent 修复格式并通过本地复验",
+        };
+        return repaired;
+      }
+    } catch {}
+
+    return this._subagentTakeoverChunk({
+      messages,
+      prompt,
+      expectedKey,
+      reason: "API 返回格式损坏且无法可靠修复",
+    });
+  }
+
+  _subagentTakeoverChunk({ messages, prompt, expectedKey, reason }) {
+    const conversationText = this._buildConversationText(messages);
+    const takeoverPrompt = `${prompt}
+
+API 对这一分块的处理未能成功（${reason}）。请由你接管这一块并立即根据下面的真实对话重新挖掘。
+严格输出 ${expectedKey} JSON 数组，不要解释，不要复述损坏的 API 输出。
+
+对话内容：
+${conversationText}`;
+    const takeoverReply = this._runSubagent(takeoverPrompt, { threadId: this.threadId });
+    const takeover = validateMiningEntries(
+      parseMiningArray(takeoverReply, "Subagent takeover output is not valid JSON", expectedKey),
+      expectedKey,
+    );
+    this._lastApiRecovery = {
+      status: "subagent_takeover",
+      message: `${reason}，已由 Subagent 接管该分块并通过本地复验`,
+    };
+    return takeover;
   }
 
   _readState() {
@@ -968,9 +1081,12 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
     const filename = this._chunkCachePath(targetDate, label);
     try {
       const cached = JSON.parse(fs.readFileSync(filename, "utf8"));
-      if (cached.archiveFingerprint === fingerprint && cached.chunkCount === chunkCount) return cached;
+      if (cached.archiveFingerprint === fingerprint && cached.chunkCount === chunkCount) {
+        cached.recoveries ||= {};
+        return cached;
+      }
     } catch {}
-    return { version: 1, targetDate, label, archiveFingerprint: fingerprint, chunkCount, chunks: {} };
+    return { version: 1, targetDate, label, archiveFingerprint: fingerprint, chunkCount, chunks: {}, recoveries: {} };
   }
 
   _saveChunkCache(targetDate, label, cache) {
@@ -1015,6 +1131,7 @@ module.exports = {
   miningChunkTimeRange,
   isLiteralEmptyArray,
   parseMiningArray,
+  validateMiningEntries,
   buildFeelingPrompt,
   buildFeaturePrompt,
 };

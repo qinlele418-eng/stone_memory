@@ -12,6 +12,7 @@ const {
   miningChunkTimeRange,
   isLiteralEmptyArray,
   parseMiningArray,
+  validateMiningEntries,
   buildFeelingPrompt,
 } = require("../src/services/memory-miner");
 
@@ -37,6 +38,14 @@ test("only an explicit empty JSON array is accepted as a successful empty mining
     error.code === "OUTPUT_INVALID");
   assert.throws(() => parseMiningArray("{\"feelings\":[]}"), error =>
     error.code === "OUTPUT_INVALID");
+});
+
+test("mining schema validation rejects malformed entries before publication", () => {
+  assert.deepEqual(validateMiningEntries([{ content: "摘要", importance: 3 }], "feelings"), [
+    { content: "摘要", importance: 3 },
+  ]);
+  assert.throws(() => validateMiningEntries([{ content: "", importance: 3 }], "feelings"), /content is missing/);
+  assert.throws(() => validateMiningEntries([{ content: "摘要" }], "feelings"), /importance is invalid/);
 });
 
 test("mining accepts only the envelope belonging to the active channel", () => {
@@ -169,6 +178,74 @@ function minerFixture(t, messages) {
   });
   return miner;
 }
+
+test("invalid API JSON is repaired by subagent without reming the chunk", t => {
+  const miner = minerFixture(t, [{ text: "真实对话" }]);
+  const prompts = [];
+  miner._runSubagent = prompt => {
+    prompts.push(prompt);
+    return '[{"content":"6月12日，上午八点。修复格式。","importance":3}]';
+  };
+  const result = miner._recoverInvalidApiChunk({
+    rawReply: '[{"content":"6月12日，上午八点。修复格式。","importance":3}',
+    messages: [{ text: "真实对话" }],
+    prompt: "正式挖掘提示词",
+    expectedKey: "feelings",
+  });
+  assert.equal(result.length, 1);
+  assert.equal(miner._lastApiRecovery.status, "format_repaired");
+  assert.equal(prompts.length, 1);
+  assert.match(prompts[0], /只修复 JSON 语法/);
+});
+
+test("unrepairable API JSON makes subagent take over only that chunk", t => {
+  const miner = minerFixture(t, [{ text: "真实对话" }]);
+  const prompts = [];
+  miner._runSubagent = prompt => {
+    prompts.push(prompt);
+    return prompts.length === 1
+      ? "<UNREPAIRABLE>"
+      : '[{"content":"6月12日，上午九点。接管重挖。","importance":2}]';
+  };
+  const result = miner._recoverInvalidApiChunk({
+    rawReply: "完全损坏",
+    messages: [{ text: "真实对话" }],
+    prompt: "正式挖掘提示词",
+    expectedKey: "feelings",
+  });
+  assert.equal(result.length, 1);
+  assert.equal(miner._lastApiRecovery.status, "subagent_takeover");
+  assert.equal(prompts.length, 2);
+  assert.match(prompts[1], /由你接管这一块/);
+  assert.match(prompts[1], /真实对话/);
+});
+
+test("one API transport failure immediately hands the chunk to subagent", async t => {
+  const miner = minerFixture(t, [{ text: "真实对话" }]);
+  miner.deepseekConfig = {
+    apiKey: "test-key",
+    baseUrl: "https://example.invalid",
+    model: "test-model",
+  };
+  const originalFetch = global.fetch;
+  let apiCalls = 0;
+  global.fetch = async () => {
+    apiCalls++;
+    throw new Error("upstream unavailable");
+  };
+  miner._runSubagent = () => '[{"content":"6月12日，上午十点。接管成功。","importance":3}]';
+  t.after(() => { global.fetch = originalFetch; });
+
+  const result = await miner._extractViaSubagent(
+    [{ text: "真实对话" }],
+    "正式挖掘提示词",
+    { expectedKey: "feelings" },
+  );
+  assert.equal(apiCalls, 1);
+  assert.equal(result.length, 1);
+  assert.equal(miner._lastApiRecovery.status, "subagent_takeover");
+  assert.match(miner._lastApiRecovery.message, /API 单次调用失败/);
+});
 
 test("a short day is still mined and an empty model result completes successfully", async t => {
   const miner = minerFixture(t, [{}, {}]);
