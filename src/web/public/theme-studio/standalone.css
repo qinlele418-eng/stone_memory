@@ -221,13 +221,15 @@ h3 {
 
 .theme-logo-controls {
   display: grid;
-  grid-template-columns: minmax(120px, 180px) 84px;
+  grid-template-columns: minmax(0, 1fr) 84px;
   grid-template-areas:
     "preview buttons"
     "status .";
   align-items: start;
-  justify-content: end;
+  justify-self: start;
+  justify-content: start;
   gap: 6px 10px;
+  width: min(100%, 334px);
   min-width: 0;
 }
 
@@ -258,7 +260,7 @@ h3 {
   display: grid;
   place-items: center;
   width: 100%;
-  max-width: 180px;
+  max-width: 240px;
   height: auto;
   aspect-ratio: 1;
   overflow: hidden;
@@ -290,7 +292,8 @@ h3 {
 .theme-logo-status {
   grid-area: status;
   display: block;
-  max-width: 180px;
+  width: 100%;
+  max-width: 240px;
   color: var(--stone-tide-ink-soft);
   font-size: 9px;
   font-weight: 650;
@@ -1067,13 +1070,7 @@ h3 {
   .theme-card-meta { gap: 8px; }
   .theme-name-row { gap: 10px; }
   .theme-logo-row { grid-template-columns: 1fr; }
-  .theme-logo-controls {
-    grid-template-columns: minmax(0, 1fr) 84px;
-    justify-content: stretch;
-    width: 100%;
-  }
-  .theme-logo-preview { max-width: none; height: auto; }
-  .theme-logo-status { max-width: none; }
+  .theme-logo-preview { height: auto; }
   .community-assets { grid-template-columns: 1fr; }
   .community-logo-assets button > img { width: 112px; height: 54px; }
   .theme-palette-row { grid-template-columns: 1fr; gap: 7px; }

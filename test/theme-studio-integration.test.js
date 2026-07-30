@@ -224,9 +224,14 @@ test("semantic theme covers mining calendar states and preserves the developer l
   assert.match(standaloneCss, /\.theme-more-dots\s*\{[\s\S]*?inline-flex/);
   assert.match(logoActions, /min-height:\s*26px/);
   assert.match(standaloneCss, /\.theme-logo-buttons\s*\{[\s\S]*?align-content:\s*end;[\s\S]*?gap:\s*6px/);
-  assert.match(logoControls, /grid-template-columns:\s*minmax\(120px,\s*180px\)\s*84px/);
+  assert.match(logoControls, /grid-template-columns:\s*minmax\(0,\s*1fr\)\s*84px/);
+  assert.match(logoControls, /justify-self:\s*start/);
+  assert.match(logoControls, /justify-content:\s*start/);
+  assert.match(logoControls, /width:\s*min\(100%,\s*334px\)/);
   assert.match(logoControls, /"preview buttons"[\s\S]*"status \."/);
   assert.match(logoPreview, /aspect-ratio:\s*1/);
+  assert.match(logoPreview, /max-width:\s*240px/);
+  assert.doesNotMatch(compactLayout, /\.theme-logo-preview\s*\{[^}]*max-width:\s*none/);
   assert.match(standaloneCss, /\.theme-logo-preview img\s*\{[\s\S]*?object-fit:\s*contain/);
   assert.match(standaloneCss, /\.theme-logo-status\.error\s*\{[^}]*stone-tide-danger/);
   assert.match(standalone, /logoStatus\(`Logo 上传失败：\$\{error\.message\}`,\s*true\)/);
