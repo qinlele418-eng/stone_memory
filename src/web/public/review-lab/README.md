@@ -16,4 +16,4 @@
 2. 删除 `src/web/public/review-lab/`。
 3. 如需完整移除实验能力，再删除 `src/web/server.js` 中 `/review-lab/api/*` 的 HTTP 适配；正式 `stmem mine-review` CLI 不受前端模块拆除影响。
 
-模块页面加载 `theme-studio/bootstrap.js` 并消费 `--stone-tide-*` 语义变量，不维护独立主题系统。
+模块页面只加载共享的 `developer-kit/runtime.js`。运行时可以消费主题模块通过可选 `sessionStorage` 桥发布的、经过清洗的 `--stone-tide-*` 语义变量快照；没有主题模块或快照时使用页面自身的安全回退值。它不读取主题 JSON、本地主题持久化键，也不导入 `theme-studio` 的业务代码或样式文件。

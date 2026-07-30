@@ -13,10 +13,11 @@
 
   const STORAGE_KEY = "stone-memory-ui-theme-v1";
   const CUSTOM_THEMES_KEY = "stone-memory-ui-themes-v1";
+  const MODULE_THEME_BRIDGE_KEY = "stone-memory-developer-semantic-theme-v1";
   const MAX_FILE_SIZE = 320 * 1024;
   const MAX_LOGO_FILE_SIZE = 200 * 1024;
   const LOGO_TYPES = new Set(["image/png", "image/webp"]);
-  const CONTRACT_URL = "./contract.json";
+  const CONTRACT_URL = "./contract.json?v=3";
   const state = { contract: null, theme: null, customThemes: [] };
   const COMMUNITY_THEMES = {
     garden: {
@@ -25,10 +26,17 @@
       contributor: "@小绒太尉",
       colors: {
         canvas: "#f5f0eb", ink: "#3d3d3d", inkSoft: "#78769c", inkFaint: "#8d8799",
-        accent: "#db9ed3", accentStrong: "#62786d", accentSoft: "rgba(237, 204, 224, 0.34)",
+        accent: "#db9ed3", accentStrong: "#a965a0", accentSoft: "rgba(237, 204, 224, 0.34)",
         surface: "#fdfaf6", surfaceSoft: "rgba(253, 250, 246, 0.72)",
         line: "rgba(219, 158, 211, 0.30)", lineSoft: "rgba(219, 158, 211, 0.18)",
-        status: "#91b078", danger: "#a7564f",
+        status: "#91b078", danger: "#a7564f", warning: "#9a6b43", info: "#6d76a8",
+        conflict: "#a7564f", fusion: "#8a619f",
+      },
+      shadows: {
+        card: "0 16px 42px rgba(153, 95, 143, 0.10)",
+        panel: "0 20px 54px rgba(153, 95, 143, 0.14)",
+        floating: "0 24px 64px rgba(112, 76, 105, 0.18)",
+        button: "0 12px 28px rgba(181, 111, 169, 0.22)",
       },
     },
     purpleGray: {
@@ -40,7 +48,14 @@
         accent: "#6e4f9a", accentStrong: "#523c78", accentSoft: "rgba(110, 79, 154, 0.10)",
         surface: "rgba(255, 255, 255, 0.94)", surfaceSoft: "#f8f7fb",
         line: "rgba(26, 25, 34, 0.10)", lineSoft: "rgba(26, 25, 34, 0.06)",
-        status: "#8265b3", danger: "#a7564f",
+        status: "#8265b3", danger: "#a7564f", warning: "#9a6b43", info: "#6574a8",
+        conflict: "#a65d56", fusion: "#6e4f9a",
+      },
+      shadows: {
+        card: "0 16px 42px rgba(82, 60, 120, 0.10)",
+        panel: "0 20px 54px rgba(82, 60, 120, 0.14)",
+        floating: "0 24px 64px rgba(54, 42, 76, 0.18)",
+        button: "0 12px 28px rgba(82, 60, 120, 0.22)",
       },
     },
   };
@@ -56,15 +71,28 @@
   };
 
   const FIELD_GROUPS = [
-    { key: "text", order: "01", title: "文字", description: "正文、标题与辅助信息", paths: ["tokens.colors.ink", "tokens.colors.inkSoft"] },
-    { key: "background", order: "02", title: "背景", description: "页面、卡片与浅色选中态", paths: ["tokens.colors.canvas", "tokens.colors.surface", "tokens.colors.accentSoft"] },
-    { key: "interface", order: "03", title: "界面色", description: "强调、按钮、边框与危险操作", paths: ["tokens.colors.accent", "tokens.colors.accentStrong", "tokens.colors.line", "tokens.colors.danger"] },
-    { key: "radius", order: "04", title: "圆角", description: "控件、卡片与大面板轮廓", paths: ["tokens.radii.small", "tokens.radii.medium", "tokens.radii.large"] },
-    { key: "shadow", order: "05", title: "阴影", description: "卡片与浮层的空间层级", paths: ["tokens.shadows.card", "tokens.shadows.panel"] },
+    { key: "text", title: "文字", description: "正文、标题与辅助信息", paths: ["tokens.colors.ink", "tokens.colors.inkSoft", "tokens.colors.inkFaint"] },
+    { key: "background", title: "背景", description: "页面、卡片与柔和表面", paths: ["tokens.colors.canvas", "tokens.colors.surface", "tokens.colors.surfaceSoft", "tokens.colors.accentSoft"] },
+    { key: "interface", title: "界面色", description: "强调、主要操作与边框", paths: ["tokens.colors.accent", "tokens.colors.accentStrong", "tokens.colors.line", "tokens.colors.lineSoft"] },
+    { key: "semantic", title: "状态色", description: "正常、危险、警告、信息、冲突与融合", paths: ["tokens.colors.status", "tokens.colors.danger", "tokens.colors.warning", "tokens.colors.info", "tokens.colors.conflict", "tokens.colors.fusion"] },
+    { key: "radius", title: "圆角", description: "控件、卡片与大面板轮廓", paths: ["tokens.radii.small", "tokens.radii.medium", "tokens.radii.large"] },
+    { key: "shadow", title: "阴影", description: "卡片与浮层的空间层级", paths: ["tokens.shadows.card", "tokens.shadows.panel"] },
   ];
 
-  const colorLabels = { canvas: "页面背景", surface: "卡片背景", ink: "主要文字", inkSoft: "次级文字", accent: "强调色", accentStrong: "主要按钮", accentSoft: "浅色选中态", line: "边框", danger: "危险操作" };
-  const colorCssNames = { canvas: "canvas", canvasWarm: "canvas-warm", ink: "ink", inkSoft: "ink-soft", inkFaint: "ink-faint", accent: "accent", accentStrong: "accent-strong", accentSoft: "accent-soft", surface: "surface", surfaceSoft: "surface-soft", line: "line", lineSoft: "line-soft", status: "status", danger: "danger" };
+  const colorLabels = {
+    canvas: "页面背景", surface: "卡片背景", surfaceSoft: "柔和表面",
+    ink: "主要文字", inkSoft: "次级文字", inkFaint: "弱化文字",
+    accent: "强调色", accentStrong: "主要操作色", accentSoft: "浅色选中态",
+    line: "边框", lineSoft: "弱边框", status: "正常状态", danger: "危险操作",
+    warning: "警告提示", info: "信息提示", conflict: "冲突标记", fusion: "融合操作",
+  };
+  const colorCssNames = {
+    canvas: "canvas", canvasWarm: "canvas-warm", ink: "ink", inkSoft: "ink-soft",
+    inkFaint: "ink-faint", accent: "accent", accentStrong: "accent-strong",
+    accentSoft: "accent-soft", surface: "surface", surfaceSoft: "surface-soft",
+    line: "line", lineSoft: "line-soft", status: "status", danger: "danger",
+    warning: "warning", info: "info", conflict: "conflict", fusion: "fusion",
+  };
   const radiusLabels = { small: "小控件", medium: "普通卡片", large: "大面板" };
   const radiusCssNames = { extraSmall: "xs", small: "sm", medium: "md", large: "lg", pill: "pill" };
   const shadowLabels = { card: "卡片阴影", panel: "面板阴影" };
@@ -103,7 +131,19 @@
     if (kind === "color" && !cssSupports("color", clean)) throw new Error(`${label}不是合法颜色`);
     if (kind === "dimension" && !/^\d+(?:\.\d+)?(px|rem)$/.test(clean)) throw new Error(`${label}必须使用 px 或 rem`);
     if (kind === "shadow" && clean !== "none" && !cssSupports("box-shadow", clean)) throw new Error(`${label}不是合法阴影`);
+    if (kind === "duration" && !/^\d+(?:\.\d+)?ms$/.test(clean)) throw new Error(`${label}必须使用 ms`);
+    if (kind === "easing" && !/^(ease|ease-in|ease-out|ease-in-out|linear|cubic-bezier\(\s*-?\d*\.?\d+\s*,\s*-?\d*\.?\d+\s*,\s*-?\d*\.?\d+\s*,\s*-?\d*\.?\d+\s*\))$/.test(clean)) {
+      throw new Error(`${label}不是支持的缓动曲线`);
+    }
     return clean;
+  }
+
+  function tokenKind(group, name) {
+    if (group === "colors") return "color";
+    if (group === "radii" || group === "spacing") return "dimension";
+    if (group === "shadows") return "shadow";
+    if (group === "motion") return name === "easing" ? "easing" : "duration";
+    return "text";
   }
 
   function normalizeLogoAsset(input) {
@@ -155,6 +195,78 @@
     return "#397052";
   }
 
+  function parseShadowColor(value) {
+    const clean = String(value || "").trim();
+    const hex = clean.match(/^#([0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i);
+    if (hex) {
+      let digits = hex[1];
+      if (digits.length <= 4) digits = digits.split("").map(digit => `${digit}${digit}`).join("");
+      const hasAlpha = digits.length === 8;
+      return {
+        color: `#${digits.slice(0, 6).toLowerCase()}`,
+        opacity: hasAlpha ? Math.round((parseInt(digits.slice(6), 16) / 255) * 100) : 100,
+      };
+    }
+    const rgb = clean.match(/^rgba?\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)(?:\s*,\s*(\d*\.?\d+)\s*)?\)$/i);
+    if (!rgb) return null;
+    return {
+      color: `#${rgb.slice(1, 4).map(channel => Math.max(0, Math.min(255, Math.round(Number(channel)))).toString(16).padStart(2, "0")).join("")}`,
+      opacity: Math.round(Math.max(0, Math.min(1, rgb[4] === undefined ? 1 : Number(rgb[4]))) * 100),
+    };
+  }
+
+  function parseShadowValue(value) {
+    const clean = String(value || "").trim();
+    if (!clean || clean === "none") return null;
+    const colorMatch = clean.match(/(rgba?\([^)]*\)|#[0-9a-f]{3,8})\s*$/i);
+    if (!colorMatch) return null;
+    const color = parseShadowColor(colorMatch[1]);
+    const lengths = clean.slice(0, colorMatch.index).trim().split(/\s+/);
+    if (!color || lengths.length < 3 || lengths.length > 4) return null;
+    if (!lengths.every(length => /^-?(?:\d+(?:\.\d+)?|\.\d+)(?:px)?$/i.test(length) && (/px$/i.test(length) || Number(length) === 0))) return null;
+    const numbers = lengths.map(Number.parseFloat);
+    if (numbers[2] < 0) return null;
+    return {
+      x: numbers[0],
+      y: numbers[1],
+      blur: numbers[2],
+      spread: numbers[3] || 0,
+      color: color.color,
+      opacity: color.opacity,
+    };
+  }
+
+  function formatShadowNumber(value) {
+    const rounded = Math.round(Number(value) * 100) / 100;
+    return Object.is(rounded, -0) ? "0" : String(rounded);
+  }
+
+  function formatShadowLength(value) {
+    const number = Number(value);
+    return number === 0 ? "0" : `${formatShadowNumber(number)}px`;
+  }
+
+  function shadowColorToRgba(hex, opacity) {
+    const clean = String(hex || "").replace("#", "");
+    const channels = [0, 2, 4].map(index => parseInt(clean.slice(index, index + 2), 16));
+    return `rgba(${channels.join(", ")}, ${formatShadowNumber(Number(opacity) / 100)})`;
+  }
+
+  function composeShadowValue(editor) {
+    const values = {};
+    editor.querySelectorAll("[data-shadow-part]").forEach(input => { values[input.dataset.shadowPart] = input.value; });
+    const requiredNumbers = ["x", "y", "blur", "spread", "opacity"];
+    if (requiredNumbers.some(key => values[key] === "" || !Number.isFinite(Number(values[key])))) throw new Error("阴影参数必须填写有效数字");
+    if (Number(values.blur) < 0) throw new Error("阴影模糊不能小于 0");
+    if (Number(values.opacity) < 0 || Number(values.opacity) > 100) throw new Error("阴影透明度必须在 0–100 之间");
+    if (!/^#[0-9a-f]{6}$/i.test(values.color || "")) throw new Error("阴影颜色必须使用六位 HEX");
+    return `${formatShadowLength(values.x)} ${formatShadowLength(values.y)} ${formatShadowLength(values.blur)} ${formatShadowLength(values.spread)} ${shadowColorToRgba(values.color, values.opacity)}`;
+  }
+
+  function shadowValueSummary(parts) {
+    return `横向 ${formatShadowNumber(parts.x)} · 纵向 ${formatShadowNumber(parts.y)} · 模糊 ${formatShadowNumber(parts.blur)} · 透明 ${formatShadowNumber(parts.opacity)}%`;
+  }
+
   function tokenCssSuffix(group, name) {
     if (group === "colors") return colorCssNames[name] || name.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`);
     if (group === "radii") return `radius-${radiusCssNames[name] || name}`;
@@ -167,14 +279,25 @@
 
   function applyTheme() {
     const prefix = state.contract.coreTokenPrefix || "--stone-tide-";
+    const properties = {};
     for (const [group, values] of Object.entries(state.theme.tokens)) {
       if (group === "typography") continue;
       for (const [name, value] of Object.entries(values)) {
         if (typeof value !== "string") continue;
         const suffix = tokenCssSuffix(group, name);
-        if (suffix) document.documentElement.style.setProperty(`${prefix}${suffix}`, value);
+        if (!suffix) continue;
+        const property = `${prefix}${suffix}`;
+        document.documentElement.style.setProperty(property, value);
+        properties[property] = value;
       }
     }
+    try {
+      sessionStorage.setItem(MODULE_THEME_BRIDGE_KEY, JSON.stringify({
+        version: 1,
+        name: String(state.theme.name || "Custom").slice(0, 60),
+        properties,
+      }));
+    } catch {}
     applyLogo();
   }
 
@@ -190,13 +313,25 @@
 
   function normalize(input) {
     const defaults = state.contract.defaults;
-    const theme = merge(defaults, input);
-    theme.$schema = state.contract.$schema;
-    theme.version = state.contract.version;
-    theme.name = String(theme.name || defaults.name).trim().slice(0, 60);
-    theme.description = String(theme.description || "").trim().slice(0, 240);
-    theme.assets = { logo: normalizeLogoAsset(theme.assets?.logo) };
-    for (const definition of fieldDefinitions()) set(theme, definition.path, validateValue(definition.kind, definition.label, get(theme, definition.path)));
+    const inputVersion = Number(input?.version || 1);
+    if (![1, 2, 3].includes(inputVersion)) throw new Error(`不支持 version: ${inputVersion} 的主题文件`);
+    const merged = merge(defaults, input);
+    const theme = {
+      $schema: state.contract.$schema,
+      version: state.contract.version,
+      name: String(merged.name || defaults.name).trim().slice(0, 60),
+      assets: { logo: normalizeLogoAsset(merged.assets?.logo) },
+      tokens: {},
+    };
+    const safeTokens = {};
+    for (const [group, defaultValues] of Object.entries(defaults.tokens)) {
+      safeTokens[group] = {};
+      for (const [name, fallback] of Object.entries(defaultValues)) {
+        const value = group === "typography" ? fallback : merged.tokens?.[group]?.[name] ?? fallback;
+        safeTokens[group][name] = validateValue(tokenKind(group, name), `${group}.${name}`, value);
+      }
+    }
+    theme.tokens = safeTokens;
     return theme;
   }
 
@@ -220,6 +355,7 @@
 
   async function chooseLogo(file) {
     if (!file) return;
+    logoStatus("");
     try {
       if (!LOGO_TYPES.has(file.type)) throw new Error("请选择 PNG 或 WebP 图片");
       if (file.size > MAX_LOGO_FILE_SIZE) throw new Error("图片不能超过 200KB");
@@ -230,9 +366,11 @@
       };
       applyLogo();
       renderLogoMeta();
+      logoStatus("");
       status("Logo 正在预览，保存主题后正式保留");
     } catch (error) {
-      status(`Logo 上传失败：${error.message}`, true);
+      logoStatus(`Logo 上传失败：${error.message}`, true);
+      status("");
     }
   }
 
@@ -241,7 +379,10 @@
     const meta = $("#theme-logo-meta");
     const remove = $("#remove-theme-logo");
     if (meta) meta.textContent = logo ? `${logo.width}×${logo.height} · ${(logo.size / 1024).toFixed(1)}KB${logo.contributor ? ` · 贡献人：${logo.contributor}` : ""}` : "推荐透明背景；参考规格 1079×507、约 140KB";
-    if (remove) remove.hidden = !logo;
+    if (remove) {
+      remove.hidden = false;
+      remove.disabled = !logo;
+    }
     applyLogo();
   }
 
@@ -251,7 +392,7 @@
     state.theme = normalize(merge(state.contract.defaults, {
       name: preset.name,
       description: preset.description,
-      tokens: { colors: preset.colors },
+      tokens: { colors: preset.colors, shadows: preset.shadows },
     }));
     applyTheme();
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state.theme));
@@ -262,6 +403,7 @@
   function chooseCommunityLogo() {
     state.theme.assets = { logo: normalizeLogoAsset(COMMUNITY_LOGO) };
     renderLogoMeta();
+    logoStatus("");
     status("已选用花体藤蔓 Logo · 贡献人：@小绒太尉；保存主题后正式保留");
   }
 
@@ -286,11 +428,39 @@
     target.classList.toggle("error", error);
   }
 
+  function logoStatus(message, error = false) {
+    const target = $("#theme-logo-status");
+    if (!target) return;
+    target.textContent = message;
+    target.classList.toggle("error", error);
+  }
+
   function renderField(definition) {
     const value = get(state.theme, definition.path);
+    const displayValue = definition.kind === "color" ? colorToHex(value).toLowerCase() : value;
     const inputId = `theme-${definition.path.replaceAll(".", "-")}`;
-    const colorPicker = definition.kind === "color" ? `<input class="theme-color-picker" type="color" data-color-path="${escapeHtml(definition.path)}" value="${colorToHex(value)}" aria-label="打开${escapeHtml(definition.label)}色盘" title="点击打开色盘">` : "";
-    return `<div class="theme-field ${definition.kind === "color" ? "is-color" : ""}"><label for="${inputId}">${escapeHtml(definition.label)}</label><div class="theme-control">${colorPicker}<input id="${inputId}" class="theme-value-input" data-path="${escapeHtml(definition.path)}" value="${escapeHtml(value)}" spellcheck="false" aria-label="${escapeHtml(definition.label)}代码"></div></div>`;
+    const colorPicker = definition.kind === "color" ? `<input class="theme-color-picker" type="color" data-color-path="${escapeHtml(definition.path)}" value="${displayValue}" aria-label="打开${escapeHtml(definition.label)}色盘" title="点击打开色盘">` : "";
+    return `<div class="theme-field ${definition.kind === "color" ? "is-color" : ""}"><label for="${inputId}">${escapeHtml(definition.label)}</label><div class="theme-control">${colorPicker}<input id="${inputId}" class="theme-value-input" data-path="${escapeHtml(definition.path)}" value="${escapeHtml(displayValue)}" spellcheck="false" aria-label="${escapeHtml(definition.label)}代码"></div></div>`;
+  }
+
+  function renderShadowField(definition) {
+    const value = get(state.theme, definition.path);
+    const parts = parseShadowValue(value);
+    const inputId = `theme-${definition.path.replaceAll(".", "-")}`;
+    if (!parts) {
+      return `<div class="theme-shadow-field theme-shadow-raw"><header><strong>${escapeHtml(definition.label)}</strong><small>复杂旧值，保留原始 CSS 编辑</small></header><div class="theme-field"><label for="${inputId}">原始 CSS</label><div class="theme-control"><input id="${inputId}" class="theme-value-input" data-path="${escapeHtml(definition.path)}" value="${escapeHtml(value)}" spellcheck="false" aria-label="${escapeHtml(definition.label)}原始 CSS"></div></div></div>`;
+    }
+    const partInput = (part, label) => {
+      const partId = `${inputId}-${part}`;
+      return `<div class="theme-field theme-shadow-part"><label for="${partId}">${label}</label><div class="theme-control"><input id="${partId}" class="theme-value-input" inputmode="decimal" data-shadow-part="${part}" value="${escapeHtml(formatShadowNumber(parts[part]))}" aria-label="${escapeHtml(definition.label)}${label}"></div></div>`;
+    };
+    const colorId = `${inputId}-color`;
+    const colorField = `<div class="theme-field theme-shadow-part is-color"><label for="${colorId}">颜色</label><div class="theme-control"><input class="theme-color-picker" type="color" data-shadow-color-part="color" value="${escapeHtml(parts.color)}" aria-label="打开${escapeHtml(definition.label)}色盘" title="点击打开色盘"><input id="${colorId}" class="theme-value-input" data-shadow-part="color" value="${escapeHtml(parts.color)}" spellcheck="false" aria-label="${escapeHtml(definition.label)}颜色代码"></div></div>`;
+    return `<div class="theme-shadow-field" data-shadow-path="${escapeHtml(definition.path)}"><header><strong>${escapeHtml(definition.label)}</strong><small data-shadow-summary>${escapeHtml(shadowValueSummary(parts))}</small></header><div class="theme-shadow-parts">${partInput("x", "横向偏移")}${partInput("y", "纵向偏移")}${partInput("blur", "模糊")}${partInput("spread", "扩散")}${colorField}${partInput("opacity", "透明度 %")}</div></div>`;
+  }
+
+  function renderShadowGroup(group, definitions) {
+    return `<details class="token-group token-group-shadow theme-shadow-group"><summary><span><strong>${escapeHtml(group.title)}</strong><small>${escapeHtml(group.description)}；展开后分别调整位置、模糊、扩散、颜色和透明度</small></span><i aria-hidden="true">⌄</i></summary><div class="token-group-fields">${definitions.map(renderShadowField).join("")}</div></details>`;
   }
 
   function activePresetName() {
@@ -316,13 +486,14 @@
       { id: "pearl", label: "Pearl Tide", theme: merge(state.contract.defaults, { tokens: { colors: { canvas: "#f7fafc", ink: "#253447", accent: "#4c6378" } } }) },
       { id: "harbor", label: "Harbor", theme: merge(state.contract.defaults, { tokens: { colors: { canvas: "#f4f2ef", ink: "#36404b", accent: "#4a5d6c" } } }) }
     ];
-    target.innerHTML = builtIns.map(paletteCard).join("") + state.customThemes.map((item, index) => paletteCard({ id: item.name, label: item.theme.name, theme: item.theme, customIndex: index })).join("") + `<button class="theme-swatch theme-swatch-add" id="add-theme" type="button" title="添加自定义主题"><span class="theme-swatch-color theme-swatch-add-color"><i>+</i></span><span class="theme-swatch-name">添加主题</span></button><button class="theme-swatch theme-swatch-more" id="more-themes" type="button" title="浏览社区主题"><span class="theme-swatch-color theme-swatch-add-color"><i>•••</i></span><span class="theme-swatch-name">更多主题</span></button>`;
+    target.innerHTML = builtIns.map(paletteCard).join("") + state.customThemes.map((item, index) => paletteCard({ id: item.name, label: item.theme.name, theme: item.theme, customIndex: index })).join("") + `<button class="theme-swatch theme-swatch-add" id="add-theme" type="button" title="添加自定义主题"><span class="theme-swatch-color theme-swatch-add-color"><i>+</i></span><span class="theme-swatch-name">添加主题</span></button><button class="theme-swatch theme-swatch-more" id="more-themes" type="button" title="浏览社区主题"><span class="theme-swatch-color theme-swatch-add-color"><i class="theme-more-dots" aria-hidden="true"><b></b><b></b><b></b></i></span><span class="theme-swatch-name">更多主题</span></button>`;
   }
   function renderFields() {
     const definitions = fieldDefinitions();
     $("#theme-fields").innerHTML = FIELD_GROUPS.map(group => {
       const groupFields = group.paths.map(path => definitions.find(definition => definition.path === path)).filter(Boolean);
-      return `<section class="token-group token-group-${group.key}"><header class="token-group-head"><span>${group.order}</span><div><h3>${group.title}</h3><p>${group.description}</p></div></header><div class="token-group-fields" style="--field-count:${groupFields.length}">${groupFields.map(renderField).join("")}</div></section>`;
+      if (group.key === "shadow") return renderShadowGroup(group, groupFields);
+      return `<section class="token-group token-group-${group.key}"><header class="token-group-head"><h3>${group.title}</h3><p>${group.description}</p></header><div class="token-group-fields">${groupFields.map(renderField).join("")}</div></section>`;
     }).join("");
     $("#theme-name").value = state.theme.name;
     const activePreset = activePresetName();
@@ -331,13 +502,64 @@
     renderLogoMeta();
   }
 
+  function createUtilityGroup(title, description, className) {
+    const section = document.createElement("section");
+    section.className = `token-group token-group-utility ${className}`;
+    section.setAttribute("aria-label", title);
+    section.innerHTML = `<header class="token-group-head"><h3>${title}</h3><p>${description}</p></header><div class="theme-group-body"></div>`;
+    return { section, body: section.querySelector(".theme-group-body") };
+  }
+
+  function promoteUtilityGroups() {
+    const card = $(".theme-card");
+    const topbar = $(".theme-topbar");
+    const originalTokenStack = $("#theme-fields");
+    if (!card || !topbar || !originalTokenStack) return;
+
+    const themeGroup = createUtilityGroup("主题", "命名、保存、导入与切换主题", "token-group-theme");
+    const logoGroup = createUtilityGroup("品牌图标", $("#theme-logo-meta")?.textContent || "上传、替换或恢复品牌图片", "token-group-logo");
+    const logoMeta = logoGroup.section.querySelector(".token-group-head p");
+    logoMeta.id = "theme-logo-meta";
+
+    const paletteLabel = $(".theme-palette-row .theme-palette-label");
+    if (paletteLabel) paletteLabel.textContent = "可用主题";
+    $("#save-theme").textContent = "保存主题";
+    $("#reset-theme").textContent = "恢复原版";
+    $("#export-theme").textContent = "导出当前主题";
+    $(".advanced-copy").innerHTML = `<p>导出的 JSON 使用 version 3 精简契约，只保留主题名称、品牌资源与当前令牌，不再输出旧版简介字段。</p><p>已有 version 1 和 version 2 主题仍可导入，会自动补齐缺少字段并迁移为 version 3；未知字段不会写入 CSS。</p><p>Logo 随主题 JSON 一同导出；支持 PNG/WebP，最大 200KB，宽 320–1600px、高 160–1000px。</p>`;
+    $("#save-theme").after($("#reset-theme"));
+    themeGroup.body.append($(".theme-name-row"), $(".theme-palette-row"), $("#community-theme-panel"), $("#theme-status"));
+    logoGroup.body.append($(".theme-logo-controls"), $("#community-logo-panel"));
+
+    const tokenFields = document.createElement("div");
+    tokenFields.id = "theme-fields";
+    tokenFields.className = "theme-token-groups";
+    while (originalTokenStack.firstChild) tokenFields.append(originalTokenStack.firstChild);
+    originalTokenStack.id = "theme-group-stack";
+    originalTokenStack.append(themeGroup.section, logoGroup.section, tokenFields);
+
+    const workbench = document.createElement("section");
+    workbench.className = "theme-card theme-workbench-card";
+    const supportCard = document.createElement("section");
+    supportCard.className = "theme-support-card";
+    supportCard.setAttribute("aria-label", "主题预览与兼容性");
+    supportCard.append($(".theme-state-preview"), $(".advanced-json"));
+    workbench.append(originalTokenStack, supportCard);
+    card.classList.add("theme-topbar");
+    card.after(workbench);
+    $(".theme-actions").remove();
+    topbar.remove();
+    renderLogoMeta();
+  }
+
   function applyFieldValue(definition, value) {
     set(state.theme, definition.path, value);
     document.documentElement.style.setProperty(definition.css, value);
     const codeInput = document.querySelector(`[data-path="${definition.path}"]`);
     const colorInput = document.querySelector(`[data-color-path="${definition.path}"]`);
-    if (codeInput && codeInput.value !== value) codeInput.value = value;
-    if (colorInput) colorInput.value = colorToHex(value);
+    const displayValue = definition.kind === "color" ? colorToHex(value).toLowerCase() : value;
+    if (codeInput && codeInput.value !== displayValue) codeInput.value = displayValue;
+    if (colorInput) colorInput.value = colorToHex(value).toLowerCase();
   }
 
   function save() {
@@ -353,7 +575,15 @@
   }
 
   function exportTheme() {
-    const blob = new Blob([`${JSON.stringify(state.theme, null, 2)}\n`], { type: "application/json" });
+    state.theme = normalize(state.theme);
+    const exportedTheme = {
+      $schema: state.contract.$schema,
+      version: state.contract.version,
+      name: state.theme.name,
+      assets: clone(state.theme.assets),
+      tokens: clone(state.theme.tokens),
+    };
+    const blob = new Blob([`${JSON.stringify(exportedTheme, null, 2)}\n`], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     const name = state.theme.name.toLowerCase().replace(/[^\w\u3400-\u9fff-]+/gu, "-").replace(/^-+|-+$/g, "") || "stone-theme";
@@ -390,7 +620,8 @@
           accent: "#4c6378", accentStrong: "#2c4056", accentSoft: "#eef4fa",
           surface: "rgba(247, 250, 252, 0.92)", surfaceSoft: "rgba(244, 248, 250, 0.42)",
           line: "rgba(120, 142, 165, 0.24)", lineSoft: "rgba(151, 169, 181, 0.18)",
-          status: "#5fbf8f", danger: "#cf8d92",
+          status: "#5fbf8f", danger: "#cf8d92", warning: "#8a6542", info: "#5f7196",
+          conflict: "#a65d56", fusion: "#765a96",
         },
       },
       harbor: {
@@ -401,7 +632,8 @@
           accent: "#4a5d6c", accentStrong: "#4a5d6c", accentSoft: "#efebe8",
           surface: "rgba(244, 242, 239, 0.92)", surfaceSoft: "rgba(234, 230, 228, 0.62)",
           line: "rgba(74, 93, 108, 0.20)", lineSoft: "rgba(151, 169, 181, 0.18)",
-          status: "#6fa98c", danger: "#cf8d92",
+          status: "#6fa98c", danger: "#cf8d92", warning: "#8a6542", info: "#5f7196",
+          conflict: "#a65d56", fusion: "#765a96",
         },
       },
     }[name];
@@ -429,8 +661,12 @@
   }
 
   function render() {
-    $("#theme-studio-mount").innerHTML = `<section class="theme-card"><div class="theme-card-head"><div><p class="eyebrow">THEME STRUCTURE</p><h2>按视觉职责调整</h2><p>每一排只处理一种视觉职责。颜色项可点左侧色块打开色盘，也可以直接输入 HEX、RGB 或 HSL。</p><small class="theme-credit">工作台贡献人：@钦天监秋</small></div><span class="theme-file-badge">TOKEN v${state.contract.version}</span></div><div class="theme-topbar"><div class="theme-name-row"><label class="theme-field theme-name-field"><span>主题名称</span><input id="theme-name" maxlength="60"></label><div class="theme-inline-actions"><button class="primary" id="save-theme" type="button">保存自定义主题</button><button class="secondary" id="export-theme" type="button">导出目前主题</button><label class="secondary theme-inline-upload" for="import-theme">导入主题 JSON</label><input id="import-theme" type="file" accept="application/json,.json" hidden></div></div><div class="theme-palette-row"><span class="theme-palette-label">主题</span><div id="theme-palette" class="theme-palette"></div></div><div id="community-theme-panel" class="community-assets" hidden><button type="button" data-community-theme="garden"><i style="--community-a:#f5f0eb;--community-b:#db9ed3;--community-c:#62786d"></i><span><strong>苔粉花园</strong><small>贡献人：@小绒太尉</small></span></button><button type="button" data-community-theme="purpleGray"><i style="--community-a:#f4f3f7;--community-b:#6e4f9a;--community-c:#523c78"></i><span><strong>紫灰仪表盘</strong><small>贡献人：@小绒太尉</small></span></button></div><section class="theme-logo-row"><div><span class="theme-palette-label">品牌图标</span><p id="theme-logo-meta">推荐透明背景；参考规格 1079×507、约 140KB</p></div><div class="theme-logo-controls"><div id="theme-logo-preview" class="theme-logo-preview empty"><span>使用磐石原版石头小花</span></div><div class="theme-logo-buttons"><label class="secondary theme-inline-upload" for="import-theme-logo">选择图片</label><input id="import-theme-logo" type="file" accept="image/png,image/webp,.png,.webp" hidden><button class="secondary" id="more-theme-images" type="button">更多图片</button><button class="ghost" id="remove-theme-logo" type="button" hidden>恢复原图</button></div></div></section><div id="community-logo-panel" class="community-assets community-logo-assets" hidden><button type="button" id="use-community-logo"><img src="/stone-memory-logo.png" alt=""><span><strong>花体藤蔓 Stone Memory</strong><small>1079×507 · 139.7KB · 贡献人：@小绒太尉</small></span></button></div><div id="theme-fields" class="theme-groups"></div><details class="advanced-json"><summary><span><strong>高级 JSON 与兼容性</strong><small>完整令牌、版本契约与跨版本适配</small></span><i>⌄</i></summary><div class="advanced-copy"><p>导出的 JSON 使用稳定的 version 1 契约。磐石记忆后续调整页面时，只要继续使用 <code>--stone-tide-*</code> 语义变量，主题文件无需跟着页面选择器修改。</p><p>Logo 随主题 JSON 一同导出；支持 PNG/WebP，最大 200KB，宽 320–1600px、高 160–1000px。</p><p>缺少的新字段会回退到当前契约默认值，未知字段不会写入 CSS。</p></div></details><div class="theme-actions"><button class="ghost" id="reset-theme" type="button">恢复磐石原版</button><span id="theme-status" role="status" aria-live="polite"></span></div></section>`;
+    $("#theme-studio-mount").innerHTML = `<section class="theme-card"><div class="theme-card-head"><p class="eyebrow">THEME STRUCTURE</p><h2>按视觉职责调整</h2><p class="theme-card-intro">每一排只处理一种视觉职责。颜色项可点左侧色块打开色盘，也可以直接输入 HEX、RGB 或 HSL。</p><div class="theme-card-meta"><small class="theme-credit">工作台贡献人：@钦天监秋</small><span class="theme-file-badge">TOKEN v${state.contract.version}</span></div></div><div class="theme-topbar"><div class="theme-name-row"><label class="theme-field theme-name-field"><span>主题名称</span><input id="theme-name" maxlength="60"></label><div class="theme-inline-actions"><button class="primary" id="save-theme" type="button">保存自定义主题</button><button class="secondary" id="export-theme" type="button">导出目前主题</button><label class="secondary theme-inline-upload" for="import-theme">导入主题 JSON</label><input id="import-theme" type="file" accept="application/json,.json" hidden></div></div><div class="theme-palette-row"><span class="theme-palette-label">主题</span><div id="theme-palette" class="theme-palette"></div></div><div id="community-theme-panel" class="community-assets" hidden><button type="button" data-community-theme="garden"><i style="--community-a:#f5f0eb;--community-b:#db9ed3;--community-c:#a965a0"></i><span><strong>苔粉花园</strong><small>贡献人：@小绒太尉</small></span></button><button type="button" data-community-theme="purpleGray"><i style="--community-a:#f4f3f7;--community-b:#6e4f9a;--community-c:#523c78"></i><span><strong>紫灰仪表盘</strong><small>贡献人：@小绒太尉</small></span></button></div><section class="theme-logo-row"><div><span class="theme-palette-label">品牌图标</span><p id="theme-logo-meta">推荐透明背景；参考规格 1079×507、约 140KB</p></div><div class="theme-logo-controls"><div id="theme-logo-preview" class="theme-logo-preview empty"><span>使用磐石原版石头小花</span></div><div class="theme-logo-buttons"><label class="secondary theme-inline-upload" for="import-theme-logo">选择图片</label><input id="import-theme-logo" type="file" accept="image/png,image/webp,.png,.webp" hidden><button class="secondary" id="more-theme-images" type="button">更多图片</button><button class="ghost" id="remove-theme-logo" type="button" hidden>恢复原图</button></div></div></section><div id="community-logo-panel" class="community-assets community-logo-assets" hidden><button type="button" id="use-community-logo"><img src="/stone-memory-logo.png" alt=""><span><strong>花体藤蔓 Stone Memory</strong><small>1079×507 · 139.7KB · 贡献人：@小绒太尉</small></span></button></div><div id="theme-fields" class="theme-groups"></div><section class="theme-state-preview" aria-label="主题状态预览"><div><span class="theme-palette-label">月历强度</span><div class="theme-calendar-preview"><i class="level-0" title="无活动"></i><i class="level-1" title="低活动"></i><i class="level-2" title="中活动"></i><i class="level-3" title="高活动"></i></div></div><div><span class="theme-palette-label">业务状态</span><div class="theme-status-preview"><i class="status">正常</i><i class="warning">警告</i><i class="info">信息</i><i class="conflict">冲突</i><i class="fusion">融合</i><i class="danger">危险</i></div></div></section><details class="advanced-json"><summary><span><strong>高级 JSON 与兼容性</strong><small>完整令牌、版本契约与跨版本适配</small></span><i>⌄</i></summary><div class="advanced-copy"><p>导出的 JSON 使用 version 2 契约，新增正常、警告、信息、冲突与融合等业务状态色。</p><p>已有 version 1 主题会自动补齐缺少字段并迁移为 version 2；未知字段不会写入 CSS。</p><p>Logo 随主题 JSON 一同导出；支持 PNG/WebP，最大 200KB，宽 320–1600px、高 160–1000px。</p></div></details><div class="theme-actions"><button class="ghost" id="reset-theme" type="button">恢复磐石原版</button><span id="theme-status" role="status" aria-live="polite"></span></div></section>`;
+    $("#theme-logo-preview").insertAdjacentHTML("afterend", `<small id="theme-logo-status" class="theme-logo-status" role="status" aria-live="polite"></small>`);
+    $(".theme-calendar-preview").insertAdjacentHTML("beforebegin", `<small class="theme-preview-hint">活动强度复用“界面色 → 强调色”，按 18% / 44% / 100% 逐级加深。</small>`);
+    $(".theme-status-preview").insertAdjacentHTML("beforebegin", `<small class="theme-preview-hint">分别跟随“状态色”中的正常、警告、信息、冲突、融合与危险颜色。</small>`);
     renderFields();
+    promoteUtilityGroups();
   }
 
   async function init() {
@@ -438,13 +674,44 @@
       state.contract = await fetch(CONTRACT_URL).then(response => { if (!response.ok) throw new Error(`主题契约加载失败 (${response.status})`); return response.json(); });
       state.customThemes = readCustomThemes();
       const saved = localStorage.getItem(STORAGE_KEY);
-      state.theme = normalize(saved ? JSON.parse(saved) : state.contract.defaults);
+      const parsedSaved = saved ? JSON.parse(saved) : state.contract.defaults;
+      state.theme = normalize(parsedSaved);
+      if (saved && Number(parsedSaved.version || 1) !== state.contract.version) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state.theme));
+      }
+      if (state.customThemes.length) writeCustomThemes();
       applyTheme();
       render();
 
       document.addEventListener("input", event => {
         const input = event.target;
         if (input.id === "theme-name") { state.theme.name = input.value; return; }
+        const shadowEditor = input.closest?.("[data-shadow-path]");
+        const shadowPart = input.dataset.shadowPart || input.dataset.shadowColorPart;
+        if (shadowEditor && shadowPart) {
+          const definition = fieldDefinitions().find(item => item.path === shadowEditor.dataset.shadowPath);
+          if (!definition) return;
+          try {
+            if (input.dataset.shadowColorPart) {
+              const colorCode = shadowEditor.querySelector('[data-shadow-part="color"]');
+              if (colorCode) colorCode.value = input.value.toLowerCase();
+            } else if (input.dataset.shadowPart === "color" && /^#[0-9a-f]{6}$/i.test(input.value)) {
+              const colorPicker = shadowEditor.querySelector("[data-shadow-color-part]");
+              if (colorPicker) colorPicker.value = input.value.toLowerCase();
+            }
+            const value = validateValue("shadow", definition.label, composeShadowValue(shadowEditor));
+            applyFieldValue(definition, value);
+            shadowEditor.querySelectorAll("[data-shadow-part], [data-shadow-color-part]").forEach(control => control.removeAttribute("aria-invalid"));
+            const summary = shadowEditor.querySelector("[data-shadow-summary]");
+            const parsed = parseShadowValue(value);
+            if (summary && parsed) summary.textContent = shadowValueSummary(parsed);
+            status("正在预览，尚未保存");
+          } catch (error) {
+            input.setAttribute("aria-invalid", "true");
+            status(error.message, true);
+          }
+          return;
+        }
         const definition = fieldDefinitions().find(item => item.path === (input.dataset.colorPath || input.dataset.path));
         if (!definition) return;
         try {
@@ -471,7 +738,7 @@
           applyTheme();
           renderFields();
           $("#theme-name")?.focus();
-          status("已创建新的主题草稿，修改颜色后点击保存自定义主题");
+          status("已创建新的主题草稿，修改颜色后点击保存主题");
           return;
         }
         const moreThemesButton = event.target.closest("#more-themes");
@@ -518,6 +785,7 @@
       $("#remove-theme-logo").onclick = () => {
         state.theme.assets = { logo: null };
         renderLogoMeta();
+        logoStatus("");
         status("已恢复原版石头小花，保存主题后正式保留");
       };
 
