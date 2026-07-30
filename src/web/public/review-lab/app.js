@@ -251,7 +251,18 @@ function renderCandidateDetail(candidate) {
     const engine = chunk.channel === "api"
       ? [chunk.provider, chunk.model].filter(Boolean).join(" / ")
       : ["Subagent", chunk.runtime, chunk.model].filter(Boolean).join(" / ");
-    return `<li>${escapeHtml(chunk.timeLabel || `第 ${chunk.index} 块`)} · ${chunk.messageCount || 0} 条 / ${Math.round((chunk.inputBytes || 0) / 1024)}KB → ${chunk.outputCount || 0} 条摘要${chunk.empty ? "（明确返回空数组）" : ""}${engine ? ` · ${escapeHtml(engine)}` : ""}</li>`;
+    const feelingRecovery = chunk.recoveryStatus === "format_repaired"
+      ? "摘要 JSON 已由 Subagent 修复并通过复验"
+      : chunk.recoveryStatus === "subagent_takeover"
+        ? "摘要已由 Subagent 接管并通过复验"
+        : "";
+    const featureRecovery = chunk.featureRecoveryStatus === "format_repaired"
+      ? "特征 JSON 已由 Subagent 修复并通过复验"
+      : chunk.featureRecoveryStatus === "subagent_takeover"
+        ? "特征已由 Subagent 接管并通过复验"
+        : "";
+    const recovery = [feelingRecovery, featureRecovery].filter(Boolean);
+    return `<li>${escapeHtml(chunk.timeLabel || `第 ${chunk.index} 块`)} · ${chunk.messageCount || 0} 条 / ${Math.round((chunk.inputBytes || 0) / 1024)}KB → ${chunk.outputCount || 0} 条摘要${chunk.empty ? "（明确返回空数组）" : ""}${engine ? ` · ${escapeHtml(engine)}` : ""}${recovery.length ? `<strong> · ${recovery.map(escapeHtml).join("；")}</strong>` : ""}</li>`;
   }).join("");
   return `<div class="candidate-detail">
     <div class="candidate-head">

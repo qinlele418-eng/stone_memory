@@ -703,8 +703,15 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
         this._chunkPrompt(datedPrompt, index, chunks.length, raw, isFeature ? "features" : label),
         { model, expectedKey: isFeature ? "features" : "feelings" },
       );
+      const recovery = this._lastApiRecovery;
       if (!isFeature) {
-        this._recordFeelingChunk(chunks[index], index, chunks.length, Array.isArray(result) ? result : [], "api", { model });
+        this._recordFeelingChunk(chunks[index], index, chunks.length, Array.isArray(result) ? result : [], "api", {
+          model,
+          recovery,
+        });
+      } else if (recovery && this.chunkReport[index]) {
+        this.chunkReport[index].featureRecoveryStatus = recovery.status;
+        this.chunkReport[index].featureRecoveryMessage = recovery.message;
       }
       if (Array.isArray(result)) raw.push(...result);
     }

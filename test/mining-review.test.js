@@ -65,6 +65,10 @@ test("review candidates preserve sanitized shared chunk diagnostics", t => {
     chunkReport: [{
       index: 1, total: 1, channel: "api", provider: "test", model: "test-model",
       timeLabel: "08:00–09:00", messageCount: 12, inputBytes: 2048, outputCount: 0, empty: true,
+      recoveryStatus: "subagent_takeover",
+      recoveryMessage: "API 失败，已接管",
+      featureRecoveryStatus: "format_repaired",
+      featureRecoveryMessage: "特征格式已修复",
     }],
     feelings: [],
   });
@@ -72,6 +76,8 @@ test("review candidates preserve sanitized shared chunk diagnostics", t => {
     index: 1, total: 1, channel: "api", runtime: null, provider: "test", model: "test-model",
     startTime: null, endTime: null, timeLabel: "08:00–09:00",
     messageCount: 12, inputBytes: 2048, outputCount: 0, empty: true,
+    recoveryStatus: "subagent_takeover", recoveryMessage: "API 失败，已接管",
+    featureRecoveryStatus: "format_repaired", featureRecoveryMessage: "特征格式已修复",
   }]);
 });
 

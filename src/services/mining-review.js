@@ -569,6 +569,16 @@ function sanitizeChunkReport(rows) {
     inputBytes: Math.max(0, Number(row.inputBytes) || 0),
     outputCount: Math.max(0, Number(row.outputCount) || 0),
     empty: row.empty === true,
+    recoveryStatus: ["format_repaired", "subagent_takeover"].includes(row.recoveryStatus)
+      ? row.recoveryStatus
+      : null,
+    recoveryMessage: row.recoveryMessage ? String(row.recoveryMessage).slice(0, 500) : null,
+    featureRecoveryStatus: ["format_repaired", "subagent_takeover"].includes(row.featureRecoveryStatus)
+      ? row.featureRecoveryStatus
+      : null,
+    featureRecoveryMessage: row.featureRecoveryMessage
+      ? String(row.featureRecoveryMessage).slice(0, 500)
+      : null,
   }));
 }
 
