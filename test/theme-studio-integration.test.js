@@ -114,6 +114,8 @@ test("semantic theme covers mining calendar states and preserves the developer l
   assert.match(activityLevels, /stone-tide-accent/);
   assert.doesNotMatch(activityLevels, /stone-tide-status/);
   assert.match(coverage, /calendar-day\.mining-deep[\s\S]*stone-tide-status/);
+  assert.match(workbench, /body\.tidal-visual \.maintenance-card i\s*\{[\s\S]*?color:\s*var\(--stone-tide-accent-strong\);[\s\S]*?background:\s*var\(--stone-tide-accent-soft\)/);
+  assert.match(workbench, /body\.tidal-visual \.maintenance-card:hover i\s*\{[\s\S]*?color:\s*var\(--stone-tide-canvas\);[\s\S]*?background:\s*var\(--stone-tide-accent\)/);
   const calendarSurface = coverage.match(/body\.tidal-visual \.activity-calendar,[\s\S]*?\{([\s\S]*?)\}/)?.[1] || "";
   const newCardSurface = coverage.match(/body\.tidal-visual \.new-card\s*\{([\s\S]*?)\}/)?.[1] || "";
   assert.match(calendarSurface, /stone-tide-accent-soft/);

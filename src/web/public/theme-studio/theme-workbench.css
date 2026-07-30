@@ -61,6 +61,18 @@ body.tidal-visual .maintenance-card:hover {
   box-shadow: var(--stone-tide-shadow-panel);
 }
 
+body.tidal-visual .maintenance-card i {
+  color: var(--stone-tide-accent-strong);
+  border: 1px solid var(--stone-tide-line);
+  background: var(--stone-tide-accent-soft);
+}
+
+body.tidal-visual .maintenance-card:hover i {
+  color: var(--stone-tide-canvas);
+  border-color: var(--stone-tide-accent-strong);
+  background: var(--stone-tide-accent);
+}
+
 body.tidal-visual input,
 body.tidal-visual select,
 body.tidal-visual textarea {
