@@ -538,7 +538,11 @@
 
     const workbench = document.createElement("section");
     workbench.className = "theme-card theme-workbench-card";
-    workbench.append(originalTokenStack, $(".theme-state-preview"), $(".advanced-json"));
+    const supportCard = document.createElement("section");
+    supportCard.className = "theme-support-card";
+    supportCard.setAttribute("aria-label", "主题预览与兼容性");
+    supportCard.append($(".theme-state-preview"), $(".advanced-json"));
+    workbench.append(originalTokenStack, supportCard);
     card.classList.add("theme-topbar");
     card.after(workbench);
     $(".theme-actions").remove();

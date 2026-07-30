@@ -214,6 +214,8 @@ test("semantic theme covers mining calendar states and preserves the developer l
   assert.doesNotMatch(standalone.match(/const FIELD_GROUPS = \[[\s\S]*?\];/)?.[0] || "", /\border\s*:/);
   assert.match(standalone, /\$\("#save-theme"\)\.after\(\$\("#reset-theme"\)\)/);
   assert.match(standalone, /workbench\.className\s*=\s*"theme-card theme-workbench-card"/);
+  assert.match(standalone, /supportCard\.className\s*=\s*"theme-support-card"/);
+  assert.match(standalone, /supportCard\.append\(\$\("\.theme-state-preview"\),\s*\$\("\.advanced-json"\)\)/);
   assert.match(standalone, /card\.classList\.add\("theme-topbar"\)/);
   const cardMeta = standaloneCss.match(/\.theme-card-meta\s*\{([\s\S]*?)\}/)?.[1] || "";
   const compactActions = standaloneCss.match(/\.theme-inline-actions button,[\s\S]*?\.theme-inline-upload\s*\{([\s\S]*?)\}/)?.[1] || "";
@@ -263,7 +265,14 @@ test("semantic theme covers mining calendar states and preserves the developer l
   assert.match(standalone, /theme-shadow-raw[\s\S]*?class="theme-field"[\s\S]*?class="theme-control"[\s\S]*?class="theme-value-input"/);
   assert.match(standaloneCss, /\.theme-shadow-group > summary\s*\{[\s\S]*?background:\s*transparent/);
   assert.match(standaloneCss, /\.token-group-shadow\.theme-shadow-group \.token-group-fields\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)/);
+  assert.match(standaloneCss, /\.theme-shadow-group\[open\] > \.token-group-fields\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);[\s\S]*?box-shadow:\s*var\(--stone-tide-shadow-floating\)/);
+  assert.match(standaloneCss, /\.theme-shadow-group\[open\] > \.token-group-fields\s*\{[\s\S]*?border-radius:\s*var\(--stone-tide-radius-lg\)/);
+  assert.match(standaloneCss, /\.theme-shadow-field\s*\{[\s\S]*?border:\s*0;[\s\S]*?border-top:\s*1px solid var\(--stone-tide-line-soft\);[\s\S]*?border-radius:\s*0/);
   assert.match(compactLayout, /\.theme-shadow-parts\s*\{\s*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
+  assert.match(compactLayout, /\.theme-shadow-group\[open\] > \.token-group-fields\s*\{[\s\S]*?border-radius:\s*19px/);
+  assert.match(compactLayout, /\.token-group-shadow \.theme-shadow-part\s*\{[\s\S]*?grid-template-columns:\s*50px minmax\(0,\s*1fr\);[\s\S]*?min-height:\s*32px/);
+  assert.match(compactLayout, /\.token-group-shadow \.theme-shadow-part > label\s*\{[\s\S]*?font-size:\s*12px;[\s\S]*?white-space:\s*nowrap/);
+  assert.match(compactLayout, /\.token-group-shadow \.theme-shadow-part \.theme-color-picker\s*\{[\s\S]*?width:\s*18px\s*!important;[\s\S]*?height:\s*18px\s*!important/);
   assert.doesNotMatch(standaloneCss, /\.theme-shadow-parts input/);
   assert.match(standaloneCss, /\.theme-token-groups\s*\{\s*display:\s*contents;\s*\}/);
   assert.match(standaloneCss, /\.theme-groups\s*\{[\s\S]*?align-items:\s*start;[\s\S]*?align-content:\s*start/);
@@ -271,6 +280,12 @@ test("semantic theme covers mining calendar states and preserves the developer l
   assert.match(tokenFields, /align-content:\s*start/);
   assert.match(standaloneCss, /\.theme-groups > \.token-group:first-child\s*\{\s*border-top:\s*0;\s*\}/);
   assert.match(standaloneCss, /@media \(min-width:\s*900px\)[\s\S]*?grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
+  assert.match(standaloneCss, /@media \(min-width:\s*900px\)[\s\S]*?\.theme-workbench-card\s*\{[\s\S]*?background:\s*transparent;[\s\S]*?box-shadow:\s*none/);
+  assert.match(standaloneCss, /\.theme-groups::before,\s*\.theme-groups::after\s*\{[\s\S]*?inset-block:\s*0;[\s\S]*?width:\s*calc\(\(100%\s*-\s*22px\)\s*\/\s*2\)/);
+  assert.match(standaloneCss, /\.theme-groups::before\s*\{\s*left:\s*0;\s*\}[\s\S]*?\.theme-groups::after\s*\{\s*right:\s*0;\s*\}/);
+  assert.match(standaloneCss, /\.token-group-logo,\s*\.theme-token-groups > \.token-group:nth-child\(even\)\s*\{[\s\S]*?border-left:\s*0/);
+  assert.match(standaloneCss, /\.theme-support-card\s*\{\s*display:\s*contents;\s*\}/);
+  assert.match(standaloneCss, /@media \(min-width:\s*900px\)[\s\S]*?\.theme-support-card\s*\{[\s\S]*?border:\s*1px solid var\(--stone-tide-line-soft\);[\s\S]*?background:\s*var\(--stone-tide-surface\);[\s\S]*?box-shadow:\s*var\(--stone-tide-shadow-card\)/);
   assert.match(standaloneCss, /\.token-group-head\s*\{[\s\S]*?justify-content:\s*space-between/);
   assert.doesNotMatch(standaloneCss, /\.token-group-head > span/);
   assert.match(standalone, /const displayValue = definition\.kind === "color" \? colorToHex\(value\)\.toLowerCase\(\) : value/);

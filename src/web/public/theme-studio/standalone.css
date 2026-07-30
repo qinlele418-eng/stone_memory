@@ -732,6 +732,7 @@ h3 {
 
 .theme-shadow-group {
   display: block;
+  position: relative;
   padding: 0 2px;
 }
 
@@ -774,13 +775,39 @@ h3 {
   padding: 0 0 13px;
 }
 
+.theme-shadow-group[open] {
+  z-index: 20;
+}
+
+.theme-shadow-group[open] > .token-group-fields {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: min(680px, calc(100vw - 48px));
+  max-height: min(620px, calc(100vh - 110px));
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--stone-tide-line);
+  border-radius: var(--stone-tide-radius-lg);
+  background: var(--stone-tide-surface);
+  box-shadow: var(--stone-tide-shadow-floating);
+}
+
 .theme-shadow-field {
   display: grid;
   gap: 9px;
   min-width: 0;
-  padding: 11px;
-  border: 1px solid var(--stone-tide-line-soft);
-  border-radius: var(--stone-tide-radius-small);
+  padding: 11px 0 0;
+  border: 0;
+  border-top: 1px solid var(--stone-tide-line-soft);
+  border-radius: 0;
+}
+
+.theme-shadow-field:nth-child(-n + 2) {
+  padding-top: 0;
+  border-top: 0;
 }
 
 .theme-shadow-field > header {
@@ -912,6 +939,10 @@ h3 {
   border-top: 1px solid var(--stone-tide-line-soft);
 }
 
+.theme-support-card {
+  display: contents;
+}
+
 .theme-state-preview > div {
   display: grid;
   align-content: start;
@@ -1040,19 +1071,76 @@ h3 {
 .error-card { color: var(--stone-tide-danger); }
 
 @media (min-width: 900px) {
+  .theme-workbench-card {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
   .theme-groups {
+    position: relative;
+    isolation: isolate;
+    z-index: 1;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    column-gap: 16px;
+    column-gap: 22px;
+  }
+
+  .theme-groups::before,
+  .theme-groups::after {
+    content: "";
+    position: absolute;
+    inset-block: 0;
+    z-index: -1;
+    width: calc((100% - 22px) / 2);
+    border: 1px solid var(--stone-tide-line-soft);
+    border-radius: var(--stone-tide-radius-lg);
+    background: var(--stone-tide-surface);
+    box-shadow: var(--stone-tide-shadow-card);
+  }
+
+  .theme-groups::before { left: 0; }
+  .theme-groups::after { right: 0; }
+
+  .theme-groups > .token-group,
+  .theme-token-groups > .token-group {
+    margin-inline: 18px;
+    padding-inline: 0;
   }
 
   .token-group-logo,
   .theme-token-groups > .token-group:nth-child(even) {
-    padding-left: 16px;
-    border-left: 1px solid var(--stone-tide-line-soft);
+    padding-left: 0;
+    border-left: 0;
   }
 
   .token-group-logo { border-top: 0; }
   .token-group-logo .theme-logo-controls { justify-content: start; }
+
+  .theme-support-card {
+    display: block;
+    margin-top: 22px;
+    padding: 18px;
+    border: 1px solid var(--stone-tide-line-soft);
+    border-radius: var(--stone-tide-radius-lg);
+    background: var(--stone-tide-surface);
+    box-shadow: var(--stone-tide-shadow-card);
+  }
+
+  .theme-support-card .theme-state-preview {
+    margin: 0;
+    padding: 0 0 18px;
+    border-top: 0;
+    border-bottom: 1px solid var(--stone-tide-line-soft);
+  }
+
+  .theme-support-card .advanced-json {
+    margin: 0;
+    border-top: 0;
+    border-bottom: 0;
+  }
 }
 
 @media (max-width: 720px) {
@@ -1125,6 +1213,50 @@ h3 {
   .theme-shadow-group > summary { align-items: flex-start; }
   .theme-shadow-group > summary small { font-size: 9px; }
   .theme-shadow-parts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .theme-shadow-group[open] > .token-group-fields {
+    grid-template-columns: minmax(0, 1fr);
+    width: min(100%, calc(100vw - 36px));
+    max-height: min(560px, 72vh);
+    padding: 10px;
+    border-radius: 19px;
+  }
+  .theme-shadow-field:nth-child(2) {
+    padding-top: 11px;
+    border-top: 1px solid var(--stone-tide-line-soft);
+  }
+  .token-group-shadow .theme-shadow-part {
+    display: grid;
+    grid-template-columns: 50px minmax(0, 1fr);
+    align-items: center;
+    gap: 4px;
+    min-height: 32px;
+  }
+  .token-group-shadow .theme-shadow-part > label {
+    min-height: 0;
+    font-size: 12px;
+    line-height: 1.2;
+    letter-spacing: -0.2px;
+    white-space: nowrap;
+  }
+  .token-group-shadow .theme-shadow-part .theme-control {
+    gap: 3px;
+  }
+  .token-group-shadow .theme-shadow-part input {
+    height: 30px;
+    padding-inline: 3px;
+  }
+  .token-group-shadow .theme-shadow-part .theme-color-picker {
+    flex-basis: 18px;
+    width: 18px !important;
+    height: 18px !important;
+    min-width: 18px;
+    padding: 1px !important;
+    border-radius: 6px !important;
+  }
+  .token-group-shadow .theme-shadow-part .theme-value-input {
+    font-size: 10px !important;
+    letter-spacing: -0.5px;
+  }
 
   .token-group .theme-field {
     gap: 3px;
