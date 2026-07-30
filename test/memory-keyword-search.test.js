@@ -6,7 +6,9 @@ const path = require("path");
 
 const testHome = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-keyword-search-"));
 const originalHome = process.env.HOME;
+const originalUserProfile = process.env.USERPROFILE;
 process.env.HOME = testHome;
+if (process.platform === "win32") process.env.USERPROFILE = testHome;
 
 const threadId = "thread-deep-search";
 const stoneDir = path.join(testHome, ".stone_memory");
@@ -26,6 +28,7 @@ const { searchByKeyword, searchArchiveContext } = require("../src/services/memor
 
 test.after(() => {
   process.env.HOME = originalHome;
+  if (process.platform === "win32") process.env.USERPROFILE = originalUserProfile;
   fs.rmSync(testHome, { recursive: true, force: true });
 });
 
