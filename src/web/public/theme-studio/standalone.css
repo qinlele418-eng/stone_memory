@@ -229,7 +229,7 @@ h3 {
   justify-self: start;
   justify-content: start;
   gap: 6px 10px;
-  width: min(100%, 334px);
+  width: min(100%, 294px);
   min-width: 0;
 }
 
@@ -260,7 +260,7 @@ h3 {
   display: grid;
   place-items: center;
   width: 100%;
-  max-width: 240px;
+  max-width: 200px;
   height: auto;
   aspect-ratio: 1;
   overflow: hidden;
@@ -293,7 +293,7 @@ h3 {
   grid-area: status;
   display: block;
   width: 100%;
-  max-width: 240px;
+  max-width: 200px;
   color: var(--stone-tide-ink-soft);
   font-size: 9px;
   font-weight: 650;
@@ -616,6 +616,7 @@ h3 {
 }
 
 .theme-more-dots {
+  position: static;
   display: inline-flex !important;
   align-items: center;
   justify-content: center;
@@ -623,11 +624,15 @@ h3 {
 }
 
 .theme-more-dots b {
+  position: static;
+  inset: auto;
+  flex: 0 0 5px;
   display: block;
   width: 5px;
   height: 5px;
   border-radius: 50%;
   background: currentColor;
+  opacity: 1;
 }
 
 .theme-swatch-add:hover .theme-swatch-add-color {

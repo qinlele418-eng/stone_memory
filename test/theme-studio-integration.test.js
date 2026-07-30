@@ -30,8 +30,12 @@ test("mobile pages contain wide workspace content and prevent input zoom", () =>
   const kitStyles = fs.readFileSync(path.join(publicDir, "developer-kit", "styles.css"), "utf8");
   const reviewStyles = fs.readFileSync(path.join(publicDir, "review-lab", "styles.css"), "utf8");
 
+  assert.match(mainStyles, /button,\s*input,\s*select,\s*textarea\s*\{[\s\S]*?color:\s*var\(--pine-950\);[\s\S]*?font:\s*inherit;/);
+  assert.doesNotMatch(mainStyles, /var\(--ink\)/);
   assert.match(mainStyles, /\.workspace-grid\s*>\s*\*,\s*#workspace-main\s*\{\s*min-width:\s*0/);
   assert.match(mainStyles, /\.timeline-chart-scroll\s*\{[^}]*max-width:\s*100%[^}]*min-width:\s*0/);
+  assert.match(mainStyles, /\.memory-toolbar\s*>\s*label\.secondary\s*\{[^}]*display:\s*inline-flex[^}]*align-items:\s*center[^}]*justify-content:\s*center/);
+  assert.match(mainStyles, /\.memory-entry-grid button\s*\{[^}]*color:\s*var\(--pine-950\)/);
 
   for (const styles of [mainStyles, themeStyles, kitStyles, reviewStyles]) {
     assert.match(styles, /textarea\s*\{\s*font-size:\s*16px\s*!important/);
@@ -222,15 +226,16 @@ test("semantic theme covers mining calendar states and preserves the developer l
   assert.match(standalone, /\$\("#export-theme"\)\.textContent = "导出当前主题"/);
   assert.match(standalone, /theme-swatch-more[\s\S]*?theme-swatch-color theme-swatch-add-color[\s\S]*?theme-more-dots[\s\S]*?<b><\/b><b><\/b><b><\/b>/);
   assert.match(standaloneCss, /\.theme-more-dots\s*\{[\s\S]*?inline-flex/);
+  assert.match(standaloneCss, /\.theme-more-dots b\s*\{[\s\S]*?position:\s*static;[\s\S]*?flex:\s*0 0 5px;[\s\S]*?opacity:\s*1;/);
   assert.match(logoActions, /min-height:\s*26px/);
   assert.match(standaloneCss, /\.theme-logo-buttons\s*\{[\s\S]*?align-content:\s*end;[\s\S]*?gap:\s*6px/);
   assert.match(logoControls, /grid-template-columns:\s*minmax\(0,\s*1fr\)\s*84px/);
   assert.match(logoControls, /justify-self:\s*start/);
   assert.match(logoControls, /justify-content:\s*start/);
-  assert.match(logoControls, /width:\s*min\(100%,\s*334px\)/);
+  assert.match(logoControls, /width:\s*min\(100%,\s*294px\)/);
   assert.match(logoControls, /"preview buttons"[\s\S]*"status \."/);
   assert.match(logoPreview, /aspect-ratio:\s*1/);
-  assert.match(logoPreview, /max-width:\s*240px/);
+  assert.match(logoPreview, /max-width:\s*200px/);
   assert.doesNotMatch(compactLayout, /\.theme-logo-preview\s*\{[^}]*max-width:\s*none/);
   assert.match(standaloneCss, /\.theme-logo-preview img\s*\{[\s\S]*?object-fit:\s*contain/);
   assert.match(standaloneCss, /\.theme-logo-status\.error\s*\{[^}]*stone-tide-danger/);
