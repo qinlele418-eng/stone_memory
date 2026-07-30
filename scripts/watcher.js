@@ -24,6 +24,7 @@ const { listJsonlRecursive } = require("../src/lib/archive-paths");
 const { requiresRemine, shouldAttempt } = require("../src/services/mining-state");
 const { resolveAutoCompactConfig } = require("../src/services/auto-compact-config");
 const { ingestThreadFile: ingestSharedThreadFile } = require("../src/services/thread-ingest");
+const { MemoryStore } = require("../src/storage/memory-store");
 const { resolveAutomaticActions, shouldAutoMineDate } = require("../src/services/automatic-mining-policy");
 const { processMatches } = require("../src/lib/process-identity");
 const { findThreadSessionFile } = require("../src/lib/thread-session-file");
