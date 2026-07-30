@@ -315,17 +315,19 @@
     const defaults = state.contract.defaults;
     const inputVersion = Number(input?.version || 1);
     if (![1, 2, 3].includes(inputVersion)) throw new Error(`不支持 version: ${inputVersion} 的主题文件`);
-    const theme = merge(defaults, input);
-    theme.$schema = state.contract.$schema;
-    theme.version = state.contract.version;
-    theme.name = String(theme.name || defaults.name).trim().slice(0, 60);
-    delete theme.description;
-    theme.assets = { logo: normalizeLogoAsset(theme.assets?.logo) };
+    const merged = merge(defaults, input);
+    const theme = {
+      $schema: state.contract.$schema,
+      version: state.contract.version,
+      name: String(merged.name || defaults.name).trim().slice(0, 60),
+      assets: { logo: normalizeLogoAsset(merged.assets?.logo) },
+      tokens: {},
+    };
     const safeTokens = {};
     for (const [group, defaultValues] of Object.entries(defaults.tokens)) {
       safeTokens[group] = {};
       for (const [name, fallback] of Object.entries(defaultValues)) {
-        const value = group === "typography" ? fallback : theme.tokens?.[group]?.[name] ?? fallback;
+        const value = group === "typography" ? fallback : merged.tokens?.[group]?.[name] ?? fallback;
         safeTokens[group][name] = validateValue(tokenKind(group, name), `${group}.${name}`, value);
       }
     }

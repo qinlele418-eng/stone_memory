@@ -178,8 +178,9 @@ test("semantic theme covers mining calendar states and preserves the developer l
   assert.match(standalone, /\!\[1,\s*2,\s*3\]\.includes\(inputVersion\)/);
   assert.match(bootstrap, /\!\[1,\s*2,\s*3\]\.includes\(inputVersion\)/);
   assert.match(standalone, /已有 version 1 和 version 2 主题仍可导入/);
-  assert.match(standalone, /delete theme\.description/);
-  assert.match(bootstrap, /delete normalized\.description/);
+  assert.match(bootstrap, /applyLogo\(saved\.assets\?\.logo\)/);
+  assert.match(bootstrap, /const normalized = \{\s*\$schema: contract\.\$schema,/);
+  assert.match(standalone, /const theme = \{\s*\$schema: state\.contract\.\$schema,/);
   assert.match(standalone, /const exportedTheme = \{[\s\S]*?\$schema:[\s\S]*?version:[\s\S]*?name:[\s\S]*?assets:[\s\S]*?tokens:/);
   assert.doesNotMatch(standalone, /JSON\.stringify\(state\.theme,\s*null,\s*2\)/);
   assert.match(standalone, /theme-calendar-preview/);

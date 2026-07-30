@@ -149,6 +149,7 @@
       themeEnabled = saved.name !== ORIGINAL_THEME_NAME;
       document.documentElement.dataset.stoneTheme = String(saved.name || "Custom").slice(0, 60);
       document.body?.classList.toggle("tidal-visual", themeEnabled);
+      applyLogo(saved.assets?.logo);
     } catch {}
   }
 
@@ -205,17 +206,20 @@
     if (!isPlainObject(input)) throw new Error("主题文件必须是 JSON 对象");
     const inputVersion = Number(input.version || 1);
     if (![1, 2, 3].includes(inputVersion)) throw new Error(`不支持 version: ${inputVersion} 的主题文件`);
-    const normalized = merge(contract.defaults, input);
-    normalized.$schema = contract.$schema;
-    normalized.version = contract.version;
-    normalized.name = String(normalized.name || contract.defaults.name).trim().slice(0, 60);
-    delete normalized.description;
-    normalized.assets = { logo: normalizeLogoAsset(normalized.assets?.logo) };
-    normalized.tokens.typography = clone(contract.defaults.tokens.typography);
+    const merged = merge(contract.defaults, input);
+    const normalized = {
+      $schema: contract.$schema,
+      version: contract.version,
+      name: String(merged.name || contract.defaults.name).trim().slice(0, 60),
+      assets: { logo: normalizeLogoAsset(merged.assets?.logo) },
+      tokens: {
+        typography: clone(contract.defaults.tokens.typography),
+      },
+    };
 
     for (const [group, definitions] of Object.entries(TOKEN_PROPERTIES)) {
       const defaults = contract.defaults.tokens[group];
-      const source = normalized.tokens[group];
+      const source = merged.tokens[group];
       normalized.tokens[group] = {};
       for (const name of Object.keys(definitions)) {
         normalized.tokens[group][name] = validateToken(group, name, source?.[name] ?? defaults[name]);
