@@ -26,6 +26,7 @@ body.tidal-visual .panel,
 body.tidal-visual .dashboard-head,
 body.tidal-visual .section-card,
 body.tidal-visual .library-card,
+body.tidal-visual .memory-entry-grid button,
 body.tidal-visual .stat,
 body.tidal-visual .import-card {
   border-color: var(--stone-tide-line-soft);
@@ -46,6 +47,7 @@ body.tidal-visual .sidebar {
 
 body.tidal-visual .library-card,
 body.tidal-visual .maintenance-card,
+body.tidal-visual .memory-entry-grid button,
 body.tidal-visual .section-card,
 body.tidal-visual .dashboard-head {
   transition:
@@ -55,10 +57,15 @@ body.tidal-visual .dashboard-head {
 }
 
 body.tidal-visual .library-card:hover,
-body.tidal-visual .maintenance-card:hover {
+body.tidal-visual .maintenance-card:hover,
+body.tidal-visual .memory-entry-grid button:not(:disabled):hover {
   transform: translateY(-3px);
   border-color: color-mix(in srgb, var(--stone-tide-accent) 34%, transparent);
   box-shadow: var(--stone-tide-shadow-panel);
+}
+
+body.tidal-visual .memory-entry-grid button {
+  border-radius: var(--stone-tide-radius-lg);
 }
 
 body.tidal-visual .maintenance-card i {

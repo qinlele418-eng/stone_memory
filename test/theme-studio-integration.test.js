@@ -116,6 +116,10 @@ test("semantic theme covers mining calendar states and preserves the developer l
   assert.match(coverage, /calendar-day\.mining-deep[\s\S]*stone-tide-status/);
   assert.match(workbench, /body\.tidal-visual \.maintenance-card i\s*\{[\s\S]*?color:\s*var\(--stone-tide-accent-strong\);[\s\S]*?background:\s*var\(--stone-tide-accent-soft\)/);
   assert.match(workbench, /body\.tidal-visual \.maintenance-card:hover i\s*\{[\s\S]*?color:\s*var\(--stone-tide-canvas\);[\s\S]*?background:\s*var\(--stone-tide-accent\)/);
+  assert.match(tokens, /body\.tidal-visual \.memory-entry-grid button,[\s\S]*?box-shadow:\s*var\(--stone-tide-shadow-card\)/);
+  assert.match(tokens, /body\.tidal-visual \.memory-entry-grid strong\s*\{[\s\S]*?font-family:\s*var\(--stone-tide-font-display\)/);
+  assert.match(workbench, /body\.tidal-visual \.memory-entry-grid button\s*\{[\s\S]*?border-radius:\s*var\(--stone-tide-radius-lg\)/);
+  assert.match(workbench, /body\.tidal-visual \.memory-entry-grid button:not\(:disabled\):hover\s*\{[\s\S]*?box-shadow:\s*var\(--stone-tide-shadow-panel\)/);
   const calendarSurface = coverage.match(/body\.tidal-visual \.activity-calendar,[\s\S]*?\{([\s\S]*?)\}/)?.[1] || "";
   const newCardSurface = coverage.match(/body\.tidal-visual \.new-card\s*\{([\s\S]*?)\}/)?.[1] || "";
   assert.match(calendarSurface, /stone-tide-accent-soft/);

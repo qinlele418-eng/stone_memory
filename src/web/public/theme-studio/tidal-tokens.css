@@ -114,7 +114,8 @@ body.tidal-visual .lobby-head h1,
 body.tidal-visual .side-title,
 body.tidal-visual .dashboard-head h1,
 body.tidal-visual .section-card h2,
-body.tidal-visual .library-card h2 {
+body.tidal-visual .library-card h2,
+body.tidal-visual .memory-entry-grid strong {
   font-family: var(--stone-tide-font-display), var(--stone-tide-font-body);
 }
 
@@ -123,6 +124,7 @@ body.tidal-visual .dashboard-head,
 body.tidal-visual .section-card,
 body.tidal-visual .library-card,
 body.tidal-visual .maintenance-card,
+body.tidal-visual .memory-entry-grid button,
 body.tidal-visual .stat,
 body.tidal-visual .import-card {
   box-shadow: var(--stone-tide-shadow-card);
