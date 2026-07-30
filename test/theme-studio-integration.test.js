@@ -23,7 +23,7 @@ test("mobile workspace navigation top-aligns wrapped labels", () => {
   assert.match(mobileNav, /padding:\s*6px 4px 0/);
 });
 
-test("mobile pages contain wide workspace content and prevent input zoom", () => {
+test("mobile mining remains contained while input zoom overrides stay removed", () => {
   const publicDir = path.join(__dirname, "..", "src", "web", "public");
   const mainStyles = fs.readFileSync(path.join(publicDir, "styles.css"), "utf8");
   const themeStyles = fs.readFileSync(path.join(publicDir, "theme-studio", "standalone.css"), "utf8");
@@ -33,12 +33,13 @@ test("mobile pages contain wide workspace content and prevent input zoom", () =>
   assert.match(mainStyles, /button,\s*input,\s*select,\s*textarea\s*\{[\s\S]*?color:\s*var\(--pine-950\);[\s\S]*?font:\s*inherit;/);
   assert.doesNotMatch(mainStyles, /var\(--ink\)/);
   assert.match(mainStyles, /\.workspace-grid\s*>\s*\*,\s*#workspace-main\s*\{\s*min-width:\s*0/);
-  assert.match(mainStyles, /\.timeline-chart-scroll\s*\{[^}]*max-width:\s*100%[^}]*min-width:\s*0/);
+  assert.doesNotMatch(mainStyles, /\.timeline-chart-scroll\s*\{[^}]*max-width:\s*100%|\.timeline-chart-scroll\s*\{[^}]*min-width:\s*0/);
+  assert.doesNotMatch(mainStyles, /#timeline-results\s*\{?\s*min-width:\s*0/);
   assert.match(mainStyles, /\.memory-toolbar\s*>\s*label\.secondary\s*\{[^}]*display:\s*inline-flex[^}]*align-items:\s*center[^}]*justify-content:\s*center/);
   assert.match(mainStyles, /\.memory-entry-grid button\s*\{[^}]*color:\s*var\(--pine-950\)/);
 
   for (const styles of [mainStyles, themeStyles, kitStyles, reviewStyles]) {
-    assert.match(styles, /textarea\s*\{\s*font-size:\s*16px\s*!important/);
+    assert.doesNotMatch(styles, /input:not\(\[type="checkbox"\]\)[\s\S]*?textarea\s*\{\s*font-size:\s*16px\s*!important/);
   }
 
   const compactActions = themeStyles.match(/@media \(max-width: 620px\)[\s\S]*?@media|@media \(max-width: 620px\)[\s\S]*$/)?.[0] || "";
@@ -194,9 +195,8 @@ test("semantic theme covers mining calendar states and preserves the developer l
   assert.match(compactLayout, /\.token-group-fields,[\s\S]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
   assert.match(compactLayout, /\.theme-color-picker[\s\S]*width:\s*26px/);
   assert.match(compactLayout, /\.theme-color-picker[\s\S]*height:\s*26px/);
-  assert.match(compactLayout, /\.token-group \.theme-field \.theme-value-input[\s\S]*font-size:\s*16px\s*!important/);
-  assert.match(compactLayout, /\.token-group \.theme-field \.theme-value-input[\s\S]*transform:\s*scale\(\.8\)/);
-  assert.match(compactLayout, /\.theme-field\.is-color \.theme-value-input[\s\S]*flex-basis:\s*calc\(125% - 38\.75px\)/);
+  assert.match(compactLayout, /\.token-group \.theme-value-input\s*\{\s*font-size:\s*11px\s*!important/);
+  assert.doesNotMatch(compactLayout, /\.theme-value-input[\s\S]*transform:\s*scale\(\.8\)/);
   assert.match(standalone, /theme-card-meta[\s\S]*theme-credit[\s\S]*theme-file-badge/);
   assert.match(standalone, /createUtilityGroup\("主题",\s*"命名、保存、导入与切换主题"/);
   assert.match(standalone, /createUtilityGroup\("品牌图标"/);
@@ -268,7 +268,7 @@ test("semantic theme covers mining calendar states and preserves the developer l
   assert.match(colorPicker, /width:\s*32px/);
   assert.match(colorPicker, /height:\s*32px/);
   assert.match(colorPicker, /aspect-ratio:\s*1/);
-  assert.match(standaloneCss, /\.theme-swatch-color\s*\{[\s\S]*?width:\s*52px;[\s\S]*?height:\s*52px;[\s\S]*?aspect-ratio:\s*1/);
+  assert.match(standaloneCss, /\.theme-swatch-color\s*\{[\s\S]*?width:\s*64px;[\s\S]*?height:\s*48px;/);
   assert.doesNotMatch(tokenGroup, /\bbackground\s*:|border-radius\s*:/);
   assert.doesNotMatch(communityAssets, /\bbackground\s*:|border-radius\s*:/);
   assert.doesNotMatch(statePreview, /\bbackground\s*:|border-radius\s*:/);

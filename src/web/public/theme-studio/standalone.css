@@ -508,12 +508,12 @@ h3 {
 .theme-swatch,
 .theme-swatch-item {
   position: relative;
-  min-width: 56px;
+  min-width: 64px;
 }
 
 .theme-swatch {
   display: grid;
-  grid-template-rows: 52px auto;
+  grid-template-rows: 48px auto;
   gap: 6px;
   padding: 0;
   color: var(--stone-tide-ink-soft);
@@ -526,12 +526,11 @@ h3 {
 .theme-swatch-color {
   position: relative;
   display: block;
-  width: 52px;
-  height: 52px;
-  aspect-ratio: 1;
+  width: 64px;
+  height: 48px;
   overflow: hidden;
   border: 1px solid var(--stone-tide-line);
-  border-radius: 13px;
+  border-radius: 12px;
   background: var(--swatch-canvas);
   box-shadow: 0 5px 12px color-mix(in srgb, var(--swatch-ink) 10%, transparent);
   transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
@@ -542,8 +541,8 @@ h3 {
   position: absolute;
   top: 9px;
   left: 10px;
-  width: 34px;
-  height: 5px;
+  width: 38px;
+  height: 4px;
   border-radius: 999px;
   background: var(--swatch-ink);
   opacity: 0.9;
@@ -551,10 +550,10 @@ h3 {
 
 .theme-swatch-color i {
   position: absolute;
-  right: 10px;
-  bottom: 8px;
-  width: 15px;
-  height: 15px;
+  right: 9px;
+  bottom: 7px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
   background: var(--swatch-accent);
 }
@@ -563,7 +562,7 @@ h3 {
   position: absolute;
   left: 10px;
   bottom: 10px;
-  width: 25px;
+  width: 30px;
   height: 3px;
   border-radius: 999px;
   background: var(--swatch-accent);
@@ -572,7 +571,7 @@ h3 {
 
 .theme-swatch-name {
   display: block;
-  max-width: 56px;
+  max-width: 64px;
   overflow: hidden;
   color: var(--stone-tide-ink-soft);
   font-size: 11px;
@@ -1149,21 +1148,8 @@ h3 {
     padding: 2px !important;
   }
 
-  .token-group .theme-field .theme-value-input {
-    flex: 0 0 125%;
-    width: 125%;
-    height: 32.5px;
-    margin-right: -25%;
-    padding-inline: 6px;
-    font-size: 16px !important;
-    transform: scale(.8);
-    transform-origin: left center;
-  }
-
-  .token-group .theme-field.is-color .theme-value-input {
-    flex-basis: calc(125% - 38.75px);
-    width: calc(125% - 38.75px);
-    margin-right: calc(-25% + 7.75px);
+  .token-group .theme-value-input {
+    font-size: 11px !important;
   }
 
   .theme-state-preview { grid-template-columns: 1fr; }
@@ -1171,7 +1157,4 @@ h3 {
   .theme-actions > button,
   .theme-actions > .theme-upload { width: auto; }
   #theme-status { text-align: left; }
-  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
-  select,
-  textarea { font-size:16px!important; }
 }
