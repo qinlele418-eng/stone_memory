@@ -109,6 +109,7 @@ test("MCP exposes latest, coverage, and exact-date dream reads", t => {
   assert.deepEqual(tools.get("stmem_dream_get").inputSchema.required, ["date"]);
 
   assert.deepEqual(JSON.parse(responses[1].result.content[0].text), {
+    found: true,
     threadId: "thread-test",
     date: "2026-07-29",
     dreamType: "nightmare",

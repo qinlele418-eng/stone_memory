@@ -44,10 +44,28 @@ test("dream reader returns exact, latest, and eligible-date coverage for one thr
   assert.equal(reader.latest("thread-test").date, "2026-07-29");
   assert.deepEqual(reader.coverage("thread-test"), {
     threadId: "thread-test",
-    from: "2026-07-26",
+    from: "2026-07-27",
     to: "2026-07-29",
     availableDates: ["2026-07-27", "2026-07-29"],
-    missingDates: ["2026-07-26", "2026-07-28"],
+    missingDates: ["2026-07-28"],
   });
   assert.equal(closes, 1);
+});
+
+test("dream reader does not report historical debt before the first dream", () => {
+  const reader = new DreamReader({
+    dreamStore: {
+      listDates: () => [],
+      coverage: (_threadId, dates) => ({ dates }),
+    },
+    memoryStoreFactory: () => ({
+      listDayStates: () => [
+        { source_date: "2026-07-27", status: "completed" },
+        { source_date: "2026-07-28", status: "completed_empty" },
+      ],
+      close() {},
+    }),
+  });
+
+  assert.deepEqual(reader.coverage("thread-test"), { dates: [] });
 });

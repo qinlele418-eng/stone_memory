@@ -19,6 +19,8 @@ const { parseRebuildDryRun } = require("../services/rebuild-dry-run");
 const { MiningReviewStore } = require("../services/mining-review");
 const { editFusionCandidate } = require("../services/review-fusion");
 const { isArchiveConversation } = require("../services/thread-ingest");
+const { processMatches } = require("../lib/process-identity");
+const { DreamReader } = require("../services/dream-reader");
 
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MAX_UPLOAD = 512 * 1024 * 1024;
@@ -26,6 +28,7 @@ const previews = new Map();
 const miningJobs = new Map();
 const compressionJobs = new Set();
 const reviewJobs = new Map();
+const dreamJobs = new Map();
 const PROJECT_ROOT = path.join(__dirname, "..", "..");
 const STMEM_BIN = path.join(PROJECT_ROOT, "bin", "stmem");
 
@@ -58,6 +61,35 @@ function runStmemAsync(args, { maxOutput = 8000 } = {}) {
     child.once("error",reject);
     child.once("close",code=>code===0?resolve(stdout.trim()):reject(new Error(safeStmemFailure(stderr,args[0],code))));
   });
+}
+
+async function restartWatcher() {
+  if (process.platform !== "win32") {
+    const service = spawnSync("systemctl", ["--user", "restart", "stmem-watcher.service"], {
+      stdio: "ignore",
+      timeout: 15_000,
+    });
+    if (service.status === 0) return;
+  }
+  const stoneDir = path.join(os.homedir(), ".stone_memory");
+  const pidFile = path.join(stoneDir, "watcher.pid");
+  const watcherScript = path.join(PROJECT_ROOT, "scripts", "watcher-supervisor.js");
+  let pid = 0;
+  try { pid = Number(fs.readFileSync(pidFile, "utf8")); } catch {}
+  if (pid && processMatches(pid, "watcher-supervisor.js")) {
+    try { process.kill(pid, "SIGTERM"); } catch {}
+    for (let attempt = 0; attempt < 50 && processMatches(pid, "watcher-supervisor.js"); attempt++) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
+  const child = spawn(process.execPath, [watcherScript], {
+    detached: true,
+    stdio: ["ignore", "ignore", "ignore"],
+    windowsHide: true,
+  });
+  child.unref();
+  fs.mkdirSync(stoneDir, { recursive: true });
+  fs.writeFileSync(pidFile, String(child.pid));
 }
 
 function miningDatesFromStore(store,threadId) {
@@ -325,6 +357,7 @@ function publicThreadSettings(threadId) {
     automaticFullMining: entry.automaticFullMining !== false,
     automaticMemoryMaintenance: entry.automaticMemoryMaintenance !== false,
     automaticCompression: entry.automaticCompression === true,
+    automaticDream: entry.automaticDream === true,
   };
 }
 
@@ -426,6 +459,7 @@ function listLibraries() {
         automaticFullMining: tc.automaticFullMining !== false,
         automaticMemoryMaintenance: tc.automaticMemoryMaintenance !== false,
         automaticCompression: tc.automaticCompression === true,
+        automaticDream: tc.automaticDream === true,
       };
     } finally { store.close(); }
   });
@@ -640,14 +674,66 @@ async function handleApi(req, res, url) {
     if (req.method === "PATCH") {
       const body = await readJson(req);
       const current = publicThreadSettings(threadId);
+      const dreamSettingChanged = Object.hasOwn(body, "automaticDream")
+        && body.automaticDream !== current.automaticDream;
       const input = { ...current, ...body, threadId, runtime: current.runtime, purpose: current.purpose };
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-web-config-"));
       const file = path.join(dir, "config.json");
       fs.writeFileSync(file, JSON.stringify(input), { encoding: "utf8", mode: 0o600 });
       try {
         runStmem(["init", "--thread", threadId, "--batch-file", file]);
+        if (dreamSettingChanged) await restartWatcher();
         return json(res, 200, { success: true, config: publicThreadSettings(threadId) });
       } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+    }
+  }
+
+  const dreamMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/dreams(?:\/(generate))?$/);
+  if (dreamMatch) {
+    const threadId = decodeURIComponent(dreamMatch[1]);
+    const settings = publicThreadSettings(threadId);
+    if (req.method === "GET" && !dreamMatch[2]) {
+      const reader = new DreamReader();
+      const dreamDates = reader.listDates(threadId);
+      const selectedDate = String(url.searchParams.get("date") || "");
+      return json(res, 200, {
+        enabled: settings.automaticDream,
+        latest: selectedDate && dreamDates.includes(selectedDate)
+          ? reader.get(threadId, selectedDate)
+          : reader.latest(threadId),
+        selectedDate: selectedDate && dreamDates.includes(selectedDate)
+          ? selectedDate
+          : dreamDates.at(-1) || null,
+        dreamDates,
+        coverage: reader.coverage(threadId),
+        eligibleDates: reader.eligibleDates(threadId),
+        job: dreamJobs.get(threadId) || null,
+      });
+    }
+    if (req.method === "POST" && dreamMatch[2] === "generate") {
+      const body = await readJson(req);
+      const date = String(body.date || "").trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("请选择已经完成记忆挖掘的日期");
+      const reader = new DreamReader();
+      if (!reader.eligibleDates(threadId).includes(date)) {
+        throw new Error(`${date} 尚未完成记忆挖掘，不能用于织梦`);
+      }
+      const active = dreamJobs.get(threadId);
+      if (active?.status === "running") return json(res, 202, { success: true, job: active });
+      const job = { threadId, date, status: "running", startedAt: new Date().toISOString(), completedAt: null, error: null };
+      dreamJobs.set(threadId, job);
+      runStmemAsync(["dream", "--thread", threadId, "--date", date], { maxOutput: 20_000 })
+        .then(output => {
+          job.status = "completed";
+          job.result = JSON.parse(output);
+          job.completedAt = new Date().toISOString();
+        })
+        .catch(error => {
+          job.status = "failed";
+          job.error = error.message;
+          job.completedAt = new Date().toISOString();
+        });
+      return json(res, 202, { success: true, job });
     }
   }
 

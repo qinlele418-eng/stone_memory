@@ -101,7 +101,8 @@ async function interactiveInit(threadId) {
     apiProvider, apiKey, baseUrl, model, windowDays, keepToolPairs,
     automaticFullMining: existing.automaticFullMining !== false,
     automaticMemoryMaintenance: existing.automaticMemoryMaintenance !== false,
-    automaticCompression: existing.automaticCompression === true };
+    automaticCompression: existing.automaticCompression === true,
+    automaticDream: existing.automaticDream === true };
 }
 
 async function main() {
@@ -159,7 +160,7 @@ async function main() {
 
   // 全局开关只作为总闸；任一线程明确启用自动任务时打开总闸，
   // 实际是否挖掘仍由 watcher 逐线程读取 automatic* 配置决定。
-  if (tc.automaticFullMining || tc.automaticMemoryMaintenance || tc.automaticCompression) {
+  if (tc.automaticFullMining || tc.automaticMemoryMaintenance || tc.automaticCompression || tc.automaticDream) {
     try { fs.rmSync(path.join(STONE, ".watcher-off"), { force: true }); } catch {}
     try { fs.rmSync(path.join(STONE, ".miner-off"), { force: true }); } catch {}
   }

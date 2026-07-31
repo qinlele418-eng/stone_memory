@@ -57,8 +57,11 @@ function splitMiningMessages(messages, {
   let pending = [];
   for (const group of sessions) {
     if (renderedBytes(group, render) > maxBytes) {
-      if (pending.length) { chunks.push(pending); pending = []; }
-      chunks.push(...hardSplitSession(group, render, maxBytes));
+      // 硬切只封存已经装满的部分；最后一个未满块继续作为下一轮
+      // pending，避免把 1～3KB 的中途尾巴提前变成独立模型请求。
+      const split = hardSplitSession([...pending, ...group], render, maxBytes);
+      chunks.push(...split.slice(0, -1));
+      pending = split.at(-1) || [];
       continue;
     }
     const candidate = [...pending, ...group];

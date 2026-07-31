@@ -37,3 +37,18 @@ test("one oversized message is never truncated", () => {
   assert.equal(chunks[0][0], huge);
   assert.ok(byteLength(render(chunks[0])) > 50 * 1024);
 });
+
+test("a small hard-split tail stays pending and joins the next dialogue session", () => {
+  const oversized = Array.from({ length: 52 }, (_, index) => message(index));
+  const later = Array.from({ length: 20 }, (_, index) => ({
+    ...message(index + 100),
+    timestamp: new Date(Date.UTC(2026, 6, 25, 4, index)).toISOString(),
+  }));
+  const chunks = splitMiningMessages([...oversized, ...later], { render });
+  const sizes = chunks.map(chunk => byteLength(render(chunk)));
+
+  assert.equal(chunks.length, 2);
+  assert.ok(sizes[0] <= 50 * 1024);
+  assert.ok(sizes[1] > 20 * 1024);
+  assert.deepEqual(chunks.flat(), [...oversized, ...later]);
+});

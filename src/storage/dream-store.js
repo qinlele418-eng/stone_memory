@@ -111,6 +111,7 @@ function parseDreamFile(content, { threadId, date }) {
     throw error;
   }
   return {
+    found: true,
     threadId,
     date,
     dreamType: match[1],

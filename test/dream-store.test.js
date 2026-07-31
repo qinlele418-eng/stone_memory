@@ -33,6 +33,7 @@ test("dream store atomically saves text and reads latest, exact date, and covera
     "dreamType: beautiful\ndreamDate: 2026-07-27\ntitle: 灯塔仍亮着\n\n你沿着海岸走回那盏灯。\n",
   );
   assert.deepEqual(store.get("thread-a", "2026-07-27"), {
+    found: true,
     threadId: "thread-a",
     date: "2026-07-27",
     dreamType: "beautiful",

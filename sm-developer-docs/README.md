@@ -8,6 +8,7 @@
 2. [architecture.md](./architecture.md)：核心数据流与模块职责。
 3. [contributing.md](./contributing.md)：Issue、文档与代码 PR 的提交方式。
 4. [frontend-modules.md](./frontend-modules.md)：开发者模式前端的可拆卸接入、统一卡片与主题契约。
+5. [watcher-plugins.md](./watcher-plugins.md)：每日挖掘完成后的可插拔自动模块契约。
 5. [test-reports/](./test-reports/)：社区模型对比、挖掘效果与真实使用测试。
 6. [proposals/](./proposals/)：尚未进入正式实现的新功能建议。
 7. [Stone Memory Maintainer Skill](./skills/stone-memory-maintainer/SKILL.md)：给编码 Agent 使用的脱敏维护流程与架构护栏。

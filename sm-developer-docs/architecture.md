@@ -43,6 +43,10 @@ CLI命令的运行时实现与Claude/Codex格式适配。运行时脚本不应�
 
 开发者模式提供通用模块插槽与当前记忆体上下文。实验前端以独立目录和 `bootstrap.js` 注册，不在主 `app.js` 中硬编码；所有模块共享 `--stone-tide-*` 视觉契约。详见 [前端实验模块规范](frontend-modules.md)。
 
+需要跟随每日挖掘自动运行的实验能力通过 `watcher-plugins` 注册。Watcher
+核心只分发“挖掘完成”生命周期事件，不认识织梦等具体业务；各插件独立判断
+开关、执行并报告结果。详见 [Watcher 自动模块契约](watcher-plugins.md)。
+
 ### `mcp-server.js`
 
 向Agent暴露受控能力。MCP不能拥有一套独立于CLI的配置、导入或重建实现。

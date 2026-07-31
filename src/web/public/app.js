@@ -94,6 +94,7 @@ function loadDeveloperModules() {
   return Promise.all([
     loadOptionalScript("/review-lab/bootstrap.js"),
     loadOptionalScript("/developer-kit/bootstrap.js"),
+    loadOptionalScript("/dream-lab/bootstrap.js"),
   ]).catch(error => showToast(error.message, "error"));
 }
 

@@ -25,7 +25,7 @@ const { requiresRemine, shouldAttempt } = require("../src/services/mining-state"
 const { resolveAutoCompactConfig } = require("../src/services/auto-compact-config");
 const { ingestThreadFile: ingestSharedThreadFile } = require("../src/services/thread-ingest");
 const { resolveAutomaticActions, shouldAutoMineDate } = require("../src/services/automatic-mining-policy");
-const { runAutomaticDream } = require("../src/services/automatic-dream-hook");
+const { runPostMiningHooks } = require("../src/services/post-mining-hooks");
 const { processMatches } = require("../src/lib/process-identity");
 const { findThreadSessionFile } = require("../src/lib/thread-session-file");
 const { latestContextUsage } = require("../src/lib/thread-context-usage");
@@ -102,7 +102,7 @@ function scanArchiveDates(tid) {
   finally { store.close(); }
 }
 
-async function runMining(tid, dateStr, { force = false } = {}) {
+async function runMining(tid, dateStr, { force = false, threadConfig = {} } = {}) {
   const scriptPath = path.join(__dirname, "stmem-mine.js");
   const cmd = `${process.execPath} ${scriptPath} --thread ${tid} --date ${dateStr}${force ? " --force" : ""}`;
   log(`[${tid}] 开始挖掘 ${dateStr} ...`);
@@ -123,17 +123,20 @@ async function runMining(tid, dateStr, { force = false } = {}) {
     }
     log(`[${tid}] ${dateStr} 产出: ${feelingCount} feelings, ${featureCount} features`);
 
-    const dream = runAutomaticDream({
+    const hookResults = runPostMiningHooks({
       threadId: tid,
       date: dateStr,
       today: beijingToday(),
       force,
-      cliPath: path.join(path.dirname(__dirname), "bin", "stmem"),
+      threadConfig,
+      projectRoot: path.dirname(__dirname),
     });
-    if (dream.attempted && dream.ok) {
-      log(`[${tid}] ${dateStr} 梦境生成完成: ${dream.output}`);
-    } else if (dream.attempted) {
-      log(`[${tid}] ${dateStr} 梦境生成失败（不重试）: ${dream.error.message}`);
+    for (const result of hookResults) {
+      if (result.attempted && result.ok) {
+        log(`[${tid}] ${dateStr} 自动模块 ${result.id} 完成: ${result.output || ""}`);
+      } else if (result.attempted) {
+        log(`[${tid}] ${dateStr} 自动模块 ${result.id} 失败（不重试）: ${result.error?.message || "unknown error"}`);
+      }
     }
     return true;
   } catch (err) {
@@ -336,7 +339,7 @@ async function checkAndMine(tid) {
     log(`[${tid}] 发现 ${pending.length} 天待挖掘: ${pending.join(", ")}`);
     for (const dateStr of pending) {
       const force = requiresRemine(miningState, dateStr, messagesFor(dateStr));
-      if (await runMining(tid, dateStr, { force })) minedAny = true;
+      if (await runMining(tid, dateStr, { force, threadConfig })) minedAny = true;
     }
   }
 

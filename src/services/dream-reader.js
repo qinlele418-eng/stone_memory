@@ -25,7 +25,11 @@ class DreamReader {
     return this.dreamStore.latest(threadId);
   }
 
-  coverage(threadId) {
+  listDates(threadId) {
+    return this.dreamStore.listDates(threadId);
+  }
+
+  eligibleDates(threadId) {
     const memoryStore = this.memoryStoreFactory(threadId);
     let states;
     try {
@@ -33,10 +37,21 @@ class DreamReader {
     } finally {
       memoryStore.close();
     }
-    const eligibleDates = states
-      .filter(row => ["completed", "completed_empty"].includes(row.status))
-      .map(row => row.source_date);
-    return this.dreamStore.coverage(threadId, eligibleDates);
+    return states
+      .filter(row => row.status === "completed")
+      .map(row => row.source_date)
+      .sort();
+  }
+
+  coverage(threadId) {
+    const firstDreamDate = this.dreamStore.listDates(threadId)[0] || null;
+    const eligibleDates = this.eligibleDates(threadId);
+    return this.dreamStore.coverage(
+      threadId,
+      firstDreamDate
+        ? eligibleDates.filter(date => date >= firstDreamDate)
+        : [],
+    );
   }
 }
 
