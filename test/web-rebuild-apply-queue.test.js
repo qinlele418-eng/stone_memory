@@ -16,6 +16,17 @@ const stoneDir = path.join(sandboxHome, ".stone_memory");
 const sessionDir = path.join(sandboxHome, "sessions");
 const threadFile = path.join(sessionDir, `${threadId}.jsonl`);
 
+// bin/stmem 对非诊断命令会自动拉起常驻 watcher-supervisor（detached，pid 记在沙箱
+// ~/.stone_memory/watcher.pid）。测试结束必须把它收掉，不能向沙箱外泄漏后台进程；
+// watcher 子进程发现 supervisor 消失后会自行退出。
+test.after(() => {
+  try {
+    const pid = parseInt(fs.readFileSync(path.join(stoneDir, "watcher.pid"), "utf8"), 10);
+    if (Number.isFinite(pid)) process.kill(pid, "SIGTERM");
+  } catch {}
+  fs.rmSync(sandboxHome, { recursive: true, force: true });
+});
+
 function setupThread() {
   fs.mkdirSync(stoneDir, { recursive: true });
   fs.mkdirSync(sessionDir, { recursive: true });
