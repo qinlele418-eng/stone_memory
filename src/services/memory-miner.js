@@ -375,12 +375,19 @@ class MemoryMiner {
         const feelingCount = this.pendingFeelings.length;
         const featureCount = this.pendingFeatures.length;
         const completionStatus = feelingCount === 0 && featureCount === 0 ? "completed_empty" : "completed";
-        this.store.replaceDay(targetDate, { feelings: this.pendingFeelings, features: this.pendingFeatures, source, dayState: {
+        const dayState = {
           status: completionStatus, messageCount: messages.length, archiveFingerprint: fingerprint,
           feelingCount, featureCount,
           chunkReport: this.chunkReport,
           attempt, completedAt, errorCode: null, errorMessage: null, failedAt: null, nextRetryAt: null, updatedAt: completedAt,
-        }});
+        };
+        if (messages.length === 0) {
+          // 空 archive 没有调用过模型，也就没有可发布的一天：只记录已检查状态。
+          // 发布空的一天会触发整日替换，把该日已有的摘要一起删掉（例如线程裁剪后重挖）。
+          this.store.setDayState(targetDate, dayState);
+        } else {
+          this.store.replaceDay(targetDate, { feelings: this.pendingFeelings, features: this.pendingFeatures, source, dayState });
+        }
         this._clearChunkCaches(targetDate);
         this._deleteStateKeys([`skipped:${targetDate}`]);
       } else {

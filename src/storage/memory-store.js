@@ -412,8 +412,13 @@ class MemoryStore {
       VALUES (?,?,?,?,?,?,?,?,?,?,?)`);
     const write = this.db.transaction(() => {
       if (replace) {
-        this.db.prepare("DELETE FROM feelings WHERE thread_id=? AND source_date=?").run(this.threadId, sourceDate);
-        this.db.prepare("DELETE FROM features WHERE thread_id=? AND source_date=?").run(this.threadId, sourceDate);
+        // 整日替换只覆盖自动挖掘自己产出、且仍停留在 daily 的结果。
+        // 手动补挖、导入以及已进入生命周期（coarse/hidden）的摘要属于用户资产，
+        // 挖掘通道本来也不会重建它们，因此不能被一次整日替换连带删除。
+        this.db.prepare(`DELETE FROM feelings WHERE thread_id=? AND source_date=?
+          AND source IN ('auto','remine') AND summary_mode='daily'`).run(this.threadId, sourceDate);
+        this.db.prepare(`DELETE FROM features WHERE thread_id=? AND source_date=?
+          AND source IN ('auto','remine')`).run(this.threadId, sourceDate);
       }
       let n = this.db.prepare("SELECT COUNT(*) n FROM feelings WHERE thread_id=? AND source_date=?").get(this.threadId, sourceDate).n;
       for (const item of feelings) {

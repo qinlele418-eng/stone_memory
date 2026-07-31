@@ -57,6 +57,28 @@ test("remine directly replaces current results without version data", t => {
   assert.equal(fs.existsSync(path.join(store.memoryDir, "mined", "feelings", "days.jsonl")), false);
 });
 
+test("day replacement only overwrites the automatically mined daily layer", t => {
+  const { store } = tempStore(t);
+  const date = "2026-06-12";
+  store.appendTargeted(date, { feelings: [{ content: "用户手动补的重要事件", importance: 3 }] });
+  store.replaceDay(date, {
+    feelings: [{ content: "自动挖掘的一条", importance: 3 }],
+    features: [{ content: "她不能喝太多茶", category: "eat", importance: 3 }],
+    source: "auto",
+  });
+  const [autoFeeling] = store.listFeelings({ date }).filter(row => row.source === "auto");
+  store.applyCoarseSummaries([{ id: autoFeeling.id, coarseSummary: "6月12日。压缩后的客观事实。" }]);
+
+  store.replaceDay(date, { feelings: [], features: [], source: "remine" });
+
+  const feelings = store.listFeelings({ date });
+  assert.deepEqual(feelings.map(row => [row.source, row.summary_mode]).sort(), [
+    ["auto", "coarse"],
+    ["targeted", "daily"],
+  ]);
+  assert.deepEqual(store.listFeatures({ date }).map(row => row.content), []);
+});
+
 test("targeted storage appends to the current day and preserves existing memories", t => {
   const { store } = tempStore(t);
   store.appendTargeted("2026-06-12", { feelings: [{ content: "first", eventTime: "2026-06-12T18:00:00+08:00", importance: 3 }] });

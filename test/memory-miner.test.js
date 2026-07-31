@@ -465,6 +465,30 @@ test("active date lock returns locked status", async t => {
   assert.equal(result.status, "locked");
 });
 
+test("an empty archive day is marked checked without publishing an empty day", async t => {
+  const miner = minerFixture(t, []);
+  const date = "2026-06-12";
+  miner.store.appendTargeted(date, { feelings: [{ content: "用户手动补的重要事件", importance: 3 }] });
+  miner._mineDayWithSubagent = async () => { throw new Error("空 archive 不应调用模型"); };
+
+  const result = await miner.mine(date);
+
+  assert.equal(result.status, "completed_empty");
+  assert.deepEqual(miner.store.listFeelings({ date }).map(row => row.content), ["用户手动补的重要事件"]);
+  assert.equal(miner.store.getDayState(date).status, "completed_empty");
+});
+
+test("forced remine of an emptied archive keeps the memories of that day", async t => {
+  const miner = minerFixture(t, []);
+  const date = "2026-06-12";
+  miner.store.appendTargeted(date, { feelings: [{ content: "线程裁剪前记下的事件", importance: 3 }] });
+
+  const result = await miner.mine(date, { force: true });
+
+  assert.equal(result.status, "completed_empty");
+  assert.deepEqual(miner.store.listFeelings({ date }).map(row => row.content), ["线程裁剪前记下的事件"]);
+});
+
 test("forced remine replaces a completed day directly", async t => {
   const miner = minerFixture(t, [{ text: "new conversation" }]);
   const date = "2026-06-12";
