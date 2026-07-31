@@ -26,6 +26,8 @@ const { serializeJsonl } = require("../src/lib/jsonl");
 const { readFeelings: readDatabaseFeelings, readMessages } = require("../src/storage/memory-reader");
 const { itemKey, conversationWindow, loadRebuildPlan } = require("../src/services/rebuild-workbench");
 const { isSystemInjection } = require("../src/lib/thread-message-filter");
+const { ingestMessages } = require("../src/services/thread-ingest");
+const { MemoryStore } = require("../src/storage/memory-store");
 
 let THREAD_BASE = null;
 let FULL_ARCHIVE = null;
@@ -295,6 +297,19 @@ function rebuildThread(inputPath, outputPath, dryRun, windowDays, toolPairsOverr
   if (currentSkipped > 0) console.warn(`[rebuild]   ⚠️ ${currentSkipped} corrupted lines skipped in source`);
   const backed = backupNewToFull(currentMessages);
   if (backed > 0) console.log(`[rebuild]   full backup: ${backed} new messages`);
+
+  // === 归档水位追平：改写线程前先把当前内容规范化落库 ===
+  // 线程即将被重建覆盖，watcher 还没轮到的对话若只进 full/ 原始备份，
+  // 会永久跳过规范化层（messages 表），全量对话和挖掘都看不见。
+  // ingestMessages 幂等（INSERT OR IGNORE），已归档的消息不会重复。
+  console.log("[rebuild] Catching up normalized archive before rewrite...");
+  const catchupStore = new MemoryStore({ memoryDir: path.join(THREAD_BASE, "memory"), threadId: currentThreadId });
+  try {
+    const caught = ingestMessages(currentMessages, { memoryStore: catchupStore });
+    console.log(`[rebuild]   archive catch-up: ${caught.imported} messages ingested`);
+  } finally {
+    catchupStore.close();
+  }
 
   // === 从 full/ 读取全量消息作为重建源 ===
   console.log("[rebuild] Loading full messages...");
