@@ -369,6 +369,24 @@ function json(res, status, data) {
 
 function error(res, status, message) { json(res, status, { error: message }); }
 
+// 前端「立即应用」重建的静默窗口：线程文件近 5 分钟内被写过就视为仍被 Agent 占用。
+const REBUILD_APPLY_QUIET_MS = 5 * 60 * 1000;
+
+function rebuildApplyBlockReason(mtimeMs, nowMs) {
+  if (!Number.isFinite(mtimeMs)) return null;
+  const idleMs = nowMs - mtimeMs;
+  if (idleMs >= REBUILD_APPLY_QUIET_MS) return null;
+  const waitMinutes = Math.max(1, Math.ceil((REBUILD_APPLY_QUIET_MS - idleMs) / 60000));
+  return `线程文件在 5 分钟内仍在被写入，可能有 Agent 正在使用该线程。请先停止占用它的 Agent（约 ${waitMinutes} 分钟后可重试），或改用排队、在下次启动时应用。`;
+}
+
+function sessionFileMtimeMs(threadId, runtime) {
+  try {
+    const file = sessionFile(threadId, runtime);
+    return file ? fs.statSync(file).mtimeMs : null;
+  } catch { return null; }
+}
+
 function readBody(req, limit = 2 * 1024 * 1024) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -948,7 +966,7 @@ async function handleApi(req, res, url) {
     const threadId = decodeURIComponent(rebuildMatch[1]), action = rebuildMatch[2];
     // The service may have access to a shared sessions root, but the web API
     // may only operate on threads explicitly registered in stmem config.
-    publicThreadSettings(threadId);
+    const threadSettings = publicThreadSettings(threadId);
     if (req.method === "GET" && action === "preview") {
       const windowDays = Math.max(1, Number(url.searchParams.get("windowDays")) || 3);
       const toolValue = url.searchParams.get("toolPairs");
@@ -977,13 +995,31 @@ async function handleApi(req, res, url) {
     if (req.method === "POST" && action === "repair") return json(res, 200, JSON.parse(runStmem(["rebuild", "--thread", threadId, "--repair"])));
     if (req.method === "POST" && action === "apply") {
       const body = await readJson(req);
+      const requestedTools = body.toolPairs === undefined ? 30 : Number(body.toolPairs);
+      const windowDays = String(Math.max(1, Number(body.windowDays) || 3));
+      const toolPairs = String(Math.max(0, requestedTools));
+      const summaryLimit = String(Math.max(0, Number(body.summaryLimit) || 0));
+      const minImportance = String(Math.max(0, Math.min(5, Number(body.minImportance) || 0)));
+      const hasPlan = (body.excludedMessages || []).length > 0 || (body.excludedTools || []).length > 0;
+      if (body.queue === true) {
+        // 排队走 MCP 同一条 CLI 通道（下次启动应用）；排队请求不携带剪辑计划，
+        // 与其静默丢掉用户勾选的排除项，不如直接说清楚。
+        if (hasPlan) return error(res, 400, "排队重建暂不支持消息/工具排除计划：请清空排除项后排队，或等 Agent 停止后立即应用");
+        const queueArgs = ["rebuild", "--thread", threadId, "--window", windowDays, "--tool-pairs", toolPairs, "--summary-limit", summaryLimit, "--min-importance", minImportance];
+        if (body.watermark === true) queueArgs.push("--watermark");
+        queueArgs.push("--queue");
+        return json(res, 202, JSON.parse(runStmem(queueArgs)));
+      }
+      // MCP 侧设计 --queue 正是为了避免会话中途换线程文件；前端立即应用前
+      // 至少确认线程最近没有被写入（占用它的 Agent 会持续追加）。
+      const blocked = rebuildApplyBlockReason(sessionFileMtimeMs(threadId, threadSettings.runtime), Date.now());
+      if (blocked) return error(res, 409, blocked);
       const planFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "stmem-rebuild-plan-")), "plan.json");
       fs.writeFileSync(planFile, JSON.stringify({ excludedMessages: body.excludedMessages || [], excludedTools: body.excludedTools || [] }), "utf8");
       try {
-        const requestedTools = body.toolPairs === undefined ? 30 : Number(body.toolPairs);
-        const rebuildArgs=["rebuild", "--thread", threadId, "--window", String(Math.max(1, Number(body.windowDays) || 3)), "--tool-pairs", String(Math.max(0, requestedTools)), "--plan", planFile, "--trigger", "web", "--apply"];
+        const rebuildArgs=["rebuild", "--thread", threadId, "--window", windowDays, "--tool-pairs", toolPairs, "--plan", planFile, "--trigger", "web", "--apply"];
         if(body.watermark===true)rebuildArgs.push("--watermark");
-        rebuildArgs.push("--summary-limit",String(Math.max(0,Number(body.summaryLimit)||0)),"--min-importance",String(Math.max(0,Math.min(5,Number(body.minImportance)||0))));
+        rebuildArgs.push("--summary-limit",summaryLimit,"--min-importance",minImportance);
         const output = runStmem(rebuildArgs);
         const integrity = JSON.parse(runStmem(["rebuild", "--thread", threadId, "--check"]));
         return json(res, 200, { success: true, output, integrity });
@@ -1094,5 +1130,5 @@ module.exports = {
   startWebServer, listLibraries, overview, previewRows, paginate, buildConversationCalendar,
   miningDatesFromStore, miningCommandArgs, miningCheckCommandArgs, targetedMiningCommandArgs,
   timelineCommandArgs, compactTimelineReport, compressionCommandArgs, safeStmemFailure, runStmem,
-  reviewCandidateForWeb, reviewProfileFromInput,
+  reviewCandidateForWeb, reviewProfileFromInput, rebuildApplyBlockReason, REBUILD_APPLY_QUIET_MS,
 };
