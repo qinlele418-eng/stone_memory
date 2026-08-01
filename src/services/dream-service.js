@@ -220,8 +220,23 @@ function requiredDate(value) {
 
 function parseDreamOutput(output, expectedType) {
   let parsed;
-  try { parsed = JSON.parse(String(output || "").trim()); }
+  let text = String(output || "").trim();
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fenced) text = fenced[1].trim();
+  try { parsed = JSON.parse(text); }
   catch {
+    const braceStart = text.indexOf("{");
+    const braceEnd = text.lastIndexOf("}");
+    if (braceStart >= 0 && braceEnd > braceStart) {
+      const sliced = text.slice(braceStart, braceEnd + 1);
+      try { parsed = JSON.parse(sliced); } catch {
+        // 最后一搏:正文里未转义的英文引号(前后都不挨着 JSON 结构字符)替换成中文引号再试
+        const repaired = sliced.replace(/(?<![{\[,:\s])"(?!\s*[,:}\]])/g, "”");
+        try { parsed = JSON.parse(repaired); } catch { /* fallthrough */ }
+      }
+    }
+  }
+  if (!parsed) {
     const error = new Error("subagent output is not valid dream JSON");
     error.code = "DREAM_OUTPUT_INVALID";
     throw error;

@@ -131,3 +131,4 @@
 - `matchesRequestedType` 和 `usesFeelingMaterial` 必须为 true；
 - `endingValence` 必须服从当前类型专属规则；
 - JSON 字符串中的换行和引号必须正确转义。
+- 梦境正文（title、body、aftertaste）中的对话和引用一律使用中文引号「」或『』，绝对禁止出现英文双引号 `"`——未转义的英文双引号会损坏 JSON 结构，导致整个梦被丢弃。
