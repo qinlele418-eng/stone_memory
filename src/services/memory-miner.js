@@ -324,7 +324,6 @@ class MemoryMiner {
       this.chunkReport = [];
       if (force) this._assertForceRemineSafe(targetDate);
       if (force) this._deleteStateKeys([`feeling:${targetDate}`, `feature:${targetDate}`]);
-      if (force) this._clearChunkCaches(targetDate);
       const state = force ? {} : this._readState();
 
       const removedMemoryBlocks = this.store.removeInjectedMemoryBlocks();

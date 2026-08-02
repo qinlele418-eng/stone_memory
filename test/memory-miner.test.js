@@ -438,6 +438,47 @@ test("a retry reuses successful chunk cache and only mines the failed chunk", as
   assert.equal(miner.pendingFeelings.length, 2);
 });
 
+test("a forced remine retry preserves successful chunks from the failed attempt", async t => {
+  const sourceMessages = Array.from({ length: 70 }, (_, index) => ({
+    timestamp: new Date(Date.UTC(2026, 5, 12, 0, index)).toISOString(),
+    type: "user",
+    text: "x".repeat(1000),
+  }));
+  const miner = minerFixture(t, sourceMessages);
+  let attempts = 0;
+
+  miner._mineDayWithSubagent = async (targetDate, messages) => {
+    attempts++;
+    const chunks = miner._messageChunks(messages);
+    const cache = miner._loadChunkCache(targetDate, "feelings-subagent", messages, chunks.length);
+    if (attempts === 1) {
+      cache.chunks[0] = [{ content: "6月12日，上午八点。第一块已经成功。", importance: 2 }];
+      miner._saveChunkCache(targetDate, "feelings-subagent", cache);
+      throw new MiningError("CHUNK_FAILED", "第二块暂时失败", {
+        completedChunks: 1,
+        totalChunks: chunks.length,
+        failedChunk: 2,
+      });
+    }
+
+    assert.deepEqual(cache.chunks[0], [
+      { content: "6月12日，上午八点。第一块已经成功。", importance: 2 },
+    ]);
+    miner._saveState({
+      [`feeling:${targetDate}`]: Date.now(),
+      [`feature:${targetDate}`]: Date.now(),
+    });
+  };
+
+  await assert.rejects(
+    () => miner.mine("2026-06-12", { force: true }),
+    error => error.code === "CHUNK_FAILED",
+  );
+  await miner.mine("2026-06-12", { force: true });
+  assert.equal(attempts, 2);
+  assert.equal(fs.existsSync(miner._chunkCachePath("2026-06-12", "feelings-subagent")), false);
+});
+
 test("features are mined from generated feelings instead of raw dialogue", async t => {
   const miner = minerFixture(t, [{ text: "不应再次发送给 feature miner 的原始对话" }]);
   miner.pendingFeelings = [
