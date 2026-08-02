@@ -84,6 +84,9 @@ function validateMiningEntries(entries, expectedKey = "feelings") {
     if (!Number.isFinite(Number(entry.importance))) {
       throw new MiningError("OUTPUT_INVALID", `${expectedKey}[${index}].importance is invalid`);
     }
+    if (expectedKey === "features" && !FEATURE_CATEGORIES.includes(entry.category)) {
+      throw new MiningError("OUTPUT_INVALID", `${expectedKey}[${index}].category is invalid`);
+    }
   });
   return entries;
 }
@@ -992,13 +995,54 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
     }
 
     // 无独立 API key → 用 claude -p（订阅/OAuth 用户）
+    this._lastApiRecovery = null;
     const conversationText = this._buildConversationText(messages);
     const subPrompt = `${prompt}\n\n对话内容：\n${conversationText}\n\n请输出 JSON 数组。`;
     const reply = this._runSubagent(subPrompt, { threadId: this.threadId, model: subagentModel || undefined });
-    return validateMiningEntries(
-      parseMiningArray(reply, "Subagent output is not a JSON array", expectedKey),
-      expectedKey || "items",
+    try {
+      return validateMiningEntries(
+        parseMiningArray(reply, "Subagent output is not a JSON array", expectedKey),
+        expectedKey || "items",
+      );
+    } catch (parseError) {
+      if (parseError.code !== "OUTPUT_INVALID") throw parseError;
+      return this._recoverInvalidSubagentChunk({
+        rawReply: reply,
+        expectedKey: expectedKey || "feelings",
+        model: subagentModel,
+      });
+    }
+  }
+
+  _recoverInvalidSubagentChunk({ rawReply, expectedKey, model = null }) {
+    const schema = expectedKey === "features"
+      ? '[{"content":"事实","category":"eat|body|sleep|work|relation|habit|location|preference|misc","importance":2|3|5}]'
+      : '[{"content":"带日期时间的摘要","importance":2|3|5}]';
+    const repairPrompt = `你是 Stone Memory 的 JSON 格式修复员。下面是同一个 Miner 刚刚生成的 ${expectedKey} 候选，但本地 JSON/schema 校验未通过。
+
+只修复 JSON 语法、数组包裹、缺失或错误的字段名、引号、逗号和字段类型；不得润色、删减、增加事件，不得改变 content 的文字或 importance 的含义。features 缺少 category 时，只能根据已有 content 选择目标格式中的一个正式类别。只输出修复后的 JSON 数组，不要解释。
+目标格式：${schema}
+
+原始输出：
+<raw>
+${String(rawReply || "")}
+</raw>`;
+    const repairedReply = this._runSubagent(repairPrompt, {
+      threadId: this.threadId,
+      model: model || undefined,
+    });
+    const repaired = validateMiningEntries(
+      parseMiningArray(repairedReply, "Subagent could not repair its JSON output", expectedKey),
+      expectedKey,
     );
+    if (!repaired.length && !isLiteralEmptyArray(rawReply)) {
+      throw new MiningError("OUTPUT_INVALID", "Subagent repair unexpectedly discarded all candidates");
+    }
+    this._lastApiRecovery = {
+      status: "subagent_format_repaired",
+      message: "Subagent 返回格式未通过校验，已由同一 Miner 修复格式并通过本地复验",
+    };
+    return repaired;
   }
 
   _recoverInvalidApiChunk({ rawReply, messages, prompt, expectedKey }) {

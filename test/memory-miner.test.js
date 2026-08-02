@@ -247,6 +247,50 @@ test("one API transport failure immediately hands the chunk to subagent", async 
   assert.match(miner._lastApiRecovery.message, /API 单次调用失败/);
 });
 
+test("invalid subagent features JSON gets one format-only repair by the same configured model", async t => {
+  const miner = minerFixture(t, [{ text: "已经生成的摘要" }]);
+  const calls = [];
+  miner._runSubagent = (prompt, options) => {
+    calls.push({ prompt, options });
+    if (calls.length === 1) return '[{"content":"她喜欢小王子","importance":3}]';
+    return '[{"content":"她喜欢小王子","category":"preference","importance":3}]';
+  };
+
+  const result = await miner._extractViaSubagent(
+    [{ text: "已经生成的摘要" }],
+    "正式 features 提示词",
+    { expectedKey: "features", model: "configured-miner" },
+  );
+
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].options.model, "configured-miner");
+  assert.equal(calls[1].options.model, "configured-miner");
+  assert.match(calls[1].prompt, /只修复 JSON/);
+  assert.match(calls[1].prompt, /不得润色、删减、增加事件/);
+  assert.match(calls[1].prompt, /缺少 category/);
+  assert.deepEqual(result, [{ content: "她喜欢小王子", category: "preference", importance: 3 }]);
+  assert.equal(miner._lastApiRecovery.status, "subagent_format_repaired");
+});
+
+test("an unrepairable subagent features result still fails closed", async t => {
+  const miner = minerFixture(t, [{ text: "已经生成的摘要" }]);
+  let calls = 0;
+  miner._runSubagent = () => {
+    calls++;
+    return calls === 1 ? "不是 JSON" : "仍然不是 JSON";
+  };
+
+  await assert.rejects(
+    () => miner._extractViaSubagent(
+      [{ text: "已经生成的摘要" }],
+      "正式 features 提示词",
+      { expectedKey: "features", model: "configured-miner" },
+    ),
+    error => error.code === "OUTPUT_INVALID",
+  );
+  assert.equal(calls, 2);
+});
+
 test("a short day is still mined and an empty model result completes successfully", async t => {
   const miner = minerFixture(t, [{}, {}]);
   let called = 0;

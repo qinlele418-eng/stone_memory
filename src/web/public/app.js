@@ -836,8 +836,33 @@ async function applyIntegratedRebuild(library,{excludedMessages=[],excludedTools
     const summaryLimit=rebuildState.summaryMode==="limited"?rebuildState.summaryLimit:0,minImportance=rebuildState.summaryMode==="limited"?rebuildState.minImportance:0;
     await api(`/api/libraries/${encodeURIComponent(library.threadId)}/settings`,{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({mcpRebuildDefaultsEnabled:rebuildState.mcpDefault,mcpSummaryLimit:summaryLimit,mcpMinImportance:minImportance})});
     await api(`/api/libraries/${encodeURIComponent(library.threadId)}/rebuild/apply`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({windowDays:rebuildState.windowDays,toolPairs:rebuildState.toolPairs,watermark:rebuildState.watermark,summaryLimit,minImportance,excludedMessages,excludedTools})});
-    showToast(excludedMessages.length||excludedTools.length?"已永久裁剪所选内容并完成重建":"线程重建完成");await renderRebuild(library);
+    const trimmed=excludedMessages.length||excludedTools.length;
+    await renderRebuild(library);
+    showRebuildCompletion(library,{trimmed});
   }catch(error){showToast(error.message,"error");button.disabled=false;button.textContent="确认应用线程重建";}
+}
+
+function showRebuildCompletion(library,{trimmed=false}={}) {
+  document.querySelector("#rebuild-completion-overlay")?.remove();
+  const isCodex=library.runtime==="codex";
+  const overlay=document.createElement("div");
+  overlay.id="rebuild-completion-overlay";
+  overlay.className="editor-overlay rebuild-completion-overlay";
+  overlay.innerHTML=`<section class="editor-panel rebuild-completion-panel" role="dialog" aria-modal="true" aria-labelledby="rebuild-completion-title">
+    <button class="editor-close ghost" type="button" aria-label="关闭">×</button>
+    <div class="rebuild-completion-mark" aria-hidden="true">✓</div>
+    <p class="eyebrow">THREAD FILE REBUILT</p>
+    <h2 id="rebuild-completion-title">${trimmed?"裁剪与线程重建已完成":"线程文件重建成功"}</h2>
+    <p class="rebuild-completion-lead">新的线程文件已经安全写入。还需要让 ${isCodex?"Codex":"Claude Code"} 重新载入它，新的上下文才会正式生效。</p>
+    ${isCodex?`<div class="rebuild-reload-card codex"><strong>Codex 用户必须重启进程</strong><p>请完全退出当前 Codex / app-server 进程，再使用原线程 ID 重新 Resume。只在当前 Codex 中切换线程再切回来，可能继续使用内存中的旧上下文。</p><code>codex resume ${escapeHtml(library.threadId)}</code></div>`:`<div class="rebuild-reload-card claude"><strong>Claude Code 用户请选择一种重新载入方式</strong><ol><li>完全退出并重新启动 Claude Code；或</li><li>切换到其他线程，再切回当前线程。</li></ol><p>重新进入后可检查上下文状态，确认重建结果已经生效。</p></div>`}
+    <div class="wizard-actions"><button class="primary rebuild-completion-close" type="button">我知道了</button></div>
+  </section>`;
+  const close=()=>overlay.remove();
+  overlay.querySelector(".editor-close").onclick=close;
+  overlay.querySelector(".rebuild-completion-close").onclick=close;
+  overlay.addEventListener("click",event=>{if(event.target===overlay)close();});
+  document.body.append(overlay);
+  overlay.querySelector(".rebuild-completion-close").focus();
 }
 
 async function loadRebuildPreview(library) {
