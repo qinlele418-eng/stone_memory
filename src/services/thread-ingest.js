@@ -88,7 +88,7 @@ function ingestMessages(messages, { fullDir = null, memoryStore = null } = {}) {
   return ingestRecords(messages.map(raw => ({ raw, message: normalizeThreadMessage(raw) })), { fullDir, memoryStore, format: detectFormat(messages) });
 }
 
-function ingestRecords(records, { fullDir = null, memoryStore = null, format = "generic" } = {}) {
+function collectIngestRows(records, { fullDir = null } = {}) {
   const archiveByDate = new Map(), fullByDate = new Map();
   let invalid = 0;
   let filtered = 0;
@@ -116,6 +116,22 @@ function ingestRecords(records, { fullDir = null, memoryStore = null, format = "
     if (!archiveByDate.has(date)) archiveByDate.set(date, []);
     archiveByDate.get(date).push(row);
   }
+  return { archiveByDate, fullByDate, invalid, filtered, filteredReasons };
+}
+
+/** 只读预览：算出 ingestMessages 会尝试入库多少条规范化消息，不碰任何存储。
+ *  返回的 candidates 是去重前的上限——正式 ingest 还会按已有归档 INSERT OR IGNORE。 */
+function previewIngestMessages(messages) {
+  const format = detectFormat(messages);
+  const records = messages.map(raw => ({ raw, message: normalizeThreadMessage(raw) }));
+  const { archiveByDate, invalid, filtered, filteredReasons } = collectIngestRows(records);
+  let candidates = 0;
+  for (const rows of archiveByDate.values()) candidates += rows.length;
+  return { candidates, dates: archiveByDate.size, invalid, filtered, filteredReasons, format };
+}
+
+function ingestRecords(records, { fullDir = null, memoryStore = null, format = "generic" } = {}) {
+  const { archiveByDate, fullByDate, invalid, filtered, filteredReasons } = collectIngestRows(records, { fullDir });
   let imported = 0, fullBacked = 0;
   if (memoryStore) {
     memoryStore.removeInjectedMemoryBlocks();
@@ -138,5 +154,5 @@ function ingestThreadFile(filePath, options) {
 
 module.exports = {
   parseThreadMessages, beijingDateKey, isSystemTemplate, isArchiveConversation,
-  internalRecordReason, ingestMessages, ingestRecords, ingestThreadFile,
+  internalRecordReason, ingestMessages, ingestRecords, ingestThreadFile, previewIngestMessages,
 };

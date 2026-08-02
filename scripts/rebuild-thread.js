@@ -26,7 +26,7 @@ const { serializeJsonl } = require("../src/lib/jsonl");
 const { readFeelings: readDatabaseFeelings, readMessages } = require("../src/storage/memory-reader");
 const { itemKey, conversationWindow, loadRebuildPlan } = require("../src/services/rebuild-workbench");
 const { isSystemInjection } = require("../src/lib/thread-message-filter");
-const { ingestMessages } = require("../src/services/thread-ingest");
+const { ingestMessages, previewIngestMessages } = require("../src/services/thread-ingest");
 const { MemoryStore } = require("../src/storage/memory-store");
 
 let THREAD_BASE = null;
@@ -158,6 +158,15 @@ function loadInjectableFeelings() {
 
 // ---- 全量备份 ----
 
+function compareByTimestamp(a, b) {
+  const left = new Date(a.timestamp || "").getTime();
+  const right = new Date(b.timestamp || "").getTime();
+  if (!Number.isFinite(left) && !Number.isFinite(right)) return 0;
+  if (!Number.isFinite(left)) return 1;
+  if (!Number.isFinite(right)) return -1;
+  return left - right;
+}
+
 /** 从 full/ 读取全部消息（按文件名排序，即北京日期顺序） */
 function loadFullMessages() {
   const fullDir = FULL_ARCHIVE.fullDir;
@@ -176,14 +185,7 @@ function loadFullMessages() {
   }
   // full 是按天增量追加的原始备份；迟到记录和 rebuild 前补扫会写在文件末尾，
   // 文件物理顺序不等于真实对话顺序。稳定按时间戳排序后再重建。
-  all.sort((a, b) => {
-    const left = new Date(a.timestamp || "").getTime();
-    const right = new Date(b.timestamp || "").getTime();
-    if (!Number.isFinite(left) && !Number.isFinite(right)) return 0;
-    if (!Number.isFinite(left)) return 1;
-    if (!Number.isFinite(right)) return -1;
-    return left - right;
-  });
+  all.sort(compareByTimestamp);
   if (skipped > 0) console.warn(`[rebuild]   ⚠️ ${skipped} corrupted lines skipped in full/ archive`);
   return all;
 }
@@ -295,25 +297,41 @@ function rebuildThread(inputPath, outputPath, dryRun, windowDays, toolPairsOverr
     }
   }
   if (currentSkipped > 0) console.warn(`[rebuild]   ⚠️ ${currentSkipped} corrupted lines skipped in source`);
-  const backed = backupNewToFull(currentMessages);
-  if (backed > 0) console.log(`[rebuild]   full backup: ${backed} new messages`);
 
-  // === 归档水位追平：改写线程前先把当前内容规范化落库 ===
-  // 线程即将被重建覆盖，watcher 还没轮到的对话若只进 full/ 原始备份，
-  // 会永久跳过规范化层（messages 表），全量对话和挖掘都看不见。
-  // ingestMessages 幂等（INSERT OR IGNORE），已归档的消息不会重复。
-  console.log("[rebuild] Catching up normalized archive before rewrite...");
-  const catchupStore = new MemoryStore({ memoryDir: path.join(THREAD_BASE, "memory"), threadId: currentThreadId });
-  try {
-    const caught = ingestMessages(currentMessages, { memoryStore: catchupStore });
-    console.log(`[rebuild]   archive catch-up: ${caught.imported} messages ingested`);
-  } finally {
-    catchupStore.close();
+  // dry-run 严格只读：只统计 apply 时会补录多少，不写 full、SQLite 或 archive。
+  let pendingFullRows = [];
+  let ingestPreview = null;
+  if (dryRun) {
+    pendingFullRows = FULL_ARCHIVE.pendingNewFullBatch(currentMessages);
+    ingestPreview = previewIngestMessages(currentMessages);
+    console.log(`[rebuild]   dry-run: would back up ${pendingFullRows.length} new messages to full/`);
+    console.log(`[rebuild]   dry-run: would ingest up to ${ingestPreview.candidates} normalized messages`);
+  } else {
+    const backed = backupNewToFull(currentMessages);
+    if (backed > 0) console.log(`[rebuild]   full backup: ${backed} new messages`);
+
+    // === 归档水位追平：改写线程前先把当前内容规范化落库 ===
+    // 线程即将被重建覆盖，watcher 还没轮到的对话若只进 full/ 原始备份，
+    // 会永久跳过规范化层（messages 表），全量对话和挖掘都看不见。
+    // ingestMessages 幂等（INSERT OR IGNORE），已归档的消息不会重复。
+    console.log("[rebuild] Catching up normalized archive before rewrite...");
+    const catchupStore = new MemoryStore({ memoryDir: path.join(THREAD_BASE, "memory"), threadId: currentThreadId });
+    try {
+      const caught = ingestMessages(currentMessages, { memoryStore: catchupStore });
+      console.log(`[rebuild]   archive catch-up: ${caught.imported} messages ingested`);
+    } finally {
+      catchupStore.close();
+    }
   }
 
   // === 从 full/ 读取全量消息作为重建源 ===
   console.log("[rebuild] Loading full messages...");
   const messages = loadFullMessages();
+  if (pendingFullRows.length > 0) {
+    // dry-run 没有写 full/，把待补写的记录并入内存副本，让预览和 apply 看到同样的重建源
+    messages.push(...pendingFullRows);
+    messages.sort(compareByTimestamp);
+  }
   console.log(`[rebuild]   ${messages.length} messages from full`);
 
   // === 计算滚动窗口 ===
@@ -607,6 +625,7 @@ function rebuildThread(inputPath, outputPath, dryRun, windowDays, toolPairsOverr
     console.log(`  Memory feelings:   ${memoryFeelings.length}`);
     console.log(`  Full archive size: ${fullArchiveSize} bytes`);
     console.log(`  Estimated output:  ${estimatedOutputSize} bytes`);
+    console.log(`  Catch-up (apply):  full/ +${pendingFullRows.length}, SQLite ≤${ingestPreview ? ingestPreview.candidates : 0}`);
     console.log("==============================");
   } else {
     fs.writeFileSync(outputPath, outputText, "utf8");

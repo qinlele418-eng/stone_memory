@@ -90,8 +90,8 @@ class FullArchive {
     return written;
   }
 
-  /** watcher 实时补写、rebuild 前兜底；逐条去重，不用最大时间戳猜测是否已保存。 */
-  archiveNewFullBatch(messages) {
+  /** archiveNewFullBatch 的只读部分：算出还没写进 full/ 的记录，不落盘。dry-run 预览用。 */
+  pendingNewFullBatch(messages) {
     const grouped = new Map();
     for (const message of Array.isArray(messages) ? messages : [messages]) {
       const date = dateKeyFromTs(message?.timestamp);
@@ -99,7 +99,7 @@ class FullArchive {
       if (!grouped.has(date)) grouped.set(date, []);
       grouped.get(date).push(message);
     }
-    let written = 0;
+    const pending = [];
     for (const [date, rows] of grouped) {
       const existing = new Set();
       try {
@@ -107,16 +107,20 @@ class FullArchive {
           try { existing.add(rawRecordKey(JSON.parse(line))); } catch {}
         }
       } catch {}
-      const pending = [];
       for (const row of rows) {
         const key = rawRecordKey(row);
         if (existing.has(key)) continue;
         existing.add(key);
         pending.push(row);
       }
-      if (pending.length) written += this.archiveFullBatch(pending);
     }
-    return written;
+    return pending;
+  }
+
+  /** watcher 实时补写、rebuild 前兜底；逐条去重，不用最大时间戳猜测是否已保存。 */
+  archiveNewFullBatch(messages) {
+    const pending = this.pendingNewFullBatch(messages);
+    return pending.length ? this.archiveFullBatch(pending) : 0;
   }
 
   getFullLastTimestamp(date) {
