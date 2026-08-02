@@ -826,6 +826,7 @@ async function handleApi(req, res, url) {
   const memorySectionMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/(rules|feelings|features)$/);
   if (memorySectionMatch) {
     const threadId = decodeURIComponent(memorySectionMatch[1]), section = memorySectionMatch[2];
+    publicThreadSettings(threadId);
     if (req.method === "GET" && section === "rules") return json(res, 200, { rows: listRules(threadId) });
     if (req.method === "GET" && ["feelings", "features"].includes(section)) {
       const store = new MemoryStore({ memoryDir: path.join(getThreadDir(threadId), "memory"), threadId });
@@ -859,7 +860,9 @@ async function handleApi(req, res, url) {
 
   const conversationsMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/conversations$/);
   if (req.method === "GET" && conversationsMatch) {
-    const threadId=decodeURIComponent(conversationsMatch[1]), store=new MemoryStore({memoryDir:path.join(getThreadDir(threadId),"memory"),threadId});
+    const threadId=decodeURIComponent(conversationsMatch[1]);
+    publicThreadSettings(threadId);
+    const store=new MemoryStore({memoryDir:path.join(getThreadDir(threadId),"memory"),threadId});
     try {
       const query=String(url.searchParams.get("search")||"").trim(), date=String(url.searchParams.get("date")||"").trim(), focus=String(url.searchParams.get("focus")||"").trim(), pageSize=20;
       const counts=store.db.prepare("SELECT source_date date,COUNT(*) count FROM messages WHERE thread_id=? GROUP BY source_date ORDER BY source_date ASC").all(threadId);
@@ -873,6 +876,7 @@ async function handleApi(req, res, url) {
   const timelineMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/timeline$/);
   if (req.method === "GET" && timelineMatch) {
     const threadId = decodeURIComponent(timelineMatch[1]);
+    publicThreadSettings(threadId);
     const terms = String(url.searchParams.get("terms") || "").split(",");
     const args = timelineCommandArgs(threadId, terms, {
       from: String(url.searchParams.get("from") || ""),
@@ -884,6 +888,7 @@ async function handleApi(req, res, url) {
   const compressionMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/compression\/(preview|apply)$/);
   if (compressionMatch) {
     const threadId = decodeURIComponent(compressionMatch[1]), action = compressionMatch[2];
+    publicThreadSettings(threadId);
     if (req.method === "GET" && action === "preview") {
       const args = compressionCommandArgs(threadId, {
         kind: String(url.searchParams.get("kind") || "compact"),
@@ -906,7 +911,9 @@ async function handleApi(req, res, url) {
 
   const feelingActionMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/feelings\/(update|anchor)$/);
   if (req.method === "POST" && feelingActionMatch) {
-    const threadId=decodeURIComponent(feelingActionMatch[1]), body=await readJson(req);
+    const threadId=decodeURIComponent(feelingActionMatch[1]);
+    publicThreadSettings(threadId);
+    const body=await readJson(req);
     const dir=fs.mkdtempSync(path.join(os.tmpdir(),"stmem-memory-")), file=path.join(dir,"input.json");
     fs.writeFileSync(file,JSON.stringify(body),{encoding:"utf8",mode:0o600});
     try { return json(res,200,JSON.parse(runStmem(["memory",feelingActionMatch[2],"--thread",threadId,"--batch-file",file]))); }
@@ -916,6 +923,7 @@ async function handleApi(req, res, url) {
   const retainPreviewMatch=url.pathname.match(/^\/api\/libraries\/([^/]+)\/feelings\/retain-preview$/);
   if(req.method==="GET"&&retainPreviewMatch){
     const threadId=decodeURIComponent(retainPreviewMatch[1]),id=String(url.searchParams.get("id")||"");
+    publicThreadSettings(threadId);
     const store=new MemoryStore({memoryDir:path.join(getThreadDir(threadId),"memory"),threadId});
     try{
       const feeling=store.db.prepare("SELECT * FROM feelings WHERE thread_id=? AND id=?").get(threadId,id);
