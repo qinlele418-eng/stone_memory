@@ -29,7 +29,7 @@ test("watcher runtime can scan archive dates with automation disabled", t => {
     "--thread", threadId,
     "--once",
   ], {
-    env: { ...process.env, HOME: home },
+    env: { ...process.env, HOME: home, USERPROFILE: home },
     encoding: "utf8",
     timeout: 10_000,
   });

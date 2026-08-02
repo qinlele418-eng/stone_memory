@@ -100,6 +100,7 @@ test("MCP exposes latest, coverage, and exact-date dream reads", t => {
     },
   ], {
     HOME: home,
+    USERPROFILE: home,
     STMEM_DB_PATH: databasePath,
   });
 

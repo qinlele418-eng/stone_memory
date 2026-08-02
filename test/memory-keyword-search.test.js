@@ -6,7 +6,9 @@ const path = require("path");
 
 const testHome = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-keyword-search-"));
 const originalHome = process.env.HOME;
+const originalUserProfile = process.env.USERPROFILE;
 process.env.HOME = testHome;
+process.env.USERPROFILE = testHome;
 
 const threadId = "thread-deep-search";
 const stoneDir = path.join(testHome, ".stone_memory");
@@ -25,7 +27,10 @@ const { MemoryStore } = require("../src/storage/memory-store");
 const { searchByKeyword, searchArchiveContext } = require("../src/services/memory-keyword-search");
 
 test.after(() => {
-  process.env.HOME = originalHome;
+  if (originalHome === undefined) delete process.env.HOME;
+  else process.env.HOME = originalHome;
+  if (originalUserProfile === undefined) delete process.env.USERPROFILE;
+  else process.env.USERPROFILE = originalUserProfile;
   fs.rmSync(testHome, { recursive: true, force: true });
 });
 
