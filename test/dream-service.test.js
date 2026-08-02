@@ -57,6 +57,18 @@ test("dream operation combines one DreamSea type strategy with configured names"
   assert.doesNotMatch(prompt, /\{\{[^}]+\}\}|\{(?:userName|aiName)\}/);
 });
 
+test("dream operation requests free Markdown with an optional H1 title", () => {
+  const prompt = buildDreamPrompt({
+    dreamType: "beautiful",
+    userName: "test-user",
+    aiName: "test-ai",
+  });
+
+  assert.match(prompt, /`# 梦境标题`.*可选增强/u);
+  assert.doesNotMatch(prompt, /第一行只能|第二行留空/u);
+  assert.doesNotMatch(prompt, /合法 JSON 对象|validation|endingValence|sourceAnchors/u);
+});
+
 test("dream task keeps current and historical feelings as structured stdin data", () => {
   const task = JSON.parse(buildDreamTask({
     dreamType: "nightmare",
@@ -132,15 +144,7 @@ test("dream service generates once from published same-thread feelings and saves
         operation: fs.readFileSync(options.opsFile, "utf8"),
         options,
       });
-      return JSON.stringify({
-        title: "test-title",
-        dream: { body: "test-body", endingValence: "sensual" },
-        validation: {
-          requestedType: "erotic",
-          matchesRequestedType: true,
-          usesFeelingMaterial: true,
-        },
-      });
+      return "# Bridge：still open?\ntest-body";
     },
   });
 
@@ -148,6 +152,7 @@ test("dream service generates once from published same-thread feelings and saves
 
   assert.equal(result.status, "completed");
   assert.equal(result.dream.dreamType, "erotic");
+  assert.equal(result.dream.title, "Bridge：still open?");
   assert.equal(calls.length, 1);
   assert.equal(calls[0].options.threadId, threadId);
   assert.match(calls[0].options.opsFile, /\.md$/);
@@ -161,7 +166,48 @@ test("dream service generates once from published same-thread feelings and saves
   assert.equal(calls.length, 1);
 });
 
-test("dream service leaves no file after one invalid subagent response", t => {
+test("dream service saves free Markdown without an H1 in one subagent call", t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-dream-markdown-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const threadId = "thread-test";
+  const dreamStore = new DreamStore({ root: path.join(root, "dream") });
+  const markdown = [
+    "标题：桥的另一端",
+    "Title: The lamp stays on",
+    "",
+    "“前夫。”她忽然开口，又问：\"Really?\"",
+    "桌上的纸写着 { dream: true }。",
+    "",
+    "```js",
+    "const payload = { dream: true };",
+    "```",
+  ].join("\n");
+  let calls = 0;
+  const service = new DreamService({
+    dreamStore,
+    memoryStoreFactory: () => ({
+      getDayState: () => ({ status: "completed" }),
+      listFeelings: () => [feeling("today", "2026-07-29")],
+      close() {},
+    }),
+    getThreadConfig: () => ({ userName: "test-user", aiName: "test-ai" }),
+    operationDirectoryForThread: () => path.join(root, "tmp"),
+    randomInt: maximum => maximum === 1 ? 0 : 9_000,
+    runSubagent: () => {
+      calls++;
+      return markdown;
+    },
+  });
+
+  const result = service.generate({ threadId, date: "2026-07-29" });
+
+  assert.equal(result.status, "completed");
+  assert.equal(calls, 1);
+  assert.equal(result.dream.title, "");
+  assert.equal(dreamStore.get(threadId, "2026-07-29").body, markdown);
+});
+
+test("dream service rejects whitespace once and leaves no dream file", t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-dream-invalid-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const threadId = "thread-test";
@@ -179,13 +225,13 @@ test("dream service leaves no file after one invalid subagent response", t => {
     randomInt: maximum => maximum === 1 ? 0 : 9_000,
     runSubagent: () => {
       calls++;
-      return "{}";
+      return " \n\t\n ";
     },
   });
 
   assert.throws(
     () => service.generate({ threadId, date: "2026-07-29" }),
-    error => error.code === "DREAM_OUTPUT_INVALID",
+    error => error.code === "DREAM_OUTPUT_EMPTY",
   );
   assert.equal(calls, 1);
   assert.equal(dreamStore.get(threadId, "2026-07-29"), null);

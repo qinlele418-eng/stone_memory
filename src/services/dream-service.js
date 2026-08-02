@@ -10,13 +10,6 @@ const { runSubagent: defaultRunSubagent } = require("./subagent-runner");
 
 const ROLL_SCALE = 10_000;
 const DEFAULT_PROMPT_DIRECTORY = path.join(__dirname, "..", "..", "operations", "dream");
-const ENDING_VALENCE = Object.freeze({
-  beautiful: "positive",
-  nightmare: "negative",
-  erotic: "sensual",
-  beautiful_erotic: "positive",
-  nightmare_erotic: "negative",
-});
 
 class DreamService {
   constructor({
@@ -87,13 +80,13 @@ class DreamService {
       date,
       dreamType: roll.finalType,
     });
-    let output;
+    let generated;
     try {
-      output = this.runSubagent(task, { threadId, opsFile: operationFile });
+      const output = this.runSubagent(task, { threadId, opsFile: operationFile });
+      generated = normalizeDreamMarkdown(output);
     } finally {
       try { fs.unlinkSync(operationFile); } catch {}
     }
-    const generated = parseDreamOutput(output, roll.finalType);
     const dream = this.dreamStore.save({
       threadId,
       date,
@@ -165,7 +158,6 @@ function buildDreamPrompt({
     "{userName}": requiredText(userName, "userName"),
     "{aiName}": requiredText(aiName, "aiName"),
     "{{typePrompt}}": typePrompt,
-    "{{requestedType}}": requiredText(dreamType, "dreamType"),
   };
   let prompt = common;
   for (const [placeholder, value] of Object.entries(values)) {
@@ -218,28 +210,20 @@ function requiredDate(value) {
   return date;
 }
 
-function parseDreamOutput(output, expectedType) {
-  let parsed;
-  try { parsed = JSON.parse(String(output || "").trim()); }
-  catch {
-    const error = new Error("subagent output is not valid dream JSON");
-    error.code = "DREAM_OUTPUT_INVALID";
+function normalizeDreamMarkdown(output) {
+  const text = String(output || "").replace(/\r\n?/g, "\n").trim();
+  if (!text) {
+    const error = new Error("subagent returned empty dream output");
+    error.code = "DREAM_OUTPUT_EMPTY";
     throw error;
   }
-  const body = String(parsed?.dream?.body || "").trim();
-  const validation = parsed?.validation || {};
-  if (!body
-    || validation.requestedType !== expectedType
-    || validation.matchesRequestedType !== true
-    || validation.usesFeelingMaterial !== true
-    || parsed?.dream?.endingValence !== ENDING_VALENCE[expectedType]) {
-    const error = new Error("subagent dream output does not match the requested type contract");
-    error.code = "DREAM_OUTPUT_INVALID";
-    throw error;
-  }
+  const newline = text.indexOf("\n");
+  const firstLine = newline < 0 ? text : text.slice(0, newline);
+  const h1 = firstLine.match(/^ {0,3}#[ \t]+(.+?)(?:[ \t]+#+[ \t]*)?$/u);
+  if (!h1) return { title: "", body: text };
   return {
-    title: String(parsed.title || "").trim(),
-    body,
+    title: h1[1].trim(),
+    body: newline < 0 ? "" : text.slice(newline + 1).trim(),
   };
 }
 
@@ -247,7 +231,6 @@ module.exports = {
   buildDreamTask,
   buildDreamPrompt,
   DreamService,
-  parseDreamOutput,
   rollDreamType,
   selectDreamFeelings,
 };
