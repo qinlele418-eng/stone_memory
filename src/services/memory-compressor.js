@@ -57,19 +57,22 @@ function validateCompressionResult(feelings, raw) {
     const expectedPrefix = temporalPrefix(original?.content);
     if (!expectedPrefix) throw new Error(`原 feeling 缺少完整日期时间前缀: ${id}`);
     if (!coarseSummary.startsWith(expectedPrefix)) throw new Error(`压缩结果没有原样保留日期时间前缀: ${id}`);
-    const coreTerms = validateCoreTerms(row?.coreTerms, id);
+    const coreTerms = validateCoreTerms(row?.coreTerms, id, original?.content);
     seen.add(id);
     return { id, coarseSummary, coreTerms };
   });
 }
 
-function validateCoreTerms(raw, id) {
+function validateCoreTerms(raw, id, originalContent) {
   const generic = new Set(["事情", "感觉", "感受", "聊天", "喜欢", "觉得", "以后", "重要", "状态", "时间", "内容", "话题"]);
   if (!Array.isArray(raw) || raw.length < 1 || raw.length > 3) throw new Error(`压缩结果核心词数量无效: ${id}`);
   const terms = [...new Set(raw.map(term => String(term || "").trim()).filter(Boolean))];
   if (terms.length < 1 || terms.length > 3 || terms.some(term => term.length < 2 || term.length > 24 || generic.has(term))) {
     throw new Error(`压缩结果核心词无效: ${id}`);
   }
+  const content = String(originalContent || "");
+  const invented = terms.find(term => !content.includes(term));
+  if (invented) throw new Error(`压缩结果核心词不是原 feeling 的逐字原词: ${id} (${invented})`);
   return terms;
 }
 
@@ -90,7 +93,7 @@ class MemoryCompressor {
     let lastError;
     for (let attempt = 0; attempt < 3; attempt++) {
       const prompt = attempt === 0 ? basePrompt
-        : `${basePrompt}\n\n上一次输出未通过校验：${lastError.message}。请重新输出完整结果，确保每条都有 1～3 个具体 coreTerms。`;
+        : `${basePrompt}\n\n上一次输出未通过校验：${lastError.message}。请重新输出完整结果，确保每条都有 1～3 个直接从对应 content 逐字复制的具体 coreTerms，不得改写或生成近义词。`;
       try {
         const raw = viaApi
           ? await this._compressViaApi(prompt)

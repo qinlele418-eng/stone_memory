@@ -32,9 +32,16 @@ function buildHiddenPlan({ features = [], feelings = [], messages = [], anchors 
     }
     if (profile.secondaryCategory && categories.includes(profile.secondaryCategory)) {
       const displaced = secondaryDisplacement.get(feeling.id);
-      decisions.push({ ...base, coreTerms: parseTerms(feeling.coarse_terms ?? feeling.coarseTerms),
-        action: displaced ? "hide" : "keep_coarse",
-        reason: displaced?.reason || `当前副核心 ${profile.secondaryCategory} 尚未被新高信息主线替代` });
+      const coreTerms = parseTerms(feeling.coarse_terms ?? feeling.coarseTerms);
+      const archiveBacked = coreTerms.length > 0 && coreTerms.every(term => {
+        const normalized = normalizeTerm(term);
+        return normalized.length >= 2 && normalizedMessages.some(row => row.text.includes(normalized));
+      });
+      decisions.push({ ...base, coreTerms,
+        action: displaced && archiveBacked ? "hide" : "keep_coarse",
+        reason: displaced && !archiveBacked
+          ? "核心词缺少可回查的 archive 时间证据"
+          : displaced?.reason || `当前副核心 ${profile.secondaryCategory} 尚未被新高信息主线替代` });
       continue;
     }
     if (base.importance > 3) {

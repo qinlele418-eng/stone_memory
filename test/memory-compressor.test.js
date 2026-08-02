@@ -39,10 +39,10 @@ test("secondary core allows a lighter 220-character coarse summary", () => {
   const prefix = "6月1日，晚上九点。";
   const summary = prefix + "观".repeat(160);
   assert.throws(() => validateCompressionResult(
-    [{ id: "ordinary", content: `${prefix}完整观点。` }],
+    [{ id: "ordinary", content: `${prefix}她讨论存在主义的完整观点。` }],
     [{ id: "ordinary", coarseSummary: summary, coreTerms: ["存在主义"] }]), /长度/);
   assert.equal(validateCompressionResult(
-    [{ id: "core", content: `${prefix}完整观点。`, compressionStyle: "secondary_core" }],
+    [{ id: "core", content: `${prefix}她讨论存在主义的完整观点。`, compressionStyle: "secondary_core" }],
     [{ id: "core", coarseSummary: summary, coreTerms: ["存在主义"] }])[0].coarseSummary, summary);
 });
 
@@ -54,8 +54,8 @@ test("temporal prefix requires both the date and corresponding time", () => {
 
 test("compression results must preserve every id and exact date-time prefix", () => {
   const feelings = [
-    { id: "a", content: "6月1日，晚上九点。完整事件。" },
-    { id: "b", content: "7月1日，12:21。另一件事。" },
+    { id: "a", content: "6月1日，晚上九点。她记录了客观事实。" },
+    { id: "b", content: "7月1日，12:21。她作出长期承诺。" },
   ];
   assert.deepEqual(validateCompressionResult(feelings, [
     { id: "b", coarseSummary: "7月1日，12:21。保留核心感受。", coreTerms: ["长期承诺"] },
@@ -98,6 +98,20 @@ test("compressor retries a whole batch when model output fails core term validat
   const result = await compressor.compress([{ id: "f1", content: "6月1日，晚上九点。她说想看《小王子》。" }]);
   assert.equal(attempts, 2);
   assert.deepEqual(result[0].coreTerms, ["小王子"]);
+});
+
+test("compression rejects a plausible core term that was not copied from the original feeling", () => {
+  const feelings = [{ id: "a", content: "6月1日，晚上九点。她命令我过来抱她。" }];
+  assert.throws(() => validateCompressionResult(feelings, [{
+    id: "a",
+    coarseSummary: "6月1日，晚上九点。她让我抱她。",
+    coreTerms: ["主动抱她"],
+  }]), /逐字原词/);
+  assert.equal(validateCompressionResult(feelings, [{
+    id: "a",
+    coarseSummary: "6月1日，晚上九点。她让我抱她。",
+    coreTerms: ["抱她"],
+  }])[0].coreTerms[0], "抱她");
 });
 
 test("API compression maps validated aliases back to database ids", async () => {

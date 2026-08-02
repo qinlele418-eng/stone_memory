@@ -114,6 +114,35 @@ test("secondary core hides an old line only after a new high-information line di
   assert.ok(plan.decisions.filter(row => row.feelingId.startsWith("new-")).every(row => row.action === "keep_coarse"));
 });
 
+test("secondary displacement cannot auto-hide when its core term has no archive evidence", () => {
+  const oldRows = [0, 1].map(index => feeling({ id: `old-missing-${index}`,
+    source_date: `2026-01-0${index + 1}`, importance: 5,
+    content: "1月1日，晚上九点。她研究存在主义。", coarse_terms: '["存在主义"]' }));
+  const newRows = [
+    ["new-a", "2026-03-01"], ["new-b", "2026-03-02"], ["new-c", "2026-03-02"],
+  ].map(([id, date]) => feeling({ id, source_date: date, importance: 5,
+    content: "3月1日，晚上九点。她开始研究斯多葛主义。", coarse_terms: '["斯多葛主义"]' }));
+  const plan = buildHiddenPlan({
+    features: [
+      { id: "old", category: "preference", content: "她思考存在主义", importance: 5 },
+      { id: "new", category: "preference", content: "她思考斯多葛主义", importance: 5 },
+      { id: "sleep", category: "sleep", content: "她经常熬夜", importance: 3 },
+    ],
+    feelings: [...oldRows, ...newRows, ...Array.from({ length: 5 }, (_, index) => ({
+      id: `background-missing-${index}`, source_date: `2026-02-0${index + 1}`,
+      summary_mode: "daily", importance: 3, content: "2月1日，晚上十一点。她又熬夜了。",
+    }))],
+    messages: [
+      { type: "user", sourceDate: "2026-01-01", text: "以前聊过一套哲学想法" },
+      { type: "user", sourceDate: "2026-03-01", text: "开始看斯多葛主义" },
+      { type: "user", sourceDate: "2026-03-02", text: "继续聊斯多葛主义" },
+    ],
+  });
+  const old = plan.decisions.filter(row => row.feelingId.startsWith("old-missing-"));
+  assert.ok(old.every(row => row.action === "keep_coarse"));
+  assert.ok(old.every(row => /archive/.test(row.reason)));
+});
+
 test("secondary core keeps the old line when no replacement line has stood up", () => {
   const rows = [0, 1, 2, 3, 4].map(index => feeling({ id: `old-${index}`,
     source_date: index ? "2026-01-08" : "2026-01-01", importance: 5,
