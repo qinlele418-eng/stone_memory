@@ -339,36 +339,7 @@ class MemoryMiner {
       const opsFile = path.join(__dirname, "..", "..", "operations", "memory-miner-operations.md");
       const opsPrompt = this._readOperationsPrompt();
 
-      if (messages.length === 0) {
-        // 空 archive 不调用模型，但双通道均视为成功检查过。
-        this._saveState({ [`feeling:${targetDate}`]: Date.now(), [`feature:${targetDate}`]: Date.now() });
-      } else if (this.deepseekConfig?.apiKey) {
-        if (opsPrompt && this.purpose === "accompany") {
-          // 有 ops：分通道提取，尾部追加约束避免输出混合格式
-          if (!state[`feeling:${targetDate}`]) {
-            const prompt = `${opsPrompt}\n\n只输出 feelings 数组，不要 features。\n\n格式：[{"content": "...", "importance": 1-5}]`;
-            await this._mineChannel({ targetDate, messages, prompt, stateKey: `feeling:${targetDate}`, label: "feelings" });
-          }
-          if (!state[`feature:${targetDate}`]) {
-            const prompt = `${opsPrompt}\n\n只输出 features 数组，不要 feelings。\n\n格式：[{"content": "...", "category": "...", "importance": 1-5}]`;
-            await this._mineFeaturesFromFeelings({ targetDate, prompt, stateKey: `feature:${targetDate}` });
-          }
-        } else {
-          // 无 ops：用内联提示词
-          if (!state[`feeling:${targetDate}`]) {
-            await this._mineChannel({ targetDate, messages, prompt: buildFeelingPrompt(this.aiName, this.userName, this.purpose), stateKey: `feeling:${targetDate}`, label: "feelings" });
-          }
-          if (!state[`feature:${targetDate}`]) {
-            await this._mineFeaturesFromFeelings({
-              targetDate, prompt: buildFeaturePrompt(this.userName, this.purpose),
-              stateKey: `feature:${targetDate}`,
-            });
-          }
-        }
-      } else {
-        // subagent：一天一次，ops 走 --system-prompt-file，stdin 只传对话
-        await this._mineDayWithSubagent(targetDate, messages, state, opsPrompt || null);
-      }
+      await this._generatePendingDay(targetDate, messages, state, opsPrompt || null);
 
       const updated = this._readState();
       if (updated[`feeling:${targetDate}`] && updated[`feature:${targetDate}`]) {
@@ -607,6 +578,69 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
   }
 
   /**
+   * The single generation pipeline shared by formal mining and review
+   * candidates. It only fills pendingFeelings/pendingFeatures and completion
+   * markers; callers decide whether to publish with replaceDay or save a
+   * review candidate.
+   */
+  async _generatePendingDay(targetDate, messages, state, opsPrompt, {
+    promptOverlay = "",
+    model = null,
+    runtime = null,
+    reasoning = null,
+    cachePrefix = "",
+  } = {}) {
+    const withOverlay = prompt => promptOverlay ? `${prompt}\n\n${promptOverlay}` : prompt;
+    if (!messages.length) {
+      this._saveState({ [`feeling:${targetDate}`]: Date.now(), [`feature:${targetDate}`]: Date.now() });
+      return;
+    }
+
+    if (!this.deepseekConfig?.apiKey) {
+      await this._mineDayWithSubagent(targetDate, messages, state, opsPrompt, {
+        promptOverlay,
+        model,
+        runtime,
+        reasoning,
+        cachePrefix,
+      });
+      return;
+    }
+
+    const feelingPrompt = withOverlay(opsPrompt && this.purpose === "accompany"
+      ? `${opsPrompt}\n\n只输出 feelings 数组，不要 features。\n\n格式：[{"content": "...", "importance": 1-5}]`
+      : buildFeelingPrompt(this.aiName, this.userName, this.purpose));
+    const featurePrompt = withOverlay(opsPrompt && this.purpose === "accompany"
+      ? `${opsPrompt}\n\n只输出 features 数组，不要 feelings。\n\n格式：[{"content": "...", "category": "...", "importance": 1-5}]`
+      : buildFeaturePrompt(this.userName, this.purpose));
+
+    if (!state[`feeling:${targetDate}`]) {
+      await this._mineChannel({
+        targetDate,
+        messages,
+        prompt: feelingPrompt,
+        stateKey: `feeling:${targetDate}`,
+        label: "feelings",
+        cacheLabel: `${cachePrefix}feelings`,
+        model,
+        runtime,
+        reasoning,
+      });
+    }
+    if (!state[`feature:${targetDate}`]) {
+      await this._mineFeaturesFromFeelings({
+        targetDate,
+        prompt: featurePrompt,
+        stateKey: `feature:${targetDate}`,
+        cacheLabel: `${cachePrefix}features`,
+        model,
+        runtime,
+        reasoning,
+      });
+    }
+  }
+
+  /**
    * Generate a review candidate without publishing feelings/features or
    * changing mining day state.
    */
@@ -631,57 +665,40 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
     }
 
     const opsPrompt = this._readOperationsPrompt();
-    const promptParts = [];
-    let feelings = [];
-    let features = [];
-    if (this.deepseekConfig?.apiKey) {
-      const feelingBase = opsPrompt && this.purpose === "accompany"
-        ? `${opsPrompt}\n\n只输出 feelings 数组，不要 features。\n\n格式：[{"content": "...", "importance": 1-5}]`
-        : buildFeelingPrompt(this.aiName, this.userName, this.purpose);
-      const featureBase = opsPrompt && this.purpose === "accompany"
-        ? `${opsPrompt}\n\n只输出 features 数组，不要 feelings。\n\n格式：[{"content": "...", "category": "...", "importance": 1-5}]`
-        : buildFeaturePrompt(this.userName, this.purpose);
-      const feelingPrompt = overlay ? `${feelingBase}\n\n${overlay}` : feelingBase;
-      const featurePrompt = overlay ? `${featureBase}\n\n${overlay}` : featureBase;
-      promptParts.push(feelingPrompt, featurePrompt);
-      feelings = await this._extractReviewChannel({
-        targetDate, messages, prompt: feelingPrompt, label: "feelings", model,
+    const cacheScope = crypto.createHash("sha256").update(JSON.stringify({
+      targetDate,
+      overlay,
+      channel: this.deepseekConfig?.apiKey ? "api" : "subagent",
+      provider: this.deepseekConfig?.provider || null,
+      apiModel: this.deepseekConfig?.model || null,
+      model,
+      runtime,
+      reasoning,
+    })).digest("hex").slice(0, 16);
+    const cachePrefix = `review-${cacheScope}-`;
+    const stateKeys = [`feeling:${targetDate}`, `feature:${targetDate}`];
+    this.pendingFeelings = [];
+    this.pendingFeatures = [];
+    try {
+      await this._generatePendingDay(targetDate, messages, {}, opsPrompt || null, {
+        promptOverlay: overlay,
+        model,
+        runtime,
+        reasoning,
+        cachePrefix,
       });
-      features = await this._extractReviewChannel({
-        targetDate, messages, prompt: featurePrompt, label: "features", isFeature: true, model,
-      });
-    } else {
-      const [, month, day] = targetDate.split("-");
-      const dateLabel = `${parseInt(month)}月${parseInt(day)}日`;
-      const opsFile = path.join(__dirname, "..", "..", "operations", "memory-miner-operations.md");
-      const hasOps = opsPrompt && fs.existsSync(opsFile) && this.purpose === "accompany";
-      for (let index = 0; index < chunks.length; index++) {
-        const conversationText = this._buildConversationText(chunks[index]);
-        const basePrompt = hasOps
-          ? `以下是 ${dateLabel} 的对话记录。你只能记录这一天实际发生的对话。每条 feelings 必须以 "${dateLabel}，" 开头，禁止使用其他日期。\n\n对话内容：\n${conversationText}\n\n请输出 JSON：{"feelings":[...], "features":[...]}`
-          : `${buildFeelingPrompt(this.aiName, this.userName, this.purpose)}\n\n---\n\n${buildFeaturePrompt(this.userName, this.purpose)}\n\n以下是 ${dateLabel} 的对话记录。你只能记录这一天实际发生的对话。每条 feelings 必须以 "${dateLabel}，" 开头，禁止使用其他日期。\n\n对话内容：\n${conversationText}\n\n请输出 JSON：{"feelings":[...], "features":[...]}`;
-        const withOverlay = overlay ? `${basePrompt}\n\n${overlay}` : basePrompt;
-        const prompt = this._chunkPrompt(withOverlay, index, chunks.length, feelings, "feelings");
-        promptParts.push(prompt);
-        const reply = subagentSafe(prompt, {
-          ...(hasOps ? { opsFile } : {}),
-          threadId: this.threadId,
-          model: model || undefined,
-          runtime: runtime || undefined,
-          reasoning: reasoning || undefined,
-        });
-        const parsed = parseJsonObject(reply);
-        if (!parsed || !Array.isArray(parsed.feelings) || !Array.isArray(parsed.features)) {
-          throw new MiningError("OUTPUT_INVALID", `${targetDate}: review chunk ${index + 1}/${chunks.length} output is not a feelings/features JSON object`);
-        }
-        this._recordFeelingChunk(chunks[index], index, chunks.length, parsed.feelings, "subagent", {
-          runtime: runtime || this.runtime,
-          model,
-        });
-        feelings.push(...parsed.feelings);
-        features.push(...parsed.features);
-      }
+    } finally {
+      // Review candidates are deliberately not formal mining state. Failed
+      // chunk caches remain isolated by profile so a retry can resume safely.
+      this._deleteStateKeys(stateKeys);
     }
+    const feelings = this.pendingFeelings.slice();
+    const features = this.pendingFeatures.slice();
+    this._clearChunkCacheLabels(targetDate, [
+      `${cachePrefix}feelings-subagent`,
+      `${cachePrefix}feelings`,
+      `${cachePrefix}features`,
+    ]);
 
     return {
       date: targetDate,
@@ -691,36 +708,17 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
       chunkReport: this.chunkReport,
       feelings,
       features,
-      promptHash: crypto.createHash("sha256").update(promptParts.join("\n\n---\n\n")).digest("hex"),
+      promptHash: crypto.createHash("sha256").update(`${opsPrompt}\n${overlay}`).digest("hex"),
     };
   }
-
-  async _extractReviewChannel({ targetDate, messages, prompt, label, isFeature = false, model = null }) {
-    const datedPrompt = this._datedChannelPrompt(prompt, targetDate, isFeature);
-    const chunks = this._messageChunks(messages);
-    const raw = [];
-    for (let index = 0; index < chunks.length; index++) {
-      const result = await this._extractViaSubagent(
-        chunks[index],
-        this._chunkPrompt(datedPrompt, index, chunks.length, raw, isFeature ? "features" : label),
-        { model, expectedKey: isFeature ? "features" : "feelings" },
-      );
-      const recovery = this._lastApiRecovery;
-      if (!isFeature) {
-        this._recordFeelingChunk(chunks[index], index, chunks.length, Array.isArray(result) ? result : [], "api", {
-          model,
-          recovery,
-        });
-      } else if (recovery && this.chunkReport[index]) {
-        this.chunkReport[index].featureRecoveryStatus = recovery.status;
-        this.chunkReport[index].featureRecoveryMessage = recovery.message;
-      }
-      if (Array.isArray(result)) raw.push(...result);
-    }
-    return raw;
-  }
   /** claude -p 单日双通道：ops 走 --system-prompt-file，stdin 只传对话 + 输出指令 */
-  async _mineDayWithSubagent(targetDate, messages, state, opsPrompt) {
+  async _mineDayWithSubagent(targetDate, messages, state, opsPrompt, {
+    promptOverlay = "",
+    model = null,
+    runtime = null,
+    reasoning = null,
+    cachePrefix = "",
+  } = {}) {
     const [y, m, d] = targetDate.split("-");
     const dateLabel = `${parseInt(m)}月${parseInt(d)}日`;
 
@@ -730,7 +728,8 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
     // stdin 只传对话 + 输出指令，不内联 ops（ops 走 --system-prompt-file）
     const chunks = this._messageChunks(messages);
     const feelings = [];
-    const cache = this._loadChunkCache(targetDate, "feelings-subagent", messages, chunks.length);
+    const feelingCacheLabel = `${cachePrefix}feelings-subagent`;
+    const cache = this._loadChunkCache(targetDate, feelingCacheLabel, messages, chunks.length);
     console.log(`[memory-miner] ${targetDate}: sub-agent extracting feelings in ${chunks.length} chunk(s)...`);
     for (let index = 0; index < chunks.length; index++) {
       const cached = cache.chunks[index];
@@ -743,12 +742,15 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
       const basePrompt = hasOps
         ? `以下是 ${dateLabel} 的对话记录。你只能记录这一天实际发生的对话。每条 feelings 必须以 "${dateLabel}，" 开头，禁止使用其他日期。\n\n对话内容：\n${conversationText}\n\n只输出 feelings JSON 数组，不要输出 features。`
         : `${buildFeelingPrompt(this.aiName, this.userName, this.purpose)}\n\n以下是 ${dateLabel} 的对话记录。你只能记录这一天实际发生的对话。每条 feelings 必须以 "${dateLabel}，" 开头，禁止使用其他日期。\n\n对话内容：\n${conversationText}\n\n只输出 feelings JSON 数组。`;
-      const prompt = this._chunkPrompt(basePrompt, index, chunks.length, feelings, "feelings");
+      const overlaidPrompt = promptOverlay ? `${basePrompt}\n\n${promptOverlay}` : basePrompt;
+      const prompt = this._chunkPrompt(overlaidPrompt, index, chunks.length, feelings, "feelings");
       console.log(`[memory-miner] ${targetDate}: sub-agent chunk ${index + 1}/${chunks.length} — ${byteLength(conversationText)} bytes`);
       try {
         const reply = hasOps
-          ? subagentSafe(prompt, { opsFile, threadId: this.threadId })
-          : subagentSafe(prompt, { threadId: this.threadId });
+          ? subagentSafe(prompt, { opsFile, threadId: this.threadId, model: model || undefined,
+            runtime: runtime || undefined, reasoning: reasoning || undefined })
+          : subagentSafe(prompt, { threadId: this.threadId, model: model || undefined,
+            runtime: runtime || undefined, reasoning: reasoning || undefined });
         const parsed = parseMiningArray(
           reply,
           `${targetDate}: subagent chunk ${index + 1}/${chunks.length} output is not a feelings JSON array`,
@@ -756,7 +758,7 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
         );
         cache.chunks[index] = parsed;
         this._recordFeelingChunk(chunks[index], index, chunks.length, parsed, "subagent");
-        this._saveChunkCache(targetDate, "feelings-subagent", cache);
+        this._saveChunkCache(targetDate, feelingCacheLabel, cache);
         feelings.push(...parsed);
       } catch (error) {
         const range = miningChunkTimeRange(chunks[index]);
@@ -773,10 +775,19 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
     }
     if (!feelings.length && !state[`feeling:${targetDate}`]) this._saveState({ [`feeling:${targetDate}`]: Date.now() });
     if (!state[`feature:${targetDate}`]) {
-      const prompt = opsPrompt && this.purpose === "accompany"
+      const baseFeaturePrompt = opsPrompt && this.purpose === "accompany"
         ? `${opsPrompt}\n\n以下输入是今天已经生成并去噪的 feelings。请只从这些摘要提取 features，不要输出 feelings。\n\n格式：[{"content": "...", "category": "...", "importance": 1-5}]`
         : buildFeaturePrompt(this.userName, this.purpose);
-      await this._mineFeaturesFromFeelings({ targetDate, prompt, stateKey: `feature:${targetDate}` });
+      const prompt = promptOverlay ? `${baseFeaturePrompt}\n\n${promptOverlay}` : baseFeaturePrompt;
+      await this._mineFeaturesFromFeelings({
+        targetDate,
+        prompt,
+        stateKey: `feature:${targetDate}`,
+        cacheLabel: `${cachePrefix}features`,
+        model,
+        runtime,
+        reasoning,
+      });
     }
   }
 
@@ -811,7 +822,7 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
     }
   }
 
-  async _mineFeaturesFromFeelings({ targetDate, prompt, stateKey }) {
+  async _mineFeaturesFromFeelings({ targetDate, prompt, stateKey, cacheLabel = "features", model = null, runtime = null, reasoning = null }) {
     const messages = this._featureSourceMessages(targetDate);
     if (!messages.length) {
       console.log(`[memory-miner] ${targetDate}: features — no feelings, skipping model call`);
@@ -820,7 +831,8 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
     }
     console.log(`[memory-miner] ${targetDate}: features — extracting from ${messages.length} generated feelings`);
     await this._mineChannel({
-      targetDate, messages, prompt, stateKey, label: "features", isFeature: true,
+      targetDate, messages, prompt, stateKey, label: "features", cacheLabel, isFeature: true,
+      model, runtime, reasoning,
     });
   }
 
@@ -880,11 +892,11 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
   }
 
   /** 单通道挖掘 (API key 模式) */
-  async _mineChannel({ targetDate, messages, prompt, stateKey, label, isFeature = false }) {
+  async _mineChannel({ targetDate, messages, prompt, stateKey, label, cacheLabel = label, isFeature = false, model = null, runtime = null, reasoning = null }) {
     const datedPrompt = this._datedChannelPrompt(prompt, targetDate, isFeature);
     const chunks = this._messageChunks(messages);
     const raw = [];
-    const cache = this._loadChunkCache(targetDate, label, messages, chunks.length);
+    const cache = this._loadChunkCache(targetDate, cacheLabel, messages, chunks.length);
     console.log(`[memory-miner] ${targetDate}: ${label} — ${messages.length} messages in ${chunks.length} chunk(s), extracting...`);
     for (let index = 0; index < chunks.length; index++) {
       if (cache.chunks[index]) {
@@ -902,7 +914,7 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
         const result = await this._extractViaSubagent(
           chunks[index],
           this._chunkPrompt(datedPrompt, index, chunks.length, raw, isFeature ? "features" : "feelings"),
-          { expectedKey: isFeature ? "features" : "feelings" },
+          { model, runtime, reasoning, expectedKey: isFeature ? "features" : "feelings" },
         );
         const entries = Array.isArray(result) ? result : [];
         cache.chunks[index] = entries;
@@ -913,7 +925,7 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
             recovery: this._lastApiRecovery,
           });
         }
-        this._saveChunkCache(targetDate, label, cache);
+        this._saveChunkCache(targetDate, cacheLabel, cache);
         raw.push(...entries);
       } catch (error) {
         const range = miningChunkTimeRange(chunks[index]);
@@ -939,7 +951,12 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
     return bj.toISOString().slice(0, 10);
   }
 
-  async _extractViaSubagent(messages, prompt, { model: subagentModel = null, expectedKey = null } = {}) {
+  async _extractViaSubagent(messages, prompt, {
+    model: subagentModel = null,
+    runtime = null,
+    reasoning = null,
+    expectedKey = null,
+  } = {}) {
 
     // 如果配置了独立 API key，用原来的直接调用（更快）
     if (this.deepseekConfig?.apiKey) {
@@ -997,7 +1014,12 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
     this._lastApiRecovery = null;
     const conversationText = this._buildConversationText(messages);
     const subPrompt = `${prompt}\n\n对话内容：\n${conversationText}\n\n请输出 JSON 数组。`;
-    const reply = this._runSubagent(subPrompt, { threadId: this.threadId, model: subagentModel || undefined });
+    const reply = this._runSubagent(subPrompt, {
+      threadId: this.threadId,
+      model: subagentModel || undefined,
+      runtime: runtime || undefined,
+      reasoning: reasoning || undefined,
+    });
     try {
       return validateMiningEntries(
         parseMiningArray(reply, "Subagent output is not a JSON array", expectedKey),
@@ -1009,11 +1031,13 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
         rawReply: reply,
         expectedKey: expectedKey || "feelings",
         model: subagentModel,
+        runtime,
+        reasoning,
       });
     }
   }
 
-  _recoverInvalidSubagentChunk({ rawReply, expectedKey, model = null }) {
+  _recoverInvalidSubagentChunk({ rawReply, expectedKey, model = null, runtime = null, reasoning = null }) {
     const schema = expectedKey === "features"
       ? '[{"content":"事实","category":"eat|body|sleep|work|relation|habit|location|preference|misc","importance":2|3|5}]'
       : '[{"content":"带日期时间的摘要","importance":2|3|5}]';
@@ -1029,6 +1053,8 @@ ${String(rawReply || "")}
     const repairedReply = this._runSubagent(repairPrompt, {
       threadId: this.threadId,
       model: model || undefined,
+      runtime: runtime || undefined,
+      reasoning: reasoning || undefined,
     });
     const repaired = validateMiningEntries(
       parseMiningArray(repairedReply, "Subagent could not repair its JSON output", expectedKey),
@@ -1147,7 +1173,11 @@ ${conversationText}`;
   }
 
   _clearChunkCaches(targetDate) {
-    for (const label of ["combined", "feelings-subagent", "feelings", "features"]) {
+    this._clearChunkCacheLabels(targetDate, ["combined", "feelings-subagent", "feelings", "features"]);
+  }
+
+  _clearChunkCacheLabels(targetDate, labels) {
+    for (const label of labels) {
       try { fs.unlinkSync(this._chunkCachePath(targetDate, label)); } catch {}
     }
   }

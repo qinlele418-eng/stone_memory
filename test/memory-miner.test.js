@@ -136,8 +136,10 @@ test("review preview returns candidate material without publishing the day", asy
   const miner = minerFixture(t, [{ timestamp: "2026-06-12T01:00:00.000Z", text: "候选审阅对话" }]);
   miner.deepseekConfig = { apiKey: ["test", "only"].join("-"), baseUrl: "https://example.invalid", model: "test-model" };
   const prompts = [];
-  miner._extractViaSubagent = async (_messages, prompt) => {
+  const inputs = [];
+  miner._extractViaSubagent = async (messages, prompt) => {
     prompts.push(prompt);
+    inputs.push(messages.map(row => row.text));
     if (/只输出 features/.test(prompt)) {
       return [{ content: "候选特征", category: "relation", importance: 3 }];
     }
@@ -156,10 +158,41 @@ test("review preview returns candidate material without publishing the day", asy
   })), [{ channel: "api", model: "test-model", outputCount: 1, empty: false }]);
   assert.equal(preview.feelings.length, 1);
   assert.equal(preview.features.length, 1);
+  assert.deepEqual(inputs, [
+    ["候选审阅对话"],
+    ["6月12日，上午九点。候选摘要。"],
+  ]);
   assert.match(preview.promptHash, /^[0-9a-f]{64}$/);
   assert.ok(prompts.every(prompt => /本次只用于候选审阅/.test(prompt)));
   assert.equal(miner.store.listFeelings({ date: "2026-06-12" }).length, 0);
   assert.equal(miner.store.listFeatures({ date: "2026-06-12" }).length, 0);
+  assert.equal(miner.store.getDayState("2026-06-12"), null);
+});
+
+test("review preview resumes its isolated shared-pipeline cache after a feature failure", async t => {
+  const miner = minerFixture(t, [{ timestamp: "2026-06-12T01:00:00.000Z", text: "候选审阅对话" }]);
+  miner.deepseekConfig = { apiKey: ["test", "only"].join("-"), baseUrl: "https://example.invalid", model: "test-model" };
+  let feelingCalls = 0;
+  let featureCalls = 0;
+  miner._extractViaSubagent = async (_messages, prompt) => {
+    if (/只输出 features/.test(prompt)) {
+      featureCalls++;
+      if (featureCalls === 1) throw new MiningError("CHUNK_FAILED", "feature provider interrupted");
+      return [{ content: "候选特征", category: "relation", importance: 3 }];
+    }
+    feelingCalls++;
+    return [{ content: "6月12日，上午九点。候选摘要。", importance: 3 }];
+  };
+
+  await assert.rejects(
+    () => miner.preview("2026-06-12", { promptOverlay: "同一审阅配置" }),
+    error => error.code === "CHUNK_FAILED" && error.details.cause.message === "feature provider interrupted",
+  );
+  const preview = await miner.preview("2026-06-12", { promptOverlay: "同一审阅配置" });
+  assert.equal(feelingCalls, 1);
+  assert.equal(featureCalls, 2);
+  assert.equal(preview.feelings.length, 1);
+  assert.equal(preview.features.length, 1);
   assert.equal(miner.store.getDayState("2026-06-12"), null);
 });
 function minerFixture(t, messages) {
