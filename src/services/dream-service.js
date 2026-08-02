@@ -166,7 +166,6 @@ function buildDreamPrompt({
     "{userName}": requiredText(userName, "userName"),
     "{aiName}": requiredText(aiName, "aiName"),
     "{{typePrompt}}": typePrompt,
-    "{{requestedType}}": requiredText(dreamType, "dreamType"),
   };
   let prompt = common;
   for (const [placeholder, value] of Object.entries(values)) {
@@ -221,10 +220,10 @@ function requiredDate(value) {
 
 function parseDreamOutput(output) {
   const text = String(output || "").replace(/\r\n?/g, "\n").trim();
-  const firstLineEnd = text.indexOf("\n");
-  const titleLine = firstLineEnd < 0 ? text : text.slice(0, firstLineEnd);
+  const separator = text.indexOf("\n\n");
+  const titleLine = separator < 0 ? text : text.slice(0, separator);
   const title = titleLine.match(/^标题：\s*(.+)$/u)?.[1]?.trim() || "";
-  const body = firstLineEnd < 0 ? "" : text.slice(firstLineEnd + 1).trim();
+  const body = separator < 0 ? "" : text.slice(separator + 2).trim();
   if (!title || !body) {
     const error = new Error("subagent output is not valid dream text");
     error.code = "DREAM_OUTPUT_INVALID";

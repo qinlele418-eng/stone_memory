@@ -103,6 +103,13 @@ test("dream output keeps narrative quotes and code as plain text", () => {
   });
 });
 
+test("dream output requires a blank line between title and narrative", () => {
+  assert.throws(
+    () => parseDreamOutput("标题：灯塔背面的城\n说明：以下是梦境正文\n灯一直亮着。"),
+    error => error.code === "DREAM_OUTPUT_INVALID",
+  );
+});
+
 test("all five standard dream types resolve independent prompt assets", () => {
   const dreamTypes = [
     "beautiful",
@@ -244,7 +251,7 @@ test("dream service leaves no file after all text attempts are invalid", t => {
     randomInt: maximum => maximum === 1 ? 0 : 9_000,
     runSubagent: () => {
       calls++;
-      return "{}";
+      return "标题：没有正文\n\n";
     },
   });
 
