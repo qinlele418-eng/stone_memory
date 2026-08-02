@@ -9,7 +9,6 @@ const { DreamStore } = require("../storage/dream-store");
 const { runSubagent: defaultRunSubagent } = require("./subagent-runner");
 
 const ROLL_SCALE = 10_000;
-const MAX_DREAM_GENERATION_ATTEMPTS = 3;
 const DEFAULT_PROMPT_DIRECTORY = path.join(__dirname, "..", "..", "operations", "dream");
 
 class DreamService {
@@ -83,15 +82,8 @@ class DreamService {
     });
     let generated;
     try {
-      for (let attempt = 1; attempt <= MAX_DREAM_GENERATION_ATTEMPTS; attempt++) {
-        const output = this.runSubagent(task, { threadId, opsFile: operationFile });
-        try {
-          generated = parseDreamOutput(output);
-          break;
-        } catch (error) {
-          if (error.code !== "DREAM_OUTPUT_INVALID" || attempt === MAX_DREAM_GENERATION_ATTEMPTS) throw error;
-        }
-      }
+      const output = this.runSubagent(task, { threadId, opsFile: operationFile });
+      generated = normalizeDreamMarkdown(output);
     } finally {
       try { fs.unlinkSync(operationFile); } catch {}
     }
@@ -218,25 +210,27 @@ function requiredDate(value) {
   return date;
 }
 
-function parseDreamOutput(output) {
+function normalizeDreamMarkdown(output) {
   const text = String(output || "").replace(/\r\n?/g, "\n").trim();
-  const separator = text.indexOf("\n\n");
-  const titleLine = separator < 0 ? text : text.slice(0, separator);
-  const title = titleLine.match(/^标题：\s*(.+)$/u)?.[1]?.trim() || "";
-  const body = separator < 0 ? "" : text.slice(separator + 2).trim();
-  if (!title || !body) {
-    const error = new Error("subagent output is not valid dream text");
-    error.code = "DREAM_OUTPUT_INVALID";
+  if (!text) {
+    const error = new Error("subagent returned empty dream output");
+    error.code = "DREAM_OUTPUT_EMPTY";
     throw error;
   }
-  return { title, body };
+  const newline = text.indexOf("\n");
+  const firstLine = newline < 0 ? text : text.slice(0, newline);
+  const h1 = firstLine.match(/^ {0,3}#[ \t]+(.+?)(?:[ \t]+#+[ \t]*)?$/u);
+  if (!h1) return { title: "", body: text };
+  return {
+    title: h1[1].trim(),
+    body: newline < 0 ? "" : text.slice(newline + 1).trim(),
+  };
 }
 
 module.exports = {
   buildDreamTask,
   buildDreamPrompt,
   DreamService,
-  parseDreamOutput,
   rollDreamType,
   selectDreamFeelings,
 };
