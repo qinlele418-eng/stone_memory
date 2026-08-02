@@ -9,14 +9,8 @@ const { DreamStore } = require("../storage/dream-store");
 const { runSubagent: defaultRunSubagent } = require("./subagent-runner");
 
 const ROLL_SCALE = 10_000;
+const MAX_DREAM_GENERATION_ATTEMPTS = 3;
 const DEFAULT_PROMPT_DIRECTORY = path.join(__dirname, "..", "..", "operations", "dream");
-const ENDING_VALENCE = Object.freeze({
-  beautiful: "positive",
-  nightmare: "negative",
-  erotic: "sensual",
-  beautiful_erotic: "positive",
-  nightmare_erotic: "negative",
-});
 
 class DreamService {
   constructor({
@@ -87,13 +81,20 @@ class DreamService {
       date,
       dreamType: roll.finalType,
     });
-    let output;
+    let generated;
     try {
-      output = this.runSubagent(task, { threadId, opsFile: operationFile });
+      for (let attempt = 1; attempt <= MAX_DREAM_GENERATION_ATTEMPTS; attempt++) {
+        const output = this.runSubagent(task, { threadId, opsFile: operationFile });
+        try {
+          generated = parseDreamOutput(output);
+          break;
+        } catch (error) {
+          if (error.code !== "DREAM_OUTPUT_INVALID" || attempt === MAX_DREAM_GENERATION_ATTEMPTS) throw error;
+        }
+      }
     } finally {
       try { fs.unlinkSync(operationFile); } catch {}
     }
-    const generated = parseDreamOutput(output, roll.finalType);
     const dream = this.dreamStore.save({
       threadId,
       date,
@@ -218,29 +219,18 @@ function requiredDate(value) {
   return date;
 }
 
-function parseDreamOutput(output, expectedType) {
-  let parsed;
-  try { parsed = JSON.parse(String(output || "").trim()); }
-  catch {
-    const error = new Error("subagent output is not valid dream JSON");
+function parseDreamOutput(output) {
+  const text = String(output || "").replace(/\r\n?/g, "\n").trim();
+  const firstLineEnd = text.indexOf("\n");
+  const titleLine = firstLineEnd < 0 ? text : text.slice(0, firstLineEnd);
+  const title = titleLine.match(/^标题：\s*(.+)$/u)?.[1]?.trim() || "";
+  const body = firstLineEnd < 0 ? "" : text.slice(firstLineEnd + 1).trim();
+  if (!title || !body) {
+    const error = new Error("subagent output is not valid dream text");
     error.code = "DREAM_OUTPUT_INVALID";
     throw error;
   }
-  const body = String(parsed?.dream?.body || "").trim();
-  const validation = parsed?.validation || {};
-  if (!body
-    || validation.requestedType !== expectedType
-    || validation.matchesRequestedType !== true
-    || validation.usesFeelingMaterial !== true
-    || parsed?.dream?.endingValence !== ENDING_VALENCE[expectedType]) {
-    const error = new Error("subagent dream output does not match the requested type contract");
-    error.code = "DREAM_OUTPUT_INVALID";
-    throw error;
-  }
-  return {
-    title: String(parsed.title || "").trim(),
-    body,
-  };
+  return { title, body };
 }
 
 module.exports = {

@@ -91,43 +91,8 @@
 
 ## 输出要求
 
-只能输出一个合法 JSON 对象，不要使用 Markdown 代码块，不要在 JSON 前后添加说明、道歉、分析或注释：
+只能输出标题和完整梦境正文，不要使用 Markdown 代码块，不要添加说明、道歉、分析、注释、摘要或字段清单。
 
-{
-  "title": "梦境标题",
-  "emotionalSummary": ["主要情绪一", "主要情绪二"],
-  "themes": ["主题一", "主题二"],
-  "motifs": ["意象一", "意象二"],
-  "sourceAnchors": [
-    {
-      "id": "输入 feeling 的 id；没有 id 时为 null",
-      "sourceDate": "输入 feeling 的 sourceDate",
-      "eventTime": "输入 feeling 的 eventTime；没有时为 null",
-      "description": "该 feeling 如何成为梦境素材的简短说明"
-    }
-  ],
-  "dream": {
-    "body": "完整梦境正文",
-    "aftertaste": "梦醒后的余韵",
-    "endingValence": "positive、negative 或 sensual"
-  },
-  "validation": {
-    "requestedType": "{{requestedType}}",
-    "matchesRequestedType": true,
-    "usesFeelingMaterial": true
-  }
-}
+第一行只能使用以下格式：`标题：梦境标题`。
 
-字段要求：
-
-- `emotionalSummary` 建议二至五项；
-- `themes` 建议二至六项；
-- `motifs` 建议三至八项；
-- `sourceAnchors` 建议三至六项，只能引用输入 feelings，不得伪造素材；
-- `dream.body` 必须是非空完整叙事；
-- `dream.body` 建议一千五百至三千五百个中文字符；
-- `dream.aftertaste` 为一至数句余韵，不得写成分析；
-- `validation.requestedType` 必须与外部传入值完全一致；
-- `matchesRequestedType` 和 `usesFeelingMaterial` 必须为 true；
-- `endingValence` 必须服从当前类型专属规则；
-- JSON 字符串中的换行和引号必须正确转义。
+第二行留空，第三行开始直接写完整梦境正文。正文建议一千五百至三千五百个中文字符，可以自由使用对话、引号、换行、代码片段和其他正常文字；不得为了输出格式改写或删减正文内容。
