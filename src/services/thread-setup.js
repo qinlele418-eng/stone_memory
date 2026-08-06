@@ -4,6 +4,7 @@ const os = require("os");
 const { CONFIG_PATH, loadConfig } = require("../config");
 const { MemoryStore } = require("../storage/memory-store");
 const { findThreadSessionFile } = require("../lib/thread-session-file");
+const { normalizeThinking } = require("./mining-engine-config");
 
 const STONE = path.join(os.homedir(), ".stone_memory");
 const GLOBAL_KEYS = new Set(["runtimes", "threadId", "apiKeys"]);
@@ -19,6 +20,30 @@ function saveConfig(config) {
   fs.renameSync(temp, CONFIG_PATH);
 }
 
+function buildApiCredential(input, existing = {}) {
+  const credential = {
+    key: input.apiKey || existing.key,
+    baseUrl: input.baseUrl || existing.baseUrl || undefined,
+    model: String(input.model || existing.model).trim(),
+  };
+  const thinking = Object.hasOwn(input, "thinking")
+    ? normalizeThinking(input.thinking)
+    : normalizeThinking(existing.thinking);
+  if (thinking) credential.thinking = thinking;
+  return credential;
+}
+
+function resolveThreadThinking(input, existing = {}) {
+  return Object.hasOwn(input, "thinking")
+    ? normalizeThinking(input.thinking)
+    : normalizeThinking(existing.thinking);
+}
+
+function threadRegistrationNeeded(existing = {}, entry = {}) {
+  if (!existing.label) return true;
+  return ["runtime", "purpose", "label"].some(key => existing[key] !== entry[key]);
+}
+
 function validateThreadInput(input, config = loadConfig(), { allowExisting = false } = {}) {
   const required = ["libraryName", "threadId", "ai", "user", "runtime", "purpose", "minerMode"];
   for (const key of required) if (!String(input[key] || "").trim()) throw new Error(`缺少必填项：${key}`);
@@ -31,6 +56,7 @@ function validateThreadInput(input, config = loadConfig(), { allowExisting = fal
   if (!["claude", "codex"].includes(input.runtime)) throw new Error("运行时必须是 claude 或 codex");
   if (!String(input.sessionDir || "").trim()) throw new Error("需要填写线程文件搜索目录");
   if (!["api", "subagent"].includes(input.minerMode)) throw new Error("挖掘模式必须是 api 或 subagent");
+  if (Object.hasOwn(input, "thinking")) normalizeThinking(input.thinking);
   if (input.minerMode === "api") {
     const existingKey = config.apiKeys?.[input.apiProvider]?.key;
     const existingModel = config.apiKeys?.[input.apiProvider]?.model;
@@ -93,12 +119,10 @@ function createThread(input, { allowExisting = false, requireSession = true } = 
     if (!input.apiProvider || (!input.apiKey && !existingKey)) throw new Error("API 模式需要厂商和 API Key");
     if (!String(input.model || existingModel || "").trim()) throw new Error("API 模式需要填写上游实际可用的模型名；Stone Memory 不预设模型名");
     entry.apiProvider = input.apiProvider;
+    const thinking = resolveThreadThinking(input, existing);
+    if (thinking) entry.thinking = thinking;
     config.apiKeys = config.apiKeys || {};
-    config.apiKeys[input.apiProvider] = {
-      key: input.apiKey || existingKey,
-      baseUrl: input.baseUrl || config.apiKeys[input.apiProvider]?.baseUrl || undefined,
-      model: String(input.model || existingModel).trim(),
-    };
+    config.apiKeys[input.apiProvider] = buildApiCredential(input, config.apiKeys[input.apiProvider]);
   }
   config.runtimes = config.runtimes || {
     claude: { command: "claude -p --bare", flags: { systemPrompt: "--system-prompt-file", mcpConfig: "--mcp-config", model: "--model" } },
@@ -118,9 +142,11 @@ function createThread(input, { allowExisting = false, requireSession = true } = 
   const operations = path.join(root, "rules", "operations.md");
   if (!fs.existsSync(operations)) fs.writeFileSync(operations, `# ${entry.ai} 的操作指令\n\n在此定义 ${entry.ai} 可以使用的工具、API、外部系统。\n每次 rebuild 时这些操作指令会自动注入到新线程头部。\n`);
 
-  const store = new MemoryStore({ memoryDir: path.join(root, "memory"), threadId });
-  store.registerThread({ runtime: entry.runtime, purpose: entry.purpose, label: entry.label });
-  store.close();
+  if (threadRegistrationNeeded(existing, entry)) {
+    const store = new MemoryStore({ memoryDir: path.join(root, "memory"), threadId });
+    store.registerThread({ runtime: entry.runtime, purpose: entry.purpose, label: entry.label });
+    store.close();
+  }
   const searchRoot = entry.sessionDir;
   function hasSession(dir) {
     if (!dir || !fs.existsSync(dir)) return false;
@@ -136,4 +162,4 @@ function createThread(input, { allowExisting = false, requireSession = true } = 
   };
 }
 
-module.exports = { createThread, validateThreadInput, validateSessionBinding, normalizeName, saveConfig };
+module.exports = { buildApiCredential, createThread, resolveThreadThinking, threadRegistrationNeeded, validateThreadInput, validateSessionBinding, normalizeName, saveConfig };

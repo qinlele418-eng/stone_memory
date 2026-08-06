@@ -21,6 +21,7 @@ function resolveApiConfig(threadId, forceApi, forceSubagent) {
     apiKey: credentials.key,
     baseUrl: credentials.baseUrl || "https://api.deepseek.com",
     model: credentials.model,
+    thinking: thread.thinking || credentials.thinking,
   };
 }
 

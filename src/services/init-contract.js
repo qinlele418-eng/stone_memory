@@ -21,6 +21,7 @@ const INIT_SCHEMA = {
     apiKey: { type: "string", description: "仅通过权限受限的 batch 文件传递，禁止放入命令行参数或提交到 Git。" },
     baseUrl: { type: "string" },
     model: { type: "string", description: "API 实际可用的模型名。Stone Memory 不预设模型名，API 模式必须显式填写。" },
+    thinking: { type: "string", enum: ["enabled", "disabled"], description: "当前记忆体可选的 chat/completions 思考模式；未填写时沿用 provider 配置或上游默认。" },
     windowDays: { type: "integer", minimum: 1, default: 3 },
     keepToolPairs: { type: "integer", minimum: 0, default: 30 },
     mcpRebuildDefaultsEnabled: { type: "boolean", default: false },

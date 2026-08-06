@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { runSubagent } = require("./subagent-runner");
+const { buildChatCompletionsBody } = require("./mining-engine-config");
 const { parseJsonArray, parseJsonObject } = require("../lib/json-parse");
 
 const OPS_FILE = path.join(__dirname, "..", "..", "operations", "memory-compressor-operations.md");
@@ -114,7 +115,7 @@ class MemoryCompressor {
   }
 
   async _compressViaApi(prompt) {
-    const { apiKey, baseUrl = "https://api.deepseek.com", model: rawModel,
+    const { apiKey, baseUrl = "https://api.deepseek.com", model: rawModel, thinking,
       requestTimeoutMs = 180000 } = this.apiConfig;
     if (!String(rawModel || "").trim()) throw new Error("API 模式没有配置模型名");
     const model = rawModel.replace(/\[\d+[km]\]/i, "");
@@ -130,13 +131,14 @@ class MemoryCompressor {
             method: "POST",
             signal: controller.signal,
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-            body: JSON.stringify({
+            body: JSON.stringify(buildChatCompletionsBody({
               model,
               messages: [{ role: "system", content: system }, { role: "user", content: prompt }],
               temperature: 0.2,
               response_format: { type: "json_object" },
               max_tokens: Math.max(1000, feelingsTokenBudget(prompt)),
-            }),
+              thinking,
+            })),
           });
         } finally {
           clearTimeout(timeout);

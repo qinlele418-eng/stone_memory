@@ -280,6 +280,27 @@ test("one API transport failure immediately hands the chunk to subagent", async 
   assert.match(miner._lastApiRecovery.message, /API 单次调用失败/);
 });
 
+test("memory miner sends explicit thinking without model-name branching", async t => {
+  const miner = minerFixture(t, [{ text: "synthetic conversation" }]);
+  miner.deepseekConfig = {
+    apiKey: "test-key",
+    baseUrl: "https://example.invalid",
+    model: "deepseek-v4-flash",
+    thinking: "disabled",
+  };
+  const originalFetch = global.fetch;
+  let body;
+  global.fetch = async (_url, options) => {
+    body = JSON.parse(options.body);
+    return { ok: true, json: async () => ({ choices: [{ message: { content: "[]" } }] }) };
+  };
+  t.after(() => { global.fetch = originalFetch; });
+
+  await miner._extractViaSubagent([{ text: "synthetic conversation" }], "synthetic prompt", { expectedKey: "feelings" });
+  assert.equal(body.model, "deepseek-v4-flash");
+  assert.deepEqual(body.thinking, { type: "disabled" });
+});
+
 test("invalid subagent features JSON gets one format-only repair by the same configured model", async t => {
   const miner = minerFixture(t, [{ text: "已经生成的摘要" }]);
   const calls = [];

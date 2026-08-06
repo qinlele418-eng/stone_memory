@@ -418,7 +418,8 @@ stmem watcher miner on      # 打开自动挖掘
     "deepseek": {
       "key": "sk-...",
       "baseUrl": "https://api.deepseek.com",
-      "model": "deepseek-v4-flash"
+      "model": "deepseek-v4-flash",
+      "thinking": "disabled"
     },
     "openai": {
       "key": "sk-...",
@@ -441,11 +442,19 @@ stmem watcher miner on      # 打开自动挖掘
     "sessionDir": "/home/.../.claude/projects/...",
     "minerMode": "subagent",
     "apiProvider": "deepseek",
+    "thinking": "disabled",
     "windowDays": 3,
     "keepToolPairs": 30
   }
 }
 ```
+
+`<threadId>.thinking` 是当前记忆体的 chat/completions 思考模式覆盖；
+`apiKeys.<provider>.thinking` 可作为共享 provider 默认。两者都只接受
+`enabled` 或 `disabled`。未配置时 Stone Memory 不发送 `thinking`
+字段，保持上游默认行为；显式配置时发送
+`thinking: { "type": "enabled" | "disabled" }`。该设置不根据模型名猜测，
+可用于支持该参数的 `deepseek-v4-pro`、`deepseek-v4-flash` 或其他兼容端点。
 
 ### 挖掘模式
 

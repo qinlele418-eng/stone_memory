@@ -10,7 +10,7 @@ const {
   buildReviewOverlay,
   nearDuplicateHints,
 } = require("../src/services/mining-review");
-const { resolveMiningApiCredentials } = require("../src/services/mining-engine-config");
+const { buildChatCompletionsBody, resolveMiningApiCredentials } = require("../src/services/mining-engine-config");
 
 async function main() {
   const args = process.argv.slice(2);
@@ -135,15 +135,16 @@ fingerprint, creates a SQLite backup, and then atomically replaces one day.`);
 
 async function runFusionWriter(prompt, resolved, threadId) {
   if (resolved.profile.channel === "api") {
-    const { apiKey, baseUrl, model } = resolved.deepseekConfig;
+    const { apiKey, baseUrl, model, thinking } = resolved.deepseekConfig;
     const response = await fetch(`${String(baseUrl).replace(/\/$/, "")}/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
+      body: JSON.stringify(buildChatCompletionsBody({
         model,
         temperature: 0.1,
         messages: [{ role: "user", content: prompt }],
-      }),
+        thinking,
+      })),
       signal: AbortSignal.timeout(20 * 60 * 1000),
     });
     if (!response.ok) throw new Error(`fusion API request failed: HTTP ${response.status}`);

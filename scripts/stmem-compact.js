@@ -123,7 +123,7 @@ function resolveApiConfig(threadId) {
     if (args.includes("--api")) throw new Error(`未找到 ${provider} API key`);
     return {};
   }
-  return { apiKey: credentials.key, baseUrl: credentials.baseUrl, model: credentials.model };
+  return { apiKey: credentials.key, baseUrl: credentials.baseUrl, model: credentials.model, thinking: thread.thinking || credentials.thinking };
 }
 
 function print(result, json) {

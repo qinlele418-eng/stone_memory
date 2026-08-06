@@ -58,6 +58,19 @@ async function askOptional(rl, question, defaultVal) {
   return answer.trim() || defaultVal;
 }
 
+async function askThinking(rl, existingVal) {
+  while (true) {
+    const current = existingVal || "default";
+    const answer = await new Promise(resolve => {
+      rl.question(`  思考模式 (enabled/disabled/default) [${current}]: `, resolve);
+    });
+    const value = answer.trim() || current;
+    if (value === "default") return "";
+    if (["enabled", "disabled"].includes(value)) return value;
+    console.log("  请输入 enabled、disabled 或 default。");
+  }
+}
+
 async function interactiveInit(threadId) {
   const cfg = loadCfg();
   const existing = cfg[threadId] || {};
@@ -81,7 +94,7 @@ async function interactiveInit(threadId) {
   const defaultSessionDir = runtime === "codex" ? path.join(os.homedir(), ".codex", "sessions") : existing.sessionDir;
   const sessionDir = await askRequired(rl, "线程文件搜索目录（会递归查找）", existing.sessionDir || defaultSessionDir);
   const minerMode = await askRequired(rl, "挖掘模式 (api/subagent)", existing.minerMode || "subagent");
-  let apiProvider = existing.apiProvider || "", apiKey = "", baseUrl = "", model = "";
+  let apiProvider = existing.apiProvider || "", apiKey = "", baseUrl = "", model = "", thinking = "";
   if (minerMode === "api") {
     apiProvider = await askRequired(rl, "API 厂商 (deepseek/openai/anthropic)", existing.apiProvider || "deepseek");
     // 填写 API key
@@ -91,6 +104,7 @@ async function interactiveInit(threadId) {
     const existingBaseUrl = cfg.apiKeys?.[apiProvider]?.baseUrl || "";
     baseUrl = await askOptional(rl, `  ${apiProvider} Base URL (回车默认)`, existingBaseUrl || defaultBaseUrl);
     model = await askRequired(rl, `  ${apiProvider} 模型名（必须与上游实际名称一致）`, cfg.apiKeys?.[apiProvider]?.model || "");
+    thinking = await askThinking(rl, cfg.apiKeys?.[apiProvider]?.thinking);
   }
   const windowDays = await askOptionalNumber(rl, "rebuild 窗口天数", existing.windowDays, 3);
   const keepToolPairs = await askOptionalNumber(rl, "保留工具对数", existing.keepToolPairs, 30);
@@ -98,7 +112,7 @@ async function interactiveInit(threadId) {
   rl.close();
 
   return { threadId, libraryName: label, ai, user, userGender, runtime, purpose, sessionDir, minerMode,
-    apiProvider, apiKey, baseUrl, model, windowDays, keepToolPairs,
+    apiProvider, apiKey, baseUrl, model, thinking, windowDays, keepToolPairs,
     automaticFullMining: existing.automaticFullMining !== false,
     automaticMemoryMaintenance: existing.automaticMemoryMaintenance !== false,
     automaticCompression: existing.automaticCompression === true,

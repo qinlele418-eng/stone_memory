@@ -1,4 +1,5 @@
 const { parseJsonArray } = require("../lib/json-parse");
+const { buildChatCompletionsBody } = require("./mining-engine-config");
 
 function clip(value, limit = 20000) {
   const text = String(value ?? "");
@@ -26,12 +27,13 @@ async function diagnoseApiMining({ apiConfig, systemPrompt, conversationText, fe
     response = await fetchImpl(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiConfig.apiKey}` },
-      body: JSON.stringify({
+      body: JSON.stringify(buildChatCompletionsBody({
         model,
         messages: [{ role: "system", content: systemPrompt }, { role: "user", content: conversationText }],
         temperature: 0.5,
         max_tokens: 4000,
-      }),
+        thinking: apiConfig.thinking,
+      })),
     });
   } catch (error) {
     return {

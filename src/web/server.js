@@ -338,8 +338,8 @@ async function executeMiningJob(job) {
   job.completedAt=new Date().toISOString();job.updatedAt=job.completedAt;
 }
 
-function publicThreadSettings(threadId) {
-  const config = loadConfig(), entry = config[threadId];
+function publicThreadSettings(threadId, config = loadConfig()) {
+  const entry = config[threadId];
   if (!entry) throw new Error(`记忆体不存在：${threadId}`);
   return {
     threadId, libraryName: entry.label || threadId, ai: entry.ai || "", user: entry.user || "",
@@ -347,6 +347,7 @@ function publicThreadSettings(threadId) {
     sessionDir: entry.sessionDir || "", minerMode: entry.minerMode || "subagent", apiProvider: entry.apiProvider || "",
     baseUrl: entry.apiProvider ? (config.apiKeys?.[entry.apiProvider]?.baseUrl || "") : "",
     model: entry.apiProvider ? (config.apiKeys?.[entry.apiProvider]?.model || "") : "",
+    thinking: entry.apiProvider ? (entry.thinking || config.apiKeys?.[entry.apiProvider]?.thinking || "") : "",
     apiKey: entry.apiProvider ? (config.apiKeys?.[entry.apiProvider]?.key || "") : "",
     hasApiKey: !!(entry.apiProvider && config.apiKeys?.[entry.apiProvider]?.key),
     windowDays: entry.windowDays ?? 3, keepToolPairs: entry.keepToolPairs ?? 30,
@@ -1102,5 +1103,5 @@ module.exports = {
   startWebServer, listLibraries, overview, previewRows, paginate, buildConversationCalendar,
   miningDatesFromStore, miningCommandArgs, miningCheckCommandArgs, targetedMiningCommandArgs,
   timelineCommandArgs, compactTimelineReport, compressionCommandArgs, safeStmemFailure, runStmem,
-  reviewCandidateForWeb, reviewProfileFromInput,
+  reviewCandidateForWeb, reviewProfileFromInput, publicThreadSettings,
 };

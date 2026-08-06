@@ -9,6 +9,7 @@ const { archiveFingerprint, getDayState, isCompleted, retryDelayMs } = require("
 const { MemoryStore } = require("../storage/memory-store");
 const { parseFeelingTime } = require("./thread-rebuilder");
 const { diagnoseApiMining } = require("./mining-diagnostics");
+const { buildChatCompletionsBody } = require("./mining-engine-config");
 const { splitMiningMessages, byteLength } = require("./mining-chunks");
 const { isInjectedMemoryBlock } = require("../lib/system-injection");
 
@@ -961,7 +962,7 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
     // 如果配置了独立 API key，用原来的直接调用（更快）
     if (this.deepseekConfig?.apiKey) {
       this._lastApiRecovery = null;
-      const { apiKey, baseUrl = "https://api.deepseek.com", model: rawModel } = this.deepseekConfig;
+      const { apiKey, baseUrl = "https://api.deepseek.com", model: rawModel, thinking } = this.deepseekConfig;
       if (!String(rawModel || "").trim()) {
         return this._subagentTakeoverChunk({
           messages,
@@ -977,7 +978,13 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
         const response = await fetch(`${baseUrl}/chat/completions`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-          body: JSON.stringify({ model, messages: [{ role: "system", content: prompt }, { role: "user", content: conversationText }], temperature: 0.5, max_tokens: 4000 }),
+          body: JSON.stringify(buildChatCompletionsBody({
+            model,
+            messages: [{ role: "system", content: prompt }, { role: "user", content: conversationText }],
+            temperature: 0.5,
+            max_tokens: 4000,
+            thinking,
+          })),
         });
         if (!response.ok) {
           const errText = await response.text().catch(() => "");

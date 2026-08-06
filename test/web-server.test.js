@@ -1,9 +1,9 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { previewRows, paginate, buildConversationCalendar, miningDatesFromStore, miningCommandArgs, miningCheckCommandArgs, targetedMiningCommandArgs, timelineCommandArgs, compactTimelineReport, compressionCommandArgs, safeStmemFailure, reviewCandidateForWeb, reviewProfileFromInput } = require("../src/web/server");
+const { previewRows, paginate, buildConversationCalendar, miningDatesFromStore, miningCommandArgs, miningCheckCommandArgs, targetedMiningCommandArgs, timelineCommandArgs, compactTimelineReport, compressionCommandArgs, safeStmemFailure, reviewCandidateForWeb, reviewProfileFromInput, publicThreadSettings } = require("../src/web/server");
 const { buildStdinCmd } = require("../src/services/subagent-runner");
 const { itemKey, inspectClaude, inspectCodex, conversationWindow, latestConversationDate, trimRows } = require("../src/services/rebuild-workbench");
-const { validateThreadInput, validateSessionBinding } = require("../src/services/thread-setup");
+const { buildApiCredential, resolveThreadThinking, threadRegistrationNeeded, validateThreadInput, validateSessionBinding } = require("../src/services/thread-setup");
 const { INIT_SCHEMA, buildInitTemplate } = require("../src/services/init-contract");
 const { findThreadSessionFile } = require("../src/lib/thread-session-file");
 const { usageFromRow } = require("../src/lib/thread-context-usage");
@@ -294,6 +294,47 @@ test("API init requires an explicit upstream model name instead of a hidden defa
   assert.throws(() => validateThreadInput(input, {}), /模型名/);
 });
 
+test("API init validates thinking and saves disabled without changing legacy defaults", () => {
+  const input = {
+    libraryName: "test", threadId: "thread-1", ai: "AI", user: "user",
+    runtime: "codex", purpose: "accompany", sessionDir: "/tmp", minerMode: "api",
+    apiProvider: "provider", apiKey: "key", baseUrl: "https://example.test", model: "deepseek-v4-pro",
+  };
+  assert.doesNotThrow(() => validateThreadInput({ ...input, thinking: "disabled" }, {}));
+  assert.throws(() => validateThreadInput({ ...input, thinking: "auto" }, {}), /enabled 或 disabled/);
+  assert.deepEqual(buildApiCredential({ ...input, thinking: "disabled" }), {
+    key: "key", baseUrl: "https://example.test", model: "deepseek-v4-pro", thinking: "disabled",
+  });
+  assert.equal(Object.hasOwn(buildApiCredential(input), "thinking"), false);
+  assert.equal(buildApiCredential(input, { thinking: "enabled" }).thinking, "enabled");
+  assert.equal(Object.hasOwn(buildApiCredential({ ...input, thinking: "" }, { thinking: "enabled" }), "thinking"), false);
+  assert.equal(resolveThreadThinking({ ...input, thinking: "disabled" }), "disabled");
+  assert.equal(resolveThreadThinking(input, { thinking: "enabled" }), "enabled");
+  assert.equal(resolveThreadThinking({ ...input, thinking: "" }, { thinking: "enabled" }), undefined);
+});
+
+test("settings-only updates do not rewrite thread database metadata", () => {
+  const existing = { runtime: "codex", purpose: "accompany", label: "test" };
+  assert.equal(threadRegistrationNeeded(existing, { ...existing, thinking: "disabled" }), false);
+  assert.equal(threadRegistrationNeeded(existing, { ...existing, label: "renamed" }), true);
+  assert.equal(threadRegistrationNeeded({}, existing), true);
+});
+
+test("web settings echoes the configured thinking choice", () => {
+  const config = {
+    "thread-1": { label: "test", apiProvider: "provider", minerMode: "api", thinking: "disabled" },
+    apiKeys: { provider: { key: "test-key", baseUrl: "https://example.test", model: "deepseek-v4-flash", thinking: "enabled" } },
+  };
+  assert.equal(publicThreadSettings("thread-1", config).thinking, "disabled");
+  const appSource = fs.readFileSync(path.join(__dirname, "..", "src", "web", "public", "app.js"), "utf8");
+  assert.match(appSource, /id="setting-thinking" name="thinking"/);
+  assert.match(appSource, /value="disabled"/);
+  delete config["thread-1"].thinking;
+  assert.equal(publicThreadSettings("thread-1", config).thinking, "enabled");
+  delete config.apiKeys.provider.thinking;
+  assert.equal(publicThreadSettings("thread-1", config).thinking, "");
+});
+
 test("machine init contract keeps display name separate from the real thread id", () => {
   const template = buildInitTemplate("codex");
   assert.equal(template.libraryName, "记忆体显示名称");
@@ -302,6 +343,7 @@ test("machine init contract keeps display name separate from the real thread id"
   assert.match(template.sessionDir, /\.codex[\\/]sessions$/);
   assert.equal(template.automaticCompression, false);
   assert.equal(INIT_SCHEMA.properties.automaticCompression.default, false);
+  assert.deepEqual(INIT_SCHEMA.properties.thinking.enum, ["enabled", "disabled"]);
   assert.deepEqual(INIT_SCHEMA.required, [
     "libraryName", "threadId", "ai", "user", "runtime", "purpose", "sessionDir", "minerMode",
   ]);

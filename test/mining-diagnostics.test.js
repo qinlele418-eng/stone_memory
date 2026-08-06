@@ -52,4 +52,18 @@ test("mining diagnostics accepts a valid miner array and sends configured model"
   assert.equal(body.model, "actual-model");
   assert.equal(body.messages[0].content, request.systemPrompt);
   assert.equal(body.messages[1].content, request.conversationText);
+  assert.equal(Object.hasOwn(body, "thinking"), false);
+});
+
+test("mining diagnostics sends an explicitly disabled thinking mode", async () => {
+  let body;
+  await diagnoseApiMining({
+    ...request,
+    apiConfig: { ...request.apiConfig, thinking: "disabled" },
+    fetchImpl: async (_url, options) => {
+      body = JSON.parse(options.body);
+      return response(200, JSON.stringify({ choices: [{ message: { content: "[]" } }] }));
+    },
+  });
+  assert.deepEqual(body.thinking, { type: "disabled" });
 });
