@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Stone Memory · 拓展挖掘台</title>
+  <script src="/developer-kit/runtime.js"></script>
+  <link rel="stylesheet" href="./tokens.css">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <stone-module-page eyebrow="EXTENDED MINING WORKBENCH" title="拓展挖掘台" description="按连续日期批量生成候选；不会自动采用、不会自动 rebuild。">
+    <small slot="meta" id="library-meta">正在读取当前记忆体……</small>
+
+    <section class="panel dates-panel">
+      <div class="section-head">
+        <div><p class="eyebrow">DATES</p><h2>选择日期</h2></div>
+        <button type="button" class="icon-button" id="refresh" aria-label="刷新" title="刷新">↻</button>
+      </div>
+      <div class="date-actions">
+        <button type="button" class="strong-action" id="select-pending">全选未挖掘</button>
+        <button type="button" class="strong-action" id="range-toggle" aria-pressed="false">连选日期</button>
+        <button type="button" class="quiet-action" id="clear-dates">清空</button>
+      </div>
+      <p class="selection-note" id="selection-note">可自由选择单日或多日</p>
+      <div class="calendar-shell">
+        <div class="calendar-head">
+          <button type="button" class="icon-button" id="previous-month" aria-label="上个月">‹</button>
+          <strong id="calendar-title">正在读取……</strong>
+          <button type="button" class="icon-button" id="next-month" aria-label="下个月">›</button>
+        </div>
+        <div class="weekdays"><span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span></div>
+        <div class="calendar" id="calendar"></div>
+      </div>
+    </section>
+
+    <details class="panel settings control-panel model-panel">
+      <summary><span><strong>选择候选模型</strong><small id="model-summary">尚未选择</small></span><b data-settings-label>展开设置</b></summary>
+      <div class="control-panel-body">
+        <div class="channel-stack">
+          <section class="channel-option" data-channel-option="subagent">
+            <label class="channel-card"><input type="radio" name="channel" value="subagent"><span><strong>本机 CLI</strong><small id="cli-runtime-label">使用当前记忆体配置</small></span></label>
+            <div class="model-fields channel-config hidden" id="cli-fields">
+              <label>运行环境<select id="cli-runtime"></select></label>
+              <label class="model-name-field">模型名<input id="cli-model" autocomplete="off" placeholder="填写本机 CLI 支持的模型名"></label>
+              <label id="reasoning-field">Reasoning<select id="cli-reasoning"><option value="">默认</option><option>minimal</option><option>low</option><option>medium</option><option>high</option><option>xhigh</option></select></label>
+            </div>
+          </section>
+          <section class="channel-option" data-channel-option="api">
+            <label class="channel-card"><input type="radio" name="channel" value="api"><span><strong>API</strong><small>使用已配置的 Provider</small></span></label>
+            <div class="model-fields channel-config hidden" id="api-fields">
+              <label>Provider<select id="api-provider"></select></label>
+              <label class="model-name-field">API 模型名<input id="api-model" autocomplete="off" placeholder="填写该 Provider 支持的模型名"></label>
+              <label>请求档位<select id="api-profile"><option value="raw">原始版</option><option value="optimized">优化版</option></select></label>
+              <p class="api-config-note">API Key 请在 Stone Memory 正式设置的“挖掘方式 → API”中填写；本工作台不会另存一份密钥。</p>
+            </div>
+          </section>
+        </div>
+      </div>
+    </details>
+
+    <details class="panel settings control-panel batch-panel">
+      <summary><span><strong>批量挖掘</strong><small>把连续日期自动分组，API 或本机 CLI 只生成候选。</small></span><b data-settings-label>展开设置</b></summary>
+      <div class="control-panel-body">
+        <div class="batch-options">
+          <label>每组合并<select id="group-days"><option value="3">3 天</option><option value="2">2 天</option></select></label>
+          <label>每块大小<select id="chunk-kb"><option value="100">100 KB</option><option value="auto">自动</option><option value="50">50 KB</option><option value="150">150 KB</option><option value="200">200 KB</option></select></label>
+          <label>同时运行<select id="parallel"><option value="2">2 路</option><option value="1">1 路</option><option value="3">3 路</option></select></label>
+        </div>
+        <div class="recommendation" id="recommendation">选择日期后给出不调用 AI 的本地推荐。</div>
+      </div>
+    </details>
+
+    <details class="panel settings control-panel prompt-panel">
+      <summary><span><strong>本次挖掘 Prompt</strong><small id="rule-summary">作者原版</small></span><b data-settings-label data-closed-label="展开编辑" data-open-label="收起编辑">展开编辑</b></summary>
+      <div class="control-panel-body">
+        <p class="fine-rule-title">挖掘细则</p>
+        <div class="rule-grid">
+          <label><input type="checkbox" data-rule="sourceAware">来源感知</label>
+          <label><input type="checkbox" data-rule="relationshipPlatform">弱化平台</label>
+          <label><input type="checkbox" data-rule="emotional">具体情绪</label>
+          <label><input type="checkbox" data-rule="conflict">冲突上下文</label>
+          <label><input type="checkbox" data-rule="intimacy">亲密事实</label>
+          <label><input type="checkbox" data-rule="countLimit">8–20 条</label>
+          <label><input type="checkbox" data-rule="strictBoundaries">严格重要度</label>
+        </div>
+        <label class="instruction-field">额外要求<textarea id="additional-instruction" maxlength="4000" placeholder="可留空；只作为本次附加要求，不替换作者原始 Prompt。"></textarea></label>
+        <button type="button" class="quiet-action" id="reset-rules">恢复作者原版</button>
+      </div>
+    </details>
+
+    <section class="mining-action-panel" aria-label="开始批量挖掘">
+      <div class="plan" id="plan">请选择日期和一个模型。</div>
+      <button type="button" class="primary-action" id="start-batch" disabled>开始批量挖掘</button>
+      <p class="safety-note">只生成候选，不自动采用、不写正式记忆、不 rebuild。</p>
+      <div id="batch-status" class="batch-status"></div>
+    </section>
+
+    <section class="panel results-panel">
+      <nav class="tabs" aria-label="工作区域">
+        <button type="button" data-tab="candidates">待审阅</button>
+        <button type="button" class="active formal-tab" data-tab="formal">正式选用</button>
+      </nav>
+      <div id="status" class="status hidden"></div>
+      <div id="candidates-view" class="view hidden">
+        <div id="candidate-list" class="item-list"><p class="empty">尚无候选。</p></div>
+        <div id="candidate-detail" class="detail"><p class="empty">选择一份候选查看。</p></div>
+      </div>
+      <div id="formal-view" class="view">
+        <div id="formal-dates" class="date-strip"></div>
+        <div id="formal-detail" class="detail"><p class="empty">请先选择日期。</p></div>
+      </div>
+    </section>
+  </stone-module-page>
+  <script src="./app.js"></script>
+</body>
+</html>

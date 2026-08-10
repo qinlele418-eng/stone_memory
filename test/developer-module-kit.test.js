@@ -40,6 +40,39 @@ test("review lab uses the shared developer module shell before its styles paint"
   assert.doesNotMatch(app, /smartBackLink|data-smart-back/);
 });
 
+test("extended mining workbench stays detachable and uses the shared module contract", () => {
+  const dir = path.join(publicDir, "developer-modules", "extended-mining-workbench");
+  const required = ["module.json", "index.html", "app.js", "styles.css", "tokens.css"];
+  for (const file of required) assert.equal(fs.existsSync(path.join(dir, file)), true, `${file} is required`);
+  const html = fs.readFileSync(path.join(dir, "index.html"), "utf8");
+  const app = fs.readFileSync(path.join(dir, "app.js"), "utf8");
+  const styles = fs.readFileSync(path.join(dir, "styles.css"), "utf8");
+  assert.ok(html.indexOf("/developer-kit/runtime.js") < html.indexOf("styles.css"));
+  assert.match(html, /\.\/tokens\.css/);
+  assert.match(html, /<stone-module-page/);
+  assert.match(html, /title="拓展挖掘台"/);
+  assert.doesNotMatch(html, /PERSONAL REVIEW WORKBENCH|宁的记忆工作台/);
+  assert.match(app, /StoneDeveloperModule/);
+  assert.match(app, /review-lab\/api\/batches/);
+  assert.doesNotMatch(app, /conversationLevel|miningLevel|renderCalendarLegend/);
+  assert.doesNotMatch(html, /calendar-legend/);
+  assert.doesNotMatch(app, /class="day-count"/);
+  assert.match(html, /channel-stack/);
+  assert.match(html, /API 模型名/);
+  assert.doesNotMatch(html, /API 与本机 CLI 平级/);
+  assert.match(html, /data-settings-label>展开设置/);
+  assert.equal((html.match(/class="panel settings control-panel/g) || []).length, 3);
+  assert.ok(html.indexOf('class="prompt-panel') < html.indexOf('id="start-batch"'));
+  assert.match(html, /正式设置的“挖掘方式 → API”/);
+  assert.match(html, /本次挖掘 Prompt/);
+  assert.match(html, /data-closed-label="展开编辑"/);
+  assert.match(app, /label\.dataset\.openLabel/);
+  assert.doesNotMatch(app, /threadId\s*:\s*["'](?:[0-9a-f]{8}-){2}/i);
+  assert.doesNotMatch(app, /127\.0\.0\.1|0\.0\.0\.0|:\d{4}\//);
+  assert.doesNotMatch(styles, /#[0-9a-f]{3,8}|rgba?\(/i);
+  assert.match(styles, /--stone-tide-/);
+});
+
 test("main developer mode lazy-loads the module workshop entry", () => {
   const html = fs.readFileSync(path.join(publicDir, "index.html"), "utf8");
   const app = fs.readFileSync(path.join(publicDir, "app.js"), "utf8");
