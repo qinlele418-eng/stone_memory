@@ -1,4 +1,5 @@
 const { parseJsonArray } = require("../lib/json-parse");
+const { normalizeMiningApiProfile, buildMiningApiBody } = require("./mining-api-profile");
 
 function clip(value, limit = 20000) {
   const text = String(value ?? "");
@@ -14,7 +15,7 @@ function upstreamFailureCode(status, body) {
   return "API_UPSTREAM_REJECTED";
 }
 
-async function diagnoseApiMining({ apiConfig, systemPrompt, conversationText, fetchImpl = fetch }) {
+async function diagnoseApiMining({ apiConfig, apiProfile = null, systemPrompt, conversationText, fetchImpl = fetch }) {
   const baseUrl = String(apiConfig?.baseUrl || "").replace(/\/+$/, "");
   const model = String(apiConfig?.model || "").trim();
   if (!apiConfig?.apiKey) return { ok: false, code: "API_KEY_MISSING", reason: "没有配置 API Key", actualResponse: null };
@@ -26,12 +27,11 @@ async function diagnoseApiMining({ apiConfig, systemPrompt, conversationText, fe
     response = await fetchImpl(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiConfig.apiKey}` },
-      body: JSON.stringify({
+      body: JSON.stringify(buildMiningApiBody({
+        profile: normalizeMiningApiProfile(apiProfile || apiConfig?.apiProfile),
         model,
         messages: [{ role: "system", content: systemPrompt }, { role: "user", content: conversationText }],
-        temperature: 0.5,
-        max_tokens: 4000,
-      }),
+      })),
     });
   } catch (error) {
     return {

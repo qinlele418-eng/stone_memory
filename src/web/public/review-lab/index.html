@@ -34,6 +34,7 @@
         <label><span>执行通道</span><select id="model-channel"><option value="subagent">Subagent</option><option value="api">API</option></select></label>
         <label id="runtime-field"><span>本机 CLI</span><select id="model-runtime"><option value="codex">Codex</option><option value="claude">Claude Code</option></select></label>
         <label id="provider-field" class="hidden"><span>API Provider</span><select id="model-provider"></select></label>
+        <label id="api-profile-field" class="hidden"><span>API 档位</span><select id="model-api-profile"><option value="raw">API（原始版）</option><option value="optimized">API（优化版）</option></select></label>
         <label><span>模型名</span><input id="model-name" placeholder="填写该通道实际支持的模型名"></label>
         <label id="reasoning-field"><span>Codex reasoning</span><select id="model-reasoning"><option value="">默认</option><option value="minimal">minimal</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="xhigh">xhigh</option></select></label>
         <label><span>显示名称（可选）</span><input id="model-label" placeholder="例如 GPT 主候选"></label>

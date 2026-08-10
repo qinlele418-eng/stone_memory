@@ -11,6 +11,7 @@ const {
   nearDuplicateHints,
 } = require("../src/services/mining-review");
 const { resolveMiningApiCredentials } = require("../src/services/mining-engine-config");
+const { normalizeMiningApiProfile, buildMiningApiBody } = require("../src/services/mining-api-profile");
 
 async function main() {
   const args = process.argv.slice(2);
@@ -84,6 +85,7 @@ async function main() {
       memoryDir,
       threadId,
       deepseekConfig,
+      apiProfile: profile.apiProfile,
       personaConfig: {
         aiName: getCfg("ai", threadId),
         userName: getCfg("user", threadId),
@@ -154,11 +156,12 @@ async function runFusionWriter(prompt, resolved, threadId) {
     const response = await fetch(`${String(baseUrl).replace(/\/$/, "")}/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
+      body: JSON.stringify(buildMiningApiBody({
+        profile: resolved.profile.apiProfile,
         model,
         temperature: 0.1,
         messages: [{ role: "user", content: prompt }],
-      }),
+      })),
       signal: AbortSignal.timeout(20 * 60 * 1000),
     });
     if (!response.ok) throw new Error(`fusion API request failed: HTTP ${response.status}`);
@@ -189,16 +192,18 @@ function resolveProfile(threadId, requested = {}) {
     const deepseekConfig = resolveMiningApiCredentials({
       config, threadId, provider, model,
     });
+    const apiProfile = normalizeMiningApiProfile(requested.apiProfile);
     return {
       profile: {
-        id: String(requested.id || `${provider}:${model}`),
-        label: String(requested.label || model),
+        id: String(requested.id || `${provider}:${model}:${apiProfile}`),
+        label: String(requested.label || `${model} · ${apiProfile === "optimized" ? "优化版" : "原始版"}`),
         channel,
         provider,
         model,
+        apiProfile,
         reasoning: requested.reasoning || null,
       },
-      deepseekConfig,
+      deepseekConfig: { ...deepseekConfig, apiProfile },
       subagentModel: null,
     };
   }

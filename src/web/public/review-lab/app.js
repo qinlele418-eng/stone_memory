@@ -122,7 +122,7 @@ function renderModels() {
   $("#models").innerHTML = state.models.length ? state.models.map(model => `<article class="model configured">
     <label><input type="checkbox" data-model-enabled="${escapeHtml(model.id)}" ${model.enabled === false ? "" : "checked"}>
       <span><strong>${escapeHtml(model.label)}</strong><small>${escapeHtml(model.channel === "api"
-        ? `API · ${model.provider} · ${model.model}`
+      ? `API · ${model.provider} · ${model.model} · ${model.apiProfile === "optimized" ? "优化版" : "原始版"}`
         : `Subagent · ${model.runtime === "codex" ? "Codex" : "Claude Code"} · ${model.model}${model.reasoning ? ` · ${model.reasoning}` : ""}`)}</small></span>
     </label><button type="button" class="text-action" data-remove-model="${escapeHtml(model.id)}">移除</button>
   </article>`).join("") : '<div class="empty">还没有模型配置。请在上方至少添加一个。</div>';
@@ -143,6 +143,7 @@ function renderModelBuilder() {
   const runtime = $("#model-runtime").value;
   $("#runtime-field").classList.toggle("hidden", channel !== "subagent");
   $("#provider-field").classList.toggle("hidden", channel !== "api");
+  $("#api-profile-field").classList.toggle("hidden", channel !== "api");
   $("#reasoning-field").classList.toggle("hidden", channel !== "subagent" || runtime !== "codex");
   $("#model-provider").innerHTML = state.providers.length
     ? state.providers.map(row => `<option value="${escapeHtml(row.id)}">${escapeHtml(row.label)}</option>`).join("")
@@ -157,17 +158,18 @@ function addModelConfiguration() {
   const channel = $("#model-channel").value;
   const runtime = $("#model-runtime").value;
   const provider = $("#model-provider").value;
+  const apiProfile = channel === "api" ? $("#model-api-profile").value : null;
   const model = $("#model-name").value.trim();
   const reasoning = runtime === "codex" && channel === "subagent" ? $("#model-reasoning").value : "";
   if (!model) return status("请填写这个通道实际支持的模型名。", "error");
   if (channel === "api" && !provider) return status("请先在设置中配置一个可用的 API Provider。", "error");
   const label = $("#model-label").value.trim() || (channel === "api"
-    ? `${provider} · ${model}`
+    ? `${provider} · ${model} · ${apiProfile === "optimized" ? "优化版" : "原始版"}`
     : `${runtime === "codex" ? "Codex" : "Claude Code"} · ${model}${reasoning ? ` · ${reasoning}` : ""}`);
   state.models.push({
     id: `profile-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     channel, runtime: channel === "subagent" ? runtime : null,
-    provider: channel === "api" ? provider : null, model,
+    provider: channel === "api" ? provider : null, model, apiProfile,
     reasoning: reasoning || null, label, enabled: true,
   });
   $("#model-label").value = "";

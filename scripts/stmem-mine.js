@@ -9,6 +9,7 @@
  *   stmem mine [--thread <id>] [--date <YYYY-MM-DD>]
  *   stmem mine [--thread <id>] --all
  *   stmem mine [--thread <id>] --api          # 临时走 API
+ *   stmem mine [--thread <id>] --api --api-profile <raw|optimized>
  *   stmem mine [--thread <id>] --subagent     # 临时走 subagent
  *   stmem mine [--thread <id>] --targeted --batch-file <json>
  */
@@ -19,21 +20,25 @@ const { getCfg, getThreadDir, listThreadIds, loadConfig } = require("../src/conf
 const { MemoryStore } = require("../src/storage/memory-store");
 const { requiresRemine, shouldAttempt } = require("../src/services/mining-state");
 const { resolveMiningApiCredentials } = require("../src/services/mining-engine-config");
+const { normalizeMiningApiProfile } = require("../src/services/mining-api-profile");
 
-function resolveApiConfig(tid, forceApi, forceSub, { diagnostic = false, model = "" } = {}) {
+function resolveApiConfig(tid, forceApi, forceSub, { diagnostic = false, model = "", apiProfile = "raw" } = {}) {
   if (forceSub) return {};  // 强制 subagent
 
   const tc = loadConfig()[tid] || {};
   const mode = forceApi ? "api" : (tc.minerMode || "subagent");
   if (mode !== "api") return {};
 
-  return resolveMiningApiCredentials({
+  return {
+    ...resolveMiningApiCredentials({
     config: loadConfig(),
     threadId: tid,
     provider: tc.apiProvider,
     model,
     diagnostic,
-  });
+    }),
+    apiProfile: normalizeMiningApiProfile(apiProfile),
+  };
 }
 
 function processFile(tid) {
@@ -89,6 +94,8 @@ async function main() {
   const force = args.includes("--force");
   const modelIdx = args.indexOf("--model");
   const model = modelIdx >= 0 ? String(args[modelIdx + 1] || "").trim() : "";
+  const apiProfileIdx = args.indexOf("--api-profile");
+  const apiProfile = apiProfileIdx >= 0 ? String(args[apiProfileIdx + 1] || "raw").trim() : "raw";
   const targeted = args.includes("--targeted");
   const check = args.includes("--check");
   const stop = args.includes("--stop");
@@ -108,7 +115,7 @@ async function main() {
 
   let deepseekConfig;
   try {
-    deepseekConfig = resolveApiConfig(tid, forceApi, forceSub, { diagnostic: check, model });
+    deepseekConfig = resolveApiConfig(tid, forceApi, forceSub, { diagnostic: check, model, apiProfile });
   } catch (error) {
     if (targetDate && /^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
       const store = new MemoryStore({ memoryDir, threadId: tid });

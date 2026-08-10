@@ -21,6 +21,7 @@ const { editFusionCandidate } = require("../services/review-fusion");
 const { isArchiveConversation } = require("../services/thread-ingest");
 const { DreamReader } = require("../services/dream-reader");
 const { watcherActions, watcherEnabled } = require("../services/watcher-runtime");
+const { normalizeMiningApiProfile } = require("../services/mining-api-profile");
 
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MAX_UPLOAD = 512 * 1024 * 1024;
@@ -93,16 +94,19 @@ function miningDates(threadId) {
   finally{store.close();}
 }
 
-function miningCommandArgs(threadId, date, mode, force = false) {
-  return ["mine","--thread",threadId,"--date",date,mode==="api"?"--api":"--subagent",...(force?["--force"]:[])];
+function miningCommandArgs(threadId, date, mode, force = false, apiProfile = "raw") {
+  const profileArgs = mode === "api" && normalizeMiningApiProfile(apiProfile) === "optimized" ? ["--api-profile", "optimized"] : [];
+  return ["mine","--thread",threadId,"--date",date,mode==="api"?"--api":"--subagent",...profileArgs,...(force?["--force"]:[])];
 }
 
-function miningCheckCommandArgs(threadId, date, mode) {
-  return ["mine","--thread",threadId,"--date",date,"--check","--json",mode==="api"?"--api":"--subagent"];
+function miningCheckCommandArgs(threadId, date, mode, apiProfile = "raw") {
+  const profileArgs = mode === "api" && normalizeMiningApiProfile(apiProfile) === "optimized" ? ["--api-profile", "optimized"] : [];
+  return ["mine","--thread",threadId,"--date",date,"--check","--json",mode==="api"?"--api":"--subagent",...profileArgs];
 }
 
-function targetedMiningCommandArgs(threadId, mode, batchFile) {
-  return ["mine","--thread",threadId,"--targeted","--batch-file",batchFile,mode==="api"?"--api":"--subagent"];
+function targetedMiningCommandArgs(threadId, mode, batchFile, apiProfile = "raw") {
+  const profileArgs = mode === "api" && normalizeMiningApiProfile(apiProfile) === "optimized" ? ["--api-profile", "optimized"] : [];
+  return ["mine","--thread",threadId,"--targeted","--batch-file",batchFile,mode==="api"?"--api":"--subagent",...profileArgs];
 }
 
 const REVIEW_RULE_IDS = {
@@ -152,9 +156,9 @@ function reviewProfileFromInput(threadId, input = {}) {
       throw new Error(`API Provider ${provider || "未选择"} 尚未在设置中配置完整`);
     }
     return {
-      id: `api:${provider}:${model}`,
-      label: String(input.label || `${provider} · ${model}`),
-      channel, provider, model,
+      id: `api:${provider}:${model}:${normalizeMiningApiProfile(input.apiProfile)}`,
+      label: String(input.label || `${provider} · ${model} · ${normalizeMiningApiProfile(input.apiProfile) === "optimized" ? "优化版" : "原始版"}`),
+      channel, provider, model, apiProfile: normalizeMiningApiProfile(input.apiProfile),
     };
   }
   throw new Error("请选择 Subagent 或 API 通道");
@@ -305,7 +309,7 @@ async function executeMiningJob(job) {
   for(const date of job.dates){
     if(job.cancelRequested)break;
     job.currentDate=date;job.updatedAt=new Date().toISOString();
-    try{await runStmemAsync(miningCommandArgs(job.threadId,date,job.mode,job.forceDates.includes(date)));job.results.push({date,status:"completed"});}
+    try{await runStmemAsync(miningCommandArgs(job.threadId,date,job.mode,job.forceDates.includes(date),job.apiProfile));job.results.push({date,status:"completed"});}
     catch(error){
       if(job.cancelRequested){job.results.push({date,status:"cancelled"});break;}
       job.results.push({date,status:"failed",error:String(error.message||error).slice(0,500)});
@@ -750,11 +754,11 @@ async function handleApi(req, res, url) {
     const threadId=decodeURIComponent(miningMatch[1]);publicThreadSettings(threadId);
     if(req.method==="GET"&&miningMatch[2]==="status")return json(res,200,{job:miningJobs.get(threadId)||null,dates:miningDates(threadId)});
     if(req.method==="POST"&&miningMatch[2]==="check"){
-      const body=await readJson(req),date=String(body.date||""),mode=body.mode==="api"?"api":body.mode==="subagent"?"subagent":null;
+      const body=await readJson(req),date=String(body.date||""),mode=body.mode==="api"?"api":body.mode==="subagent"?"subagent":null,apiProfile=normalizeMiningApiProfile(body.apiProfile);
       if(!/^\d{4}-\d{2}-\d{2}$/.test(date))throw new Error("请选择需要自检的对话日期");
       if(!mode)throw new Error("请选择 API 或 Subagent 挖掘通道");
       try{
-        const output=await runStmemAsync(miningCheckCommandArgs(threadId,date,mode),{maxOutput:50000});
+        const output=await runStmemAsync(miningCheckCommandArgs(threadId,date,mode,apiProfile),{maxOutput:50000});
         return json(res,200,JSON.parse(output));
       }catch(cause){
         const text=String(cause.message||cause);
@@ -795,7 +799,7 @@ async function handleApi(req, res, url) {
       }finally{store.close();}
     }
     if(req.method==="POST"&&miningMatch[2]==="targeted"){
-      const body=await readJson(req),date=String(body.date||""),mode=body.mode==="api"?"api":body.mode==="subagent"?"subagent":null;
+      const body=await readJson(req),date=String(body.date||""),mode=body.mode==="api"?"api":body.mode==="subagent"?"subagent":null,apiProfile=normalizeMiningApiProfile(body.apiProfile);
       const timestamps=[...new Set(Array.isArray(body.timestamps)?body.timestamps.map(String):[])];
       if(!/^\d{4}-\d{2}-\d{2}$/.test(date))throw new Error("日期格式无效");
       if(!mode)throw new Error("请选择 API 或 Subagent 挖掘通道");
@@ -803,21 +807,21 @@ async function handleApi(req, res, url) {
       const batchFile=path.join(os.tmpdir(),`stmem-targeted-${crypto.randomUUID()}.json`);
       fs.writeFileSync(batchFile,JSON.stringify({date,timestamps,instruction:String(body.instruction||"")}));
       try{
-        const output=await runStmemAsync(targetedMiningCommandArgs(threadId,mode,batchFile));
+        const output=await runStmemAsync(targetedMiningCommandArgs(threadId,mode,batchFile,apiProfile));
         return json(res,200,{success:true,output});
       }finally{try{fs.unlinkSync(batchFile);}catch{}}
     }
     if(req.method==="POST"&&miningMatch[2]==="start"){
       const active=miningJobs.get(threadId);
       if(active&&["queued","running"].includes(active.status))return error(res,409,"这个记忆体正在挖掘，请等待当前任务完成");
-      const body=await readJson(req),mode=body.mode==="api"?"api":body.mode==="subagent"?"subagent":null;
+      const body=await readJson(req),mode=body.mode==="api"?"api":body.mode==="subagent"?"subagent":null,apiProfile=normalizeMiningApiProfile(body.apiProfile);
       if(!mode)throw new Error("请选择 API 或 Subagent 挖掘通道");
       const available=new Set(miningDates(threadId).map(row=>row.date));
       const dates=[...new Set(Array.isArray(body.dates)?body.dates.map(String):[])].filter(date=>/^\d{4}-\d{2}-\d{2}$/.test(date)&&available.has(date)).sort();
       if(!dates.length)throw new Error("请至少选择一个有对话的日期");
       const requestedForceDates=new Set(Array.isArray(body.forceDates)?body.forceDates.map(String):[]);
       const forceDates=dates.filter(date=>requestedForceDates.has(date));
-      const now=new Date().toISOString(),job={id:crypto.randomUUID(),threadId,mode,dates,forceDates,status:"queued",currentDate:null,completed:0,results:[],cancelRequested:false,createdAt:now,updatedAt:now};
+      const now=new Date().toISOString(),job={id:crypto.randomUUID(),threadId,mode,apiProfile,dates,forceDates,status:"queued",currentDate:null,completed:0,results:[],cancelRequested:false,createdAt:now,updatedAt:now};
       miningJobs.set(threadId,job);
       executeMiningJob(job).catch(cause=>{job.status="failed";job.currentDate=null;job.error=String(cause.message||cause).slice(0,500);job.updatedAt=new Date().toISOString();});
       return json(res,202,{job});

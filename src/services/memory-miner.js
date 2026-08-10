@@ -11,6 +11,7 @@ const { parseFeelingTime } = require("./thread-rebuilder");
 const { diagnoseApiMining } = require("./mining-diagnostics");
 const { splitMiningMessages, byteLength } = require("./mining-chunks");
 const { isInjectedMemoryBlock } = require("../lib/system-injection");
+const { normalizeMiningApiProfile, buildMiningApiBody } = require("./mining-api-profile");
 
 class MiningError extends Error {
   constructor(code, message, details = {}) {
@@ -232,7 +233,7 @@ const FEATURE_CATEGORIES = [
  * 每天读取待处理日期的消息，分两路提取 feelings 与 features，并原子写入 SQLite。
  */
 class MemoryMiner {
-  constructor({ memoryDir, archive, deepseekConfig, personaConfig, threadId }) {
+  constructor({ memoryDir, archive, deepseekConfig, personaConfig, threadId, apiProfile = null }) {
     this.threadId = threadId;
     this.aiName = personaConfig?.aiName || "AI";
     this.userName = personaConfig?.userName || "用户";
@@ -243,6 +244,7 @@ class MemoryMiner {
     this.chunkCacheDir = path.join(this.minedDir, "chunk-cache");
     this.archive = archive;
     this.deepseekConfig = deepseekConfig;
+    this.apiProfile = normalizeMiningApiProfile(apiProfile || deepseekConfig?.apiProfile);
     this.timer = null;
     this.running = false;
 
@@ -452,6 +454,7 @@ class MemoryMiner {
       runtime: channel === "subagent" ? (engine.runtime || this.runtime) : null,
       provider: channel === "api" ? (this.deepseekConfig?.provider || null) : null,
       model: engine.model || (channel === "api" ? (this.deepseekConfig?.model || null) : null),
+      apiProfile: channel === "api" ? this.apiProfile : null,
       startTime: range.startTime,
       endTime: range.endTime,
       timeLabel: range.label,
@@ -523,6 +526,7 @@ class MemoryMiner {
     }
     const result = await diagnoseApiMining({
       apiConfig: this.deepseekConfig,
+      apiProfile: this.apiProfile,
       systemPrompt,
       conversationText,
     });
@@ -671,6 +675,7 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
       channel: this.deepseekConfig?.apiKey ? "api" : "subagent",
       provider: this.deepseekConfig?.provider || null,
       apiModel: this.deepseekConfig?.model || null,
+      apiProfile: this.apiProfile,
       model,
       runtime,
       reasoning,
@@ -977,7 +982,11 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
         const response = await fetch(`${baseUrl}/chat/completions`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-          body: JSON.stringify({ model, messages: [{ role: "system", content: prompt }, { role: "user", content: conversationText }], temperature: 0.5, max_tokens: 4000 }),
+          body: JSON.stringify(buildMiningApiBody({
+            profile: this.apiProfile,
+            model,
+            messages: [{ role: "system", content: prompt }, { role: "user", content: conversationText }],
+          })),
         });
         if (!response.ok) {
           const errText = await response.text().catch(() => "");

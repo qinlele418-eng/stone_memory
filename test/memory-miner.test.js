@@ -366,7 +366,7 @@ test("API channel mines large dialogue in chunks and accepts an empty final tail
   const messages = Array.from({ length: 105 }, (_, index) => ({
     timestamp: new Date(Date.UTC(2026, 5, 12, 0, index)).toISOString(),
     type: "user",
-    text: "x".repeat(1000),
+    text: "x".repeat(2000),
   }));
   const miner = minerFixture(t, []);
   let calls = 0;
@@ -423,7 +423,7 @@ test("a failed chunk does not publish partial day results", async t => {
   const messages = Array.from({ length: 70 }, (_, index) => ({
     timestamp: new Date(Date.UTC(2026, 5, 12, 0, index)).toISOString(),
     type: "user",
-    text: "x".repeat(1000),
+    text: "x".repeat(2000),
   }));
   const miner = minerFixture(t, []);
   let calls = 0;
@@ -447,7 +447,7 @@ test("a retry reuses successful chunk cache and only mines the failed chunk", as
   const messages = Array.from({ length: 70 }, (_, index) => ({
     timestamp: new Date(Date.UTC(2026, 5, 12, 0, index)).toISOString(),
     type: "user",
-    text: "x".repeat(1000),
+    text: "x".repeat(2000),
   }));
   const miner = minerFixture(t, []);
   let calls = 0;
@@ -475,7 +475,7 @@ test("a forced remine retry preserves successful chunks from the failed attempt"
   const sourceMessages = Array.from({ length: 70 }, (_, index) => ({
     timestamp: new Date(Date.UTC(2026, 5, 12, 0, index)).toISOString(),
     type: "user",
-    text: "x".repeat(1000),
+    text: "x".repeat(2000),
   }));
   const miner = minerFixture(t, sourceMessages);
   let attempts = 0;

@@ -61,12 +61,15 @@ test("conversation calendar renders complete months newest first", () => {
 
 test("web mining reuses one existing single-date CLI command per selected day", () => {
   assert.deepEqual(miningCommandArgs("thread-1", "2026-07-04", "api"), ["mine", "--thread", "thread-1", "--date", "2026-07-04", "--api"]);
+  assert.deepEqual(miningCommandArgs("thread-1", "2026-07-04", "api", false, "optimized"), ["mine", "--thread", "thread-1", "--date", "2026-07-04", "--api", "--api-profile", "optimized"]);
   assert.deepEqual(miningCommandArgs("thread-1", "2026-07-16", "subagent"), ["mine", "--thread", "thread-1", "--date", "2026-07-16", "--subagent"]);
 });
 
 test("web mining self-check reuses the formal CLI diagnostic command", () => {
   assert.deepEqual(miningCheckCommandArgs("thread-1", "2026-07-04", "api"),
     ["mine", "--thread", "thread-1", "--date", "2026-07-04", "--check", "--json", "--api"]);
+  assert.deepEqual(miningCheckCommandArgs("thread-1", "2026-07-04", "api", "optimized"),
+    ["mine", "--thread", "thread-1", "--date", "2026-07-04", "--check", "--json", "--api", "--api-profile", "optimized"]);
 });
 
 test("web subprocess errors never expose unmarked conversation output", () => {

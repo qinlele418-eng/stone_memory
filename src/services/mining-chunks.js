@@ -1,4 +1,4 @@
-const DEFAULT_MAX_MINING_CHUNK_BYTES = 50 * 1024;
+const DEFAULT_MAX_MINING_CHUNK_BYTES = 100 * 1024;
 const DEFAULT_DIALOGUE_GAP_MS = 5 * 60 * 1000;
 
 function byteLength(text) {
@@ -39,7 +39,7 @@ function splitMiningMessages(messages, {
   if (typeof render !== "function") throw new Error("splitMiningMessages requires render(messages)");
   if (renderedBytes(messages, render) <= maxBytes) return [messages.slice()];
 
-  // 先按真实对话空档形成 session，再尽量把相邻 session 装进同一个 50KB 块。
+  // 先按真实对话空档形成 session，再尽量把相邻 session 装进同一个 100KB 块。
   const sessions = [];
   let session = [messages[0]];
   for (let index = 1; index < messages.length; index++) {
