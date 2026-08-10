@@ -952,7 +952,7 @@ async function handleApi(req, res, url) {
   const ruleDeleteMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/rules\/([^/]+)$/);
   if (req.method === "DELETE" && ruleDeleteMatch) { runStmem(["rules", "delete", "--thread", decodeURIComponent(ruleDeleteMatch[1]), "--name", decodeURIComponent(ruleDeleteMatch[2])]); return json(res, 200, { success: true }); }
 
-  const rebuildMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/rebuild\/(preview|dry-run|apply|check|repair)$/);
+  const rebuildMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/rebuild\/(preview|dry-run|queue|apply|check|repair)$/);
   if (rebuildMatch) {
     const threadId = decodeURIComponent(rebuildMatch[1]), action = rebuildMatch[2];
     // The service may have access to a shared sessions root, but the web API
@@ -984,6 +984,26 @@ async function handleApi(req, res, url) {
     }
     if (req.method === "GET" && action === "check") return json(res, 200, JSON.parse(runStmem(["rebuild", "--thread", threadId, "--check"])));
     if (req.method === "POST" && action === "repair") return json(res, 200, JSON.parse(runStmem(["rebuild", "--thread", threadId, "--repair"])));
+    if (req.method === "POST" && action === "queue") {
+      const body = await readJson(req);
+      const requestedTools = body.toolPairs === undefined ? 30 : Number(body.toolPairs);
+      const windowDays = String(Math.max(1, Number(body.windowDays) || 3));
+      const toolPairs = String(Math.max(0, requestedTools));
+      const summaryLimit = String(Math.max(0, Number(body.summaryLimit) || 0));
+      const minImportance = String(Math.max(0, Math.min(5, Number(body.minImportance) || 0)));
+      const excludedMessages = Array.isArray(body.excludedMessages) ? body.excludedMessages.map(String).filter(Boolean) : [];
+      const excludedTools = Array.isArray(body.excludedTools) ? body.excludedTools.map(String).filter(Boolean) : [];
+      const planDir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-rebuild-queue-plan-"));
+      const planFile = path.join(planDir, "plan.json");
+      fs.writeFileSync(planFile, JSON.stringify({ excludedMessages, excludedTools }), { encoding: "utf8", mode: 0o600 });
+      const rebuildArgs = ["rebuild", "--thread", threadId, "--window", windowDays, "--tool-pairs", toolPairs,
+        "--summary-limit", summaryLimit, "--min-importance", minImportance, "--trigger", "web", "--plan", planFile, "--queue"];
+      if (body.watermark === true) rebuildArgs.push("--watermark");
+      try {
+        const queued = JSON.parse(runStmem(rebuildArgs));
+        return json(res, 202, { success: true, queued: true, ...queued });
+      } finally { fs.rmSync(planDir, { recursive: true, force: true }); }
+    }
     if (req.method === "POST" && action === "apply") {
       const body = await readJson(req);
       const planFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "stmem-rebuild-plan-")), "plan.json");

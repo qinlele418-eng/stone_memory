@@ -4,7 +4,8 @@ const path = require("path");
 
 function systemdUserPath(home) {
   return [
-    path.join(home, ".local", "bin"),
+    // systemd unit 内容始终使用 POSIX 路径；不能继承运行生成器的主机分隔符。
+    path.posix.join(home, ".local", "bin"),
     "/usr/local/sbin",
     "/usr/local/bin",
     "/usr/sbin",

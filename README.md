@@ -372,12 +372,15 @@ relation 报告区分 forming、experimental、established、retired、revived �
 ```bash
 stmem rebuild --thread <线程ID>                     # dry-run 预览
 stmem rebuild --thread <线程ID> --apply             # 确认写入
+stmem rebuild --thread <线程ID> --queue             # 写入安全队列，下一次主 MCP 载入时应用
 stmem rebuild --thread <线程ID> --watermark         # 从最新摘要命中原文起保留
 stmem rebuild --thread <线程ID> --check             # 检查线程结构
 stmem rebuild --thread <线程ID> --repair            # 修复可自动修复的问题
 ```
 
 默认模式保留最近 N 个有实际对话的活跃日，而不是自然日；`--watermark` 是可选模式，从最新一条摘要命中的事件原文开始保留到线程末尾，无法可靠定位时安全回退到活跃日模式。两种模式都可独立设置保留的工具调用对，避免 Agent 丢失近期工具使用及结果上下文。
+
+MCP 预览确认、前端线程重建和手动 CLI 共用同一条 `stmem rebuild --queue` 队列通道；队列会在下一次主 MCP 进程启动、重启或重新载入时调用保留的 `--apply` CLI。`--apply` 仍保留给用户明确要求立即写入的维护场景，前端默认不在活动线程上直接覆盖文件。
 
 Claude Code 与 Codex 使用各自的重建脚本和线程结构校验。正式写入前始终先看 dry-run；前端的“线程重建”也执行同一套 CLI 预览与应用流程，不直接改线程文件。推荐顺序为 **import → mine → rebuild**，确保需要浓缩的历史对话已经生成摘要。
 

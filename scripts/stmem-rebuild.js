@@ -3,6 +3,7 @@
  * stmem rebuild — 按 runtime 分流到对应 rebuild 脚本
  */
 const { spawnSync } = require("child_process");
+const fs = require("fs");
 const path = require("path");
 const os = require("os");
 
@@ -23,12 +24,29 @@ function main() {
     }
     let failed = false;
     for (const row of rows) {
-      const result = spawnSync(process.execPath, [cli, ...buildQueuedApplyArgs(row)], {
-        stdio: "inherit",
-        cwd: path.dirname(__dirname),
-      });
-      if (result.status === 0) removeQueuedRebuild(row.threadId);
-      else failed = true;
+      // 队列消费期间可能又排入同一线程的新参数；旧请求直接跳过，保证只执行最新确认结果。
+      const latest = readQueue().find(item => item.threadId === row.threadId);
+      if (!latest || latest.requestId !== row.requestId) continue;
+      let planDir = null;
+      try {
+        let planFile = null;
+        if (row.excludedMessages.length || row.excludedTools.length) {
+          planDir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-rebuild-queued-"));
+          planFile = path.join(planDir, "plan.json");
+          fs.writeFileSync(planFile, JSON.stringify({
+            excludedMessages: row.excludedMessages,
+            excludedTools: row.excludedTools,
+          }), { encoding: "utf8", mode: 0o600 });
+        }
+        const result = spawnSync(process.execPath, [cli, ...buildQueuedApplyArgs(row, { planFile })], {
+          stdio: "inherit",
+          cwd: path.dirname(__dirname),
+        });
+        if (result.status === 0) removeQueuedRebuild(row.threadId, undefined, row);
+        else failed = true;
+      } finally {
+        if (planDir) fs.rmSync(planDir, { recursive: true, force: true });
+      }
     }
     if (failed) process.exit(1);
     return;
@@ -50,6 +68,10 @@ function main() {
     process.exit(1);
   }
   if (args.includes("--queue")) {
+    let plan = {};
+    if (planIdx >= 0 && args[planIdx + 1]) {
+      plan = JSON.parse(fs.readFileSync(args[planIdx + 1], "utf8"));
+    }
     const request = enqueueRebuild({
       threadId,
       window: windowIdx >= 0 ? args[windowIdx + 1] : getCfg("windowDays", threadId, 3),
@@ -57,6 +79,8 @@ function main() {
       summaryLimit: summaryLimitIdx >= 0 ? args[summaryLimitIdx + 1] : 0,
       minImportance: minImportanceIdx >= 0 ? args[minImportanceIdx + 1] : 0,
       watermark,
+      excludedMessages: plan.excludedMessages || [],
+      excludedTools: plan.excludedTools || [],
     });
     console.log(JSON.stringify({ queued: true, ...request }, null, 2));
     return;

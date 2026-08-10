@@ -1,12 +1,15 @@
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
+const crypto = require("crypto");
 
 const DEFAULT_QUEUE_FILE = path.join(os.homedir(), ".stone_memory", "rebuild-pending.json");
 
 function normalizeRequest(input = {}) {
   const threadId = String(input.threadId || "").trim();
   if (!threadId) throw new Error("rebuild queue requires threadId");
+  const normalizeIds = value => [...new Set((Array.isArray(value) ? value : [])
+    .map(item => String(item || "").trim()).filter(Boolean))];
   return {
     threadId,
     window: Math.max(1, Number(input.window) || 3),
@@ -14,7 +17,10 @@ function normalizeRequest(input = {}) {
     summaryLimit: Math.max(0, Number(input.summaryLimit) || 0),
     minImportance: Math.max(0, Math.min(5, Number(input.minImportance) || 0)),
     watermark: input.watermark === true,
+    excludedMessages: normalizeIds(input.excludedMessages),
+    excludedTools: normalizeIds(input.excludedTools),
     requestedAt: input.requestedAt || new Date().toISOString(),
+    requestId: String(input.requestId || input.requestedAt || crypto.randomUUID()),
   };
 }
 
@@ -40,8 +46,12 @@ function enqueueRebuild(request, file = DEFAULT_QUEUE_FILE) {
   return next;
 }
 
-function removeQueuedRebuild(threadId, file = DEFAULT_QUEUE_FILE) {
-  const rows = readQueue(file).filter(row => row.threadId !== threadId);
+function removeQueuedRebuild(threadId, file = DEFAULT_QUEUE_FILE, expectedRequest = null) {
+  const rows = readQueue(file).filter(row => {
+    if (row.threadId !== threadId) return true;
+    if (!expectedRequest) return false;
+    return row.requestId !== expectedRequest.requestId;
+  });
   if (rows.length) writeQueue(rows, file);
   else {
     try { fs.unlinkSync(file); } catch (error) {
@@ -50,7 +60,7 @@ function removeQueuedRebuild(threadId, file = DEFAULT_QUEUE_FILE) {
   }
 }
 
-function buildQueuedApplyArgs(request) {
+function buildQueuedApplyArgs(request, { planFile = null, trigger = "mcp" } = {}) {
   const row = normalizeRequest(request);
   const args = [
     "rebuild",
@@ -59,9 +69,10 @@ function buildQueuedApplyArgs(request) {
     "--tool-pairs", String(row.toolPairs),
     "--summary-limit", String(row.summaryLimit),
     "--min-importance", String(row.minImportance),
-    "--trigger", "mcp",
+    "--trigger", trigger,
     "--apply",
   ];
+  if (planFile) args.push("--plan", String(planFile));
   if (row.watermark) args.push("--watermark");
   return args;
 }
