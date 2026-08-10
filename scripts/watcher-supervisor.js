@@ -8,17 +8,15 @@
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
-const crypto = require("crypto");
 const { spawn } = require("child_process");
-const { listThreadIds } = require("../src/config");
+const { loadConfig, listThreadIds } = require("../src/config");
 const { processMatches } = require("../src/lib/process-identity");
+const { enabledThreadIds, watcherActions, watcherPaths, writeWatcherState } = require("../src/services/watcher-runtime");
 
 const STONE = path.join(os.homedir(), ".stone_memory");
 const LOG_DIR = path.join(STONE, "logs");
 const PID_FILE = path.join(STONE, "watcher.pid");
-const WORKERS_FILE = path.join(STONE, "watcher-workers.json");
 const LOCK_DIR = path.join(STONE, ".watcher-supervisor.lock");
-const OFF_FLAG = path.join(STONE, ".watcher-off");
 const WORKER_SCRIPT = path.join(__dirname, "watcher.js");
 const args = process.argv.slice(2);
 const intervalIndex = args.indexOf("--interval");
@@ -34,15 +32,22 @@ function log(message) {
   fs.appendFileSync(path.join(LOG_DIR, "watcher.log"), `${line}\n`, "utf8");
 }
 
-function externalWorkerAlive(threadId) {
-  const suffix = crypto.createHash("sha256").update(threadId).digest("hex").slice(0, 20);
-  const lockDir = path.join(STONE, `.watcher-worker-${suffix}.lock`);
-  if (!fs.existsSync(lockDir)) return false;
+function externalWorkerOwner(threadId) {
+  const { lockDir } = watcherPaths(threadId);
+  if (!fs.existsSync(lockDir)) return null;
   let owner = null;
   try { owner = JSON.parse(fs.readFileSync(path.join(lockDir, "owner.json"), "utf8")); } catch {}
-  if (owner?.pid && processMatches(owner.pid, "scripts/watcher.js")) return true;
+  if (owner?.pid && processMatches(owner.pid, "scripts/watcher.js")) return owner;
   try { fs.rmSync(lockDir, { recursive: true, force: true }); } catch {}
-  return false;
+  return null;
+}
+
+function stopExternalWorker(threadId, reason) {
+  const owner = externalWorkerOwner(threadId);
+  if (!owner) return;
+  log(`[${threadId}] 停止遗留 worker pid=${owner.pid}（${reason}）`);
+  try { process.kill(owner.pid, "SIGTERM"); } catch {}
+  writeWatcherState(threadId, { status: "stopping", pid: owner.pid, supervisorPid: process.pid, reason });
 }
 
 function acquireLock() {
@@ -61,18 +66,35 @@ function acquireLock() {
   return true;
 }
 
+function cleanupLegacyWorkerLocks() {
+  let names = [];
+  try { names = fs.readdirSync(STONE); } catch { return; }
+  for (const name of names.filter(item => /^\.watcher-worker-[a-f0-9]+\.lock$/.test(item))) {
+    const legacy = path.join(STONE, name);
+    let owner = null;
+    try { owner = JSON.parse(fs.readFileSync(path.join(legacy, "owner.json"), "utf8")); } catch {}
+    if (owner?.pid && processMatches(owner.pid, "scripts/watcher.js")) {
+      try { process.kill(owner.pid, "SIGTERM"); } catch {}
+      log(`[${owner.threadId || "unknown"}] 停止旧版遗留 worker pid=${owner.pid}`);
+    }
+    try { fs.rmSync(legacy, { recursive: true, force: true }); } catch {}
+  }
+  try { fs.rmSync(path.join(STONE, "watcher-workers.json"), { force: true }); } catch {}
+  try { fs.rmSync(path.join(STONE, ".archive-off"), { force: true }); } catch {}
+  try { fs.rmSync(path.join(STONE, ".miner-off"), { force: true }); } catch {}
+  try { fs.rmSync(path.join(STONE, ".watcher-off"), { force: true }); } catch {}
+}
+
 function writeState() {
-  const state = {
-    supervisorPid: process.pid,
-    updatedAt: new Date().toISOString(),
-    workers: Object.fromEntries([...workers].map(([threadId, entry]) => [threadId, {
+  for (const [threadId, entry] of workers) {
+    writeWatcherState(threadId, {
+      status: "running",
       pid: entry.child.pid,
+      supervisorPid: process.pid,
       startedAt: entry.startedAt,
-    }])),
-  };
-  const tmp = `${WORKERS_FILE}.tmp-${process.pid}`;
-  fs.writeFileSync(tmp, JSON.stringify(state, null, 2));
-  fs.renameSync(tmp, WORKERS_FILE);
+      actions: watcherActions(loadConfig()[threadId] || {}),
+    });
+  }
 }
 
 function startWorker(threadId) {
@@ -88,8 +110,18 @@ function startWorker(threadId) {
   child.on("exit", (code, signal) => {
     if (workers.get(threadId)?.child !== child) return;
     workers.delete(threadId);
-    writeState();
-    if (!stopping) log(`[${threadId}] worker 退出 code=${code ?? "-"} signal=${signal || "-"}，等待 supervisor 重启`);
+    writeWatcherState(threadId, {
+      status: stopping ? "stopped" : "exited",
+      pid: null,
+      supervisorPid: process.pid,
+      exitCode: code,
+      exitSignal: signal || null,
+    });
+    if (!stopping) {
+      entry.restartNotBefore = Date.now() + 30_000;
+      restartHistory.set(threadId, entry);
+      log(`[${threadId}] worker 退出 code=${code ?? "-"} signal=${signal || "-"}，稍后由 supervisor 接管`);
+    }
   });
   child.on("error", error => log(`[${threadId}] worker 启动失败: ${error.message}`));
 }
@@ -99,15 +131,74 @@ function stopWorker(threadId, reason) {
   if (!entry) return;
   workers.delete(threadId);
   log(`[${threadId}] worker 停止（${reason}）`);
+  entry.child.once("exit", () => writeWatcherState(threadId, {
+    status: "stopped", pid: null, supervisorPid: process.pid, reason,
+  }));
   try { entry.child.kill("SIGTERM"); } catch {}
-  writeState();
+  writeWatcherState(threadId, { status: "stopping", pid: entry.child.pid, reason });
+}
+
+const restartHistory = new Map();
+
+function markDisabled(threadId, threadConfig) {
+  let current = null;
+  try {
+    const { stateFile } = watcherPaths(threadId);
+    current = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+  } catch {}
+  const actions = watcherActions(threadConfig);
+  if (current?.status === "disabled" && current.pid == null
+      && current.supervisorPid === process.pid
+      && JSON.stringify(current.actions || {}) === JSON.stringify(actions)) return;
+  writeWatcherState(threadId, {
+    status: "disabled", pid: null, supervisorPid: process.pid, actions,
+  });
+}
+
+function syncRunningState(threadId, pid, threadConfig, startedAt = null) {
+  let current = null;
+  try {
+    const { stateFile } = watcherPaths(threadId);
+    current = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+  } catch {}
+  const actions = watcherActions(threadConfig);
+  if (current?.status === "running" && current.pid === pid
+      && current.supervisorPid === process.pid
+      && JSON.stringify(current.actions || {}) === JSON.stringify(actions)) return;
+  writeWatcherState(threadId, {
+    status: "running", pid, supervisorPid: process.pid,
+    startedAt: startedAt || current?.startedAt || null, actions,
+  });
 }
 
 function reconcile() {
+  const config = loadConfig();
   const configured = new Set(listThreadIds());
-  for (const threadId of workers.keys()) if (!configured.has(threadId)) stopWorker(threadId, "线程已从配置移除");
+  const enabled = new Set(enabledThreadIds(config, [...configured]));
+  for (const threadId of workers.keys()) {
+    if (!configured.has(threadId)) stopWorker(threadId, "线程已从配置移除");
+    else if (!enabled.has(threadId)) stopWorker(threadId, "该记忆体 watcher 已设为 OFF");
+  }
   for (const threadId of configured) {
-    if (!workers.has(threadId) && !externalWorkerAlive(threadId)) startWorker(threadId);
+    if (!enabled.has(threadId)) {
+      stopExternalWorker(threadId, "该记忆体 watcher 已设为 OFF");
+      markDisabled(threadId, config[threadId] || {});
+      continue;
+    }
+    const prior = restartHistory.get(threadId);
+    if (prior?.restartNotBefore > Date.now()) continue;
+    const managed = workers.get(threadId);
+    if (managed) {
+      syncRunningState(threadId, managed.child.pid, config[threadId] || {}, managed.startedAt);
+      continue;
+    }
+    const external = externalWorkerOwner(threadId);
+    if (external) {
+      syncRunningState(threadId, external.pid, config[threadId] || {}, external.createdAt || null);
+      continue;
+    }
+    startWorker(threadId);
+    restartHistory.delete(threadId);
   }
 }
 
@@ -116,17 +207,20 @@ function shutdown(signal) {
   stopping = true;
   log(`收到 ${signal}，停止 ${workers.size} 个 worker`);
   for (const threadId of [...workers.keys()]) stopWorker(threadId, signal);
-  try { fs.rmSync(WORKERS_FILE, { force: true }); } catch {}
   try { fs.rmSync(LOCK_DIR, { recursive: true, force: true }); } catch {}
   try { fs.rmSync(PID_FILE, { force: true }); } catch {}
   process.exit(0);
 }
 
 async function main() {
+  const delayIndex = args.indexOf("--delay");
+  const delaySec = delayIndex >= 0 ? Math.max(0, Number(args[delayIndex + 1]) || 0) : 0;
+  if (delaySec) await new Promise(resolve => setTimeout(resolve, delaySec * 1000));
   if (!acquireLock()) {
     log("已有 watcher supervisor 正在运行，本进程退出");
     return;
   }
+  cleanupLegacyWorkerLocks();
   fs.writeFileSync(PID_FILE, String(process.pid));
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
@@ -137,7 +231,6 @@ async function main() {
   });
   log(`启动 pid=${process.pid}；配置巡检 ${intervalSec}s`);
   while (!stopping) {
-    if (fs.existsSync(OFF_FLAG)) return shutdown("watcher-off");
     try { reconcile(); } catch (error) { log(`配置巡检失败: ${error.message}`); }
     await new Promise(resolve => setTimeout(resolve, intervalSec * 1000));
   }
@@ -145,5 +238,17 @@ async function main() {
 
 main().catch(error => {
   log(`FATAL: ${error.stack || error.message}`);
+  if (process.platform === "win32" || process.env.STMEM_SUPERVISOR_SELF_HEAL === "1") {
+    try {
+      const replacement = spawn(process.execPath, [__filename, "--delay", "30"], {
+        detached: true, stdio: ["ignore", "ignore", "ignore"], windowsHide: true,
+        env: { ...process.env, STMEM_SUPERVISOR_SELF_HEAL: "1" },
+      });
+      replacement.unref();
+      log(`supervisor 自愈：已安排 30 秒后重启 pid=${replacement.pid}`);
+    } catch (restartError) {
+      log(`Windows 自愈安排失败: ${restartError.message}`);
+    }
+  }
   shutdown("fatal");
 });

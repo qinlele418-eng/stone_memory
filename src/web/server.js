@@ -19,8 +19,8 @@ const { parseRebuildDryRun } = require("../services/rebuild-dry-run");
 const { MiningReviewStore } = require("../services/mining-review");
 const { editFusionCandidate } = require("../services/review-fusion");
 const { isArchiveConversation } = require("../services/thread-ingest");
-const { processMatches } = require("../lib/process-identity");
 const { DreamReader } = require("../services/dream-reader");
+const { watcherActions, watcherEnabled } = require("../services/watcher-runtime");
 
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MAX_UPLOAD = 512 * 1024 * 1024;
@@ -39,6 +39,14 @@ function safeStmemFailure(stderr, command, status) {
   if (marked) {
     return marked.replace(/^\[(?:memory-miner|memory-compressor)\]\s+/i, "").slice(0, 500);
   }
+  // 不把任意 stderr（可能包含私密对话或模型原文）直接回显给前端；
+  // 只提取脚本明确标记的错误或常见系统错误。
+  const detailLines = lines.filter(line =>
+    /^\[(?:rebuild|codex-rebuild)\]/i.test(line)
+    || /^(?:Error|TypeError|RangeError|SyntaxError|ReferenceError)\b/.test(line)
+    || /(ENOENT|EACCES|EPERM|EADDRINUSE|无法|not found|cannot|failed)/i.test(line));
+  const detail = detailLines.slice(-3).join(" | ").slice(0, 800);
+  if (detail) return `stmem ${command || "命令"}失败（退出码 ${status}）：${detail}`;
   const suffix = Number.isInteger(status) ? `（退出码 ${status}）` : "";
   return `stmem ${command || "命令"}失败${suffix}`;
 }
@@ -61,35 +69,6 @@ function runStmemAsync(args, { maxOutput = 8000 } = {}) {
     child.once("error",reject);
     child.once("close",code=>code===0?resolve(stdout.trim()):reject(new Error(safeStmemFailure(stderr,args[0],code))));
   });
-}
-
-async function restartWatcher() {
-  if (process.platform !== "win32") {
-    const service = spawnSync("systemctl", ["--user", "restart", "stmem-watcher.service"], {
-      stdio: "ignore",
-      timeout: 15_000,
-    });
-    if (service.status === 0) return;
-  }
-  const stoneDir = path.join(os.homedir(), ".stone_memory");
-  const pidFile = path.join(stoneDir, "watcher.pid");
-  const watcherScript = path.join(PROJECT_ROOT, "scripts", "watcher-supervisor.js");
-  let pid = 0;
-  try { pid = Number(fs.readFileSync(pidFile, "utf8")); } catch {}
-  if (pid && processMatches(pid, "watcher-supervisor.js")) {
-    try { process.kill(pid, "SIGTERM"); } catch {}
-    for (let attempt = 0; attempt < 50 && processMatches(pid, "watcher-supervisor.js"); attempt++) {
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
-  }
-  const child = spawn(process.execPath, [watcherScript], {
-    detached: true,
-    stdio: ["ignore", "ignore", "ignore"],
-    windowsHide: true,
-  });
-  child.unref();
-  fs.mkdirSync(stoneDir, { recursive: true });
-  fs.writeFileSync(pidFile, String(child.pid));
 }
 
 function miningDatesFromStore(store,threadId) {
@@ -341,6 +320,7 @@ async function executeMiningJob(job) {
 function publicThreadSettings(threadId) {
   const config = loadConfig(), entry = config[threadId];
   if (!entry) throw new Error(`记忆体不存在：${threadId}`);
+  const actions = watcherActions(entry);
   return {
     threadId, libraryName: entry.label || threadId, ai: entry.ai || "", user: entry.user || "",
     userGender: entry.userGender || "unspecified", runtime: entry.runtime || "claude", purpose: entry.purpose || "accompany",
@@ -354,10 +334,11 @@ function publicThreadSettings(threadId) {
     mcpSummaryLimit: entry.mcpSummaryLimit ?? 0,
     mcpMinImportance: entry.mcpMinImportance ?? 0,
     contextWindowTokens: entry.contextWindowTokens || null,
-    automaticFullMining: entry.automaticFullMining !== false,
-    automaticMemoryMaintenance: entry.automaticMemoryMaintenance !== false,
-    automaticCompression: entry.automaticCompression === true,
-    automaticDream: entry.automaticDream === true,
+    watcherEnabled: watcherEnabled(entry),
+    automaticFullMining: actions.sync,
+    automaticMemoryMaintenance: actions.mine,
+    automaticCompression: actions.compact,
+    automaticDream: actions.dream,
   };
 }
 
@@ -443,6 +424,7 @@ function listLibraries() {
   const config = loadConfig();
   return listThreadIds().map(threadId => {
     const tc = config[threadId] || {};
+    const actions = watcherActions(tc);
     const memoryDir = path.join(getThreadDir(threadId), "memory");
     const store = new MemoryStore({ memoryDir, threadId });
     try {
@@ -456,10 +438,11 @@ function listLibraries() {
       return {
         threadId, libraryName: tc.label || threadId, runtime: tc.runtime || "claude", purpose: tc.purpose || "accompany",
         ai: tc.ai || "", user: tc.user || "", counts, lastMinedAt: latest?.completedAt || null,
-        automaticFullMining: tc.automaticFullMining !== false,
-        automaticMemoryMaintenance: tc.automaticMemoryMaintenance !== false,
-        automaticCompression: tc.automaticCompression === true,
-        automaticDream: tc.automaticDream === true,
+        watcherEnabled: watcherEnabled(tc),
+        automaticFullMining: actions.sync,
+        automaticMemoryMaintenance: actions.mine,
+        automaticCompression: actions.compact,
+        automaticDream: actions.dream,
       };
     } finally { store.close(); }
   });
@@ -674,15 +657,33 @@ async function handleApi(req, res, url) {
     if (req.method === "PATCH") {
       const body = await readJson(req);
       const current = publicThreadSettings(threadId);
-      const dreamSettingChanged = Object.hasOwn(body, "automaticDream")
-        && body.automaticDream !== current.automaticDream;
-      const input = { ...current, ...body, threadId, runtime: current.runtime, purpose: current.purpose };
+      const automationKeys = ["automaticFullMining", "automaticMemoryMaintenance", "automaticCompression", "automaticDream", "watcherEnabled"];
+      const regularBody = Object.fromEntries(Object.entries(body).filter(([key]) => !automationKeys.includes(key)));
+      const input = { ...current, ...regularBody, threadId, runtime: current.runtime, purpose: current.purpose };
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-web-config-"));
       const file = path.join(dir, "config.json");
       fs.writeFileSync(file, JSON.stringify(input), { encoding: "utf8", mode: 0o600 });
       try {
         runStmem(["init", "--thread", threadId, "--batch-file", file]);
-        if (dreamSettingChanged) await restartWatcher();
+        const moduleArgs = ["watcher", "set", "--thread", threadId];
+        const moduleMap = {
+          automaticFullMining: "--archive",
+          automaticMemoryMaintenance: "--miner",
+          automaticCompression: "--compression",
+          automaticDream: "--dream",
+        };
+        for (const [key, flag] of Object.entries(moduleMap)) {
+          if (Object.hasOwn(body, key)) moduleArgs.push(flag, body[key] === true ? "on" : "off");
+        }
+        if (moduleArgs.length > 4) runStmem(moduleArgs);
+        if (Object.hasOwn(body, "watcherEnabled")) {
+          runStmem(["watcher", body.watcherEnabled === true ? "on" : "off", "--thread", threadId]);
+        } else if (moduleArgs.length > 4) {
+          const resulting = publicThreadSettings(threadId);
+          const anyModule = resulting.automaticFullMining || resulting.automaticMemoryMaintenance
+            || resulting.automaticCompression || resulting.automaticDream;
+          runStmem(["watcher", anyModule ? "on" : "off", "--thread", threadId]);
+        }
         return json(res, 200, { success: true, config: publicThreadSettings(threadId) });
       } finally { fs.rmSync(dir, { recursive: true, force: true }); }
     }

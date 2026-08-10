@@ -1,104 +1,97 @@
 #!/usr/bin/env node
 /**
- * stmem watcher — watcher 开关管理
- * 用法:
- *   stmem watcher              查看状态
- *   stmem watcher off          完全暂停（下次轮询自动退出）
- *   stmem watcher on           完全启用
- *   stmem watcher archive off  关掉 archive 同步
- *   stmem watcher archive on   打开 archive 同步
- *   stmem watcher miner off    关掉自动挖掘
- *   stmem watcher miner on     打开自动挖掘
- *
- * 默认 init 后全部开启。
+ * stmem watcher — 只修改/查看每个记忆体的 watcher 期望状态。
+ * 进程启停与自愈全部由常驻 supervisor 根据 stmem.json 收敛。
  */
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
-const { spawn } = require("child_process");
+const { loadConfig, listThreadIds } = require("../src/config");
+const { saveConfig } = require("../src/services/thread-setup");
 const { processMatches } = require("../src/lib/process-identity");
+const { readWatcherState, watcherActions, watcherEnabled } = require("../src/services/watcher-runtime");
 
 const STONE = path.join(os.homedir(), ".stone_memory");
-const OFF_FLAG = path.join(STONE, ".watcher-off");
-const ARCHIVE_OFF_FLAG = path.join(STONE, ".archive-off");
-const MINER_OFF_FLAG = path.join(STONE, ".miner-off");
-const PID_FILE = path.join(STONE, "watcher.pid");
-const WORKERS_FILE = path.join(STONE, "watcher-workers.json");
-const WATCHER_SCRIPT = path.join(__dirname, "watcher-supervisor.js");
+const LEGACY_KEYS = {
+  archive: "automaticFullMining",
+  miner: "automaticMemoryMaintenance",
+  compression: "automaticCompression",
+  dream: "automaticDream",
+};
+const CORE_MODULES = new Set(Object.keys(LEGACY_KEYS));
+const args = process.argv.slice(3);
+const subcmd = args[0] || "status";
+const threadIndex = args.indexOf("--thread");
+const threadId = threadIndex >= 0 ? args[threadIndex + 1] : null;
 
-function getWatcherPid() {
-  try { return parseInt(fs.readFileSync(PID_FILE, "utf8"), 10); } catch { return null; }
+function selectedConfig() {
+  if (!threadId) throw new Error("watcher 状态是每记忆体配置，请加 --thread <id>");
+  const config = loadConfig();
+  if (!config[threadId] || typeof config[threadId] !== "object") throw new Error(`记忆体不存在：${threadId}`);
+  return config;
 }
 
-function isRunning(pid) {
-  return processMatches(pid, "watcher-supervisor.js");
+function parseOnOff(value, label) {
+  if (!new Set(["on", "off"]).has(value)) throw new Error(`${label} 必须指定 on 或 off`);
+  return value === "on";
 }
 
-const subcmd = process.argv[3] || "status";
-const target = process.argv[4]; // on/off for sub-targets
-
-function setFlag(flagPath, state) {
-  if (state === "off") {
-    fs.writeFileSync(flagPath, new Date().toISOString());
-    return "已关闭";
-  } else {
-    try { fs.unlinkSync(flagPath); } catch {}
-    return "已开启";
-  }
+function saveExpectedState(mutator) {
+  const config = selectedConfig();
+  mutator(config[threadId]);
+  saveConfig(config);
+  return config[threadId];
 }
 
-function flagStatus(flagPath, label) {
-  const exists = fs.existsSync(flagPath);
-  const since = exists ? ` (自 ${fs.readFileSync(flagPath, "utf8").slice(0, 19)})` : "";
-  return `${label}: ${exists ? "关闭" + since : "开启"}`;
+function setModule(entry, name, enabled) {
+  entry.watcherModules = { ...(entry.watcherModules || {}), [name]: enabled };
+  // 内置四项兼容尚未迁移的 reader；开发者插件无需核心字段。
+  if (LEGACY_KEYS[name]) entry[LEGACY_KEYS[name]] = enabled;
 }
 
-if (subcmd === "archive") {
-  console.log(`archive 同步 ${setFlag(ARCHIVE_OFF_FLAG, target)}`);
-  process.exit(0);
+if (subcmd === "on" || subcmd === "off") {
+  const enabled = subcmd === "on";
+  saveExpectedState(entry => { entry.watcherEnabled = enabled; });
+  console.log(`记忆体 ${threadId} watcher 已设为 ${enabled ? "ON" : "OFF"}；supervisor 将自动应用`);
+  return;
 }
 
-if (subcmd === "miner") {
-  console.log(`自动挖掘 ${setFlag(MINER_OFF_FLAG, target)}`);
-  process.exit(0);
-}
-
-switch (subcmd) {
-  case "on":
-    [OFF_FLAG, ARCHIVE_OFF_FLAG, MINER_OFF_FLAG].forEach(f => { try { fs.unlinkSync(f); } catch {} });
-    const existingPid = getWatcherPid();
-    if (existingPid && isRunning(existingPid)) {
-      console.log(`watcher 已在运行 (pid ${existingPid})，所有功能已开启`);
-    } else if (fs.existsSync(WATCHER_SCRIPT)) {
-      const w = spawn(process.execPath, [WATCHER_SCRIPT], {
-        detached: true, stdio: ["ignore", "ignore", "ignore"],
-      });
-      w.unref();
-      fs.writeFileSync(PID_FILE, String(w.pid));
-      console.log(`watcher 已启动 (pid ${w.pid})，所有功能已开启`);
+if (subcmd === "set") {
+  const changed = [];
+  const entry = saveExpectedState(item => {
+    for (let index = 1; index < args.length; index++) {
+      const flag = args[index];
+      if (flag === "--thread") { index += 1; continue; }
+      if (!flag.startsWith("--")) continue;
+      const name = flag.slice(2);
+      if (!/^[a-z][a-z0-9-]{0,63}$/.test(name)) throw new Error(`非法 watcher 模块名：${name}`);
+      if (!CORE_MODULES.has(name) && !name.startsWith("dev-")) {
+        throw new Error(`开发者 watcher 模块必须使用 dev- 前缀，例如 --dev-${name} on`);
+      }
+      const enabled = parseOnOff(args[index + 1], flag);
+      setModule(item, name, enabled);
+      changed.push(`${name}=${enabled ? "on" : "off"}`);
+      index += 1;
     }
-    break;
+    if (!changed.length) throw new Error("set 至少需要一个模块开关，例如 --archive on 或 --dream off");
+  });
+  console.log(`记忆体 ${threadId} watcher 模块已更新：${changed.join(" · ")}；总开关 ${watcherEnabled(entry) ? "ON" : "OFF"}`);
+  return;
+}
 
-  case "off":
-    fs.writeFileSync(OFF_FLAG, new Date().toISOString());
-    console.log("watcher 已标记暂停（下次轮询退出）");
-    break;
+if (subcmd !== "status") throw new Error("用法：stmem watcher [status|on|off|set] --thread <id>");
 
-  default:
-    const pid = getWatcherPid();
-    const alive = pid && isRunning(pid);
-    const lines = [];
-    lines.push(`watcher: ${alive ? `运行中 (pid ${pid})` : "未运行"}`);
-    lines.push(flagStatus(OFF_FLAG, "  总开关"));
-    lines.push(flagStatus(ARCHIVE_OFF_FLAG, "  archive 同步"));
-    lines.push(flagStatus(MINER_OFF_FLAG, "  自动挖掘"));
-    if (alive) {
-      try {
-        const state = JSON.parse(fs.readFileSync(WORKERS_FILE, "utf8"));
-        const workers = Object.entries(state.workers || {});
-        lines.push(`  线程 workers: ${workers.length}`);
-        for (const [threadId, worker] of workers) lines.push(`    ${threadId}: pid ${worker.pid}`);
-      } catch { lines.push("  线程 workers: 正在启动"); }
-    }
-    console.log(lines.join("\n"));
+let supervisorPid = null;
+try { supervisorPid = Number(fs.readFileSync(path.join(STONE, "watcher.pid"), "utf8")); } catch {}
+const supervisorRunning = !!supervisorPid && processMatches(supervisorPid, "watcher-supervisor.js");
+const config = loadConfig();
+const ids = threadId ? [threadId] : listThreadIds();
+console.log(`watcher supervisor: ${supervisorRunning ? `运行中 (pid ${supervisorPid})` : "未运行"}`);
+for (const id of ids) {
+  const entry = config[id];
+  if (!entry || typeof entry !== "object") continue;
+  const enabled = watcherEnabled(entry), actions = watcherActions(entry), state = readWatcherState(id);
+  const actual = !enabled ? "OFF" : state?.status === "running" ? `运行中 (pid ${state.pid})` : state?.status || "等待 supervisor 应用";
+  console.log(`  ${entry.label || id}: 期望 ${enabled ? "ON" : "OFF"} · 实际 ${actual}`);
+  console.log(`    archive ${actions.sync ? "on" : "off"} · miner ${actions.mine ? "on" : "off"} · compression ${actions.compact ? "on" : "off"} · dream ${actions.dream ? "on" : "off"}`);
 }

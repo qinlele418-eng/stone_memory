@@ -24,7 +24,7 @@ function getThreadDir(threadId) {
   if (!threadId) throw new Error("threadId is required");
   const runtime = getCfg("runtime", threadId, "claude");
   const purpose = getCfg("purpose", threadId, "accompany");
-  return path.join(os.homedir(), ".stone_memory", "runtimes", runtime, purpose, threadId);
+  return path.join(path.dirname(CONFIG_PATH), "runtimes", runtime, purpose, threadId);
 }
 
 /** 列出所有已配置的线程 ID */

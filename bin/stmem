@@ -1,7 +1,5 @@
 #!/usr/bin/env node
 const path = require("path");
-const fs = require("fs");
-const os = require("os");
 
 const SCRIPTS = path.resolve(__dirname, "..", "scripts");
 const cmd = process.argv[2];
@@ -49,9 +47,9 @@ if (!cmd || cmd === "--help" || cmd === "-h") {
   stmem rebuild --thread <id> --repair          备份并修复可恢复的线程断链
   stmem rules list|import|update|delete|enable|disable --thread <id>  管理人设/规则
   stmem memory update|anchor --thread <id> --batch-file <json>  编辑摘要与锚点
-  stmem watcher [on|off]                        watcher 总开关启停
-  stmem watcher archive [on|off]                watcher 自动挖掘对话开关
-  stmem watcher miner [on|off]                  watcher 自动挖掘摘要+特征开关
+  stmem watcher [status|on|off] --thread <id>   查看/修改该记忆体 watcher 期望状态
+  stmem watcher set --thread <id> --archive|--miner|--compression|--dream on|off  修改内置插件
+  stmem watcher set --thread <id> --dev-<name> on|off  修改开发者插件（必须 dev- 前缀）
   stmem web [--port 4173]                       启动本地记忆管理前端
   stmem db [status|migrate|migrate-all|export] [--thread <id>]  数据库管理
 
@@ -60,9 +58,6 @@ if (!cmd || cmd === "--help" || cmd === "-h") {
 配置: ~/.stone_memory/stmem.json`);
   process.exit(0);
 }
-
-// 纯帮助/诊断命令不得改变 watcher 状态；其余命令维持原有自动拉起行为。
-if (!new Set(["init", "ai-help", "capabilities", "doctor", "mine-review", "dream"]).has(cmd)) ensureWatcher();
 
 switch (cmd) {
   case "ai-help":
@@ -154,29 +149,4 @@ switch (cmd) {
   default:
     console.log("未知命令: " + cmd + "\n运行 stmem --help 查看可用命令");
     process.exit(1);
-}
-
-function ensureWatcher() {
-  const { spawn } = require("child_process");
-  const { processMatches } = require("../src/lib/process-identity");
-  const pidFile = path.join(os.homedir(), ".stone_memory", "watcher.pid");
-  const watcherScript = path.join(SCRIPTS, "watcher-supervisor.js");
-
-  if (!fs.existsSync(watcherScript)) return;
-
-  fs.mkdirSync(path.dirname(pidFile), { recursive: true });
-
-  try {
-    const oldPid = parseInt(fs.readFileSync(pidFile, "utf8"), 10);
-    if (processMatches(oldPid, "watcher-supervisor.js")) return;
-  } catch {}
-
-  // watcher 不在运行，自动拉起
-  const w = spawn(process.execPath, [watcherScript], {
-    detached: true,
-    stdio: ["ignore", "ignore", "ignore"],
-  });
-  w.unref();
-  fs.writeFileSync(pidFile, String(w.pid));
-  // 不打印——后台静默启动
 }

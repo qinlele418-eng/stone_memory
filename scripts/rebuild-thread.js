@@ -678,4 +678,9 @@ function main() {
   console.log(`\n[rebuild] Done — thread replaced.`);
 }
 
-main();
+try {
+  main();
+} catch (error) {
+  console.error(`[rebuild] ${error?.message || error}`);
+  process.exitCode = 1;
+}

@@ -38,6 +38,14 @@ test("automatic compression requires its own explicit switch", () => {
   }).compact, true);
 });
 
+test("watcherModules overrides legacy automatic fields without cross-thread fallback", () => {
+  assert.deepEqual(resolveAutomaticActions({
+    automaticFullMining: true,
+    automaticMemoryMaintenance: true,
+    watcherModules: { archive: false, miner: true, compression: false },
+  }), { sync: false, mine: true, compact: false });
+});
+
 test("automatic mining only considers completed dates", () => {
   assert.equal(shouldAutoMineDate("2026-07-27", {
     today: "2026-07-30",

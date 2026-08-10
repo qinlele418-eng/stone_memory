@@ -65,6 +65,30 @@ function createThread(input, { allowExisting = false, requireSession = true } = 
   if (allowExisting && existing.purpose && input.purpose !== existing.purpose) throw new Error("用途暂不支持直接迁移");
   const libraryName = String(input.libraryName).trim();
   const threadId = String(input.threadId).trim();
+  const oldModules = existing.watcherModules || {};
+  const inputModules = input.watcherModules || {};
+  const moduleValue = (name, inputKey, legacyDefault) => {
+    if (Object.hasOwn(inputModules, name)) return inputModules[name] === true;
+    if (Object.hasOwn(input, inputKey)) return input[inputKey] === true;
+    if (Object.hasOwn(oldModules, name)) return oldModules[name] === true;
+    if (Object.hasOwn(existing, inputKey)) return existing[inputKey] === true;
+    return legacyDefault;
+  };
+  const watcherModules = { ...oldModules, ...inputModules,
+    archive: moduleValue("archive", "automaticFullMining", true),
+    miner: moduleValue("miner", "automaticMemoryMaintenance", true),
+    compression: moduleValue("compression", "automaticCompression", false),
+    dream: moduleValue("dream", "automaticDream", false),
+  };
+  const automaticFullMining = watcherModules.archive;
+  const automaticMemoryMaintenance = watcherModules.miner;
+  const automaticCompression = watcherModules.compression;
+  const automaticDream = watcherModules.dream;
+  const watcherEnabled = typeof input.watcherEnabled === "boolean"
+    ? input.watcherEnabled
+    : typeof existing.watcherEnabled === "boolean"
+      ? existing.watcherEnabled
+      : Object.values(watcherModules).some(Boolean);
   const entry = {
     ai: String(input.ai).trim(),
     user: String(input.user).trim(),
@@ -82,10 +106,12 @@ function createThread(input, { allowExisting = false, requireSession = true } = 
     contextWindowTokens: input.contextWindowTokens === undefined || input.contextWindowTokens === ""
       ? (existing.contextWindowTokens || null)
       : (Math.max(0, Number(input.contextWindowTokens) || 0) || null),
-    automaticFullMining: input.automaticFullMining !== false,
-    automaticMemoryMaintenance: input.automaticMemoryMaintenance !== false,
-    automaticCompression: input.automaticCompression === true,
-    automaticDream: input.automaticDream === true,
+    automaticFullMining,
+    automaticMemoryMaintenance,
+    automaticCompression,
+    automaticDream,
+    watcherEnabled,
+    watcherModules,
   };
   if (input.minerMode === "api") {
     const existingKey = config.apiKeys?.[input.apiProvider]?.key;

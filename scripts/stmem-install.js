@@ -64,7 +64,6 @@ function startBackgroundWatcher() {
         windowsHide: true,
       });
       w.unref();
-      fs.writeFileSync(pidFile, String(w.pid));
       log(`watcher 已启动 (pid ${w.pid})`);
       log(`  启动脚本: ${batPath}`);
       log("  加入开机自启: 用 shell:startup 或 schtasks");
@@ -92,9 +91,11 @@ function startBackgroundWatcher() {
       return true;
     } catch {}
     // fallback: 直接后台
-    const w = spawn(process.execPath, [watcherScript], { detached: true, stdio: ["ignore", "ignore", "ignore"] });
+    const w = spawn(process.execPath, [watcherScript], {
+      detached: true, stdio: ["ignore", "ignore", "ignore"],
+      env: { ...process.env, STMEM_SUPERVISOR_SELF_HEAL: "1" },
+    });
     w.unref();
-    fs.writeFileSync(pidFile, String(w.pid));
     log(`watcher 已后台启动 (pid ${w.pid})`);
     return true;
   }

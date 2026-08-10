@@ -16,7 +16,6 @@
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
-const crypto = require("crypto");
 const { execFile, execSync } = require("child_process");
 
 const { loadConfig, getCfg, getThreadDir, listThreadIds } = require("../src/config");
@@ -31,6 +30,7 @@ const { findThreadSessionFile } = require("../src/lib/thread-session-file");
 const { latestContextUsage } = require("../src/lib/thread-context-usage");
 const { updateContextUsage } = require("../src/services/rebuild-log");
 const { MemoryStore } = require("../src/storage/memory-store");
+const { watcherActions, watcherEnabled, watcherPaths, writeWatcherState } = require("../src/services/watcher-runtime");
 const LOG_DIR = path.join(os.homedir(), ".stone_memory", "logs");
 let workerLockDir = null;
 
@@ -48,8 +48,8 @@ function beijingToday() {
 }
 
 function acquireWorkerLock(threadId) {
-  const suffix = crypto.createHash("sha256").update(threadId).digest("hex").slice(0, 20);
-  const lockDir = path.join(os.homedir(), ".stone_memory", `.watcher-worker-${suffix}.lock`);
+  const { root, lockDir } = watcherPaths(threadId);
+  fs.mkdirSync(root, { recursive: true });
   try {
     fs.mkdirSync(lockDir);
   } catch (error) {
@@ -252,7 +252,7 @@ async function flushSync(tid) {
       state.dirty = false;
       const config = loadConfig()[tid] || {};
       const actions = resolveAutomaticActions(config);
-      if (actions.sync && !fs.existsSync(path.join(os.homedir(), ".stone_memory", ".archive-off"))) {
+      if (actions.sync) {
         await syncFromThread(tid);
       }
       const latestArchiveDate = scanArchiveDates(tid).at(-1) || null;
@@ -309,8 +309,6 @@ function watchThreadFile(tid) {
 }
 
 async function checkAndMine(tid) {
-  const STOP = path.join(os.homedir(), ".stone_memory");
-
   await checkImports(tid);
   const archiveDates = scanArchiveDates(tid);
   if (!archiveDates.length) return false;
@@ -319,8 +317,6 @@ async function checkAndMine(tid) {
   const threadConfig = loadConfig()[tid] || {};
   const actions = resolveAutomaticActions(threadConfig);
   if (!actions.mine) return false;
-
-  const minerOff = fs.existsSync(path.join(STOP, ".miner-off"));
 
   const messagesByDate = new Map();
   const messagesFor = date => {
@@ -335,7 +331,7 @@ async function checkAndMine(tid) {
     && (shouldAttempt(miningState, d, messagesFor(d)) || requiresRemine(miningState, d, messagesFor(d))));
 
   let minedAny = false;
-  if (pending.length > 0 && !minerOff) {
+  if (pending.length > 0) {
     log(`[${tid}] 发现 ${pending.length} 天待挖掘: ${pending.join(", ")}`);
     for (const dateStr of pending) {
       const force = requiresRemine(miningState, dateStr, messagesFor(dateStr));
@@ -369,6 +365,16 @@ async function main() {
       log(`[${threadFlag}] 已有 worker 正在运行，本进程退出`);
       return;
     }
+    const initialConfig = loadConfig()[threadFlag] || {};
+    if (!watcherEnabled(initialConfig) && !once) {
+      log(`[${threadFlag}] 自动化已全部关闭，worker 不启动`);
+      releaseWorkerLock();
+      return;
+    }
+    writeWatcherState(threadFlag, {
+      status: "running", pid: process.pid, supervisorPid: supervisorPid || null,
+      startedAt: new Date().toISOString(), actions: watcherActions(initialConfig),
+    });
     process.once("exit", releaseWorkerLock);
     process.once("SIGTERM", () => { releaseWorkerLock(); process.exit(0); });
     process.once("SIGINT", () => { releaseWorkerLock(); process.exit(0); });
@@ -396,11 +402,6 @@ async function main() {
   const compactChecked = new Set();
 
   while (true) {
-    // 暂停标志检查
-    if (fs.existsSync(path.join(os.homedir(), ".stone_memory", ".watcher-off"))) {
-      log("watcher 已暂停（检测到 .watcher-off 标志），退出");
-      process.exit(0);
-    }
     for (const tid of threadIds) {
       try {
         // 启动时同步一次，之后这里只承担低频漏事件兜底。
@@ -421,23 +422,6 @@ async function main() {
 
   for (const watcher of fileWatchers) watcher.close();
   if (once) log("--once 模式，退出。");
-}
-
-// Windows 自愈：崩溃后自动重启（代替 systemd）
-if (process.platform === "win32") {
-  process.on("uncaughtException", (err) => {
-    log(`FATAL: ${err.message}`);
-    log("自愈: 10s 后自动重启...");
-    setTimeout(() => {
-      const { spawn } = require("child_process");
-      const child = spawn(process.execPath, process.argv.slice(1), {
-        detached: true, stdio: ["ignore", "ignore", "ignore"],
-        windowsHide: true,
-      });
-      child.unref();
-      process.exit(1);
-    }, 10000).unref();
-  });
 }
 
 main().catch(e => {

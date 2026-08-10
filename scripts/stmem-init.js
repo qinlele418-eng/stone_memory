@@ -14,7 +14,6 @@
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
-const { watcherServiceContent } = require("../src/lib/systemd-watcher-service");
 const readline = require("readline");
 
 const STONE = path.join(os.homedir(), ".stone_memory");
@@ -23,7 +22,6 @@ const {
   createThread, validateThreadInput, validateSessionBinding, normalizeName,
 } = require("../src/services/thread-setup");
 const { INIT_SCHEMA, buildInitTemplate } = require("../src/services/init-contract");
-const { processMatches } = require("../src/lib/process-identity");
 
 function loadCfg() {
   try { return JSON.parse(fs.readFileSync(cfgFile, "utf8")); }
@@ -158,84 +156,6 @@ async function main() {
   console.log(`   记忆目录: ${tc.directory}`);
   console.log(`   已绑定线程文件: ${tc.sessionFile}`);
 
-  // 全局开关只作为总闸；任一线程明确启用自动任务时打开总闸，
-  // 实际是否挖掘仍由 watcher 逐线程读取 automatic* 配置决定。
-  if (tc.automaticFullMining || tc.automaticMemoryMaintenance || tc.automaticCompression || tc.automaticDream) {
-    try { fs.rmSync(path.join(STONE, ".watcher-off"), { force: true }); } catch {}
-    try { fs.rmSync(path.join(STONE, ".miner-off"), { force: true }); } catch {}
-  }
-
-  // 自动启动 watcher
-  startWatcher();
-}
-
-function startWatcher() {
-  const { spawn } = require("child_process");
-  const watcherScript = path.join(__dirname, "watcher-supervisor.js");
-  const pidFile = path.join(STONE, "watcher.pid");
-
-  if (!fs.existsSync(watcherScript)) return;
-
-  // systemd (仅 Linux)
-  if (process.platform !== "win32") {
-    const serviceDir = path.join(os.homedir(), ".config", "systemd", "user");
-    const serviceFile = path.join(serviceDir, "stmem-watcher.service");
-    try {
-      fs.mkdirSync(serviceDir, { recursive: true });
-      fs.writeFileSync(serviceFile, watcherServiceContent({
-        nodePath: process.execPath,
-        watcherScript,
-        home: os.homedir(),
-        pidFile,
-      }));
-      const { execSync: es } = require("child_process");
-      try {
-        es("systemctl --user daemon-reload 2>/dev/null", { stdio: "pipe" });
-        es("systemctl --user enable stmem-watcher.service 2>/dev/null", { stdio: "pipe" });
-        es("systemctl --user start stmem-watcher.service 2>/dev/null", { stdio: "pipe" });
-        console.log("   systemd service 已启用");
-        return;
-      } catch {}
-    } catch {}
-  } else {
-    // Windows: 创建 .bat + 自动后台启动
-    const batDir = path.join(os.homedir(), "AppData", "Local", "stmem");
-    const batPath = path.join(batDir, "watcher-start.bat");
-    const logFile = path.join(STONE, "watcher.log");
-    try {
-      fs.mkdirSync(batDir, { recursive: true });
-      fs.writeFileSync(batPath, `@echo off\r\nstart /B node "${watcherScript}" > "${logFile}" 2>&1\r\n`);
-      // 检查是否已在运行
-      try {
-        const oldPid = parseInt(fs.readFileSync(pidFile, "utf8"), 10);
-        if (processMatches(oldPid, "watcher-supervisor.js")) { console.log("   watcher 已在运行"); return; }
-      } catch {}
-      // 后台启动
-      const w = spawn(process.execPath, [watcherScript], {
-        detached: true, stdio: ["ignore", "ignore", "ignore"],
-        windowsHide: true,
-      });
-      w.unref();
-      fs.writeFileSync(pidFile, String(w.pid));
-      console.log(`   watcher 已启动 (pid ${w.pid})`);
-      console.log(`   启动脚本: ${batPath}`);
-      console.log("   加入开机自启: 将此快捷方式放入 shell:startup 文件夹");
-      return;
-    } catch (err) {
-      console.log(`   watcher 启动失败: ${err.message}，请手动运行 watcher`);
-      return;
-    }
-  }
-
-  // fallback: 直接后台启动
-  try {
-    const oldPid = parseInt(fs.readFileSync(pidFile, "utf8"), 10);
-    if (processMatches(oldPid, "watcher-supervisor.js")) { console.log(`   watcher 已在运行 (pid ${oldPid})`); return; }
-  } catch {}
-  const w = spawn(process.execPath, [watcherScript], { detached: true, stdio: ["ignore", "ignore", "ignore"] });
-  w.unref();
-  fs.writeFileSync(pidFile, String(w.pid));
-  console.log(`   watcher 已启动 (pid ${w.pid})`);
 }
 
 main().catch(e => { console.error(e.message); process.exit(1); });

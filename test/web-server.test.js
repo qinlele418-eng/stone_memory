@@ -81,6 +81,10 @@ test("web subprocess errors never expose unmarked conversation output", () => {
   );
   assert.equal(safeStmemFailure("private conversation content", "mine", 7), "stmem mine失败（退出码 7）");
   assert.equal(
+    safeStmemFailure("[rebuild] 无法覆盖活动线程：EACCES", "rebuild", 1),
+    "stmem rebuild失败（退出码 1）：[rebuild] 无法覆盖活动线程：EACCES",
+  );
+  assert.equal(
     safeStmemFailure("[memory-compressor] error: API 429: rate limited", "compress", 1),
     "error: API 429: rate limited",
   );

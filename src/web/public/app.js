@@ -55,7 +55,9 @@ function miningCalendarData(rows,page=1) {
 function conversationRole(role, library) { return role==="user"?(library.user||"用户"):role==="assistant"?(library.ai||"AI"):role; }
 function showToast(message, type = "") { toast.textContent = message; toast.className = `toast show ${type}`; clearTimeout(showToast.timer); showToast.timer = setTimeout(() => toast.className = "toast", 3200); }
 async function api(url, options = {}) {
-  const response = await fetch(url, options);
+  const request = { ...options };
+  if (!request.method || String(request.method).toUpperCase() === "GET") request.cache = "no-store";
+  const response = await fetch(url, request);
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || "请求失败");
   return data;

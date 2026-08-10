@@ -31,6 +31,15 @@ const INIT_SCHEMA = {
     automaticMemoryMaintenance: { type: "boolean", default: true },
     automaticCompression: { type: "boolean", default: false },
     automaticDream: { type: "boolean", default: false },
+    watcherEnabled: { type: "boolean", default: true },
+    watcherModules: {
+      type: "object",
+      additionalProperties: { type: "boolean" },
+      properties: {
+        archive: { type: "boolean" }, miner: { type: "boolean" },
+        compression: { type: "boolean" }, dream: { type: "boolean" },
+      },
+    },
   },
 };
 
@@ -57,6 +66,8 @@ function buildInitTemplate(runtime = "codex") {
     automaticMemoryMaintenance: true,
     automaticCompression: false,
     automaticDream: false,
+    watcherEnabled: true,
+    watcherModules: { archive: true, miner: true, compression: false, dream: false },
   };
 }
 

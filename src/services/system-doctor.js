@@ -6,20 +6,22 @@ const { loadConfig, getThreadDir } = require("../config");
 const { findThreadSessionFile } = require("../lib/thread-session-file");
 const { MemoryStore } = require("../storage/memory-store");
 const { processMatches } = require("../lib/process-identity");
+const { readWatcherState, watcherActions, watcherEnabled } = require("./watcher-runtime");
 
 const REQUIRED_CONFIG = ["label", "ai", "user", "runtime", "purpose", "sessionDir", "minerMode"];
 
-function watcherStatus() {
+function watcherStatus(threadId = null, threadConfig = {}) {
   const root = path.join(os.homedir(), ".stone_memory");
   let pid = null;
   try { pid = Number(fs.readFileSync(path.join(root, "watcher.pid"), "utf8")); } catch {}
   const running = !!pid && processMatches(pid, "watcher-supervisor.js");
+  const state = threadId ? readWatcherState(threadId) : null;
   return {
     running,
     pid: running ? pid : null,
-    disabled: fs.existsSync(path.join(root, ".watcher-off")),
-    archiveDisabled: fs.existsSync(path.join(root, ".archive-off")),
-    minerDisabled: fs.existsSync(path.join(root, ".miner-off")),
+    enabledForThread: threadId ? watcherEnabled(threadConfig) : null,
+    actions: threadId ? watcherActions(threadConfig) : null,
+    worker: state,
   };
 }
 
@@ -54,7 +56,7 @@ function failure(threadId, code, reason, nextCommand, checks = {}) {
 
 function diagnoseThread(threadId, { projectDir = path.resolve(__dirname, "..", "..") } = {}) {
   const config = loadConfig();
-  const checks = { configuration: {}, session: {}, database: {}, watcher: watcherStatus(), source: sourceStatus(projectDir) };
+  const checks = { configuration: {}, session: {}, database: {}, watcher: watcherStatus(threadId, config[threadId] || {}), source: sourceStatus(projectDir) };
   if (!threadId || !config[threadId] || typeof config[threadId] !== "object") {
     return failure(
       threadId,
@@ -124,8 +126,12 @@ function diagnoseThread(threadId, { projectDir = path.resolve(__dirname, "..", "
   }
 
   const warnings = [];
-  if (!checks.watcher.running) warnings.push({ code: "WATCHER_NOT_RUNNING", reason: "watcher 当前未运行", nextCommand: "stmem watcher on" });
-  if (checks.watcher.disabled) warnings.push({ code: "WATCHER_DISABLED", reason: "watcher 总开关已关闭", nextCommand: "stmem watcher on" });
+  if (checks.watcher.enabledForThread && !checks.watcher.running) warnings.push({ code: "WATCHER_NOT_RUNNING", reason: "该记忆体 watcher 期望状态为 ON，但 supervisor 当前未运行；请修复后台服务，而不是重复启动裸进程", nextCommand: "stmem doctor --thread " + threadId });
+  if (checks.watcher.enabledForThread && checks.watcher.running && checks.watcher.worker?.status !== "running") warnings.push({
+    code: "WATCHER_WORKER_NOT_RUNNING",
+    reason: `该记忆体 watcher worker 当前状态：${checks.watcher.worker?.status || "等待启动"}`,
+    nextCommand: "stmem watcher status --thread " + threadId,
+  });
   if (checks.database.latestMining?.status === "blocked") warnings.push({
     code: "MINING_BLOCKED",
     reason: `最近日期 ${checks.database.latestMining.source_date} 挖掘已阻塞：${checks.database.latestMining.error_message || checks.database.latestMining.error_code || "未知错误"}`,

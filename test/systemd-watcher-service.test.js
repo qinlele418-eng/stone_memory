@@ -9,11 +9,11 @@ test("watcher service includes user-local CLI path without using a shell", () =>
     nodePath: "/usr/bin/node",
     watcherScript: "/opt/stmem/scripts/watcher-supervisor.js",
     home: "/home/alice",
-    pidFile: "/home/alice/.stone_memory/watcher.pid",
   });
   assert.match(content, /Environment="PATH=\/home\/alice\/\.local\/bin:/);
   assert.match(content, /ExecStart=\/usr\/bin\/node \/opt\/stmem\/scripts\/watcher-supervisor\.js/);
-  assert.match(content, /ExecStopPost=\/bin\/rm -f \/home\/alice\/\.stone_memory\/watcher\.pid/);
+  assert.doesNotMatch(content, /ExecStopPost/);
+  assert.match(content, /KillMode=control-group/);
   assert.doesNotMatch(content, /\/bin\/sh|-c /);
 });
 

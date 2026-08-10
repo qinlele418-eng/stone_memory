@@ -1,10 +1,11 @@
 "use strict";
 
 function resolveAutomaticActions(threadConfig = {}) {
+  const modules = threadConfig.watcherModules || {};
   return {
-    sync: threadConfig.automaticFullMining !== false,
-    mine: threadConfig.automaticMemoryMaintenance !== false,
-    compact: threadConfig.automaticCompression === true,
+    sync: Object.hasOwn(modules, "archive") ? modules.archive === true : threadConfig.automaticFullMining !== false,
+    mine: Object.hasOwn(modules, "miner") ? modules.miner === true : threadConfig.automaticMemoryMaintenance !== false,
+    compact: Object.hasOwn(modules, "compression") ? modules.compression === true : threadConfig.automaticCompression === true,
   };
 }
 

@@ -74,6 +74,8 @@ stone_memory/
 ├── stone-memory.db               # 所有线程共享的 SQLite 主数据源
 ├── watcher.pid                   # watcher 进程 ID
 └── runtimes/{runtime}/{purpose}/{threadId}/
+    ├── watcher-state.json         # 该记忆体 watcher 的实时状态（覆盖写）
+    ├── .watcher.lock/             # 该记忆体唯一 worker 锁（运行时）
     ├── logs/                     # 线程日志
     ├── tmp/                      # 临时文件（subagent prompt 等）
     ├── rules/                    # 线程规则（rebuild 时注入）
@@ -381,18 +383,22 @@ Claude Code 与 Codex 使用各自的重建脚本和线程结构校验。正式�
 
 ### watcher 管理
 
-init 后 watcher 自动启动（Linux 走 systemd，Windows 走后台进程）。
-线程文件发生变化后会在约 300ms 防抖后增量同步到 archive；后台仍会低频巡检，作为文件系统漏事件时的兜底，并负责自动挖掘和摘要维护。
+安装阶段负责让唯一 watcher supervisor 常驻并自愈（Linux 走 systemd，Windows 走 supervisor 自愈）；init 与 watcher CLI 都不负责拉起进程。只有 `watcherEnabled=ON` 的记忆体才会拥有 worker；某个记忆体的开关不会影响其他记忆体。
+线程文件发生变化后会在约 300ms 防抖后增量同步到 archive；正常追加只读取每个记忆体 `.sync-state.json` 游标后的新字节。若线程经 rebuild 缩短、被替换，或游标前内容发生改写，则自动执行一次全量幂等校验并重建游标，不会用“每次完整重读线程”冒充增量。后台仍会低频巡检，作为文件系统漏事件时的兜底，并负责自动挖掘和摘要维护。
 
 ```bash
-stmem watcher               # 查看状态
-stmem watcher off           # 完全暂停
-stmem watcher on            # 完全启用
-stmem watcher archive off   # 关掉 archive 同步
-stmem watcher archive on    # 打开 archive 同步
-stmem watcher miner off     # 关掉自动挖掘
-stmem watcher miner on      # 打开自动挖掘
+stmem watcher status                         # 查看全部记忆体状态
+stmem watcher on --thread <id>               # 将该记忆体 watcher 期望状态设为 ON
+stmem watcher off --thread <id>              # 将该记忆体 watcher 期望状态设为 OFF
+stmem watcher set --thread <id> --archive on # 开启该记忆体对话录入插件
+stmem watcher set --thread <id> --miner off  # 关闭该记忆体摘要挖掘插件
+stmem watcher set --thread <id> --compression on # 开启自动压缩（默认关闭）
+stmem watcher set --thread <id> --dream on   # 开启织梦插件
+stmem watcher set --thread <id> --dev-<name> on # 开发者插件必须使用 dev- 前缀
 ```
+
+`set` 只修改插件开关；如果该记忆体总开关当前为 OFF，还需要执行一次
+`stmem watcher on --thread <id>`。supervisor 会在下一次巡检时收敛实际 worker。
 
 自动压缩默认关闭。需要时在对应线程配置中显式加入纯摘要文本水位；worker 启动及新一天挖掘成功后检查一次，超过 `maxChars` 才调用现有周级 compact，并逐周压到 `stopChars` 以下：
 
@@ -611,7 +617,9 @@ memory/topics/
 
 ### Watcher 进程模型
 
-常驻 watcher 使用 supervisor + per-thread worker：supervisor 动态读取配置，确保每个 thread ID 恰好有一个 `watcher.js --thread <id>`。单个线程同步、挖掘或模型调用卡住时，不会阻塞其他线程；新增或删除线程无需重启整个 watcher，下一次配置巡检会自动增减 worker。
+常驻 watcher 使用唯一 supervisor + per-thread worker：supervisor 动态读取 `stmem.json`，只为至少开启一项自动化的 thread ID 保证恰好一个 `watcher.js --thread <id>`。单个线程同步、挖掘或模型调用卡住时，不会阻塞其他线程；新增、删除或关闭线程自动化无需重启整个 watcher，下一次配置巡检会自动增减 worker。worker 不负责自我重启，崩溃恢复只由 supervisor 管理，避免双重拉起。
+
+`stmem watcher` 只修改 `stmem.json`，不启动、不停止也不重启进程。每个记忆体保存 `watcherEnabled` 总期望状态与 `watcherModules` 插件开关；supervisor 周期读取配置，使实际 worker 数量收敛为 ON=1、OFF=0。旧版 `automaticFullMining`、`automaticMemoryMaintenance`、`automaticCompression`、`automaticDream` 会兼容映射到对应插件。PID、启动时间等瞬时信息不写入配置，而是原子覆盖到该记忆体目录的 `watcher-state.json`；这样状态不会在根目录按记忆体堆出大量 watcher 文件夹，也不会把陈旧 PID 当作用户配置。
 
 所有正式线程共享 `~/.stone_memory/stone-memory.db`，通过 `thread_id` 隔离；fork 依靠同库递归读取父子关系，不复制记忆。SQLite 使用 WAL 和 30 秒 busy timeout，不同 worker 可以并发调用模型，实际短写事务由 SQLite 串行提交。
 

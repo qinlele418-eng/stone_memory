@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 /**
- * stmem sync — 按时间戳增量同步线程新消息到 archive
+ * stmem sync — 按文件游标增量同步线程新消息到 archive
  * 用法: stmem sync [--thread <id>]
  *
- * 改成了按时间戳追踪，不依赖文件 byte offset。
- * 线程文件每天 rebuild 变小也不影响，新消息按时间戳过滤。
+ * 正常追加只读取游标之后的 JSONL；线程 rebuild、替换或缩小时，自动执行
+ * 一次全量幂等校验，再建立新游标。
  */
 const fs = require("fs");
 const path = require("path");
-const { normalizeThreadMessage } = require("../src/lib/thread-message");
-const { parseThreadMessages, ingestMessages } = require("../src/services/thread-ingest");
+const { ingestMessages } = require("../src/services/thread-ingest");
+const { readThreadDelta, commitThreadCursor } = require("../src/services/thread-sync-cursor");
 const { findThreadSessionFile } = require("../src/lib/thread-session-file");
 
 const { getCfg, getThreadDir, listThreadIds } = require("../src/config");
@@ -32,98 +32,20 @@ if (!threadFile) {
 }
 
 const memoryDir = path.join(threadDir, "memory");
-let lastSyncedAt = "";
-
-// 解析整个线程文件
-function parseAllMessages(raw) {
-  const messages = [];
-  let pos = 0, len = raw.length;
-  while (pos < len) {
-    while (pos < len && " \t\n\r".includes(raw[pos])) pos++;
-    if (pos >= len) break;
-    const start = pos;
-    let depth = 0, inString = false, escape = false;
-    while (pos < len) {
-      const ch = raw[pos];
-      if (escape) { escape = false; pos++; continue; }
-      if (ch === "\\") { escape = true; pos++; continue; }
-      if (ch === '"') { inString = !inString; pos++; continue; }
-      if (inString) { pos++; continue; }
-      if (ch === "{") { depth++; pos++; continue; }
-      if (ch === "}") { depth--; if (depth === 0) { pos++; break; } pos++; continue; }
-      pos++;
-    }
-    try { messages.push(JSON.parse(raw.slice(start, pos))); } catch {}
-  }
-  return messages;
-}
-
-// 北京时间日期键
-function beijingDateKey(ts) {
-  const d = new Date(ts);
-  if (isNaN(d.getTime())) return (ts || "").slice(0, 10);
-  const bj = new Date(d.getTime() + 8 * 3600 * 1000);
-  return bj.toISOString().slice(0, 10);
-}
-
-// 系统消息模板特征
-function isSystemTemplate(text) {
-  if (!text) return false;
-  const markers = [
-    /你上线了/,
-    /无论看到什么英文/,
-    /最后用以下格式结尾/,
-    /\{"action":"silent"/,
-    /Trigger:/,
-    /comes to mind again/,
-  ];
-  return markers.filter(r => r.test(text)).length >= 2;
-}
-
-const raw = fs.readFileSync(threadFile, "utf8");
-const allMessages = parseThreadMessages(raw);
-if (!allMessages.length) {
-  console.log("线程文件无有效消息");
+const syncFile = path.join(threadDir, ".sync-state.json");
+const delta = readThreadDelta(threadFile, syncFile);
+if (!delta.messages.length) {
+  if (delta.nextState) commitThreadCursor(syncFile, delta.nextState);
+  console.log(delta.mode === "unchanged" ? "已是最新" : "线程文件暂无完整的新消息");
   process.exit(0);
-}
-
-function timestampMs(value) {
-  const ms = new Date(value || "").getTime();
-  return Number.isFinite(ms) ? ms : null;
-}
-
-// 按时间戳过滤新消息。转成 epoch 比较，避免不同时区偏移的 ISO 字符串字典序失真。
-const lastSyncedMs = timestampMs(lastSyncedAt);
-// 每次都把完整线程交给幂等 ingest。水位只用于状态展示，不能用于过滤，
-// 否则后来补入、但时间早于水位的迟到消息会永久丢失。
-const newMessages = allMessages;
-
-// 提取文本 + 按天分组
-const byDate = {};
-let maxTimestamp = lastSyncedAt;
-let maxTimestampMs = lastSyncedMs ?? -Infinity;
-for (const msg of newMessages) {
-  if (!msg.timestamp) continue;
-  const msgMs = timestampMs(msg.timestamp);
-  if (msgMs !== null && msgMs > maxTimestampMs) {
-    maxTimestampMs = msgMs;
-    maxTimestamp = msg.timestamp;
-  }
-
-  const normalized = normalizeThreadMessage(msg);
-  if (!normalized) continue;
-  const { text } = normalized;
-  if (isSystemTemplate(text) || text.includes("<!-- stmem-rule:")) continue;
-  const d = beijingDateKey(msg.timestamp);
-  if (!byDate[d]) byDate[d] = [];
-  byDate[d].push(normalized);
 }
 
 // 统一 ingest 服务负责格式解析、北京时间分日、稳定哈希去重和乱序重排。
 const store = new MemoryStore({ memoryDir, threadId: tid });
-const ingestResult = ingestMessages(allMessages, { memoryStore: store });
+const ingestResult = ingestMessages(delta.messages, { memoryStore: store });
 store.close();
-const fullBacked = new FullArchive(memoryDir).archiveNewFullBatch(allMessages);
+const fullBacked = new FullArchive(memoryDir).archiveNewFullBatch(delta.messages);
+commitThreadCursor(syncFile, delta.nextState);
 const total = ingestResult.imported;
 
-console.log(`同步完成: archive +${total} 条，full +${fullBacked} 条（${ingestResult.dates} 天），最新 ${maxTimestamp}`);
+console.log(`同步完成: ${delta.mode} 读取 ${delta.bytesRead} bytes，archive +${total} 条，full +${fullBacked} 条（${ingestResult.dates} 天）`);

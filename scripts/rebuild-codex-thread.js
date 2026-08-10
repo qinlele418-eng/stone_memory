@@ -431,4 +431,9 @@ function main() {
   }
 }
 
-main();
+try {
+  main();
+} catch (error) {
+  console.error(`[codex-rebuild] ${error?.message || error}`);
+  process.exitCode = 1;
+}

@@ -93,12 +93,15 @@ async function main() {
       },
     });
     try {
-      const result = await miner.preview(date, {
+      // MemoryMiner 的进度信息继续保留给 CLI 调试，但 mine-review 的
+      // stdout 是机器接口，必须只输出最后一个 JSON 候选；否则 Web
+      // review-lab 的 JSON 解析会被进度行污染。
+      const result = await captureReviewDiagnostics(() => miner.preview(date, {
         promptOverlay: overlay.text,
         model: subagentModel,
         runtime: profile.runtime,
         reasoning: profile.reasoning,
-      });
+      }));
       const candidate = reviews.createCandidate({
         ...result,
         date,
@@ -116,6 +119,18 @@ async function main() {
   }
 
   throw new Error(`unknown mine-review action: ${action}`);
+}
+
+async function captureReviewDiagnostics(run) {
+  const lines = [];
+  const originalLog = console.log;
+  console.log = (...args) => lines.push(args.map(value => String(value)).join(" "));
+  try {
+    return await run();
+  } finally {
+    console.log = originalLog;
+    for (const line of lines) process.stderr.write(`${line}\n`);
+  }
 }
 
 function printHelp() {
@@ -247,4 +262,4 @@ main().catch(error => {
   process.exitCode = 1;
 });
 
-module.exports = { resolveProfile, runFusionWriter };
+module.exports = { resolveProfile, runFusionWriter, captureReviewDiagnostics };
