@@ -26,6 +26,7 @@ const { ingestThreadFile: ingestSharedThreadFile } = require("../src/services/th
 const { resolveAutomaticActions, shouldAutoMineDate } = require("../src/services/automatic-mining-policy");
 const { runPostMiningHooks } = require("../src/services/post-mining-hooks");
 const { processMatches } = require("../src/lib/process-identity");
+const { acquireProcessLock } = require("../src/lib/process-lock");
 const { findThreadSessionFile } = require("../src/lib/thread-session-file");
 const { latestContextUsage } = require("../src/lib/thread-context-usage");
 const { updateContextUsage } = require("../src/services/rebuild-log");
@@ -33,6 +34,7 @@ const { MemoryStore } = require("../src/storage/memory-store");
 const { watcherActions, watcherEnabled, watcherPaths, writeWatcherState } = require("../src/services/watcher-runtime");
 const LOG_DIR = path.join(os.homedir(), ".stone_memory", "logs");
 let workerLockDir = null;
+let workerLease = null;
 
 function log(msg) {
   const ts = new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false });
@@ -50,26 +52,14 @@ function beijingToday() {
 function acquireWorkerLock(threadId) {
   const { root, lockDir } = watcherPaths(threadId);
   fs.mkdirSync(root, { recursive: true });
-  try {
-    fs.mkdirSync(lockDir);
-  } catch (error) {
-    if (error.code !== "EEXIST") throw error;
-    let owner = null;
-    try { owner = JSON.parse(fs.readFileSync(path.join(lockDir, "owner.json"), "utf8")); } catch {}
-    if (owner?.pid && processMatches(owner.pid, "scripts/watcher.js")) return null;
-    fs.rmSync(lockDir, { recursive: true, force: true });
-    fs.mkdirSync(lockDir);
-  }
-  fs.writeFileSync(path.join(lockDir, "owner.json"), JSON.stringify({ pid: process.pid, threadId, createdAt: new Date().toISOString() }));
+  workerLease = acquireProcessLock(lockDir, { marker: "scripts/watcher.js" });
+  if (!workerLease.acquired) return null;
   return lockDir;
 }
 
 function releaseWorkerLock() {
-  if (!workerLockDir) return;
-  try {
-    const owner = JSON.parse(fs.readFileSync(path.join(workerLockDir, "owner.json"), "utf8"));
-    if (owner.pid === process.pid) fs.rmSync(workerLockDir, { recursive: true, force: true });
-  } catch {}
+  workerLease?.release();
+  workerLease = null;
   workerLockDir = null;
 }
 
