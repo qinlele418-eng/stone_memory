@@ -152,6 +152,15 @@ function buildStdinInvocation(runtimeName, opts = {}) {
   return invocation;
 }
 
+function resolveWorkingDirectory(cwd) {
+  if (cwd === undefined || cwd === null || cwd === "") return undefined;
+  const resolved = path.resolve(String(cwd));
+  if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
+    throw new Error("subagent cwd must be an existing directory");
+  }
+  return resolved;
+}
+
 function appendCodexMcpConfig(args, configPath) {
   const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
   const servers = config.mcpServers || config.mcp_servers || {};
@@ -217,6 +226,7 @@ function runSubagent(prompt, opts = {}) {
   });
   const childEnv = { ...process.env, ...(baseInvocation.env || {}) };
   const invocation = resolveExecutableInvocation(baseInvocation, { env: childEnv });
+  const childCwd = resolveWorkingDirectory(opts.cwd);
   try {
     const out = execFileSync(invocation.file, invocation.args, {
       input: finalPrompt,
@@ -224,6 +234,7 @@ function runSubagent(prompt, opts = {}) {
       timeout,
       maxBuffer: 10 * 1024 * 1024,
       env: childEnv,
+      cwd: childCwd,
       windowsHide: true,
     });
     if (!out || !out.trim()) {
@@ -268,5 +279,6 @@ module.exports = {
   appendCodexMcpConfig,
   getRuntimeConfig,
   resolvePlaceholders,
+  resolveWorkingDirectory,
   extractSubagentFailure,
 };

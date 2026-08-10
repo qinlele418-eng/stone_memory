@@ -8,6 +8,7 @@ const {
   appendCodexMcpConfig,
   buildStdinInvocation,
   extractSubagentFailure,
+  resolveWorkingDirectory,
 } = require("../src/services/subagent-runner");
 
 test("subagent failures keep the final machine diagnostic and omit echoed prompts", () => {
@@ -37,6 +38,13 @@ test("subagent failures without a diagnostic expose only the exit status", () =>
     extractSubagentFailure(error),
     "subagent process exited without a model response (exit 7)",
   );
+});
+
+test("subagents accept only an existing explicit working directory", t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-subagent-cwd-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  assert.equal(resolveWorkingDirectory(dir), dir);
+  assert.throws(() => resolveWorkingDirectory(path.join(dir, "missing")), /existing directory/);
 });
 
 test("Codex receives a temporary MCP config without changing user config", t => {
