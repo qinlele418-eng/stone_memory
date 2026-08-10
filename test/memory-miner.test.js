@@ -280,6 +280,59 @@ test("one API transport failure immediately hands the chunk to subagent", async 
   assert.match(miner._lastApiRecovery.message, /API 单次调用失败/);
 });
 
+test("review API mode fails visibly instead of switching to a hidden CLI", async t => {
+  const miner = minerFixture(t, [{ text: "真实对话" }]);
+  miner.deepseekConfig = {
+    apiKey: "test-key",
+    baseUrl: "https://example.invalid",
+    model: "test-model",
+  };
+  miner.allowSubagentFallback = false;
+  const originalFetch = global.fetch;
+  global.fetch = async () => { throw new Error("upstream unavailable"); };
+  let cliCalls = 0;
+  miner._runSubagent = () => { cliCalls++; return "[]"; };
+  t.after(() => { global.fetch = originalFetch; });
+
+  await assert.rejects(() => miner._extractViaSubagent(
+    [{ text: "真实对话" }],
+    "正式挖掘提示词",
+    { expectedKey: "feelings" },
+  ), /upstream unavailable/);
+  assert.equal(cliCalls, 0);
+});
+
+test("merged review keeps one continuous context and separates candidates by date", async t => {
+  const miner = minerFixture(t, [{ timestamp: "2026-06-12T01:00:00.000Z", text: "第一天" }]);
+  miner.store.insertMessages([{
+    timestamp: "2026-06-13T01:00:00.000Z",
+    sourceDate: "2026-06-13",
+    role: "user",
+    text: "第二天",
+  }]);
+  const inputs = [];
+  miner._extractViaSubagent = async (messages, prompt, options) => {
+    inputs.push({ messages, prompt, expectedKey: options.expectedKey });
+    if (options.expectedKey === "feelings") {
+      return [
+        { content: "6月12日，上午九点。第一天事件。", importance: 2 },
+        { content: "6月13日，上午九点。第二天事件。", importance: 3 },
+      ];
+    }
+    return [{ content: `对应${messages[0].text.slice(0, 4)}`, category: "relation", importance: 3 }];
+  };
+
+  const result = await miner.previewMerged(["2026-06-13", "2026-06-12"], { promptOverlay: "合成测试规则" });
+  assert.equal(inputs[0].messages.length, 2);
+  assert.match(inputs[0].prompt, /6月12日至6月13日/);
+  assert.equal(result.byDate["2026-06-12"].feelings.length, 1);
+  assert.equal(result.byDate["2026-06-13"].feelings.length, 1);
+  assert.equal(result.byDate["2026-06-12"].features.length, 1);
+  assert.equal(result.byDate["2026-06-13"].features.length, 1);
+  assert.equal(miner.store.listFeelings({ date: "2026-06-12" }).length, 0);
+  assert.equal(miner.store.listFeelings({ date: "2026-06-13" }).length, 0);
+});
+
 test("invalid subagent features JSON gets one format-only repair by the same configured model", async t => {
   const miner = minerFixture(t, [{ text: "已经生成的摘要" }]);
   const calls = [];

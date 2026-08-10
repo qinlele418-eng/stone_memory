@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { previewRows, paginate, buildConversationCalendar, miningDatesFromStore, miningCommandArgs, miningCheckCommandArgs, targetedMiningCommandArgs, timelineCommandArgs, compactTimelineReport, compressionCommandArgs, safeStmemFailure, reviewCandidateForWeb, reviewProfileFromInput } = require("../src/web/server");
+const { previewRows, paginate, buildConversationCalendar, miningDatesFromStore, miningCommandArgs, miningCheckCommandArgs, targetedMiningCommandArgs, timelineCommandArgs, compactTimelineReport, compressionCommandArgs, safeStmemFailure, reviewCandidateForWeb, reviewProfileFromInput, reviewBatchPayload, reviewBatchCommandArgs } = require("../src/web/server");
 const { buildStdinCmd } = require("../src/services/subagent-runner");
 const { itemKey, inspectClaude, inspectCodex, conversationWindow, latestConversationDate, trimRows } = require("../src/services/rebuild-workbench");
 const { validateThreadInput, validateSessionBinding } = require("../src/services/thread-setup");
@@ -98,6 +98,26 @@ test("web targeted mining goes through the CLI append command", () => {
     targetedMiningCommandArgs("thread-1", "api", "/tmp/selection.json"),
     ["mine", "--thread", "thread-1", "--targeted", "--batch-file", "/tmp/selection.json", "--api"],
   );
+});
+
+test("review batch web input stays single-profile and routes through mine-review CLI", () => {
+  const payload = reviewBatchPayload("thread", {
+    dates: ["2026-07-02", "2026-07-01", "2026-07-02"],
+    profile: { channel: "subagent", runtime: "codex", model: "gpt-test", reasoning: "low" },
+    groupDays: 3,
+    chunkKb: 100,
+    parallel: 2,
+    rules: { sourceAware: true },
+  });
+  assert.deepEqual(payload.dates, ["2026-07-01", "2026-07-02"]);
+  assert.equal(payload.profile.channel, "subagent");
+  assert.deepEqual(payload.ruleIds, ["source-aware"]);
+  assert.deepEqual(reviewBatchCommandArgs("batch-create", "thread", "/tmp/batch.json"), [
+    "mine-review", "batch-create", "--thread", "thread", "--batch-file", "/tmp/batch.json",
+  ]);
+  assert.deepEqual(reviewBatchCommandArgs("batch-status", "thread", "batch-abc"), [
+    "mine-review", "batch-status", "--thread", "thread", "--batch", "batch-abc",
+  ]);
 });
 
 test("web timeline reuses the read-only CLI report and limits comparison terms", () => {

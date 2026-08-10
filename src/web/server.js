@@ -22,6 +22,7 @@ const { isArchiveConversation } = require("../services/thread-ingest");
 const { DreamReader } = require("../services/dream-reader");
 const { watcherActions, watcherEnabled } = require("../services/watcher-runtime");
 const { normalizeMiningApiProfile } = require("../services/mining-api-profile");
+const { configuredRuntimeIds } = require("../services/mining-review-batch");
 
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MAX_UPLOAD = 512 * 1024 * 1024;
@@ -136,7 +137,8 @@ function reviewProfileFromInput(threadId, input = {}) {
   if (!/^[A-Za-z0-9._:/+-]{1,128}$/.test(model)) throw new Error("请填写实际可用的模型名");
   if (channel === "subagent") {
     const runtime = String(input.runtime || "");
-    if (!["claude", "codex"].includes(runtime)) throw new Error("Subagent 必须选择 Claude Code 或 Codex");
+    const config = loadConfig();
+    if (!configuredRuntimeIds(config, threadId).has(runtime)) throw new Error("请选择设置中已经配置的本机 CLI");
     const reasoning = input.reasoning ? String(input.reasoning) : null;
     if (reasoning && runtime !== "codex") throw new Error("只有 Codex 支持 reasoning effort");
     if (reasoning && !["minimal", "low", "medium", "high", "xhigh"].includes(reasoning)) {
@@ -162,6 +164,37 @@ function reviewProfileFromInput(threadId, input = {}) {
     };
   }
   throw new Error("请选择 Subagent 或 API 通道");
+}
+
+function reviewBatchPayload(threadId, input = {}) {
+  const dates = [...new Set((Array.isArray(input.dates) ? input.dates : []).map(String))].sort();
+  if (!dates.length || dates.length > 366 || dates.some(date => !/^\d{4}-\d{2}-\d{2}$/.test(date))) {
+    throw new Error("请选择 1～366 个有效日期");
+  }
+  const ruleIds = Object.entries(REVIEW_RULE_IDS)
+    .filter(([key]) => input.rules?.[key] === true)
+    .map(([, id]) => id);
+  return {
+    dates,
+    profile: reviewProfileFromInput(threadId, input.profile),
+    groupDays: Number(input.groupDays),
+    chunkKb: input.chunkKb === "auto" ? "auto" : Number(input.chunkKb),
+    parallel: Number(input.parallel),
+    ruleIds,
+    additionalInstruction: String(input.additionalInstruction || "").trim().slice(0, 4000),
+  };
+}
+
+function reviewBatchCommandArgs(action, threadId, value) {
+  const args = ["mine-review", action, "--thread", threadId];
+  if (action === "batch-create") args.push("--batch-file", value);
+  else if (value) args.push("--batch", value);
+  return args;
+}
+
+function runReviewBatchInBackground(threadId, batchId, action = "batch-run") {
+  runStmemAsync(reviewBatchCommandArgs(action, threadId, batchId), { maxOutput: 2 * 1024 * 1024 })
+    .catch(() => {});
 }
 
 function reviewCandidateForWeb(candidate) {
@@ -551,6 +584,40 @@ async function handleApi(req, res, url) {
     reviewJobs.set(job.id, job);
     executeReviewPreview(job);
     return json(res, 202, { job: { id: job.id, status: job.status } });
+  }
+  if (req.method === "GET" && url.pathname === "/review-lab/api/batches") {
+    const threadId = String(url.searchParams.get("threadId") || "");
+    const result = parseStmemJson(runStmem(reviewBatchCommandArgs("batch-list", threadId)));
+    return json(res, 200, result);
+  }
+  if (req.method === "POST" && url.pathname === "/review-lab/api/batches") {
+    const body = await readJson(req);
+    const threadId = String(body.threadId || "");
+    const batch = writePrivateBatch(reviewBatchPayload(threadId, body));
+    try {
+      const created = parseStmemJson(runStmem(reviewBatchCommandArgs("batch-create", threadId, batch.file)));
+      runReviewBatchInBackground(threadId, created.id);
+      return json(res, 202, { batch: created });
+    } finally {
+      batch.cleanup();
+    }
+  }
+  const reviewBatchMatch = url.pathname.match(/^\/review-lab\/api\/batches\/(batch-[0-9a-f-]+)$/);
+  if (req.method === "GET" && reviewBatchMatch) {
+    const threadId = String(url.searchParams.get("threadId") || "");
+    const batch = parseStmemJson(runStmem(reviewBatchCommandArgs(
+      "batch-status",
+      threadId,
+      reviewBatchMatch[1],
+    )));
+    return json(res, 200, { batch });
+  }
+  const reviewBatchRetryMatch = url.pathname.match(/^\/review-lab\/api\/batches\/(batch-[0-9a-f-]+)\/retry$/);
+  if (req.method === "POST" && reviewBatchRetryMatch) {
+    const body = await readJson(req);
+    const threadId = String(body.threadId || "");
+    runReviewBatchInBackground(threadId, reviewBatchRetryMatch[1], "batch-retry");
+    return json(res, 202, { ok: true, batchId: reviewBatchRetryMatch[1] });
   }
   const reviewJobMatch = url.pathname.match(/^\/review-lab\/api\/preview-jobs\/([^/]+)$/);
   if (req.method === "GET" && reviewJobMatch) {
@@ -1127,5 +1194,5 @@ module.exports = {
   startWebServer, listLibraries, overview, previewRows, paginate, buildConversationCalendar,
   miningDatesFromStore, miningCommandArgs, miningCheckCommandArgs, targetedMiningCommandArgs,
   timelineCommandArgs, compactTimelineReport, compressionCommandArgs, safeStmemFailure, runStmem,
-  reviewCandidateForWeb, reviewProfileFromInput,
+  reviewCandidateForWeb, reviewProfileFromInput, reviewBatchPayload, reviewBatchCommandArgs,
 };

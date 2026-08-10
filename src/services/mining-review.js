@@ -124,7 +124,9 @@ class MiningReviewStore {
       archiveFingerprint: String(input.archiveFingerprint),
       messageCount: Number(input.messageCount) || 0,
       chunkCount: Number(input.chunkCount) || 0,
+      chunkKb: Number(input.chunkKb) || null,
       chunkReport: sanitizeChunkReport(input.chunkReport),
+      batch: sanitizeBatchProvenance(input.batch),
       priorCounts: {
         feelings: Number(input.priorCounts?.feelings) || 0,
         features: Number(input.priorCounts?.features) || 0,
@@ -584,6 +586,20 @@ function sanitizeChunkReport(rows) {
 
 function reviewMessages(store, date) {
   return store.listMessages({ date }).filter(row => !isInjectedMemoryBlock(row.text));
+}
+
+function sanitizeBatchProvenance(input) {
+  if (!input || typeof input !== "object") return null;
+  const id = String(input.id || "");
+  const taskId = String(input.taskId || "");
+  if (!/^batch-[0-9a-f-]+$/.test(id) || !/^task-[A-Za-z0-9-]+$/.test(taskId)) return null;
+  return {
+    id,
+    taskId,
+    groupDates: [...new Set((input.groupDates || [])
+      .map(String)
+      .filter(value => /^\d{4}-\d{2}-\d{2}$/.test(value)))].sort(),
+  };
 }
 
 function validateCandidate(candidate, { id, threadId }) {
