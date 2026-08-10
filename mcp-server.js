@@ -318,6 +318,7 @@ function toolDeepSearch(args) {
     threadId: resolved.threadId,
     opsFile,
     mcpConfig,
+    cwd: PROJECT_ROOT,
     timeout: 120_000,
     strictMcpConfig: true,
     permissionMode: "auto",
