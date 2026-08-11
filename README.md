@@ -2,11 +2,11 @@
 
 > 蒲苇韧如丝，磐石无转移。
 
-Stone Memory 是一个本地优先、可解释的 AI 记忆与线程生命周期管理系统。它从 Claude Code、Codex 等聊天线程中归档纯对话，挖掘 feelings（事件摘要）和 features（长期特征），再按关系阶段、项目证据、主副核心与 importance 对旧摘要进行精简或隐藏，并把人设、摘要、原文锚点、近期上下文和工具调用安全地重建回线程。
+Stone Memory 是一个本地优先、可解释的 AI 记忆与线程生命周期管理系统。它从 Claude Code、Codex 等聊天线程中归档纯对话，挖掘 feelings（事件摘要）和 features（长期特征），再按关系阶段、项目证据、主副核心与 importance 对旧摘要精简或隐藏，并把人设、摘要、原文锚点、近期上下文和工具调用安全地重建回线程。
 
-它不依赖 embedding 黑箱召回：用户可以直接查看系统保存了什么、为什么保留、对应哪段原文、位于怎样的时间曲线，以及下一次 rebuild 会实际注入哪些内容。
+它不依赖 embedding 黑箱召回：用户可以查看系统保存了什么、为什么保留、对应哪段原文、位于怎样的时间曲线，以及下一次 rebuild 会实际注入哪些内容。
 
-当前能力包括：
+主要能力：
 
 - Claude Code / Codex 双运行时线程归档、导入、检查与重建
 - 全局 SQLite、多线程与 fork 动态记忆继承
@@ -25,7 +25,7 @@ stone_memory/
 │   ├── stmem                  # CLI 入口 (Linux/Mac)
 │   └── stmem.cmd              # CLI 入口 (Windows)
 ├── scripts/
-│   ├── watcher-supervisor.js  # 动态维护每线程一个 watcher worker
+│   ├── watcher-supervisor.js  # 唯一 supervisor，动态维护每线程一个 watcher worker
 │   ├── watcher.js             # 单线程实时归档监听 + 自动挖掘 worker
 │   ├── stmem-init.js          # 初始化新线程
 │   ├── stmem-fork.js          # 登记父子线程记忆关系
@@ -45,6 +45,8 @@ stone_memory/
 ├── mcp-server.js              # MCP 协议接口（stdio JSON-RPC）
 ├── src/
 │   ├── config.js              # 配置读取（多线程）
+│   ├── storage/               # SQLite 读写（database/memory-store/reader 等）
+│   ├── lib/                   # 通用工具（锁、JSONL、消息过滤等）
 │   └── services/
 │       ├── memory-archive.js      # Layer 1: 消息存档
 │       ├── memory-miner.js        # Layer 2: 挖掘引擎
@@ -91,65 +93,42 @@ stone_memory/
         └── search-log.jsonl          # 搜索日志
 ```
 
-规范化 messages、feelings、features、挖掘状态和通知统一存放在全局 SQLite 中，通过 `thread_id` 区分线程。消息以 `(thread_id, timestamp)` 为主键。系统只保存当前有效的记忆结果，不维护用户可选的历史版本。运行时唯一保留的 JSONL 是 `archive/full` 原始备份；其他 JSONL 只由显式 `stmem db export` 生成，或用于一次性旧数据迁移。
+规范化 messages、feelings、features、挖掘状态和通知统一存放在全局 SQLite 中，通过 `thread_id` 区分线程；消息以 `(thread_id, timestamp)` 为主键。系统只保存当前有效的记忆结果，不维护历史版本；运行时唯一保留的 JSONL 是 `archive/full` 原始备份，其他 JSONL 只由显式 `stmem db export` 生成或用于一次性迁移。
 
-父子线程不复制记忆。子线程每次 rebuild 都会动态读取父级最新的 feelings/features；子线程自己的近期上下文仍只来自自己的 `full`。子线程记忆默认可回流给父级，也可以在建立关系时关闭。
+父子线程不复制记忆。子线程每次 rebuild 动态读取父级最新的 feelings/features；子线程自己的近期上下文仍只来自自己的 `full`。子线程记忆默认可回流给父级，也可以在建立关系时关闭。
 
 ## 安装
 
-当前正式支持 **Node.js 22.x LTS**。不要使用 Node 24：当前锁定的
-`better-sqlite3` 在 Windows + Node 24 下可能没有可用的预编译包，安装时会转为本地
-C++ 编译，并因缺少 Visual Studio Build Tools 而失败。`npm install` / `npm ci`
-会在版本不符合时直接停止并给出提示。
-
-先确认版本：
+**只支持 Node.js 22.x LTS。** 不要用 Node 24：锁定的 `better-sqlite3` 在 Windows + Node 24 下可能没有预编译包，会转为本地 C++ 编译并因缺少 Visual Studio Build Tools 而失败。`npm install` / `npm ci` 会在版本不符时直接停止。
 
 ```bash
-node --version
-# 应显示 v22.x.x
+node --version   # 应显示 v22.x.x
 ```
 
-运行时依赖只有：
-
-- `better-sqlite3`：共享 SQLite 数据库
-- `@node-rs/jieba`：中文特征词提取
-- `opencc-js`：简繁归一化
-
-首次安装建议执行 `npm ci --omit=dev`，再注册 `stmem` 命令。内置前端使用 Node 原生 HTTP 与原生 HTML/CSS/JS，不需要额外安装 Web 框架。
+运行时依赖只有 3 个：`better-sqlite3`（共享数据库）、`@node-rs/jieba`（中文特征词提取）、`opencc-js`（简繁归一化）。内置前端用 Node 原生 HTTP + 原生 HTML/CSS/JS，无需 Web 框架。首次安装建议 `npm ci --omit=dev`。
 
 ### Linux / macOS
 
 ```bash
-# 1. 解压到任意目录
-tar xzf stonememory.tar.gz -C ~/
-
-# 2. 软链到 PATH（唯一的一步）
-ln -sf ~/stone_memory/bin/stmem ~/.local/bin/stmem
-
-# 3. 安装运行依赖
-cd ~/stone_memory
-npm ci --omit=dev
-
-# 4. 启动本地前端；首次记忆体请在浏览器内创建
-stmem web
+tar xzf stonememory.tar.gz -C ~/          # 1. 解压
+ln -sf ~/stone_memory/bin/stmem ~/.local/bin/stmem   # 2. 软链到 PATH
+cd ~/stone_memory && npm ci --omit=dev     # 3. 安装依赖
+stmem web                                   # 4. 启动前端；首次记忆体在浏览器内创建
 ```
 
-> 如果 `~/.local/bin` 不在 PATH 中，在 `.bashrc` 加一行：`export PATH="$HOME/.local/bin:$PATH"`
+> `~/.local/bin` 不在 PATH 时，在 `.bashrc` 加：`export PATH="$HOME/.local/bin:$PATH"`
 
 ### Windows
 
-请先安装 Node.js 22 LTS，并运行 `node --version` 确认是 `v22.x.x`。如果已经安装
-Node 24，请先切换或降级到 Node 22，再执行下面的依赖安装；不需要安装 Visual Studio
-C++ 工具链。
+先安装 Node.js 22 LTS 并确认 `v22.x.x`；已装 Node 24 请先降级。不需要 Visual Studio C++ 工具链。
 
 **方式一：将 bin/ 加入 PATH（推荐）**
 
 ```cmd
-:: PowerShell 或 cmd，执行一次即可
 setx PATH "%PATH%;C:\Users\<用户名>\stone_memory\bin"
 ```
 
-之后任意终端直接输入 `stmem`。安装依赖后首次使用请执行 `stmem web`，在浏览器中创建记忆体；不要让 AI 在终端替用户猜测并填写线程配置。
+之后任意终端输入 `stmem`。首次使用执行 `stmem web` 在浏览器创建记忆体；不要让 AI 在终端替你猜线程配置。
 
 **方式二：npm link**
 
@@ -159,11 +138,9 @@ npm ci --omit=dev
 npm link
 ```
 
-npm 自动在全局目录创建 `stmem.cmd`（该目录通常已在 PATH 中）。
+完成后执行 `stmem web` 创建第一个记忆体。
 
-完成后执行 `stmem web`，在浏览器中创建第一个记忆体。
-
-> subagent 模式要求对应运行时 CLI 已安装并能从 PATH 调用；不满足时可配置 API key 使用 API 模式。
+> subagent 模式要求对应运行时 CLI 已安装并能从 PATH 调用；不满足时可配 API key 用 API 模式。
 
 **C 盘空间不足？** 数据目录默认在 `%USERPROFILE%\.stone_memory`，可用 `mklink /J` 映射到其他盘：
 
@@ -176,32 +153,26 @@ mklink /J %USERPROFILE%\.stone_memory D:\stone_data
 
 ### 首次使用：先打开前端，再创建记忆体
 
-安装完成后，请先启动本地前端：
-
 ```bash
 stmem web --port 4173
 ```
 
-在浏览器打开终端输出的地址（默认 `http://127.0.0.1:4173`），点击“创建记忆体”。前端会引导用户填写记忆体名称、运行时、真实线程 ID、线程文件搜索目录、挖掘方式与自动化开关，并在导入前预览清洗后的对话。
+在浏览器打开终端输出的地址（默认 `http://127.0.0.1:4173`），点击"创建记忆体"。前端引导填写记忆体名称、运行时、真实线程 ID、线程文件搜索目录、挖掘方式与自动化开关，并在导入前预览清洗后的对话。
 
 外部 AI 助手完成安装后也应停在这一步：**启动 `stmem web` 并让用户在前端创建/绑定线程**。不要替用户手写 `stmem.json`、猜测线程 ID，或另写导入、清洗和 rebuild 脚本。
 
 ### CLI / 自动化初始化（高级入口）
 
 ```bash
-stmem init --thread <线程ID>
+stmem init --thread <线程ID>       # 交互式填写
 ```
 
-交互式填写: AI 名字、用户昵称、运行时、用途、挖掘模式等。
-
-AI 助手或自动化脚本不得直接编辑 `~/.stone_memory/stmem.json`。请先让 Stone Memory 输出与前端相同的机器配置模板：
+AI 助手或自动化脚本不得直接编辑 `~/.stone_memory/stmem.json`。先让 Stone Memory 输出与前端相同的机器配置模板：
 
 ```bash
 stmem init --template --runtime codex > stmem-init.json
-# 编辑 JSON 后先严格校验；不会写入配置
-stmem init --batch-file stmem-init.json --validate
-# 校验通过后正式创建
-stmem init --batch-file stmem-init.json
+stmem init --batch-file stmem-init.json --validate   # 只校验，不写入
+stmem init --batch-file stmem-init.json              # 校验通过后创建
 ```
 
 模板中三个概念不能混用：
@@ -210,7 +181,7 @@ stmem init --batch-file stmem-init.json
 - `threadId`：Claude/Codex 的真实线程 ID，例如 `019f91...`；不是自定义名字。
 - `sessionDir`：线程文件搜索根目录，不是 JSONL 文件名；Stone Memory 会递归查找。
 
-batch init 会确认 `sessionDir` 中确实存在文件名包含 `threadId` 的 JSONL。找不到时命令失败且不会写入错误配置。需要了解完整字段时可运行 `stmem init --schema`。
+batch init 会确认 `sessionDir` 中确实存在文件名包含 `threadId` 的 JSONL，找不到则失败且不写入错误配置。完整字段可运行 `stmem init --schema`。
 
 如果由外部 Coding Agent 协助安装或排错，先让它运行：
 
@@ -220,17 +191,15 @@ stmem capabilities --json
 stmem doctor --thread <真实线程ID> --json
 ```
 
-`ai-help` 给出安全操作协议；`capabilities` 机器可读地声明 Stone Memory 已有的清洗、预览、备份、重建和修复能力；`doctor` 只读检查配置、真实线程文件、SQLite、watcher 与最近挖掘状态，并返回稳定错误码和正式的下一条命令。配置问题不应通过手写 `stmem.json`、另造脚本或修改项目源码解决。
+`ai-help` 给出安全操作协议；`capabilities` 机器可读声明已有能力；`doctor` 只读检查配置、真实线程文件、SQLite、watcher 与最近挖掘状态，返回稳定错误码和正式的下一条命令。配置问题不应通过手写 `stmem.json`、另造脚本或修改源码解决。
 
 ### 再次启动本地管理界面
 
 ```bash
-stmem web --port 4173
-# 或
-npm run web
+stmem web --port 4173   # 或 npm run web
 ```
 
-默认只监听 `127.0.0.1:4173`。页面主导航保持四项：
+默认只监听 `127.0.0.1:4173`。页面主导航四项：
 
 - **概览**：当前线程注入结构、上下文 usage、最近重建与摘要
 - **维护**：对话导入、记忆挖掘、记忆压缩、线程重建
@@ -241,72 +210,44 @@ npm run web
 
 ### 关联 fork 线程
 
-先分别初始化或登记父、子线程，再建立关系：
-
 ```bash
-# 默认：父级记忆对子线程可见，子线程记忆也可回流父级
-stmem fork --parent <父线程ID> --thread <子线程ID>
-
-# 子线程仍同步父级记忆，但子线程产生的记忆不回流
-stmem fork --parent <父线程ID> --thread <子线程ID> --no-memory-return
+stmem fork --parent <父线程ID> --thread <子线程ID>          # 默认双向可见
+stmem fork --parent <父线程ID> --thread <子线程ID> --no-memory-return  # 子记忆不回流
 ```
 
-这里只建立持续的记忆关系，不复制 feelings/features，也不拼接父线程或兄弟线程的近期 `full`。
+只建立持续记忆关系，不复制 feelings/features，也不拼接父子线程的近期 `full`。
 
 ### 导入旧对话
 
 ```bash
-# 先预览单个 JSON、JSONL 或 SQLite 数据源，不会写入
-stmem import --source /path/to/<线程ID>.jsonl --thread <线程ID>
-
-# 确认字段和日期范围后实际导入
-stmem import --source /path/to/<线程ID>.jsonl --thread <线程ID> --apply
-
-# 递归导入目录
-stmem import --dir /path/to/线程目录 --thread <线程ID> --apply
-
-# SQLite 多表时指定对话表；非标准字段可显式映射
+stmem import --source /path/to/<线程ID>.jsonl --thread <线程ID>           # 只读预览
+stmem import --source /path/to/<线程ID>.jsonl --thread <线程ID> --apply   # 实际导入
+stmem import --dir /path/to/线程目录 --thread <线程ID> --apply            # 递归目录
 stmem import --source /path/to/chat.db --table messages \
-  --map-time created_at --map-role sender --map-content body --apply
+  --map-time created_at --map-role sender --map-content body --apply       # SQLite 多表映射
 ```
 
-导入将规范化对话写入 SQLite `messages`，并生成按日期递归保存的 `full` 原始备份，不生成
-feelings/features，也不生成 `seq` 或 `importance`。来源中的评分、向量等额外字段
-不会进入规范化对话，但会原样保留在 `full` 中。旧 `stmem adapt` 命令仍可使用，
-内部会转到同一套导入流程。
+导入将规范化对话写入 SQLite `messages`，并生成按日期递归保存的 `full` 原始备份，不生成 feelings/features，也不生成 `seq` 或 `importance`。来源中的评分、向量等额外字段不会进入规范化对话，但原样保留在 `full` 中。旧 `stmem adapt` 命令仍可用，内部转到同一套导入流程。
 
 ### 挖掘记忆
 
 ```bash
-# 按线程配置走（api 或 subagent）
-stmem mine --thread <线程ID> --date 2026-06-09
-
-# 一次性挖完所有未挖日期
-stmem mine --thread <线程ID> --all
-
-# 用户主动要求整日重挖：成功后直接覆盖当天结果，失败则保留旧结果
-stmem mine --thread <线程ID> --date 2026-06-09 --force
-
-# 临时切换模式
-stmem mine --thread <线程ID> --all --api       # 走 API
-stmem mine --thread <线程ID> --all --subagent  # 走 subagent CLI
-
-# 使用正式提示词和指定日期对话做一次只读诊断，展示上游实际响应
-stmem mine --thread <线程ID> --date 2026-06-09 --check --json --api
-
-# 停止该记忆体当前正在执行的挖掘
-stmem mine --thread <线程ID> --stop
+stmem mine --thread <线程ID> --date 2026-06-09              # 按线程配置（api/subagent）
+stmem mine --thread <线程ID> --all                          # 挖完所有未挖日期
+stmem mine --thread <线程ID> --date 2026-06-09 --force       # 整日重挖：成功覆盖，失败保留旧
+stmem mine --thread <线程ID> --all --api                     # 临时切 API
+stmem mine --thread <线程ID> --all --subagent                # 临时切 subagent
+stmem mine --thread <线程ID> --date 2026-06-09 --check --json --api  # 只读诊断
+stmem mine --thread <线程ID> --stop                          # 停止当前挖掘
 ```
 
-API 模式必须在创建记忆体或设置页显式填写厂商、API Key 和上游当前实际可用的模型名，非默认服务地址另填 Base URL。Stone Memory 不再预设模型名。前端“一键自检”会展示实际使用的用途提示词、对话拼接预览、HTTP 状态、原始响应体、`message.content` 和 JSON 解析结果，用于区分输入为空、提示词缺失、鉴权/额度/地址/模型错误、上游空响应及返回格式错误。
+API 模式必须在创建记忆体或设置页显式填写厂商、API Key 和上游当前实际可用的模型名（Stone Memory 不预设模型名），非默认服务地址另填 Base URL。前端"一键自检"会展示实际使用的提示词、对话拼接预览、HTTP 状态、原始响应体、`message.content` 和 JSON 解析结果，用于区分输入为空、提示词缺失、鉴权/额度/地址/模型错误、空响应及格式错误。
 
-单日最终发送的纯对话文本超过 100KB 时，miner 会按时间顺序分块：优先以超过 5 分钟的对话空档作为边界；单个连续会话仍超过上限时才在完整消息边界硬切，绝不截断消息正文。下一块只携带上一块最后 5 条已生成结果作为指代与去重参考，并明确禁止重复输出；没有发生分块时完全不追加分块提示。每块独立允许返回空结果，全部块和 feelings/features 通道都成功后才合并、按事件时间排序并原子替换当天结果；任一块失败不会发布半天记忆。
+单日最终发送的纯对话文本超过 100KB 时，miner 按时间顺序分块：优先以超过 5 分钟的对话空档作边界；单个连续会话仍超限才在完整消息边界硬切，绝不截断消息正文。下一块只携带上一块最后 5 条已生成结果作指代与去重参考，并禁止重复输出；未分块时不追加分块提示。每块独立允许返回空结果，全部块和 feelings/features 通道都成功后才合并、按事件时间排序并原子替换当天结果；任一块失败不会发布半天记忆。
 
 API 挖掘和记忆审阅室提供两个档位：`API（原始版）` 保持旧请求（`max_tokens=4000`），`API（优化版）` 使用 `max_tokens=8000` 并关闭 thinking；旧配置继续按原始版运行。
 
 ### Feature 词语证据
-
-从所有清洗后的 features 生成候选词，并只读回查当前线程的原始用户消息和 feelings：
 
 ```bash
 stmem feature-phrases --thread <线程ID>       # 只读提取去重后的 feature 检索词
@@ -315,9 +256,9 @@ stmem feature-evidence --thread <线程ID>      # 自动回查 archive 词频与
 stmem feature-evidence --thread <线程ID> --json
 ```
 
-`feature-phrases` 使用同一套通用规则处理所有已经过 miner/cleanup 筛选的 feature 类别，不绑定用户性别，也不为 eat/work/relation 分别写规则。它提取可追踪的记忆概念，包括对象、行为和状态，优先保留引号、括号私有词、连续名词与相邻内容短语；“喜欢、觉得、经常、需要”等叙述骨架会被过滤。同一词只合并 feature ID、最高 importance 和来源日期，不另建属性或语义关系模型。
+`feature-phrases` 用同一套通用规则处理所有经过 miner/cleanup 筛选的 feature 类别，不绑定用户性别，也不为 eat/work/relation 分别写规则。提取可追踪的记忆概念（对象、行为和状态），优先保留引号、括号私有词、连续名词与相邻内容短语；"喜欢、觉得、经常、需要"等叙述骨架会被过滤。同一词只合并 feature ID、最高 importance 和来源日期，不另建属性或语义关系模型。
 
-报告中的对话频率只统计用户消息，并与命中的 feelings 数量、覆盖日期数分开。同一个词可以同时属于多个特征库。`feature-evidence` 还会为每条命中的 feeling 反向列出 terms 及其 `messageCount`、`activeDays`、`firstSeen`、`lastSeen`；JSON 输出位于 `feelingEvidence`。这两个命令都只读，不修改 importance 或摘要状态。
+报告中的对话频率只统计用户消息，并与命中的 feelings 数量、覆盖日期数分开。`feature-evidence` 还会为每条命中的 feeling 反向列出 terms 及其 `messageCount`、`activeDays`、`firstSeen`、`lastSeen`（JSON 位于 `feelingEvidence`）。两个命令都只读。
 
 ### Feeling 压缩
 
@@ -331,7 +272,7 @@ stmem compress --thread <线程ID> --before 2026-06-01 --apply
 
 `--apply` 必须同时提供 `--before`、`--ids` 或 `--all`。应用后完整 `content` 不变，只写入完整时间前缀开头的 `coarse_summary`，并将 `summary_mode` 切换为 `coarse`。
 
-正式的生命周期压缩入口是周级 `compact`。它先用仍为 `daily` 的 feelings 反筛 relation/work terms，再将历史 coarse feeling 点作为完整曲线证据重算 relation/work/fact 路由。所有 feelings 按完整历史起点分成稳定的 7 天桶，再按可压缩字符占比、预计释放字符量和日期排序；默认展示排名第一的低风险高收益周。只有整周模型结果全部成功，才在一个事务中写入所有 coarse 候选：
+正式的生命周期压缩入口是周级 `compact`。它先用仍为 `daily` 的 feelings 反筛 relation/work terms，再将历史 coarse feeling 点作为完整曲线证据重算 relation/work/fact 路由。所有 feelings 按完整历史起点分成稳定 7 天桶，再按可压缩字符占比、预计释放字符量和日期排序；默认展示排名第一的低风险高收益周。只有整周模型结果全部成功，才在一个事务中写入所有 coarse 候选：
 
 ```bash
 stmem compact --thread <线程ID>                         # dry-run，不调用模型
@@ -345,17 +286,15 @@ stmem hidden --thread <线程ID> --after-days 90           # 非核心 coarse �
 stmem hidden --thread <线程ID> --after-days 90 --apply   # 原子切换候选为 hidden
 ```
 
-排名只消费 planner 已经产生的 keep/coarse，不重新发明 importance 权重：先比较 `coarseCharacters / totalCharacters`，再比较预计节省量，完全相同时优先更早的周。`compact` 每周写入后按实际注入纯文本重新测量容量并重新规划、重新排名；已是 coarse 的 feeling 不会再次调用模型。event/retain 锚点始终保持 daily。`--auto` 只有当前字符量高于 `--max-chars` 才启动，并在低于 `--stop-chars` 后停止。archive 词频仍供时间轴展示，但生命周期拟合只使用摘要点。
+排名只消费 planner 已产生的 keep/coarse，不重新发明 importance 权重：先比较 `coarseCharacters / totalCharacters`，再比较预计节省量，完全相同时优先更早的周。`compact` 每周写入后按实际注入纯文本重新测量容量并重新规划、重新排名；已是 coarse 的 feeling 不再调用模型。event/retain 锚点始终保持 daily。`--auto` 只有当前字符量高于 `--max-chars` 才启动，低于 `--stop-chars` 后停止。archive 词频仍供时间轴展示，但生命周期拟合只使用摘要点。
 
 每次规划还会从全部 feelings 自动生成线程级 category profile。relation 固定作为主核心并继续使用专用生命周期；非 relation feelings 根据摘要中具有区分度的 feature terms 归入证据最强的 category。覆盖至少 2 周、至少 5 条且占非关系归属摘要至少 10% 的 category 中，importance 4–5 密度最高者成为唯一副核心。几乎每条摘要都出现的宽词 IDF 接近零，不能给某个库刷票。
 
-副核心可以因用户而异：019 为 work，哲学型用户可为 preference，美食家可为 eat。副核心仍然 coarse，但使用 `compressionStyle=secondary_core`：保留具体观点、口味判断、身体规律、习惯意义或项目结论，最多 220 字；普通 coarse 最多 160 字。路由顺序为 anchor → relation → secondary core → fact。副核心是每次 compact 动态重算结果，不新增数据库状态或用户维护项。
+副核心可以因用户而异（work / preference / eat）。副核心仍然 coarse，但使用 `compressionStyle=secondary_core`：保留具体观点、口味判断、身体规律、习惯意义或项目结论，最多 220 字；普通 coarse 最多 160 字。路由顺序为 anchor → relation → secondary core → fact。副核心是每次 compact 动态重算结果，不新增数据库状态或用户维护项。
 
-新生成的 coarse 同时保存 1～3 个可回查的具体 `coreTerms`。普通非核心事实仅在无锚点、importance 1～3 且所有核心词至少沉寂指定天数时成为 hidden 候选，默认 90 天。当前动态副核心不按时间自然衰减：没有新主线就一直保留；只有新的具体核心词在至少 3 条、2 天 coarse 中站稳，且旧核心词在新主线形成后几乎消失，旧副核心 coarse 才竞争性让位。relation 不另建 hidden 模型：复用既有生命周期让权，仍被 relation 接管的摘要保护，让权后的摘要回到副核心或普通事实规则。历史或用户手写 coarse 没有核心词时安全保留，不补跑模型；当前不实现自动复活，也未把 hidden 接入 watcher。
+新生成的 coarse 同时保存 1～3 个可回查的具体 `coreTerms`。普通非核心事实仅在无锚点、importance 1～3 且所有核心词至少沉寂 90 天时成为 hidden 候选。当前动态副核心不按时间自然衰减：没有新主线就一直保留；只有新的具体核心词在至少 3 条、2 天 coarse 中站稳，且旧核心词在新主线形成后几乎消失，旧副核心 coarse 才竞争性让位。relation 不另建 hidden 模型：复用既有生命周期让权，仍被 relation 接管的摘要受保护。历史或用户手写 coarse 没有核心词时安全保留，不补跑模型；当前不实现自动复活，也未把 hidden 接入 watcher。
 
 ### 生命周期 dry-run
-
-生命周期报告把 feature term 的 archive 时间证据反向聚合到 feelings，并结合 importance 和人工锚点生成只读建议：
 
 ```bash
 stmem lifecycle --thread <线程ID>
@@ -363,32 +302,29 @@ stmem lifecycle --thread <线程ID> --action coarse_candidate --all
 stmem lifecycle --thread <线程ID> --json
 ```
 
-未命中 feature terms 的 feelings 不参与处理；事件锚点禁止自动压缩；历史 importance 4 只展示兼容审查。报告不会调用压缩模型，也不会修改数据库。
+生命周期报告把 feature term 的 archive 时间证据反向聚合到 feelings，并结合 importance 和人工锚点生成只读建议。未命中 feature terms 的 feelings 不参与处理；事件锚点禁止自动压缩；历史 importance 4 只展示兼容审查。报告不调用压缩模型，也不修改数据库。
 
 ### Term 时间轴
-
-按自定义时间范围查看 feature term 在 archive 用户消息中的逐日词频，并叠加命中的 feeling、importance 和锚点：
 
 ```bash
 stmem term-timeline --thread <线程ID> --terms 通宵,茶叶,老公
 stmem term-timeline --thread <线程ID> --terms 论文 --from 2026-05-01 --to 2026-07-01
 stmem term-timeline --thread <线程ID> --terms 外卖 --json
-# 多词查询额外输出同日、同消息、同 feeling 的共现证据
-stmem term-timeline --thread <线程ID> --terms 老公,论文,爱你
+stmem term-timeline --thread <线程ID> --terms 老公,论文,爱你   # 多词含共现证据
 ```
 
-输出只读，不产生生命周期状态变化。JSON 中的 `timeline` 包含所选范围内的零值日期，方便前端直接绘制连续曲线；`baseline` 给出全时段日均、活跃日均和活跃日占比，`intersections` 给出两两及全词集合的同日、同消息和同 feeling 重合。
+输出只读。JSON 的 `timeline` 包含所选范围内零值日期，方便前端直接画连续曲线；`baseline` 给出全时段日均、活跃日均和活跃日占比，`intersections` 给出两两及全词集合的同日、同消息和同 feeling 重合。
 
-生命周期拟合只使用摘要点，archive 词频用于解释与展示，避免“只要聊天足够多，任何词都能拟合出漂亮曲线”。单个 relation 词查询会从共同 feeling 签名中自动发现少量辅助关系词；前端仍只绘制用户明确查询的曲线，辅助词用于阶段解释。显式多词查询才计算 archive 同消息共现。明确属于 work、eat、body 等库的词不会因为曲线相似就被 relation 模型接管。
+生命周期拟合只使用摘要点，archive 词频用于解释与展示，避免"只要聊天足够多，任何词都能拟合出漂亮曲线"。单个 relation 词查询会从共同 feeling 签名中自动发现少量辅助关系词；前端仍只绘制用户明确查询的曲线，辅助词用于阶段解释。显式多词查询才计算 archive 同消息共现。明确属于 work、eat、body 等库的词不会因为曲线相似就被 relation 模型接管。
 
-relation 报告区分 forming、experimental、established、retired、revived 等阶段，以及 continuous、episodic 等曲线形状；work 查询使用项目弧与信息边模型。共同签名用于把“少爷/女仆”一类角色组合与“白色/位置”一类偶然共现区分开，但不会单独作为一票定生死的筛选条件。
+relation 报告区分 forming、experimental、established、retired、revived 等阶段，以及 continuous、episodic 等曲线形状；work 查询使用项目弧与信息边模型。共同签名用于把"少爷/女仆"一类角色组合与"白色/位置"一类偶然共现区分开，但不会单独作为一票定生死的筛选条件。
 
 ### 线程重建
 
 ```bash
 stmem rebuild --thread <线程ID>                     # dry-run 预览
 stmem rebuild --thread <线程ID> --apply             # Codex：确认写入，随后必须立刻完整重启
-stmem rebuild --thread <线程ID> --queue             # Claude Code：写入安全队列，下一次主 MCP 载入时应用
+stmem rebuild --thread <线程ID> --queue             # Claude Code：写入安全队列，下次 MCP 载入时应用
 stmem rebuild --thread <线程ID> --watermark         # 从最新摘要命中原文起保留
 stmem rebuild --thread <线程ID> --check             # 检查线程结构
 stmem rebuild --thread <线程ID> --repair            # 修复可自动修复的问题
@@ -396,54 +332,50 @@ stmem rebuild --thread <线程ID> --repair            # 修复可自动修复的
 
 默认模式保留最近 N 个有实际对话的活跃日，而不是自然日；`--watermark` 是可选模式，从最新一条摘要命中的事件原文开始保留到线程末尾，无法可靠定位时安全回退到活跃日模式。两种模式都可独立设置保留的工具调用对，避免 Agent 丢失近期工具使用及结果上下文。
 
-MCP 与前端共用同一份预览参数，但按 runtime 使用不同的正式执行通道。Codex 必须使用 `--apply`：写入成功后不要继续聊天，立即完全重启 Codex/app-server，使其重新打开新 JSONL；Codex 的 `--queue` 会被拒绝。Claude Code 必须使用 `--queue`，在下一次 MCP 加载阶段执行，以免直接 apply 后重启造成 UUID 链断裂。Codex apply 前会清除该线程遗留的 pending 任务，避免旧请求以后复活；apply 本身不会借道队列。
+MCP 与前端共用同一份预览参数，但按 runtime 使用不同的正式执行通道。Codex 必须用 `--apply`：写入成功后不要继续聊天，立即完全重启 Codex/app-server，使其重新打开新 JSONL；Codex 的 `--queue` 会被拒绝。Claude Code 必须用 `--queue`，在下一次 MCP 加载阶段执行，以免直接 apply 后重启造成 UUID 链断裂。Codex apply 前会清除该线程遗留的 pending 任务；apply 本身不会借道队列。
 
-Claude Code 与 Codex 使用各自的重建脚本和线程结构校验。正式写入前始终先看 dry-run；前端的“线程重建”也执行同一套 CLI 预览与应用流程，不直接改线程文件。推荐顺序为 **import → mine → rebuild**，确保需要浓缩的历史对话已经生成摘要。
+Claude Code 与 Codex 使用各自的重建脚本和线程结构校验。正式写入前始终先看 dry-run；前端的"线程重建"也执行同一套 CLI 预览与应用流程，不直接改线程文件。推荐顺序为 **import → mine → rebuild**。
 
 ### 辅助维护工具
 
 以下工具主要供排错、自动化和高级用户使用；普通用户可以直接使用前端。
 
 ```bash
-# 交给外部 AI 的安全操作说明、能力清单与只读自检
-stmem ai-help
-stmem capabilities --json
-stmem doctor --thread <线程ID> --json
+stmem ai-help                                # 交给外部 AI 的安全操作说明
+stmem capabilities --json                    # 能力清单
+stmem doctor --thread <线程ID> --json        # 只读自检
 
-# 审阅候选摘要：预览、混选/融合、确认替换或丢弃
-stmem mine-review preview --thread <线程ID> --date <YYYY-MM-DD>
+stmem mine-review preview --thread <线程ID> --date <YYYY-MM-DD>   # 审阅候选摘要
 stmem mine-review list --thread <线程ID>
 stmem mine-review apply --thread <线程ID> --candidate <候选ID>
 
-# 开发者模块能力：手动织梦、摘要/锚点编辑、规则管理
-stmem dream --thread <线程ID>
-stmem memory update --thread <线程ID> --batch-file <json>
-stmem rules list --thread <线程ID>
+stmem dream --thread <线程ID>                # 手动织梦
+stmem memory update --thread <线程ID> --batch-file <json>   # 摘要/锚点编辑
+stmem rules list --thread <线程ID>           # 规则管理
 
-# 只读查看、手动同步与数据库维护
-stmem list
-stmem sync --thread <线程ID>
-stmem db status --thread <线程ID>
+stmem list                                   # 只读查看
+stmem sync --thread <线程ID>                 # 手动同步
+stmem db status --thread <线程ID>            # 数据库维护
 ```
 
 ### watcher 管理
 
-安装阶段负责让唯一 watcher supervisor 常驻并自愈（Linux 走 systemd，Windows 走 supervisor 自愈）；init 与 watcher CLI 都不负责拉起进程。只有 `watcherEnabled=ON` 的记忆体才会拥有 worker；某个记忆体的开关不会影响其他记忆体。
-线程文件发生变化后会在约 300ms 防抖后增量同步到 archive；正常追加只读取每个记忆体 `.sync-state.json` 游标后的新字节。若线程经 rebuild 缩短、被替换，或游标前内容发生改写，则自动执行一次全量幂等校验并重建游标，不会用“每次完整重读线程”冒充增量。后台仍会低频巡检，作为文件系统漏事件时的兜底，并负责自动挖掘和摘要维护。
+安装阶段负责让唯一 watcher supervisor 常驻并自愈（Linux 走 systemd，Windows 走 supervisor 自愈）；init 与 watcher CLI 都不负责拉起进程。只有 `watcherEnabled=ON` 的记忆体才会拥有 worker；某个记忆体的开关不影响其他记忆体。
+
+线程文件变化后约 300ms 防抖增量同步到 archive；正常追加只读取每个记忆体 `.sync-state.json` 游标后的新字节。若线程经 rebuild 缩短、被替换，或游标前内容被改写，则自动执行一次全量幂等校验并重建游标，不会用"每次完整重读线程"冒充增量。后台仍低频巡检，作为文件系统漏事件时的兜底，并负责自动挖掘和摘要维护。
 
 ```bash
 stmem watcher status                         # 查看全部记忆体状态
 stmem watcher on --thread <id>               # 将该记忆体 watcher 期望状态设为 ON
-stmem watcher off --thread <id>              # 将该记忆体 watcher 期望状态设为 OFF
-stmem watcher set --thread <id> --archive on # 开启该记忆体对话录入插件
-stmem watcher set --thread <id> --miner off  # 关闭该记忆体摘要挖掘插件
+stmem watcher off --thread <id>              # 设为 OFF
+stmem watcher set --thread <id> --archive on # 开启对话录入插件
+stmem watcher set --thread <id> --miner off  # 关闭摘要挖掘插件
 stmem watcher set --thread <id> --compression on # 开启自动压缩（默认关闭）
 stmem watcher set --thread <id> --dream on   # 开启织梦插件
 stmem watcher set --thread <id> --dev-<name> on # 开发者插件必须使用 dev- 前缀
 ```
 
-`set` 只修改插件开关；如果该记忆体总开关当前为 OFF，还需要执行一次
-`stmem watcher on --thread <id>`。supervisor 会在下一次巡检时收敛实际 worker。
+`set` 只修改插件开关；如果该记忆体总开关当前为 OFF，还需要执行一次 `stmem watcher on --thread <id>`。supervisor 会在下一次巡检时收敛实际 worker。
 
 自动压缩默认关闭。需要时在对应线程配置中显式加入纯摘要文本水位；worker 启动及新一天挖掘成功后检查一次，超过 `maxChars` 才调用现有周级 compact，并逐周压到 `stopChars` 以下：
 
@@ -507,7 +439,8 @@ stmem watcher set --thread <id> --dev-<name> on # 开发者插件必须使用 de
 | subagent | 调 `claude -p` CLI，ops 文件走 `--system-prompt-file` | 慢（串行） | Claude Code 已登录（仅 Linux） |
 | api | 直连 API，ops 内容走 system role | 快 | stmem.json 配 apiKeys（全平台） |
 
-两种模式都读取 `operations/memory-miner-operations.md` 作为 AI 指令。
+两种模式都读取 `operations/memory-miner-operations.md` 作为 AI 指令：
+
 - subagent：ops 文件通过 `--system-prompt-file` 作为 system prompt，stdin 只传对话 + 输出指令
 - api：ops 内容作为 API system role，conversation 作为 user role
 
@@ -515,10 +448,7 @@ init 时选择模式，也可后续在 stmem.json 中修改 `minerMode` 字段�
 
 ### 自定义挖掘指令
 
-编辑 `operations/memory-miner-operations.md` 可调整：
-- AI 人格和语气
-- Feelings 写作风格偏好
-- **关系时间轴**（见下方说明）
+编辑 `operations/memory-miner-operations.md` 可调整 AI 人格和语气、Feelings 写作风格偏好、**关系时间轴**（见下）。
 
 #### 时间轴配置
 
@@ -535,11 +465,12 @@ init 时选择模式，也可后续在 stmem.json 中修改 `minerMode` 字段�
 
 ## MCP Server
 
-SM 通过 **`mcp-server.js`**（项目根目录，不是 `bin/stmem`！）暴露 stdio JSON-RPC 接口。AI 在注册 MCP 时请认准这个文件，**不要**把 `stmem` CLI 命令注册为 MCP 服务。
+SM 通过 **`mcp-server.js`**（项目根目录，不是 `bin/stmem`！）暴露 stdio JSON-RPC 接口。AI 注册 MCP 时认准这个文件，**不要**把 `stmem` CLI 注册为 MCP 服务。
 
 ### 注册方式
 
 **Claude Code（settings.json，mcpServers 字段）**：
+
 ```json
 {
   "mcpServers": {
@@ -552,14 +483,14 @@ SM 通过 **`mcp-server.js`**（项目根目录，不是 `bin/stmem`！）暴露
 ```
 
 **Codex CLI**：
+
 ```bash
 codex mcp add stmem -- node ~/stone_memory/mcp-server.js
 ```
 
-**Cyberboss（tool-host 配置）**：
-在 tool-host 中添加 stdio MCP server，命令为 `node`，参数为 `mcp-server.js` 的绝对路径。
+**Cyberboss（tool-host 配置）**：在 tool-host 中添加 stdio MCP server，命令为 `node`，参数为 `mcp-server.js` 的绝对路径。
 
-> 以上操作均可交由 AI 助手完成：说"帮我注册 stmem MCP 服务"即可。注意注册的是 `mcp-server.js`，不是 `stmem` CLI。
+> 以上操作均可交由 AI 助手完成。注意注册的是 `mcp-server.js`，不是 `stmem` CLI。
 
 ### 可用工具（共 13 个）
 
@@ -577,7 +508,7 @@ codex mcp add stmem -- node ~/stone_memory/mcp-server.js
 | `stmem_memory_audit_query` | 按日期或关键词查询 feelings，含锚点类型显示 |
 | `stmem_memory_triggers_check` | 检查重建和挖掘阻塞待办，适合会话启动或睡前巡检时调用 |
 
-只读工具直接调用 SM 的 reader/service；挖掘和锚点等写操作统一经 `stmem` CLI，避免 MCP 复制写入逻辑。MCP 工具失败会返回标准 `isError`，不会把错误文字伪装成成功结果。不带 API key 的用户也可以通过 subagent 模式使用。
+只读工具直接调用 SM 的 reader/service；挖掘和锚点等写操作统一经 `stmem` CLI，避免 MCP 复制写入逻辑。MCP 工具失败返回标准 `isError`，不会把错误文字伪装成成功结果。不带 API key 的用户也可以通过 subagent 模式使用。
 
 ## Subagent 模式
 
@@ -644,9 +575,10 @@ ops 文件中可以使用 `{{feelingsFile}}`、`{{archiveDir}}` 等占位符，�
 └── operations.md      # 操作指令：AI 可以使用的外部工具、API 配置
 ```
 
-Rules 文件本身保存纯 Markdown，不预写内部标记。rebuild 注入线程时会在内存中补上且只补一次 `<!-- stmem-rule: filename.md -->`，用于识别和替换旧规则，避免重复注入。前端可以导入、编辑、删除规则，也可以单独关闭“参与注入”；所有操作仍通过正式 CLI 生效。
+Rules 文件保存纯 Markdown，不预写内部标记。rebuild 注入线程时会在内存中补上且只补一次 `<!-- stmem-rule: filename.md -->`，用于识别和替换旧规则，避免重复注入。前端可以导入、编辑、删除规则，也可以单独关闭"参与注入"；所有操作仍通过正式 CLI 生效。
 
 与 `operations/` 目录的区别：
+
 - `operations/` — 给 AI 挖掘/审计/搜索用的指令（谁在调用 API）
 - `rules/` — 给重建后的线程用的指令（AI 在对话中如何表现）
 
@@ -666,7 +598,7 @@ memory/topics/
 
 常驻 watcher 使用唯一 supervisor + per-thread worker：supervisor 动态读取 `stmem.json`，只为至少开启一项自动化的 thread ID 保证恰好一个 `watcher.js --thread <id>`。单个线程同步、挖掘或模型调用卡住时，不会阻塞其他线程；新增、删除或关闭线程自动化无需重启整个 watcher，下一次配置巡检会自动增减 worker。worker 不负责自我重启，崩溃恢复只由 supervisor 管理，避免双重拉起。
 
-`stmem watcher` 只修改 `stmem.json`，不启动、不停止也不重启进程。每个记忆体保存 `watcherEnabled` 总期望状态与 `watcherModules` 插件开关；supervisor 周期读取配置，使实际 worker 数量收敛为 ON=1、OFF=0。旧版 `automaticFullMining`、`automaticMemoryMaintenance`、`automaticCompression`、`automaticDream` 会兼容映射到对应插件。PID、启动时间等瞬时信息不写入配置，而是原子覆盖到该记忆体目录的 `watcher-state.json`；这样状态不会在根目录按记忆体堆出大量 watcher 文件夹，也不会把陈旧 PID 当作用户配置。
+`stmem watcher` 只修改 `stmem.json`，不启动、不停止也不重启进程。每个记忆体保存 `watcherEnabled` 总期望状态与 `watcherModules` 插件开关；supervisor 周期读取配置，使实际 worker 数量收敛为 ON=1、OFF=0。旧版 `automaticFullMining`、`automaticMemoryMaintenance`、`automaticCompression`、`automaticDream` 会兼容映射到对应插件。PID、启动时间等瞬时信息不写入配置，而是原子覆盖到该记忆体目录的 `watcher-state.json`。
 
 所有正式线程共享 `~/.stone_memory/stone-memory.db`，通过 `thread_id` 隔离；fork 依靠同库递归读取父子关系，不复制记忆。SQLite 使用 WAL 和 30 秒 busy timeout，不同 worker 可以并发调用模型，实际短写事务由 SQLite 串行提交。
 
