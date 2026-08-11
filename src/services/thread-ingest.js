@@ -88,6 +88,24 @@ function ingestMessages(messages, { fullDir = null, memoryStore = null } = {}) {
   return ingestRecords(messages.map(raw => ({ raw, message: normalizeThreadMessage(raw) })), { fullDir, memoryStore, format: detectFormat(messages) });
 }
 
+/** 只读预览：统计当前线程中可进入规范化 archive 的记录上限。 */
+function previewIngestMessages(messages) {
+  const format = detectFormat(messages);
+  const dates = new Set();
+  let candidates = 0, invalid = 0, filtered = 0;
+  for (const raw of messages) {
+    const row = normalizeThreadMessage(raw);
+    const reason = internalRecordReason(raw);
+    const date = beijingDateKey(row?.timestamp || (reason ? raw?.timestamp : null));
+    if (reason && date) { filtered++; continue; }
+    if (!row || !date || !row.text) { invalid++; continue; }
+    if (!isArchiveConversation(row)) continue;
+    candidates++;
+    dates.add(date);
+  }
+  return { candidates, dates: dates.size, invalid, filtered, format };
+}
+
 function ingestRecords(records, { fullDir = null, memoryStore = null, format = "generic" } = {}) {
   const archiveByDate = new Map(), fullByDate = new Map();
   let invalid = 0;
@@ -138,5 +156,5 @@ function ingestThreadFile(filePath, options) {
 
 module.exports = {
   parseThreadMessages, beijingDateKey, isSystemTemplate, isArchiveConversation,
-  internalRecordReason, ingestMessages, ingestRecords, ingestThreadFile,
+  internalRecordReason, ingestMessages, ingestRecords, ingestThreadFile, previewIngestMessages,
 };

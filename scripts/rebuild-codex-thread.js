@@ -24,6 +24,7 @@ const { itemKey, conversationWindow, loadRebuildPlan } = require("../src/service
 const { buildCodexSessionMeta, validateCodexRebuildOutput } = require("../src/services/codex-session-meta");
 const { isSystemInjection } = require("../src/lib/thread-message-filter");
 const { serializeJsonl } = require("../src/lib/jsonl");
+const { previewRebuildArchiveCatchup, applyRebuildArchiveCatchup } = require("../src/services/rebuild-archive-catchup");
 
 const DEFAULT_WINDOW_DAYS = 3;
 
@@ -132,8 +133,16 @@ function main() {
   // === 全量备份到 full/ ===
   const memoryDir = path.join(getThreadDir(threadId), "memory");
   const codexArchive = new FullArchive(memoryDir);
-  const backed = codexArchive.archiveNewFullBatch(allMsgs);
-  if (backed > 0) console.log(`[codex-rebuild] full backup: ${backed} new messages`);
+  const catchup = apply
+    ? applyRebuildArchiveCatchup({ fullArchive: codexArchive, memoryDir, threadId, currentMessages: allMsgs })
+    : previewRebuildArchiveCatchup({ fullArchive: codexArchive, currentMessages: allMsgs });
+  if (apply) {
+    if (catchup.fullBacked > 0) console.log(`[codex-rebuild] full backup: ${catchup.fullBacked} new messages`);
+    console.log(`[codex-rebuild] archive catch-up: ${catchup.ingested.imported} messages ingested`);
+  } else {
+    console.log(`[codex-rebuild] dry-run: would back up ${catchup.pendingFullRows.length} new messages to full/`);
+    console.log(`[codex-rebuild] dry-run: would ingest up to ${catchup.ingestPreview.candidates} normalized messages`);
+  }
 
   // === 工具链扫描（反向，保留最近 N 对 function_call） ===
   const preservedCallIds = new Set();
@@ -427,6 +436,7 @@ function main() {
     console.log(`  Retained messages: ${retainedMessages}`);
     console.log(`  System dropped: ${stats.systemDropped}`);
     console.log(`  Tool pairs preserved: ${pairCount}`);
+    console.log(`  Catch-up (apply): full/ +${catchup.pendingFullRows.length}, SQLite ≤${catchup.ingestPreview.candidates}`);
     console.log("  Use --apply to write.");
   }
 }

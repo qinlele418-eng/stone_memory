@@ -26,6 +26,7 @@ const { serializeJsonl } = require("../src/lib/jsonl");
 const { readFeelings: readDatabaseFeelings, readMessages } = require("../src/storage/memory-reader");
 const { itemKey, conversationWindow, loadRebuildPlan } = require("../src/services/rebuild-workbench");
 const { isSystemInjection } = require("../src/lib/thread-message-filter");
+const { previewRebuildArchiveCatchup, applyRebuildArchiveCatchup } = require("../src/services/rebuild-archive-catchup");
 
 let THREAD_BASE = null;
 let FULL_ARCHIVE = null;
@@ -293,12 +294,24 @@ function rebuildThread(inputPath, outputPath, dryRun, windowDays, toolPairsOverr
     }
   }
   if (currentSkipped > 0) console.warn(`[rebuild]   ⚠️ ${currentSkipped} corrupted lines skipped in source`);
-  const backed = backupNewToFull(currentMessages);
-  if (backed > 0) console.log(`[rebuild]   full backup: ${backed} new messages`);
+  const catchup = dryRun
+    ? previewRebuildArchiveCatchup({ fullArchive: FULL_ARCHIVE, currentMessages })
+    : applyRebuildArchiveCatchup({ fullArchive: FULL_ARCHIVE, memoryDir: path.join(THREAD_BASE, "memory"), threadId: currentThreadId, currentMessages });
+  if (dryRun) {
+    console.log(`[rebuild]   dry-run: would back up ${catchup.pendingFullRows.length} new messages to full/`);
+    console.log(`[rebuild]   dry-run: would ingest up to ${catchup.ingestPreview.candidates} normalized messages`);
+  } else {
+    if (catchup.fullBacked > 0) console.log(`[rebuild]   full backup: ${catchup.fullBacked} new messages`);
+    console.log(`[rebuild]   archive catch-up: ${catchup.ingested.imported} messages ingested`);
+  }
 
   // === 从 full/ 读取全量消息作为重建源 ===
   console.log("[rebuild] Loading full messages...");
   const messages = loadFullMessages();
+  if (dryRun && catchup.pendingFullRows.length) {
+    messages.push(...catchup.pendingFullRows);
+    messages.sort((a, b) => new Date(a.timestamp || 0).getTime() - new Date(b.timestamp || 0).getTime());
+  }
   console.log(`[rebuild]   ${messages.length} messages from full`);
 
   // === 计算滚动窗口 ===
@@ -592,6 +605,7 @@ function rebuildThread(inputPath, outputPath, dryRun, windowDays, toolPairsOverr
     console.log(`  Memory feelings:   ${memoryFeelings.length}`);
     console.log(`  Full archive size: ${fullArchiveSize} bytes`);
     console.log(`  Estimated output:  ${estimatedOutputSize} bytes`);
+    console.log(`  Catch-up (apply):  full/ +${catchup.pendingFullRows.length}, SQLite ≤${catchup.ingestPreview.candidates}`);
     console.log("==============================");
   } else {
     fs.writeFileSync(outputPath, outputText, "utf8");
