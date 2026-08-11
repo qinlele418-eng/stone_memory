@@ -1,27 +1,3 @@
-body.tidal-visual::before {
-  position: fixed;
-  z-index: -1;
-  inset: 0;
-  background:
-    radial-gradient(
-      circle at 14% 8%,
-      color-mix(in srgb, var(--stone-tide-surface) 88%, transparent),
-      transparent 32rem
-    ),
-    radial-gradient(
-      circle at 88% 18%,
-      color-mix(in srgb, var(--stone-tide-accent-soft) 54%, transparent),
-      transparent 36rem
-    ),
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--stone-tide-canvas) 22%, transparent),
-      color-mix(in srgb, var(--stone-tide-surface-soft) 42%, transparent)
-    );
-  content: "";
-  pointer-events: none;
-}
-
 body.tidal-visual .panel,
 body.tidal-visual .dashboard-head,
 body.tidal-visual .section-card,

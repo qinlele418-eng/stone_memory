@@ -2,6 +2,11 @@
   "use strict";
 
   const MODULE_THEME_BRIDGE_KEY = "stone-memory-developer-semantic-theme-v1";
+  const sharedThemeStyle = document.createElement("link");
+  sharedThemeStyle.rel = "stylesheet";
+  sharedThemeStyle.href = "/theme-studio/tidal-tokens.css?v=8";
+  sharedThemeStyle.dataset.stoneSharedTheme = "";
+  document.head.append(sharedThemeStyle);
   const ALLOWED_SEMANTIC_PROPERTIES = new Set([
     "--stone-tide-canvas", "--stone-tide-canvas-warm",
     "--stone-tide-ink", "--stone-tide-ink-soft", "--stone-tide-ink-faint",
@@ -39,27 +44,6 @@
   }
 
   applyFirstFrameTheme();
-  // 独立开发者模块也属于 Stone Memory 主界面：在各模块样式加载前先统一
-  // 页面底色，避免工作台、审阅室等各自铺纯色背景而与主页渐变断开。
-  document.documentElement.classList.add("stone-developer-page");
-  const pageStyle = document.createElement("style");
-  pageStyle.textContent = `
-    :root {
-      --stone-tide-page-background:
-        radial-gradient(circle at 10% 10%, color-mix(in srgb, var(--stone-tide-accent-soft, #eaf2e5) 82%, transparent), transparent 32rem),
-        radial-gradient(circle at 90% 90%, color-mix(in srgb, var(--stone-tide-accent-soft, #eaf2e5) 64%, var(--stone-tide-canvas, #f5f8f1)), transparent 38rem),
-        var(--stone-tide-canvas, #f5f8f1);
-    }
-    html.stone-developer-page {
-      min-height: 100%;
-      background: var(--stone-tide-canvas, #f5f8f1);
-    }
-    html.stone-developer-page body {
-      min-height: 100dvh;
-      background: var(--stone-tide-page-background) !important;
-    }
-  `;
-  document.head.append(pageStyle);
 
   const params = new URLSearchParams(location.search);
   const THREAD_KEY = "stone-memory-developer-thread";

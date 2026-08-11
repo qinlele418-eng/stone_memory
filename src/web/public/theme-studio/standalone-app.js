@@ -317,6 +317,7 @@
         properties,
       }));
     } catch {}
+    document.documentElement.dataset.stoneTheme = String(state.theme.name || "Custom").slice(0, 60);
     applyLogo();
   }
 

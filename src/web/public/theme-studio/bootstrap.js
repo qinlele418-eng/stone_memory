@@ -7,7 +7,7 @@
   const ORIGINAL_THEME_NAME = "Stone Memory Original";
   const MODULE_ID = "theme-studio";
   const MODULE_ORDER = 20;
-  const THEME_STYLE_VERSION = "6";
+  const THEME_STYLE_VERSION = "8";
   const THEME_STYLE_FILES = [
     "tidal-tokens.css",
     "theme-coverage.css",

@@ -12,33 +12,42 @@
   --stone-tide-font-display: Georgia, "Noto Serif SC", serif;
   --stone-tide-font-body: Inter, "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
 
-  --stone-tide-canvas: #f7fafc;
-  --stone-tide-canvas-warm: #f4f2ef;
-  --stone-tide-ink: #253447;
-  --stone-tide-ink-soft: #5e7080;
-  --stone-tide-ink-faint: #8a99a8;
-  --stone-tide-accent: #4c6378;
-  --stone-tide-accent-strong: #2c4056;
-  --stone-tide-accent-soft: #eef4fa;
-  --stone-tide-surface: rgba(247, 250, 252, 0.92);
-  --stone-tide-surface-soft: rgba(244, 248, 250, 0.42);
-  /* 页面底色不是另一套主题资产：由当前主题的基础色自动生长出来。 */
+  --stone-tide-canvas: #f5f8f1;
+  --stone-tide-canvas-warm: #fffef9;
+  --stone-tide-ink: #18372b;
+  --stone-tide-ink-soft: #69756d;
+  --stone-tide-ink-faint: #796d5d;
+  --stone-tide-accent: #397052;
+  --stone-tide-accent-strong: #295540;
+  --stone-tide-accent-soft: #eaf2e5;
+  --stone-tide-surface: rgba(255, 254, 249, 0.94);
+  --stone-tide-surface-soft: #f2f3ef;
+  /* 原版页面使用产品最初的精确色值；开发者模块也直接复用这一份。 */
   --stone-tide-page-background:
+    radial-gradient(circle at 10% 10%, rgba(214, 228, 204, 0.72), transparent 32rem),
+    radial-gradient(circle at 90% 90%, rgba(234, 242, 229, 0.9), transparent 38rem),
+    #f5f8f1;
+  /* 自定义主题才从当前主题的背景色和强调色生成等深度光晕。 */
+  --stone-tide-page-glow-strong:
+    color-mix(in srgb, var(--stone-tide-accent) 16%, var(--stone-tide-canvas));
+  --stone-tide-page-glow-soft:
+    color-mix(in srgb, var(--stone-tide-accent) 6%, var(--stone-tide-canvas));
+  --stone-tide-custom-page-background:
     radial-gradient(
       circle at 10% 10%,
-      color-mix(in srgb, var(--stone-tide-accent-soft) 82%, transparent),
+      color-mix(in srgb, var(--stone-tide-page-glow-strong) 72%, transparent),
       transparent 32rem
     ),
     radial-gradient(
       circle at 90% 90%,
-      color-mix(in srgb, var(--stone-tide-accent-soft) 64%, var(--stone-tide-canvas)),
+      color-mix(in srgb, var(--stone-tide-page-glow-soft) 90%, transparent),
       transparent 38rem
     ),
     var(--stone-tide-canvas);
-  --stone-tide-line: rgba(120, 142, 165, 0.24);
-  --stone-tide-line-soft: rgba(151, 169, 181, 0.18);
-  --stone-tide-status: #5fbf8f;
-  --stone-tide-danger: #cf8d92;
+  --stone-tide-line: #dce6d7;
+  --stone-tide-line-soft: rgba(220, 230, 215, 0.9);
+  --stone-tide-status: #7ea36f;
+  --stone-tide-danger: #a3463e;
   --stone-tide-warning: #8a6542;
   --stone-tide-info: #5f7196;
   --stone-tide-conflict: #a65d56;
@@ -47,13 +56,13 @@
   --stone-tide-radius-xs: 9px;
   --stone-tide-radius-sm: 12px;
   --stone-tide-radius-md: 18px;
-  --stone-tide-radius-lg: 20px;
+  --stone-tide-radius-lg: 28px;
   --stone-tide-radius-pill: 999px;
 
-  --stone-tide-shadow-card: 0 10px 28px rgba(70, 92, 108, 0.05);
-  --stone-tide-shadow-panel: 0 18px 46px rgba(74, 93, 108, 0.1);
-  --stone-tide-shadow-floating: 0 18px 50px rgba(30, 45, 62, 0.18);
-  --stone-tide-shadow-button: 0 16px 32px rgba(41, 60, 78, 0.22);
+  --stone-tide-shadow-card: 0 18px 50px rgba(41, 85, 64, 0.1);
+  --stone-tide-shadow-panel: 0 18px 50px rgba(41, 85, 64, 0.1);
+  --stone-tide-shadow-floating: 0 24px 70px rgba(41, 85, 64, 0.16);
+  --stone-tide-shadow-button: 0 10px 24px rgba(57, 112, 82, 0.24);
 
   --stone-tide-space-1: 6px;
   --stone-tide-space-2: 10px;
@@ -62,9 +71,13 @@
   --stone-tide-space-5: 24px;
   --stone-tide-space-6: 32px;
 
-  --stone-tide-motion-fast: 150ms;
-  --stone-tide-motion-normal: 260ms;
-  --stone-tide-ease-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --stone-tide-motion-fast: 180ms;
+  --stone-tide-motion-normal: 200ms;
+  --stone-tide-ease-soft: ease;
+}
+
+:root[data-stone-theme]:not([data-stone-theme="Stone Memory Original"]) {
+  --stone-tide-page-background: var(--stone-tide-custom-page-background);
 }
 
 [data-tide-theme="harbor"] {
