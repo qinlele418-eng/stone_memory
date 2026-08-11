@@ -130,8 +130,8 @@ ln -sf ~/stone_memory/bin/stmem ~/.local/bin/stmem
 cd ~/stone_memory
 npm ci --omit=dev
 
-# 4. 开始用
-stmem init --thread <线程ID>
+# 4. 启动本地前端；首次记忆体请在浏览器内创建
+stmem web
 ```
 
 > 如果 `~/.local/bin` 不在 PATH 中，在 `.bashrc` 加一行：`export PATH="$HOME/.local/bin:$PATH"`
@@ -149,7 +149,7 @@ C++ 工具链。
 setx PATH "%PATH%;C:\Users\<用户名>\stone_memory\bin"
 ```
 
-之后任意终端直接输入 `stmem`。
+之后任意终端直接输入 `stmem`。安装依赖后首次使用请执行 `stmem web`，在浏览器中创建记忆体；不要让 AI 在终端替用户猜测并填写线程配置。
 
 **方式二：npm link**
 
@@ -160,6 +160,8 @@ npm link
 ```
 
 npm 自动在全局目录创建 `stmem.cmd`（该目录通常已在 PATH 中）。
+
+完成后执行 `stmem web`，在浏览器中创建第一个记忆体。
 
 > subagent 模式要求对应运行时 CLI 已安装并能从 PATH 调用；不满足时可配置 API key 使用 API 模式。
 
@@ -172,7 +174,19 @@ mklink /J %USERPROFILE%\.stone_memory D:\stone_data
 
 ## 快速开始
 
-### 初始化线程
+### 首次使用：先打开前端，再创建记忆体
+
+安装完成后，请先启动本地前端：
+
+```bash
+stmem web --port 4173
+```
+
+在浏览器打开终端输出的地址（默认 `http://127.0.0.1:4173`），点击“创建记忆体”。前端会引导用户填写记忆体名称、运行时、真实线程 ID、线程文件搜索目录、挖掘方式与自动化开关，并在导入前预览清洗后的对话。
+
+外部 AI 助手完成安装后也应停在这一步：**启动 `stmem web` 并让用户在前端创建/绑定线程**。不要替用户手写 `stmem.json`、猜测线程 ID，或另写导入、清洗和 rebuild 脚本。
+
+### CLI / 自动化初始化（高级入口）
 
 ```bash
 stmem init --thread <线程ID>
@@ -208,7 +222,7 @@ stmem doctor --thread <真实线程ID> --json
 
 `ai-help` 给出安全操作协议；`capabilities` 机器可读地声明 Stone Memory 已有的清洗、预览、备份、重建和修复能力；`doctor` 只读检查配置、真实线程文件、SQLite、watcher 与最近挖掘状态，并返回稳定错误码和正式的下一条命令。配置问题不应通过手写 `stmem.json`、另造脚本或修改项目源码解决。
 
-### 启动本地管理界面
+### 再次启动本地管理界面
 
 ```bash
 stmem web --port 4173
@@ -373,8 +387,8 @@ relation 报告区分 forming、experimental、established、retired、revived �
 
 ```bash
 stmem rebuild --thread <线程ID>                     # dry-run 预览
-stmem rebuild --thread <线程ID> --apply             # 确认写入
-stmem rebuild --thread <线程ID> --queue             # 写入安全队列，下一次主 MCP 载入时应用
+stmem rebuild --thread <线程ID> --apply             # Codex：确认写入，随后必须立刻完整重启
+stmem rebuild --thread <线程ID> --queue             # Claude Code：写入安全队列，下一次主 MCP 载入时应用
 stmem rebuild --thread <线程ID> --watermark         # 从最新摘要命中原文起保留
 stmem rebuild --thread <线程ID> --check             # 检查线程结构
 stmem rebuild --thread <线程ID> --repair            # 修复可自动修复的问题
@@ -385,6 +399,32 @@ stmem rebuild --thread <线程ID> --repair            # 修复可自动修复的
 MCP 与前端共用同一份预览参数，但按 runtime 使用不同的正式执行通道。Codex 必须使用 `--apply`：写入成功后不要继续聊天，立即完全重启 Codex/app-server，使其重新打开新 JSONL；Codex 的 `--queue` 会被拒绝。Claude Code 必须使用 `--queue`，在下一次 MCP 加载阶段执行，以免直接 apply 后重启造成 UUID 链断裂。Codex apply 前会清除该线程遗留的 pending 任务，避免旧请求以后复活；apply 本身不会借道队列。
 
 Claude Code 与 Codex 使用各自的重建脚本和线程结构校验。正式写入前始终先看 dry-run；前端的“线程重建”也执行同一套 CLI 预览与应用流程，不直接改线程文件。推荐顺序为 **import → mine → rebuild**，确保需要浓缩的历史对话已经生成摘要。
+
+### 辅助维护工具
+
+以下工具主要供排错、自动化和高级用户使用；普通用户可以直接使用前端。
+
+```bash
+# 交给外部 AI 的安全操作说明、能力清单与只读自检
+stmem ai-help
+stmem capabilities --json
+stmem doctor --thread <线程ID> --json
+
+# 审阅候选摘要：预览、混选/融合、确认替换或丢弃
+stmem mine-review preview --thread <线程ID> --date <YYYY-MM-DD>
+stmem mine-review list --thread <线程ID>
+stmem mine-review apply --thread <线程ID> --candidate <候选ID>
+
+# 开发者模块能力：手动织梦、摘要/锚点编辑、规则管理
+stmem dream --thread <线程ID>
+stmem memory update --thread <线程ID> --batch-file <json>
+stmem rules list --thread <线程ID>
+
+# 只读查看、手动同步与数据库维护
+stmem list
+stmem sync --thread <线程ID>
+stmem db status --thread <线程ID>
+```
 
 ### watcher 管理
 
@@ -521,13 +561,15 @@ codex mcp add stmem -- node ~/stone_memory/mcp-server.js
 
 > 以上操作均可交由 AI 助手完成：说"帮我注册 stmem MCP 服务"即可。注意注册的是 `mcp-server.js`，不是 `stmem` CLI。
 
-### 可用工具（共 9 个）
+### 可用工具（共 13 个）
 
 | 工具 | 功能 |
 |------|------|
-| `stmem_memory_rebuild` | 生成线程重建 dry-run；正式应用须在前端或 CLI 二次确认 |
+| `stmem_memory_rebuild_preview` | 生成只读线程重建 dry-run，并暂存本次参数供确认 |
+| `stmem_memory_rebuild` | 应用刚刚预览的参数：Codex 立即 apply，Claude Code 写入 queue |
 | `stmem_memory_mine` | 触发单日挖掘（feelings + features） |
 | `stmem_memory_status` | 查看当前 stmem 状态，含各线程 archive/feelings/features 数量 |
+| `stmem_dream_latest` / `stmem_dream_status` / `stmem_dream_get` | 查看最近梦境、织梦状态或指定日期梦境 |
 | `stmem_memory_search` | 关键词搜索 feelings + 回溯原文 archive |
 | `stmem_memory_deep_search` | 深度检索（子 agent 多级搜索 + 原文回溯） |
 | `stmem_memory_audit_list` | 从上次审计截止日起列出新 feelings，含锚点类型标注 |
