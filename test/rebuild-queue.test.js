@@ -7,6 +7,7 @@ const {
   enqueueRebuild,
   readQueue,
   removeQueuedRebuild,
+  discardQueuedRebuild,
   claimQueuedRebuilds,
   finishQueuedRebuildClaim,
   buildQueuedApplyArgs,
@@ -28,6 +29,21 @@ test("rebuild queue keeps one latest request per thread and applies through CLI 
   ]);
   removeQueuedRebuild("a", file);
   assert.deepEqual(readQueue(file).map(row => row.threadId), ["b"]);
+});
+
+test("Codex apply cleanup discards stale pending and processing rows for one thread", t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-rebuild-discard-"));
+  const file = path.join(dir, "pending.json");
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  enqueueRebuild({ threadId: "codex-a", window: 3 }, file);
+  enqueueRebuild({ threadId: "claude-b", window: 4 }, file);
+  const claim = claimQueuedRebuilds(file, { marker: path.basename(process.argv[1]) });
+  enqueueRebuild({ threadId: "codex-a", window: 9 }, file);
+  discardQueuedRebuild("codex-a", file);
+  assert.deepEqual(readQueue(file).map(row => row.threadId), []);
+  assert.deepEqual(readQueue(claim.processingFile).map(row => row.threadId), ["claude-b"]);
+  finishQueuedRebuildClaim(claim, file);
+  assert.deepEqual(readQueue(file).map(row => row.threadId), ["claude-b"]);
 });
 
 test("an old consumer cannot remove a newer request for the same thread", t => {

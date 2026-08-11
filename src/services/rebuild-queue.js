@@ -70,6 +70,21 @@ function removeQueuedRebuild(threadId, file = DEFAULT_QUEUE_FILE, expectedReques
   });
 }
 
+function discardQueuedRebuild(threadId, file = DEFAULT_QUEUE_FILE) {
+  const { mutationLockDir, processingFile } = queuePaths(file);
+  withFileLockSync(mutationLockDir, () => {
+    for (const queueFile of [file, processingFile]) {
+      const rows = readQueue(queueFile).filter(row => row.threadId !== threadId);
+      if (rows.length) writeQueue(rows, queueFile);
+      else {
+        try { fs.unlinkSync(queueFile); } catch (error) {
+          if (error.code !== "ENOENT") throw error;
+        }
+      }
+    }
+  });
+}
+
 function claimQueuedRebuilds(file = DEFAULT_QUEUE_FILE, { marker = "stmem" } = {}) {
   const { lockDir, mutationLockDir, processingFile } = queuePaths(file);
   const lease = acquireProcessLock(lockDir, { marker });
@@ -133,6 +148,7 @@ module.exports = {
   readQueue,
   enqueueRebuild,
   removeQueuedRebuild,
+  discardQueuedRebuild,
   claimQueuedRebuilds,
   finishQueuedRebuildClaim,
   buildQueuedApplyArgs,

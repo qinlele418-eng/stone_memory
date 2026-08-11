@@ -82,8 +82,8 @@ function main() {
   const args = process.argv.slice(3);
   const {
     enqueueRebuild,
-    readQueue,
     removeQueuedRebuild,
+    discardQueuedRebuild,
     claimQueuedRebuilds,
     finishQueuedRebuildClaim,
   } = require("../src/services/rebuild-queue");
@@ -101,11 +101,22 @@ function main() {
         return;
       }
       let failed = false;
+      let deferred = 0;
+      const mcpStartup = args.includes("--mcp-startup");
+      const selectedThread = valueAfter(args, "--thread");
+      const { getCfg } = require("../src/config");
       for (const row of claim.rows) {
+        if (selectedThread && row.threadId !== selectedThread) continue;
+        if (mcpStartup && getCfg("runtime", row.threadId, "claude") === "codex") {
+          deferred++;
+          console.log(`[stmem] deferred Codex rebuild ${row.threadId}: stop bridge/app-server, run stmem rebuild --run-pending --thread ${row.threadId}, then start bridge`);
+          continue;
+        }
         const status = runQueuedRequest(row);
         if (status === 0) removeQueuedRebuild(row.threadId, claim.processingFile, row);
         else failed = true;
       }
+      if (deferred) console.log(`[stmem] ${deferred} Codex rebuild(s) retained for safe stopped-bridge consumption`);
       if (failed) process.exitCode = 1;
     } finally {
       finishQueuedRebuildClaim(claim);
@@ -121,6 +132,10 @@ function main() {
     process.exit(1);
   }
   if (args.includes("--queue")) {
+    if (getCfg("runtime", threadId, "claude") === "codex") {
+      console.error("Codex 不支持 rebuild queue：请使用 --apply，并在成功后立即完全重启 Codex/app-server");
+      process.exit(1);
+    }
     const request = enqueueRebuild(requestFromArgs(args, threadId, getCfg));
     console.log(JSON.stringify({ queued: true, ...request }, null, 2));
     return;
@@ -134,11 +149,15 @@ function main() {
 
   const request = requestFromArgs(args, threadId, getCfg);
   if (apply) {
-    // 立即应用也先替换为当前线程的最新请求，再只消费这一个 requestId。
-    // 这样成功后不会遗留旧队列；失败也不会把即时操作变成未来的静默重试。
-    const queued = enqueueRebuild(request);
-    const status = runQueuedRequest(queued);
-    removeQueuedRebuild(queued.threadId, undefined, queued);
+    const runtime = getCfg("runtime", threadId, "claude");
+    if (runtime !== "codex" && request.trigger !== "cli") {
+      console.error("Claude Code 的 Web/MCP 重建必须使用 --queue，以避免 UUID 链断裂");
+      process.exit(1);
+    }
+    // apply 是同步写入，不借道队列。Codex 应用前清除该线程遗留任务，
+    // 避免旧请求在后续 MCP 启动时复活并再次替换线程文件。
+    if (runtime === "codex") discardQueuedRebuild(threadId);
+    const status = runRuntimeRebuild({ ...request, planFile: valueAfter(args, "--plan"), apply: true });
     process.exit(status);
   }
   const status = runRuntimeRebuild({ ...request, planFile: valueAfter(args, "--plan"), apply: false });

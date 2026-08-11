@@ -382,7 +382,7 @@ stmem rebuild --thread <线程ID> --repair            # 修复可自动修复的
 
 默认模式保留最近 N 个有实际对话的活跃日，而不是自然日；`--watermark` 是可选模式，从最新一条摘要命中的事件原文开始保留到线程末尾，无法可靠定位时安全回退到活跃日模式。两种模式都可独立设置保留的工具调用对，避免 Agent 丢失近期工具使用及结果上下文。
 
-MCP 预览确认与前端的延时重建共用 `stmem rebuild --queue` 队列通道；队列会在下一次主 MCP 进程启动、重启或重新载入时消费。`--apply` 是同一请求的即时消费模式：它会先覆盖该线程遗留的旧队列、立即执行当前请求，并在结束后按 requestId 清除本次请求，避免旧队列在下一次启动时复活。
+MCP 与前端共用同一份预览参数，但按 runtime 使用不同的正式执行通道。Codex 必须使用 `--apply`：写入成功后不要继续聊天，立即完全重启 Codex/app-server，使其重新打开新 JSONL；Codex 的 `--queue` 会被拒绝。Claude Code 必须使用 `--queue`，在下一次 MCP 加载阶段执行，以免直接 apply 后重启造成 UUID 链断裂。Codex apply 前会清除该线程遗留的 pending 任务，避免旧请求以后复活；apply 本身不会借道队列。
 
 Claude Code 与 Codex 使用各自的重建脚本和线程结构校验。正式写入前始终先看 dry-run；前端的“线程重建”也执行同一套 CLI 预览与应用流程，不直接改线程文件。推荐顺序为 **import → mine → rebuild**，确保需要浓缩的历史对话已经生成摘要。
 

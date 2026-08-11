@@ -962,7 +962,7 @@ async function handleApi(req, res, url) {
     const threadId = decodeURIComponent(rebuildMatch[1]), action = rebuildMatch[2];
     // The service may have access to a shared sessions root, but the web API
     // may only operate on threads explicitly registered in stmem config.
-    publicThreadSettings(threadId);
+    const threadSettings = publicThreadSettings(threadId);
     if (req.method === "GET" && action === "preview") {
       const windowDays = Math.max(1, Number(url.searchParams.get("windowDays")) || 3);
       const toolValue = url.searchParams.get("toolPairs");
@@ -988,6 +988,7 @@ async function handleApi(req, res, url) {
     if (req.method === "GET" && action === "check") return json(res, 200, JSON.parse(runStmem(["rebuild", "--thread", threadId, "--check"])));
     if (req.method === "POST" && action === "repair") return json(res, 200, JSON.parse(runStmem(["rebuild", "--thread", threadId, "--repair"])));
     if (req.method === "POST" && action === "queue") {
+      if (threadSettings.runtime === "codex") return json(res, 409, { error: "Codex 不支持延时重建队列，请使用 apply 并在成功后立即重启 Codex/app-server" });
       const body = await readJson(req);
       const request = normalizeRebuildRequest({ ...body, trigger: "web" }, { windowDays: 3, toolPairs: 30, trigger: "web" });
       const planDir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-rebuild-queue-plan-"));
@@ -1000,6 +1001,7 @@ async function handleApi(req, res, url) {
       } finally { fs.rmSync(planDir, { recursive: true, force: true }); }
     }
     if (req.method === "POST" && action === "apply") {
+      if (threadSettings.runtime !== "codex") return json(res, 409, { error: "Claude Code 必须使用重建队列，以避免 UUID 链断裂" });
       const body = await readJson(req);
       const request = normalizeRebuildRequest({ ...body, trigger: "web" }, { windowDays: 3, toolPairs: 30, trigger: "web" });
       const planFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "stmem-rebuild-plan-")), "plan.json");

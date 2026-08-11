@@ -16,7 +16,7 @@ const { runSubagent } = require("./src/services/subagent-runner");
 const { readFeelings: readDatabaseFeelings, readFeatures: readDatabaseFeatures } = require("./src/storage/memory-reader");
 const { MemoryStore } = require("./src/storage/memory-store");
 const { resolveMcpThread } = require("./src/services/mcp-thread-resolution");
-const { buildMcpRebuildRequest, buildMcpRebuildPreviewArgs, buildMcpRebuildQueueArgs } = require("./src/services/mcp-rebuild-preview");
+const { buildMcpRebuildRequest, buildMcpRebuildPreviewArgs, buildMcpRebuildExecuteArgs } = require("./src/services/mcp-rebuild-preview");
 const { buildMcpMineArgs } = require("./src/services/mcp-mine-command");
 const { DreamReader } = require("./src/services/dream-reader");
 
@@ -49,7 +49,7 @@ function runPendingRebuilds() {
   const cli = path.join(PROJECT_ROOT, "bin", "stmem");
   if (!fs.existsSync(cli)) return;
   try {
-    const output = execFileSync(process.execPath, [cli, "rebuild", "--run-pending"], {
+    const output = execFileSync(process.execPath, [cli, "rebuild", "--run-pending", "--mcp-startup"], {
       encoding: "utf8",
       timeout: 120000,
       maxBuffer: 10 * 1024 * 1024,
@@ -80,6 +80,7 @@ function resolveThread(args, cfg) {
   const tc = config[sessionId] || {};
   return {
     threadId: sessionId,
+    runtime: tc.runtime || "claude",
     windowDays: args.context?.windowDays || args.window || tc.windowDays || 3,
     toolPairs: args.context?.toolPairs ?? args.toolPairs ?? tc.keepToolPairs ?? 30,
   };
@@ -170,7 +171,10 @@ function toolRebuildPreview(args) {
       cwd: PROJECT_ROOT,
     });
     rebuildPreviews.set(resolved.threadId, request);
-    return `${output.trim()}\n\n这是只读 dry-run。确认结果无误后，可调用 stmem_memory_rebuild 将这组原样参数写入安全队列。`;
+    const nextStep = resolved.runtime === "codex"
+      ? "确认结果无误后，可调用 stmem_memory_rebuild 立即 apply；完成后必须立刻完全重启 Codex/app-server。"
+      : "确认结果无误后，可调用 stmem_memory_rebuild 将这组原样参数写入 Claude Code 安全队列。";
+    return `${output.trim()}\n\n这是只读 dry-run。${nextStep}`;
   } catch (err) {
     throw new Error(`重建预览失败: ${String(err.stderr || err.message).trim()}`);
   } finally {
@@ -190,7 +194,7 @@ function toolRebuild(args) {
   const plan = temporaryRebuildPlan(request);
   try {
     const cli = path.join(PROJECT_ROOT, "bin", "stmem");
-    const rebuildArgs = buildMcpRebuildQueueArgs(cli, resolved, {
+    const rebuildArgs = buildMcpRebuildExecuteArgs(cli, resolved, {
       summaryLimit: request.summary.limit,
       minImportance: request.summary.minImportance,
       window: request.context.windowDays,
@@ -200,15 +204,17 @@ function toolRebuild(args) {
     if (plan) rebuildArgs.splice(-1, 0, "--plan", plan.file);
     execFileSync(process.execPath, rebuildArgs, {
       encoding: "utf8",
-      timeout: 30000,
+      timeout: 120000,
       maxBuffer: 1024 * 1024,
       windowsHide: true,
       cwd: PROJECT_ROOT,
     });
     rebuildPreviews.delete(resolved.threadId);
-    return `已将线程 ${resolved.threadId} 的 rebuild 写入安全队列。不会在当前活动会话中改写线程；下一次主 MCP 启动时将通过 stmem CLI 自动应用。`;
+    return resolved.runtime === "codex"
+      ? `线程 ${resolved.threadId} 已完成 rebuild apply。请不要继续发送消息，立即完全重启 Codex/app-server；重启前继续对话可能写入旧文件描述符并丢失。`
+      : `已将线程 ${resolved.threadId} 的 rebuild 写入安全队列。不会在当前活动会话中改写线程；下一次 Claude Code 主 MCP 重新载入时将通过 stmem CLI 自动应用。`;
   } catch (err) {
-    throw new Error(`重建排队失败: ${String(err.stderr || err.message).trim()}`);
+    throw new Error(`重建执行失败: ${String(err.stderr || err.message).trim()}`);
   } finally {
     if (plan) fs.rmSync(plan.dir, { recursive: true, force: true });
   }
@@ -584,7 +590,7 @@ function toolAuditQuery(args) {
 const TOOLS = [
   {
     name: "stmem_memory_rebuild",
-    description: "Queue the exact parameters from this MCP session's latest successful rebuild preview. Call stmem_memory_rebuild_preview first. The queue is applied safely on the next main MCP startup.",
+    description: "Apply the latest successful rebuild preview using runtime-safe routing: Codex applies immediately and must restart at once; Claude Code queues for the next MCP load.",
     inputSchema: {
       type: "object",
       properties: {
@@ -595,7 +601,7 @@ const TOOLS = [
   },
   {
     name: "stmem_memory_rebuild_preview",
-    description: "生成只读线程重建预览，不排队、不改写线程。请使用统一结构：summary={mode,limit,minImportance}，context={mode,windowDays,toolPairs}，trim={excludedMessages,excludedTools}。这份完整请求会保留到确认阶段；随后调用 stmem_memory_rebuild，系统只排队已预览请求。trigger 由系统自动标记为 mcp，无需也不允许 Agent 填写。",
+    description: "生成只读线程重建预览，不排队、不改写线程。请使用统一结构：summary={mode,limit,minImportance}，context={mode,windowDays,toolPairs}，trim={excludedMessages,excludedTools}。这份完整请求会保留到确认阶段；随后调用 stmem_memory_rebuild，系统按 runtime 分流：Codex 立即 apply，Claude Code 写入 queue。trigger 由系统自动标记为 mcp，无需也不允许 Agent 填写。",
     inputSchema: {
       type: "object",
       properties: {

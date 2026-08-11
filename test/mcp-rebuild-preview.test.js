@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { buildMcpRebuildRequest, buildMcpRebuildPreviewArgs, buildMcpRebuildQueueArgs } = require("../src/services/mcp-rebuild-preview");
+const { buildMcpRebuildRequest, buildMcpRebuildPreviewArgs, buildMcpRebuildQueueArgs, buildMcpRebuildExecuteArgs } = require("../src/services/mcp-rebuild-preview");
 
 test("MCP preview and queue share the structured rebuild request", () => {
   const request = buildMcpRebuildRequest({ threadId: "thread-1", windowDays: 5, toolPairs: 40 }, {
@@ -59,4 +59,14 @@ test("MCP rebuild queue uses the same CLI arguments and explicitly queues", () =
   }, { summaryLimit: 200, minImportance: 3, watermark: true });
   assert.equal(args.includes("--apply"), false);
   assert.equal(args.at(-1), "--queue");
+});
+
+test("MCP execution routes Codex to apply and Claude Code to queue", () => {
+  const base = { threadId: "thread-1", windowDays: 5, toolPairs: 40 };
+  const codex = buildMcpRebuildExecuteArgs("/project/bin/stmem", { ...base, runtime: "codex" });
+  const claude = buildMcpRebuildExecuteArgs("/project/bin/stmem", { ...base, runtime: "claude" });
+  assert.equal(codex.at(-1), "--apply");
+  assert.equal(codex.includes("--queue"), false);
+  assert.equal(claude.at(-1), "--queue");
+  assert.equal(claude.includes("--apply"), false);
 });

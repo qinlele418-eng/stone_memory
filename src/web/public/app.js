@@ -834,15 +834,15 @@ async function previewIntegratedRebuild(library,options={}) {
 }
 
 async function applyIntegratedRebuild(library,{excludedMessages=[],excludedTools=[]}={}) {
-  const button=document.querySelector("#apply-previewed-rebuild");button.disabled=true;button.textContent="正在排队线程重建…";
+  const button=document.querySelector("#apply-previewed-rebuild"),isCodex=library.runtime==="codex";button.disabled=true;button.textContent=isCodex?"正在应用线程重建…":"正在排队线程重建…";
   try{
     const summaryLimit=rebuildState.summaryMode==="limited"?rebuildState.summaryLimit:0,minImportance=rebuildState.summaryMode==="limited"?rebuildState.minImportance:0;
     await api(`/api/libraries/${encodeURIComponent(library.threadId)}/settings`,{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({mcpRebuildDefaultsEnabled:rebuildState.mcpDefault,mcpSummaryLimit:summaryLimit,mcpMinImportance:minImportance})});
     const request={summary:{mode:rebuildState.summaryMode,limit:summaryLimit,minImportance},context:{mode:rebuildState.watermark?"watermark":"active_days",windowDays:rebuildState.windowDays,toolPairs:rebuildState.toolPairs},trim:{excludedMessages,excludedTools},trigger:"web"};
-    const queued=await api(`/api/libraries/${encodeURIComponent(library.threadId)}/rebuild/queue`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(request)});
+    const result=await api(`/api/libraries/${encodeURIComponent(library.threadId)}/rebuild/${isCodex?"apply":"queue"}`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(request)});
     const trimmed=excludedMessages.length||excludedTools.length;
     await renderRebuild(library);
-    showRebuildCompletion(library,{trimmed,queued:queued.queued===true});
+    showRebuildCompletion(library,{trimmed,queued:result.queued===true});
   }catch(error){showToast(error.message,"error");button.disabled=false;button.textContent="确认应用线程重建";}
 }
 
@@ -854,15 +854,15 @@ function showRebuildCompletion(library,{trimmed=false,queued=false}={}) {
   overlay.className="editor-overlay rebuild-completion-overlay";
   const title=queued?(trimmed?"裁剪与线程重建已排队":"线程重建已排队"):(trimmed?"裁剪与线程重建已完成":"线程文件重建成功");
   const lead=queued
-    ?`任务已写入安全队列，当前活动线程没有被改写。${isCodex?"Codex 重启进程、重新载入 MCP 时会自动执行。":"Claude Code 重启进程，或切换线程后重新载入 MCP 时会自动执行。"}`
-    :`新的线程文件已经安全写入。还需要让 ${isCodex?"Codex":"Claude Code"} 重新载入它，新的上下文才会正式生效。`;
+    ?`任务已写入安全队列，当前活动线程没有被改写。Claude Code 重启进程，或切换线程后重新载入 MCP 时会自动执行。`
+    :`新的线程文件已经写入。${isCodex?"请不要继续发送消息，必须立刻完全重启 Codex/app-server，否则后续对话可能写入旧文件并丢失。":"还需要让 Claude Code 重新载入它，新的上下文才会正式生效。"}`;
   overlay.innerHTML=`<section class="editor-panel rebuild-completion-panel" role="dialog" aria-modal="true" aria-labelledby="rebuild-completion-title">
     <button class="editor-close ghost" type="button" aria-label="关闭">×</button>
     <div class="rebuild-completion-mark" aria-hidden="true">✓</div>
     <p class="eyebrow">${queued?"THREAD REBUILD QUEUED":"THREAD FILE REBUILT"}</p>
     <h2 id="rebuild-completion-title">${title}</h2>
     <p class="rebuild-completion-lead">${lead}</p>
-    ${queued?`<div class="rebuild-reload-card ${isCodex?"codex":"claude"}"><strong>任务将在重新载入 MCP 时执行</strong><p>${isCodex?"Codex 请完全退出当前进程，再使用原线程 ID Resume。":"Claude Code 可重启进程，或切换到其他线程后再切回。"}</p>${isCodex?`<code>codex resume ${escapeHtml(library.threadId)}</code>`:""}</div>`:isCodex?`<div class="rebuild-reload-card codex"><strong>Codex 用户必须重启进程</strong><p>请完全退出当前 Codex / app-server 进程，再使用原线程 ID 重新 Resume。只在当前 Codex 中切换线程再切回来，可能继续使用内存中的旧上下文。</p><code>codex resume ${escapeHtml(library.threadId)}</code></div>`:`<div class="rebuild-reload-card claude"><strong>Claude Code 用户请选择一种重新载入方式</strong><ol><li>完全退出并重新启动 Claude Code；或</li><li>切换到其他线程，再切回当前线程。</li></ol><p>重新进入后可检查上下文状态，确认重建结果已经生效。</p></div>`}
+    ${queued?`<div class="rebuild-reload-card claude"><strong>任务将在重新载入 MCP 时执行</strong><p>Claude Code 可重启进程，或切换到其他线程后再切回。</p></div>`:isCodex?`<div class="rebuild-reload-card codex"><strong>现在必须立即重启 Codex</strong><p>不要在当前会话继续发送消息。请完全退出 Codex / app-server，再使用原线程 ID 重新 Resume；否则后续内容可能写入旧文件描述符并丢失。</p><code>codex resume ${escapeHtml(library.threadId)}</code></div>`:`<div class="rebuild-reload-card claude"><strong>Claude Code 用户请选择一种重新载入方式</strong><ol><li>完全退出并重新启动 Claude Code；或</li><li>切换到其他线程，再切回当前线程。</li></ol><p>重新进入后可检查上下文状态，确认重建结果已经生效。</p></div>`}
     <div class="wizard-actions"><button class="primary rebuild-completion-close" type="button">我知道了</button></div>
   </section>`;
   const close=()=>overlay.remove();

@@ -45,4 +45,10 @@ function buildMcpRebuildQueueArgs(cli, resolved, args = {}) {
   return result;
 }
 
-module.exports = { buildMcpRebuildRequest, buildMcpRebuildPreviewArgs, buildMcpRebuildQueueArgs };
+function buildMcpRebuildExecuteArgs(cli, resolved, args = {}) {
+  const result = buildMcpRebuildPreviewArgs(cli, resolved, args);
+  result.push(resolved.runtime === "codex" ? "--apply" : "--queue");
+  return result;
+}
+
+module.exports = { buildMcpRebuildRequest, buildMcpRebuildPreviewArgs, buildMcpRebuildQueueArgs, buildMcpRebuildExecuteArgs };
