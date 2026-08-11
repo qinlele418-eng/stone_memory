@@ -4,7 +4,7 @@
   const MODULE_THEME_BRIDGE_KEY = "stone-memory-developer-semantic-theme-v1";
   const sharedThemeStyle = document.createElement("link");
   sharedThemeStyle.rel = "stylesheet";
-  sharedThemeStyle.href = "/theme-studio/tidal-tokens.css?v=9";
+  sharedThemeStyle.href = "/theme-studio/tidal-tokens.css?v=10";
   sharedThemeStyle.dataset.stoneSharedTheme = "";
   document.head.append(sharedThemeStyle);
   const ALLOWED_SEMANTIC_PROPERTIES = new Set([

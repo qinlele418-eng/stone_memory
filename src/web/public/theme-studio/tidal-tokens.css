@@ -25,23 +25,15 @@
   /* 原版页面使用产品最初的精确色值；开发者模块也直接复用这一份。 */
   --stone-tide-page-background:
     radial-gradient(circle at 10% 10%, rgba(214, 228, 204, 0.72), transparent 32rem),
-    radial-gradient(circle at 90% 90%, rgba(234, 242, 229, 0.9), transparent 38rem),
     #f5f8f1;
   /* 自定义主题才从当前主题的背景色和强调色生成等深度光晕。 */
   --stone-tide-page-glow-strong:
     color-mix(in srgb, var(--stone-tide-accent) 16%, var(--stone-tide-canvas));
-  --stone-tide-page-glow-soft:
-    color-mix(in srgb, var(--stone-tide-accent) 6%, var(--stone-tide-canvas));
   --stone-tide-custom-page-background:
     radial-gradient(
       circle at 10% 10%,
       color-mix(in srgb, var(--stone-tide-page-glow-strong) 72%, transparent),
       transparent 32rem
-    ),
-    radial-gradient(
-      circle at 90% 90%,
-      color-mix(in srgb, var(--stone-tide-page-glow-soft) 90%, transparent),
-      transparent 38rem
     ),
     var(--stone-tide-canvas);
   --stone-tide-line: #dce6d7;
