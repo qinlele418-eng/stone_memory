@@ -1,7 +1,7 @@
 {
   "id": "extended-mining-workbench",
   "title": "拓展挖掘台",
-  "contributor": "@a17037598780-bot",
+  "contributor": "@evelynnn137",
   "summary": "在手机端按连续日期批量生成可审阅候选，并与正式记忆对照。",
   "entry": "./index.html"
 }

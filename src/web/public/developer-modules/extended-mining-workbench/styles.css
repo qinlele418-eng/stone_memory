@@ -36,6 +36,8 @@ button { cursor: pointer; }
 .date-actions { justify-content: flex-start; margin-top: var(--stone-tide-space-3, .9rem); }
 .selection-note { margin: var(--stone-tide-space-2, .6rem) 0; color: var(--stone-tide-ink-soft); }
 .calendar-shell {
+  width: 100%;
+  min-width: 0;
   max-width: 26rem;
   margin: var(--stone-tide-space-3, .9rem) auto 0;
   padding: var(--stone-tide-space-3, .9rem);
@@ -43,10 +45,17 @@ button { cursor: pointer; }
   border-radius: var(--stone-tide-radius-lg);
   background: linear-gradient(155deg, color-mix(in srgb, var(--stone-tide-accent-soft) 58%, var(--stone-tide-surface)), var(--stone-tide-canvas-warm));
 }
-.weekdays, .calendar { display: grid; grid-template-columns: repeat(7, 1fr); gap: var(--stone-tide-space-1, .3rem); }
+.weekdays, .calendar {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: var(--stone-tide-space-1, .3rem);
+}
 .weekdays { margin: var(--stone-tide-space-2, .6rem) 0; text-align: center; color: var(--stone-tide-ink-soft); font-size: .8rem; }
 .day {
   display: grid;
+  min-width: 0;
+  padding-inline: 0;
   place-content: center;
   gap: .05rem;
   min-height: 2.8rem;

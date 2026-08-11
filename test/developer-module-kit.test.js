@@ -71,6 +71,9 @@ test("extended mining workbench stays detachable and uses the shared module cont
   assert.doesNotMatch(app, /127\.0\.0\.1|0\.0\.0\.0|:\d{4}\//);
   assert.doesNotMatch(styles, /#[0-9a-f]{3,8}|rgba?\(/i);
   assert.match(styles, /--stone-tide-/);
+  assert.match(styles, /\.calendar-shell\s*\{[^}]*width:\s*100%;[^}]*min-width:\s*0;/s);
+  assert.match(styles, /\.weekdays,\s*\.calendar\s*\{[^}]*grid-template-columns:\s*repeat\(7,\s*minmax\(0,\s*1fr\)\);/s);
+  assert.match(styles, /\.day\s*\{[^}]*min-width:\s*0;/s);
 });
 
 test("main developer mode lazy-loads the module workshop entry", () => {
