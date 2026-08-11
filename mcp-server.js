@@ -16,7 +16,7 @@ const { runSubagent } = require("./src/services/subagent-runner");
 const { readFeelings: readDatabaseFeelings, readFeatures: readDatabaseFeatures } = require("./src/storage/memory-reader");
 const { MemoryStore } = require("./src/storage/memory-store");
 const { resolveMcpThread } = require("./src/services/mcp-thread-resolution");
-const { buildMcpRebuildPreviewArgs, buildMcpRebuildQueueArgs } = require("./src/services/mcp-rebuild-preview");
+const { buildMcpRebuildRequest, buildMcpRebuildPreviewArgs, buildMcpRebuildQueueArgs } = require("./src/services/mcp-rebuild-preview");
 const { buildMcpMineArgs } = require("./src/services/mcp-mine-command");
 const { DreamReader } = require("./src/services/dream-reader");
 
@@ -80,8 +80,8 @@ function resolveThread(args, cfg) {
   const tc = config[sessionId] || {};
   return {
     threadId: sessionId,
-    windowDays: args.window || tc.windowDays || 3,
-    toolPairs: args.toolPairs ?? tc.keepToolPairs ?? 30,
+    windowDays: args.context?.windowDays || args.window || tc.windowDays || 3,
+    toolPairs: args.context?.toolPairs ?? args.toolPairs ?? tc.keepToolPairs ?? 30,
   };
 }
 
@@ -139,16 +139,28 @@ function resolveRebuildCommand(args, builder) {
   if (!fs.existsSync(cli)) throw new Error("找不到 stmem CLI");
   const tc = cfg[resolved.threadId] || {};
   const useDefaults = tc.mcpRebuildDefaultsEnabled === true;
-  const rebuildArgs = builder(cli, resolved, {
-    ...args,
-    summaryLimit: args.summaryLimit ?? (useDefaults ? Math.max(0, Number(tc.mcpSummaryLimit) || 0) : 0),
-    minImportance: args.minImportance ?? (useDefaults ? Math.max(0, Math.min(5, Number(tc.mcpMinImportance) || 0)) : 0),
-  });
-  return { rebuildArgs, resolved };
+  const effectiveArgs = args.summary ? { ...args } : {
+      ...args,
+      summaryLimit: args.summaryLimit ?? (useDefaults ? Math.max(0, Number(tc.mcpSummaryLimit) || 0) : 0),
+      minImportance: args.minImportance ?? (useDefaults ? Math.max(0, Math.min(5, Number(tc.mcpMinImportance) || 0)) : 0),
+    };
+  const request = buildMcpRebuildRequest(resolved, effectiveArgs);
+  const rebuildArgs = builder(cli, resolved, effectiveArgs);
+  return { rebuildArgs, resolved, request };
+}
+
+function temporaryRebuildPlan(request) {
+  if (!request?.trim?.excludedMessages?.length && !request?.trim?.excludedTools?.length) return null;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-mcp-rebuild-plan-"));
+  const file = path.join(dir, "plan.json");
+  fs.writeFileSync(file, JSON.stringify(request.trim), { encoding: "utf8", mode: 0o600 });
+  return { dir, file };
 }
 
 function toolRebuildPreview(args) {
-  const { rebuildArgs, resolved } = resolveRebuildCommand(args, buildMcpRebuildPreviewArgs);
+  const { rebuildArgs, resolved, request } = resolveRebuildCommand(args, buildMcpRebuildPreviewArgs);
+  const plan = temporaryRebuildPlan(request);
+  if (plan) rebuildArgs.push("--plan", plan.file);
   try {
     const output = execFileSync(process.execPath, rebuildArgs, {
       encoding: "utf8",
@@ -157,11 +169,12 @@ function toolRebuildPreview(args) {
       windowsHide: true,
       cwd: PROJECT_ROOT,
     });
-    const { rebuildArgs: queueArgs } = resolveRebuildCommand(args, buildMcpRebuildQueueArgs);
-    rebuildPreviews.set(resolved.threadId, queueArgs);
+    rebuildPreviews.set(resolved.threadId, request);
     return `${output.trim()}\n\n这是只读 dry-run。确认结果无误后，可调用 stmem_memory_rebuild 将这组原样参数写入安全队列。`;
   } catch (err) {
     throw new Error(`重建预览失败: ${String(err.stderr || err.message).trim()}`);
+  } finally {
+    if (plan) fs.rmSync(plan.dir, { recursive: true, force: true });
   }
 }
 
@@ -170,11 +183,21 @@ function toolRebuild(args) {
   if (!cfg) throw new Error("未配置 stmem.json");
   const resolved = resolveThread(args, cfg);
   if (!resolved?.threadId) throw new Error("无法确定线程 ID");
-  const rebuildArgs = rebuildPreviews.get(resolved.threadId);
-  if (!rebuildArgs) {
+  const request = rebuildPreviews.get(resolved.threadId);
+  if (!request) {
     throw new Error("当前 MCP 会话中没有该线程的已确认预览；请先调用 stmem_memory_rebuild_preview");
   }
+  const plan = temporaryRebuildPlan(request);
   try {
+    const cli = path.join(PROJECT_ROOT, "bin", "stmem");
+    const rebuildArgs = buildMcpRebuildQueueArgs(cli, resolved, {
+      summaryLimit: request.summary.limit,
+      minImportance: request.summary.minImportance,
+      window: request.context.windowDays,
+      toolPairs: request.context.toolPairs,
+      watermark: request.context.mode === "watermark",
+    });
+    if (plan) rebuildArgs.splice(-1, 0, "--plan", plan.file);
     execFileSync(process.execPath, rebuildArgs, {
       encoding: "utf8",
       timeout: 30000,
@@ -186,6 +209,8 @@ function toolRebuild(args) {
     return `已将线程 ${resolved.threadId} 的 rebuild 写入安全队列。不会在当前活动会话中改写线程；下一次主 MCP 启动时将通过 stmem CLI 自动应用。`;
   } catch (err) {
     throw new Error(`重建排队失败: ${String(err.stderr || err.message).trim()}`);
+  } finally {
+    if (plan) fs.rmSync(plan.dir, { recursive: true, force: true });
   }
 }
 
@@ -570,16 +595,40 @@ const TOOLS = [
   },
   {
     name: "stmem_memory_rebuild_preview",
-    description: "Generate a read-only thread rebuild dry-run without queuing or applying it.",
+    description: "生成只读线程重建预览，不排队、不改写线程。请使用统一结构：summary={mode,limit,minImportance}，context={mode,windowDays,toolPairs}，trim={excludedMessages,excludedTools}。这份完整请求会保留到确认阶段；随后调用 stmem_memory_rebuild，系统只排队已预览请求。trigger 由系统自动标记为 mcp，无需也不允许 Agent 填写。",
     inputSchema: {
       type: "object",
       properties: {
         thread: { type: "string", description: "线程 ID，默认自动检测当前 session" },
-        window: { type: "integer", minimum: 1, description: "窗口天数，默认 stmem.json 的 windowDays" },
-        toolPairs: { type: "integer", minimum: 0, description: "保留最近 N 对工具链调用" },
-        watermark: { type: "boolean", description: "使用最后一条摘要对应原文作为近期上下文水位线" },
-        summaryLimit: { type: "integer", minimum: 0, description: "最多注入最近 N 条符合条件的摘要；0 表示不限量" },
-        minImportance: { type: "integer", minimum: 0, maximum: 5, description: "仅注入 importance 不低于该值的摘要；锚点仍受保护" },
+        summary: {
+          type: "object",
+          description: "摘要注入方式。default 注入全部非 hidden 历史摘要；limited 按数量和 importance 筛选，锚点仍受保护。",
+          properties: {
+            mode: { type: "string", enum: ["default", "limited"] },
+            limit: { type: "integer", minimum: 0, description: "limited 模式最多保留多少条；0 表示不限数量" },
+            minImportance: { type: "integer", minimum: 0, maximum: 5 },
+          },
+          required: ["mode"], additionalProperties: false,
+        },
+        context: {
+          type: "object",
+          description: "近期上下文方式。active_days 按活跃对话日保留；watermark 从最后一条摘要对应原文开始保留。",
+          properties: {
+            mode: { type: "string", enum: ["active_days", "watermark"] },
+            windowDays: { type: "integer", minimum: 1, description: "活跃对话日数量；水位线无法定位时也作为安全回退" },
+            toolPairs: { type: "integer", minimum: 0, description: "保留最近 N 组完整工具调用" },
+          },
+          required: ["mode"], additionalProperties: false,
+        },
+        trim: {
+          type: "object",
+          description: "本次永久裁剪范围；通常保持空数组，只有用户明确确认裁剪时才能填写。",
+          properties: {
+            excludedMessages: { type: "array", items: { type: "string" } },
+            excludedTools: { type: "array", items: { type: "string" } },
+          },
+          additionalProperties: false,
+        },
       },
       additionalProperties: false,
     },

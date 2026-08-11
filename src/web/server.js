@@ -22,6 +22,7 @@ const { isArchiveConversation } = require("../services/thread-ingest");
 const { DreamReader } = require("../services/dream-reader");
 const { watcherActions, watcherEnabled } = require("../services/watcher-runtime");
 const { normalizeMiningApiProfile } = require("../services/mining-api-profile");
+const { normalizeRebuildRequest, rebuildRequestCliArgs } = require("../services/rebuild-request");
 
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MAX_UPLOAD = 512 * 1024 * 1024;
@@ -977,12 +978,10 @@ async function handleApi(req, res, url) {
       return json(res,200,parseRebuildDryRun(runStmem(rebuildArgs)));
     }
     if(req.method==="POST"&&action==="dry-run"){
-      const body=await readJson(req),windowDays=Math.max(1,Number(body.windowDays)||3),toolPairs=Math.max(0,body.toolPairs===undefined?30:Number(body.toolPairs)),watermark=body.watermark===true,summaryLimit=Math.max(0,Number(body.summaryLimit)||0),minImportance=Math.max(0,Math.min(5,Number(body.minImportance)||0));
+      const body=await readJson(req),request=normalizeRebuildRequest({...body,trigger:"web"},{windowDays:3,toolPairs:30,trigger:"web"});
       const dir=fs.mkdtempSync(path.join(os.tmpdir(),"stmem-rebuild-preview-")),planFile=path.join(dir,"plan.json");
-      fs.writeFileSync(planFile,JSON.stringify({excludedMessages:body.excludedMessages||[],excludedTools:body.excludedTools||[]}),{encoding:"utf8",mode:0o600});
-      const rebuildArgs=["rebuild","--thread",threadId,"--window",String(windowDays),"--tool-pairs",String(toolPairs),"--plan",planFile];
-      if(watermark)rebuildArgs.push("--watermark");
-      rebuildArgs.push("--summary-limit",String(summaryLimit),"--min-importance",String(minImportance));
+      fs.writeFileSync(planFile,JSON.stringify(request.trim),{encoding:"utf8",mode:0o600});
+      const rebuildArgs=["rebuild","--thread",threadId,...rebuildRequestCliArgs(request),"--plan",planFile];
       try{return json(res,200,parseRebuildDryRun(runStmem(rebuildArgs)));}
       finally{fs.rmSync(dir,{recursive:true,force:true});}
     }
@@ -990,19 +989,11 @@ async function handleApi(req, res, url) {
     if (req.method === "POST" && action === "repair") return json(res, 200, JSON.parse(runStmem(["rebuild", "--thread", threadId, "--repair"])));
     if (req.method === "POST" && action === "queue") {
       const body = await readJson(req);
-      const requestedTools = body.toolPairs === undefined ? 30 : Number(body.toolPairs);
-      const windowDays = String(Math.max(1, Number(body.windowDays) || 3));
-      const toolPairs = String(Math.max(0, requestedTools));
-      const summaryLimit = String(Math.max(0, Number(body.summaryLimit) || 0));
-      const minImportance = String(Math.max(0, Math.min(5, Number(body.minImportance) || 0)));
-      const excludedMessages = Array.isArray(body.excludedMessages) ? body.excludedMessages.map(String).filter(Boolean) : [];
-      const excludedTools = Array.isArray(body.excludedTools) ? body.excludedTools.map(String).filter(Boolean) : [];
+      const request = normalizeRebuildRequest({ ...body, trigger: "web" }, { windowDays: 3, toolPairs: 30, trigger: "web" });
       const planDir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-rebuild-queue-plan-"));
       const planFile = path.join(planDir, "plan.json");
-      fs.writeFileSync(planFile, JSON.stringify({ excludedMessages, excludedTools }), { encoding: "utf8", mode: 0o600 });
-      const rebuildArgs = ["rebuild", "--thread", threadId, "--window", windowDays, "--tool-pairs", toolPairs,
-        "--summary-limit", summaryLimit, "--min-importance", minImportance, "--trigger", "web", "--plan", planFile, "--queue"];
-      if (body.watermark === true) rebuildArgs.push("--watermark");
+      fs.writeFileSync(planFile, JSON.stringify(request.trim), { encoding: "utf8", mode: 0o600 });
+      const rebuildArgs = ["rebuild", "--thread", threadId, ...rebuildRequestCliArgs(request), "--plan", planFile, "--queue"];
       try {
         const queued = JSON.parse(runStmem(rebuildArgs));
         return json(res, 202, { success: true, queued: true, ...queued });
@@ -1010,13 +1001,11 @@ async function handleApi(req, res, url) {
     }
     if (req.method === "POST" && action === "apply") {
       const body = await readJson(req);
+      const request = normalizeRebuildRequest({ ...body, trigger: "web" }, { windowDays: 3, toolPairs: 30, trigger: "web" });
       const planFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "stmem-rebuild-plan-")), "plan.json");
-      fs.writeFileSync(planFile, JSON.stringify({ excludedMessages: body.excludedMessages || [], excludedTools: body.excludedTools || [] }), "utf8");
+      fs.writeFileSync(planFile, JSON.stringify(request.trim), "utf8");
       try {
-        const requestedTools = body.toolPairs === undefined ? 30 : Number(body.toolPairs);
-        const rebuildArgs=["rebuild", "--thread", threadId, "--window", String(Math.max(1, Number(body.windowDays) || 3)), "--tool-pairs", String(Math.max(0, requestedTools)), "--plan", planFile, "--trigger", "web", "--apply"];
-        if(body.watermark===true)rebuildArgs.push("--watermark");
-        rebuildArgs.push("--summary-limit",String(Math.max(0,Number(body.summaryLimit)||0)),"--min-importance",String(Math.max(0,Math.min(5,Number(body.minImportance)||0))));
+        const rebuildArgs=["rebuild", "--thread", threadId, ...rebuildRequestCliArgs(request), "--plan", planFile, "--apply"];
         const output = runStmem(rebuildArgs);
         const integrity = JSON.parse(runStmem(["rebuild", "--thread", threadId, "--check"]));
         return json(res, 200, { success: true, output, integrity });
