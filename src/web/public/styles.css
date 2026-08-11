@@ -25,7 +25,8 @@
 html { min-height: 100%; background: var(--leaf-50); }
 body { min-height: 100vh; margin: 0; background: var(--stone-tide-page-background,
   radial-gradient(circle at 10% 10%, rgba(214, 228, 204, .72), transparent 32rem),
-  radial-gradient(circle at 90% 90%, rgba(234, 242, 229, .9), transparent 38rem), var(--leaf-50)); }
+  radial-gradient(circle at 90% 90%, rgba(234, 242, 229, .9), transparent 38rem), var(--leaf-50));
+  background-repeat: no-repeat; background-size: 100% 100dvh; }
 button, input, select, textarea {
   color: var(--pine-950);
   font: inherit;
