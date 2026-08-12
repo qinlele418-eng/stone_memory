@@ -14,8 +14,8 @@ const API_MINING_PROFILES = Object.freeze({
 });
 
 function normalizeMiningApiProfile(value) {
-  const id = String(value || "raw").trim().toLowerCase();
-  return API_MINING_PROFILES[id] ? id : "raw";
+  const id = String(value || "optimized").trim().toLowerCase();
+  return API_MINING_PROFILES[id] ? id : "optimized";
 }
 
 function miningApiProfile(value) {

@@ -15,7 +15,7 @@
 [
   {
     "content": "5月25日，晚上七点。……",
-    "importance": 3/4/5
+    "importance": 4
   }
 ]
 

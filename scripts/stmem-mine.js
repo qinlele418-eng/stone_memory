@@ -22,7 +22,7 @@ const { requiresRemine, shouldAttempt } = require("../src/services/mining-state"
 const { resolveMiningApiCredentials } = require("../src/services/mining-engine-config");
 const { normalizeMiningApiProfile } = require("../src/services/mining-api-profile");
 
-function resolveApiConfig(tid, forceApi, forceSub, { diagnostic = false, model = "", apiProfile = "raw" } = {}) {
+function resolveApiConfig(tid, forceApi, forceSub, { diagnostic = false, model = "", apiProfile = "optimized" } = {}) {
   if (forceSub) return {};  // 强制 subagent
 
   const tc = loadConfig()[tid] || {};
@@ -95,7 +95,7 @@ async function main() {
   const modelIdx = args.indexOf("--model");
   const model = modelIdx >= 0 ? String(args[modelIdx + 1] || "").trim() : "";
   const apiProfileIdx = args.indexOf("--api-profile");
-  const apiProfile = apiProfileIdx >= 0 ? String(args[apiProfileIdx + 1] || "raw").trim() : "raw";
+  const apiProfile = apiProfileIdx >= 0 ? String(args[apiProfileIdx + 1] || "optimized").trim() : "optimized";
   const targeted = args.includes("--targeted");
   const check = args.includes("--check");
   const stop = args.includes("--stop");
@@ -148,6 +148,7 @@ async function main() {
       aiName: getCfg("ai", tid),
       userName: getCfg("user", tid),
       userGender: getCfg("userGender", tid, "female"),
+      relationshipTimeline: getCfg("relationshipTimeline", tid, []),
       purpose: getCfg("purpose", tid),
       runtime: getCfg("runtime", tid, "claude"),
     },

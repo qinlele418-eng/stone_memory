@@ -90,6 +90,7 @@ async function main() {
         aiName: getCfg("ai", threadId),
         userName: getCfg("user", threadId),
         userGender: getCfg("userGender", threadId, "female"),
+        relationshipTimeline: getCfg("relationshipTimeline", threadId, []),
         purpose: getCfg("purpose", threadId),
         runtime: getCfg("runtime", threadId, "claude"),
       },

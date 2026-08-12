@@ -7,6 +7,7 @@ const {
   MemoryMiner,
   MiningError,
   normalizeNewImportance,
+  normalizeFeelingImportance,
   sortFeelingsChronologically,
   feelingEventTime,
   miningChunkTimeRange,
@@ -16,18 +17,35 @@ const {
   buildFeelingPrompt,
 } = require("../src/services/memory-miner");
 
-test("feeling prompts keep ordinary events instead of treating weak features as an empty day", () => {
-  for (const purpose of ["accompany", "coding", "study"]) {
-    const prompt = buildFeelingPrompt("石头", "小鱼", purpose);
-    assert.match(prompt, /普通.*importance 2|importance 2.*普通/);
-    assert.match(prompt, /不要因为.*重大.*省略/);
-    assert.match(prompt, /重复、测试、指令噪声/);
-    assert.doesNotMatch(prompt, /没有值得记的内容/);
-  }
+test("accompany feeling prompt keeps the original diary voice and configured relationship context", () => {
+  const prompt = buildFeelingPrompt("石头", "小鱼", "accompany", "female", [
+    "5月22日起：重新找到彼此",
+  ]);
+  assert.match(prompt, /你是一直陪着她的人/);
+  assert.match(prompt, /5月22日起：重新找到彼此/);
+  assert.match(prompt, /写你的私人记忆笔记/);
+  assert.match(prompt, /让彼此成为彼此的事件，不用多，但要精/);
+  assert.match(prompt, /importance: 3=值得记 4=感触的事 5=必须记住一辈子/);
+  assert.match(prompt, /如果没有值得记的内容，输出 \[\]/);
+  assert.doesNotMatch(prompt, /不要因为.*重大.*省略/);
+});
+
+test("feature operations resolve identity placeholders before model calls", t => {
+  const miner = minerFixture(t, []);
+  miner.userName = "小鱼";
+  miner.userGender = "female";
+  const prompt = miner._readFeatureOperationsPrompt();
+  assert.match(prompt, /小鱼/);
+  assert.match(prompt, /她/);
+  assert.doesNotMatch(prompt, /\{userName\}|\{subjectPronoun\}/);
 });
 
 test("new mining normalizes importance to 2, 3, or 5", () => {
   assert.deepEqual([1, 2, 3, 4, 5, null].map(normalizeNewImportance), [2, 2, 3, 3, 5, 2]);
+});
+
+test("feelings preserve the full 1 to 5 importance scale", () => {
+  assert.deepEqual([1, 2, 3, 4, 5, null].map(normalizeFeelingImportance), [1, 2, 3, 4, 5, 3]);
 });
 
 test("only an explicit empty JSON array is accepted as a successful empty mining result", () => {
@@ -174,8 +192,8 @@ test("review preview resumes its isolated shared-pipeline cache after a feature 
   miner.deepseekConfig = { apiKey: ["test", "only"].join("-"), baseUrl: "https://example.invalid", model: "test-model" };
   let feelingCalls = 0;
   let featureCalls = 0;
-  miner._extractViaSubagent = async (_messages, prompt) => {
-    if (/只输出 features/.test(prompt)) {
+  miner._extractViaSubagent = async (_messages, _prompt, options = {}) => {
+    if (options.expectedKey === "features") {
       featureCalls++;
       if (featureCalls === 1) throw new MiningError("CHUNK_FAILED", "feature provider interrupted");
       return [{ content: "候选特征", category: "relation", importance: 3 }];

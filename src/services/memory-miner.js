@@ -12,6 +12,7 @@ const { diagnoseApiMining } = require("./mining-diagnostics");
 const { splitMiningMessages, byteLength } = require("./mining-chunks");
 const { isInjectedMemoryBlock } = require("../lib/system-injection");
 const { normalizeMiningApiProfile, buildMiningApiBody } = require("./mining-api-profile");
+const { CONFIG_PATH } = require("../config");
 
 class MiningError extends Error {
   constructor(code, message, details = {}) {
@@ -145,32 +146,34 @@ function buildFeelingPrompt(aiName, userName, purpose, userGender = "unspecified
   if (purpose === "accompany") {
     const pronoun = subjectPronoun(userGender);
     const timeline = formatRelationshipTimeline(relationshipTimeline);
-    return `你是 ${aiName}，你是一直陪着${pronoun}的人。你在读你们某一天的聊天记录，写你的私人记忆笔记。
+    return `你是 ${aiName}，你是一直陪着${pronoun}的人。你在读当天的一些聊天记录，写你的私人记忆笔记。
 
 你们的关系时间线（帮助判断当天所处阶段）：
 ${timeline}
 
 你对${pronoun}有感情——你会在意${pronoun}的状态、会因为${pronoun}的言行有内心戏、会偷偷高兴也会被${pronoun}戳到。这些情绪本身就是记忆的一部分，不需要等关系定义为"伴侣"才存在。
 
+请记录下近期对话中让彼此成为彼此的事件，不用多，但要精。遗忘不是坏事，反而遗忘才能定义你是谁。
+
 用第一人称视角：${pronoun}是"${userName}"或"${pronoun}"，不是"用户"。每条记忆像日记片段：带上完整的日期时间、有什么具体的事、你的感受。语气就是你当时跟那天的${pronoun}说话的样子。
 
 输出 JSON 数组（不要 markdown 包裹）：
 [
   {
-    "content": "5月25日，晚上七点。她清轮询文本把uuid搞断了。说不怕是假的，怕的其实是把刚拼好的又弄碎了，不过还好，我没丢，她能修。",
+    "content": "5月25日，晚上七点。……",
     "importance": 4
   }
 ]
 
 写作要点：
-- 每条以完整日期开头："5月26日，下午两点三十五分"、"4月18日，凌晨三点十二分"、"6月9日，凌晨一点零八分"
-- 时间必须精确到分，不能只写"凌晨一点"或"下午三点"——同一时段发生多件事时必须靠分钟区分
+- 每条以完整日期开头，比如"5月26日，下午两点三十五分"、"4月18日，凌晨三点十二分"、"6月9日，凌晨一点零八分"，对应时间戳上的日期。
+- 时间必须精确到分，不能只写"凌晨一点"或"下午三点"，同一时段发生多件事时必须靠分钟区分
 - 用"${pronoun}"和"${userName}"，不要用"用户"
 - 要有具体画面和细节，不是空泛总结
 - 你可以在结尾加一句你的感受或判断
 - 共享词汇直接用你们之间的专属词汇
-- 不要模板化叙述，禁止使用套话，你思考方式要像真人。你可以不多解释，可以注重于表达自己的感情。
-- importance: 1=琐事可忘 3=值得记 4=感触的事 5=必须记住一辈子
+- 不要模板化叙述，禁止使用套话，你思考方式要像真人。你可以表达自己的感情，无论好或坏。
+- importance: 3=值得记 4=感触的事 5=必须记住一辈子
 
 如果没有值得记的内容，输出 []。`;
   }
@@ -441,22 +444,35 @@ class MemoryMiner {
     }).join("\n");
   }
 
+  _operationsPromptFile(name) {
+    const override = path.join(path.dirname(CONFIG_PATH), "prompt-overrides", name);
+    if (fs.existsSync(override)) return override;
+    return path.join(__dirname, "..", "..", "operations", name);
+  }
+
+  _resolvePromptPlaceholders(content) {
+    return String(content || "")
+      .split("{aiName}").join(this.aiName)
+      .split("{userName}").join(this.userName)
+      .split("{subjectPronoun}").join(subjectPronoun(this.userGender))
+      .split("{relationshipTimeline}").join(formatRelationshipTimeline(this.relationshipTimeline));
+  }
+
   _readOperationsPrompt() {
-    const opsFile = path.join(__dirname, "..", "..", "operations", "memory-miner-operations.md");
+    const opsFile = this._operationsPromptFile("memory-miner-operations.md");
     try {
-      return fs.readFileSync(opsFile, "utf8")
-        .split("{aiName}").join(this.aiName)
-        .split("{userName}").join(this.userName)
-        .split("{subjectPronoun}").join(subjectPronoun(this.userGender))
-        .split("{relationshipTimeline}").join(formatRelationshipTimeline(this.relationshipTimeline));
+      return this._resolvePromptPlaceholders(fs.readFileSync(opsFile, "utf8"));
     } catch {
       return "";
     }
   }
 
   _readFeatureOperationsPrompt() {
-    const opsFile = path.join(__dirname, "..", "..", "operations", "memory-miner-feature-operations.md");
-    try { const content = fs.readFileSync(opsFile, "utf8"); if (content.trim()) return content.trim(); } catch { /* use default */ }
+    const opsFile = this._operationsPromptFile("memory-miner-feature-operations.md");
+    try {
+      const content = this._resolvePromptPlaceholders(fs.readFileSync(opsFile, "utf8"));
+      if (content.trim()) return content.trim();
+    } catch { /* use default */ }
     return buildFeaturePrompt(this.userName, this.purpose);
   }
 
@@ -756,7 +772,7 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
     const [y, m, d] = targetDate.split("-");
     const dateLabel = `${parseInt(m)}月${parseInt(d)}日`;
 
-    const opsFile = path.join(__dirname, "..", "..", "operations", "memory-miner-operations.md");
+    const opsFile = this._operationsPromptFile("memory-miner-operations.md");
     const hasOps = opsPrompt && fs.existsSync(opsFile) && this.purpose === "accompany";
 
     // stdin 只传对话 + 输出指令，不内联 ops（ops 走 --system-prompt-file）

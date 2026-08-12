@@ -6,7 +6,7 @@ const zlib = require("zlib");
 const crypto = require("crypto");
 const { spawn, spawnSync } = require("child_process");
 const { URL } = require("url");
-const { loadConfig, listThreadIds, getThreadDir } = require("../config");
+const { loadConfig, listThreadIds, getThreadDir, CONFIG_PATH } = require("../config");
 const { readImportSource } = require("../services/import-source");
 const { MemoryStore } = require("../storage/memory-store");
 const { buildRebuildPreview } = require("../services/rebuild-workbench");
@@ -96,17 +96,17 @@ function miningDates(threadId) {
   finally{store.close();}
 }
 
-function miningCommandArgs(threadId, date, mode, force = false, apiProfile = "raw") {
+function miningCommandArgs(threadId, date, mode, force = false, apiProfile = "optimized") {
   const profileArgs = mode === "api" && normalizeMiningApiProfile(apiProfile) === "optimized" ? ["--api-profile", "optimized"] : [];
   return ["mine","--thread",threadId,"--date",date,mode==="api"?"--api":"--subagent",...profileArgs,...(force?["--force"]:[])];
 }
 
-function miningCheckCommandArgs(threadId, date, mode, apiProfile = "raw") {
+function miningCheckCommandArgs(threadId, date, mode, apiProfile = "optimized") {
   const profileArgs = mode === "api" && normalizeMiningApiProfile(apiProfile) === "optimized" ? ["--api-profile", "optimized"] : [];
   return ["mine","--thread",threadId,"--date",date,"--check","--json",mode==="api"?"--api":"--subagent",...profileArgs];
 }
 
-function targetedMiningCommandArgs(threadId, mode, batchFile, apiProfile = "raw") {
+function targetedMiningCommandArgs(threadId, mode, batchFile, apiProfile = "optimized") {
   const profileArgs = mode === "api" && normalizeMiningApiProfile(apiProfile) === "optimized" ? ["--api-profile", "optimized"] : [];
   return ["mine","--thread",threadId,"--targeted","--batch-file",batchFile,mode==="api"?"--api":"--subagent",...profileArgs];
 }
@@ -834,25 +834,39 @@ async function handleApi(req, res, url) {
   if (promptsMatch) {
     const threadId = decodeURIComponent(promptsMatch[1]);
     const settings = publicThreadSettings(threadId);
+    if (settings.purpose !== "accompany") throw new Error("提示词与关系时间轴编辑仅适用于陪伴场景");
     const config = loadConfig(); const entry = config[threadId] || {};
     const timeline = Array.isArray(entry.relationshipTimeline) ? entry.relationshipTimeline : [];
     const opsDir = path.join(__dirname, "..", "..", "operations");
-    const summaryPath = path.join(opsDir, "memory-miner-operations.md");
-    const featurePath = path.join(opsDir, "memory-miner-feature-operations.md");
+    const overridesDir = path.join(path.dirname(CONFIG_PATH), "prompt-overrides");
+    const summaryDefaultPath = path.join(opsDir, "memory-miner-operations.md");
+    const featureDefaultPath = path.join(opsDir, "memory-miner-feature-operations.md");
+    const summaryPath = path.join(overridesDir, "memory-miner-operations.md");
+    const featurePath = path.join(overridesDir, "memory-miner-feature-operations.md");
     if (req.method === "GET") {
-      const defaultSummary = buildFeelingPrompt(settings.ai, settings.user, settings.purpose, settings.userGender, timeline);
-      const defaultFeature = buildFeaturePrompt(settings.user, settings.purpose);
+      let defaultSummary = buildFeelingPrompt(settings.ai, settings.user, settings.purpose, settings.userGender, timeline);
+      let defaultFeature = buildFeaturePrompt(settings.user, settings.purpose);
+      try { defaultSummary = fs.readFileSync(summaryDefaultPath, "utf8"); } catch {}
+      try { defaultFeature = fs.readFileSync(featureDefaultPath, "utf8"); } catch {}
       let summaryPrompt = "", featurePrompt = "";
-      try { summaryPrompt = fs.readFileSync(summaryPath, "utf8"); } catch { summaryPrompt = defaultSummary; }
-      try { featurePrompt = fs.readFileSync(featurePath, "utf8"); } catch { featurePrompt = defaultFeature; }
+      try { summaryPrompt = fs.readFileSync(summaryPath, "utf8"); }
+      catch { try { summaryPrompt = fs.readFileSync(summaryDefaultPath, "utf8"); } catch { summaryPrompt = defaultSummary; } }
+      try { featurePrompt = fs.readFileSync(featurePath, "utf8"); }
+      catch { try { featurePrompt = fs.readFileSync(featureDefaultPath, "utf8"); } catch { featurePrompt = defaultFeature; } }
       return json(res, 200, { summaryPrompt, featurePrompt, defaultSummary, defaultFeature, timeline });
     }
     if (req.method === "PUT") {
       const body = await readJson(req);
-      const defSummary = buildFeelingPrompt(settings.ai, settings.user, settings.purpose, settings.userGender, timeline);
-      const defFeature = buildFeaturePrompt(settings.user, settings.purpose);
-      if (body.summaryPrompt !== undefined) fs.writeFileSync(summaryPath, body.summaryPrompt || defSummary, "utf8");
-      if (body.featurePrompt !== undefined) fs.writeFileSync(featurePath, body.featurePrompt || defFeature, "utf8");
+      let defSummary = buildFeelingPrompt(settings.ai, settings.user, settings.purpose, settings.userGender, timeline);
+      let defFeature = buildFeaturePrompt(settings.user, settings.purpose);
+      try { defSummary = fs.readFileSync(summaryDefaultPath, "utf8"); } catch {}
+      try { defFeature = fs.readFileSync(featureDefaultPath, "utf8"); } catch {}
+      if (String(body.summaryPrompt || "").length > 100000 || String(body.featurePrompt || "").length > 100000) {
+        throw new Error("单份挖掘提示词不能超过 100000 个字符");
+      }
+      fs.mkdirSync(overridesDir, { recursive: true });
+      if (body.summaryPrompt !== undefined) fs.writeFileSync(summaryPath, String(body.summaryPrompt || defSummary), "utf8");
+      if (body.featurePrompt !== undefined) fs.writeFileSync(featurePath, String(body.featurePrompt || defFeature), "utf8");
       if (Array.isArray(body.timeline)) {
         const strings = body.timeline.map(String).filter(s => s.trim());
         const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-web-timeline-"));

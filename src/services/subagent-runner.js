@@ -54,9 +54,16 @@ function getRuntimeConfig(runtimeName) {
 function resolvePlaceholders(threadId) {
   const dir = getThreadDir(threadId);
   const memDir = path.join(dir, "memory");
+  const gender = getCfg("userGender", threadId, "unspecified");
+  const subjectPronoun = gender === "female" ? "她" : gender === "male" ? "他" : "TA";
+  const relationshipTimeline = getCfg("relationshipTimeline", threadId, []);
   return {
     "{aiName}":             getCfg("ai", threadId, "AI"),
     "{userName}":           getCfg("user", threadId, "用户"),
+    "{subjectPronoun}":     subjectPronoun,
+    "{relationshipTimeline}": Array.isArray(relationshipTimeline) && relationshipTimeline.length
+      ? relationshipTimeline.map(row => `- ${String(row).trim()}`).join("\n")
+      : "（未填写）",
     "{{retainConfig}}":    path.join(memDir, "retain-config.json"),
     "{{archiveDir}}":      path.join(memDir, "archive"),
     "{{memoryDir}}":       memDir,

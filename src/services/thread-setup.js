@@ -93,6 +93,9 @@ function createThread(input, { allowExisting = false, requireSession = true } = 
     ai: String(input.ai).trim(),
     user: String(input.user).trim(),
     userGender: String(input.userGender || "unspecified").trim(),
+    relationshipTimeline: Array.isArray(input.relationshipTimeline)
+      ? input.relationshipTimeline.map(row => String(row || "").trim()).filter(Boolean)
+      : (Array.isArray(existing.relationshipTimeline) ? existing.relationshipTimeline : []),
     label: libraryName,
     runtime: input.runtime,
     purpose: input.purpose,
