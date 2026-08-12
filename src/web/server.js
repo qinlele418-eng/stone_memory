@@ -22,6 +22,7 @@ const { isArchiveConversation } = require("../services/thread-ingest");
 const { DreamReader } = require("../services/dream-reader");
 const { watcherActions, watcherEnabled } = require("../services/watcher-runtime");
 const { normalizeMiningApiProfile } = require("../services/mining-api-profile");
+const { buildFeelingPrompt, buildFeaturePrompt } = require("../services/memory-miner");
 const { normalizeRebuildRequest, rebuildRequestCliArgs } = require("../services/rebuild-request");
 
 const PUBLIC_DIR = path.join(__dirname, "public");
@@ -826,6 +827,43 @@ async function handleApi(req, res, url) {
       miningJobs.set(threadId,job);
       executeMiningJob(job).catch(cause=>{job.status="failed";job.currentDate=null;job.error=String(cause.message||cause).slice(0,500);job.updatedAt=new Date().toISOString();});
       return json(res,202,{job});
+    }
+  }
+
+  const promptsMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/mining\/prompts$/);
+  if (promptsMatch) {
+    const threadId = decodeURIComponent(promptsMatch[1]);
+    const settings = publicThreadSettings(threadId);
+    const config = loadConfig(); const entry = config[threadId] || {};
+    const timeline = Array.isArray(entry.relationshipTimeline) ? entry.relationshipTimeline : [];
+    const opsDir = path.join(__dirname, "..", "..", "operations");
+    const summaryPath = path.join(opsDir, "memory-miner-operations.md");
+    const featurePath = path.join(opsDir, "memory-miner-feature-operations.md");
+    if (req.method === "GET") {
+      const defaultSummary = buildFeelingPrompt(settings.ai, settings.user, settings.purpose, settings.userGender, timeline);
+      const defaultFeature = buildFeaturePrompt(settings.user, settings.purpose);
+      let summaryPrompt = "", featurePrompt = "";
+      try { summaryPrompt = fs.readFileSync(summaryPath, "utf8"); } catch { summaryPrompt = defaultSummary; }
+      try { featurePrompt = fs.readFileSync(featurePath, "utf8"); } catch { featurePrompt = defaultFeature; }
+      return json(res, 200, { summaryPrompt, featurePrompt, defaultSummary, defaultFeature, timeline });
+    }
+    if (req.method === "PUT") {
+      const body = await readJson(req);
+      const defSummary = buildFeelingPrompt(settings.ai, settings.user, settings.purpose, settings.userGender, timeline);
+      const defFeature = buildFeaturePrompt(settings.user, settings.purpose);
+      if (body.summaryPrompt !== undefined) fs.writeFileSync(summaryPath, body.summaryPrompt || defSummary, "utf8");
+      if (body.featurePrompt !== undefined) fs.writeFileSync(featurePath, body.featurePrompt || defFeature, "utf8");
+      if (Array.isArray(body.timeline)) {
+        const strings = body.timeline.map(String).filter(s => s.trim());
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-web-timeline-"));
+        const batchFile = path.join(tmpDir, "config.json");
+        try {
+          const cur = publicThreadSettings(threadId);
+          fs.writeFileSync(batchFile, JSON.stringify({ ...cur, relationshipTimeline: strings, threadId, runtime: cur.runtime, purpose: cur.purpose }), { encoding: "utf8", mode: 0o600 });
+          runStmem(["init", "--thread", threadId, "--batch-file", batchFile]);
+        } finally { fs.rmSync(tmpDir, { recursive: true, force: true }); }
+      }
+      return json(res, 200, { success: true });
     }
   }
 

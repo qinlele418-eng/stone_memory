@@ -549,7 +549,7 @@ async function renderSettings(library) {
 }
 
 const rebuildState = { windowDays: 3, toolPairs: 30, watermark: false, summaryMode: "default", summaryLimit: 0, minImportance: 0, mcpDefault: false, page: 1, toolPage: 1, tab: "messages", excludedMessages: new Set(), excludedTools: new Set(), preview: null };
-const miningUi={threadId:null,selected:new Set(),page:1,reportPage:1,reportFilter:"all",monthPage:1,selectedDate:null,mode:null,apiProfile:"raw",timer:null,targetedSelected:new Set(),targetedLastIndex:null};
+const miningUi={threadId:null,selected:new Set(),page:1,reportPage:1,reportFilter:"all",monthPage:1,selectedDate:null,mode:null,apiProfile:"optimized",timer:null,targetedSelected:new Set(),targetedLastIndex:null};
 const compressionUi={mode:"subagent",afterDays:90};
 
 function renderMaintenance(library) {
@@ -638,7 +638,7 @@ function miningRecoveryText(chunk){
 }
 
 async function renderMining(library,page=1) {
-  if(miningUi.threadId!==library.threadId){miningUi.threadId=library.threadId;miningUi.selected.clear();miningUi.targetedSelected.clear();miningUi.targetedLastIndex=null;miningUi.page=1;miningUi.reportPage=1;miningUi.reportFilter="all";miningUi.monthPage=1;miningUi.selectedDate=null;miningUi.mode=null;miningUi.apiProfile="raw";}
+  if(miningUi.threadId!==library.threadId){miningUi.threadId=library.threadId;miningUi.selected.clear();miningUi.targetedSelected.clear();miningUi.targetedLastIndex=null;miningUi.page=1;miningUi.reportPage=1;miningUi.reportFilter="all";miningUi.monthPage=1;miningUi.selectedDate=null;miningUi.mode=null;miningUi.apiProfile="optimized";}
   clearTimeout(miningUi.timer);miningUi.page=page;
   document.querySelectorAll(".side-nav button").forEach(button=>button.classList.toggle("active",button.dataset.view==="maintenance"));
   const main=document.querySelector("#workspace-main");
@@ -659,7 +659,8 @@ async function renderMining(library,page=1) {
     const categories=[...new Set(detail.features.map(row=>row.category))].map(category=>`<span class="badge">${escapeHtml(category)} ${detail.features.filter(row=>row.category===category).length}</span>`).join("");
     const detailHtml=miningUi.selectedDate?`<section class="section-card mining-results"><div class="section-title-row"><div><p class="eyebrow">${formatChineseDate(miningUi.selectedDate)}</p><h2>当天挖出的摘要</h2></div><div class="mining-result-actions"><span>${categories}</span><button class="secondary" id="open-targeted" ${active?"disabled":""}>精准补挖</button></div></div><p class="memory-anchor-guide">选择【原文锚点】，将在线程中注入该摘要对应原文；选择【事件锚点】，则该摘要不受衰减模型影响；选择【隐藏摘要】，线程重建时该摘要将不注入线程。</p><div id="targeted-panel"></div>${detail.feelings.length?detail.feelings.map((row,index)=>feelingCard(row,index,"daySeq")).join(""):'<div class="empty">这一天尚未生成摘要，或本次挖掘没有需要记录的内容。</div>'}<div id="feeling-editor"></div></section>`:"";
     const content=main.querySelector("#mining-content");
-    content.innerHTML=`${jobHtml}<div id="mining-check-result"></div><section class="section-card mining-overview"><div class="mining-overview-grid">${calendarHtml}<div class="mining-report-list"><div class="section-title-row mining-report-title"><div><p class="eyebrow">按日管理</p><h2>每日挖掘状态</h2></div><div class="mining-status-filters">${[["all","全部"],["pending","待挖掘"],["completed","已完成"],["failed","失败"]].map(([value,label])=>`<button class="filter-chip ${miningUi.reportFilter===value?"active":""}" data-mining-filter="${value}">${label}</button>`).join("")}</div></div><div class="mining-report-actions"><select id="mining-mode" ${active?"disabled":""}><option value="subagent" ${miningUi.mode==="subagent"?"selected":""}>Subagent</option><option value="api" ${miningUi.mode==="api"?"selected":""}>API</option></select>${miningUi.mode==="api"?`<select id="mining-api-profile" ${active?"disabled":""}><option value="raw" ${miningUi.apiProfile==="raw"?"selected":""}>API（原始版）</option><option value="optimized" ${miningUi.apiProfile==="optimized"?"selected":""}>API（优化版）</option></select>`:""}<button class="ghost" id="check-mining" ${active||!miningUi.selectedDate?"disabled":""}>一键自检</button><button class="ghost" id="select-pending" ${active?"disabled":""}>全选未挖掘</button><button class="ghost" id="clear-dates" ${active?"disabled":""}>清空</button><span>已选 <strong id="selected-count">${miningUi.selected.size}</strong> 天</span><button class="primary" id="start-mining" ${active||!miningUi.selected.size?"disabled":""}>挖掘所选日期</button></div>${reportHtml}</div></div></section>${detailHtml}`;
+    content.innerHTML=`${jobHtml}<div id="mining-check-result"></div><section class="section-card mining-overview"><div class="mining-overview-grid">${calendarHtml}<div class="mining-report-list"><div class="section-title-row mining-report-title"><div><p class="eyebrow">按日管理</p><h2>每日挖掘状态</h2></div><div class="mining-status-filters">${[["all","全部"],["pending","待挖掘"],["completed","已完成"],["failed","失败"]].map(([value,label])=>`<button class="filter-chip ${miningUi.reportFilter===value?"active":""}" data-mining-filter="${value}">${label}</button>`).join("")}</div></div><div class="mining-report-actions"><select id="mining-mode" ${active?"disabled":""}><option value="subagent" ${miningUi.mode==="subagent"?"selected":""}>Subagent</option><option value="api" ${miningUi.mode==="api"?"selected":""}>API</option></select>${miningUi.mode==="api"?`<select id="mining-api-profile" ${active?"disabled":""}><option value="raw" ${miningUi.apiProfile==="raw"?"selected":""}>API（原始版）</option><option value="optimized" ${miningUi.apiProfile==="optimized"?"selected":""}>API（优化版）</option></select>`:""}<button class="ghost" id="check-mining" ${active||!miningUi.selectedDate?"disabled":""}>一键自检</button><button class="ghost" id="select-pending" ${active?"disabled":""}>全选未挖掘</button><button class="ghost" id="clear-dates" ${active?"disabled":""}>清空</button><span>已选 <strong id="selected-count">${miningUi.selected.size}</strong> 天</span><button class="primary" id="start-mining" ${active||!miningUi.selected.size?"disabled":""}>挖掘所选日期</button></div>${reportHtml}</div></div></section>${detailHtml}
+    <section class="section-card mining-prompts-section"><details class="mining-prompts-details"><summary class="mining-prompts-summary"><span><strong>调提示词 & 时间轴</strong><small>直接编辑摘要/特征提示词和关系时间轴，保存后下次挖掘生效</small></span><i>⌄</i></summary><div class="mining-prompts-body"><div id="mining-prompts-status" class="mining-prompts-status"></div><div class="field"><label for="mining-summary-prompt">摘要提示词（feelings）</label><textarea id="mining-summary-prompt" rows="12" class="mining-prompt-textarea" placeholder="加载中…"></textarea></div><div class="field"><label for="mining-feature-prompt">特征提示词（features）</label><textarea id="mining-feature-prompt" rows="12" class="mining-prompt-textarea" placeholder="加载中…"></textarea></div><div class="field"><label for="mining-timeline">关系时间轴（每行一条，格式：YYYY-MM-DD 事件描述）</label><textarea id="mining-timeline" rows="4" class="mining-prompt-textarea" placeholder="示例格式（每行一条）：&#10;2024-01-15 初次见面&#10;2024-06-01 关系进入稳定阶段"></textarea></div><div class="wizard-actions"><button class="ghost" id="mining-prompts-reset">恢复默认</button><button class="primary" id="mining-prompts-save">保存提示词</button></div></div></details></section>`;
     content.querySelector("#stop-mining")?.addEventListener("click",async event=>{event.currentTarget.disabled=true;event.currentTarget.textContent="正在停止…";try{await api(`/api/libraries/${encodeURIComponent(library.threadId)}/mining/stop`,{method:"POST"});showToast("已请求停止挖掘");renderMining(library,miningUi.page);}catch(error){showToast(error.message,"error");event.currentTarget.disabled=false;}});
     content.querySelectorAll("[data-mining-date],[data-report-date]").forEach(button=>button.onclick=()=>{miningUi.selectedDate=button.dataset.miningDate||button.dataset.reportDate;renderMining(library,miningUi.page);});
     content.querySelectorAll(".mining-chunk-report").forEach(details=>details.onclick=event=>event.stopPropagation());
@@ -667,6 +668,7 @@ async function renderMining(library,page=1) {
     content.querySelector("#mining-newer")?.addEventListener("click",()=>{miningUi.monthPage=calendar.page-1;renderMining(library,miningUi.page);});content.querySelector("#mining-older")?.addEventListener("click",()=>{miningUi.monthPage=calendar.page+1;renderMining(library,miningUi.page);});
     content.querySelector("#open-targeted")?.addEventListener("click",()=>renderTargetedMining(library,miningUi.selectedDate));
     if(miningUi.selectedDate)bindFeelingCards(content,library,detail.feelings,content.querySelector("#feeling-editor"),()=>renderMining(library,miningUi.page));
+    loadMiningPrompts(content,library);
     const reportList=content.querySelector(".mining-report-list");
     const updateCount=()=>{reportList.querySelector("#selected-count").textContent=miningUi.selected.size;reportList.querySelector("#start-mining").disabled=active||!miningUi.selected.size;};
     reportList.querySelectorAll('.mining-report-check input').forEach(input=>input.onchange=()=>{input.checked?miningUi.selected.add(input.value):miningUi.selected.delete(input.value);updateCount();});
@@ -688,6 +690,42 @@ async function renderMining(library,page=1) {
     reportList.querySelector("#start-mining").onclick=async()=>{const button=reportList.querySelector("#start-mining"),dates=[...miningUi.selected],statusByDate=new Map(data.dates.map(row=>[row.date,row.status])),forceDates=dates.filter(date=>["completed","completed_empty"].includes(statusByDate.get(date)));if(forceDates.length&&!confirm(`${forceDates.length===1?formatChineseDate(forceDates[0]):`选中的 ${forceDates.length} 天`}已经挖掘过。是否重新挖掘？\\n\\n重挖成功后会覆盖对应日期原有的摘要与特征；包含锚点、手动编辑或压缩状态的日期不会被覆盖。`))return;button.disabled=true;try{await api(`/api/libraries/${encodeURIComponent(library.threadId)}/mining/start`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({mode:miningUi.mode,apiProfile:miningUi.apiProfile,dates,forceDates})});miningUi.selected.clear();showToast("记忆挖掘已开始");renderMining(library,1);}catch(error){showToast(error.message,"error");button.disabled=false;}};
     if(active)miningUi.timer=setTimeout(()=>{if(document.querySelector("#mining-content"))renderMining(library,miningUi.page);},5000);
   }catch(error){main.querySelector("#mining-content").innerHTML=`<section class="section-card"><div class="empty">${escapeHtml(error.message)}</div></section>`;}
+}
+
+async function loadMiningPrompts(container,library){
+  const status=container.querySelector("#mining-prompts-status");
+  const summaryTa=container.querySelector("#mining-summary-prompt");
+  const featureTa=container.querySelector("#mining-feature-prompt");
+  const timelineTa=container.querySelector("#mining-timeline");
+  try{
+    const data=await api(`/api/libraries/${encodeURIComponent(library.threadId)}/mining/prompts`);
+    summaryTa.value=data.summaryPrompt;
+    featureTa.value=data.featurePrompt;
+    timelineTa.value=(data.timeline||[]).join("\n");
+    summaryTa.dataset.default=data.defaultSummary;
+    featureTa.dataset.default=data.defaultFeature;
+    timelineTa.dataset.default="";
+  }catch(error){status.innerHTML=`<span class="integrity warning">加载提示词失败：${escapeHtml(error.message)}</span>`;return;}
+  container.querySelector("#mining-prompts-reset").onclick=()=>{
+    if(!confirm("确认恢复为默认提示词？当前编辑内容将丢失。"))return;
+    summaryTa.value=summaryTa.dataset.default;
+    featureTa.value=featureTa.dataset.default;
+    timelineTa.value=timelineTa.dataset.default;
+    status.innerHTML='<span class="integrity">已恢复默认值（未保存）</span>';
+  };
+  container.querySelector("#mining-prompts-save").onclick=async()=>{
+    const button=container.querySelector("#mining-prompts-save");
+    button.disabled=true;button.textContent="正在保存…";
+    try{
+      const timeline=timelineTa.value.trim().split("\n").filter(Boolean);
+      await api(`/api/libraries/${encodeURIComponent(library.threadId)}/mining/prompts`,{
+        method:"PUT",headers:{"content-type":"application/json"},
+        body:JSON.stringify({summaryPrompt:summaryTa.value,featurePrompt:featureTa.value,timeline})
+      });
+      status.innerHTML='<span class="integrity">提示词已保存，下次挖掘生效</span>';
+    }catch(error){status.innerHTML=`<span class="integrity warning">保存失败：${escapeHtml(error.message)}</span>`;}
+    button.disabled=false;button.textContent="保存提示词";
+  };
 }
 
 async function renderTargetedMining(library,date) {
