@@ -529,9 +529,11 @@ subagent 模式不依赖外部 API，通过宿主 Agent 的 CLI 执行挖掘、�
 }
 ```
 
-- `command`：subagent CLI 命令。`-p` 传 prompt，`--bare` 传输出文本
+- `command`：subagent CLI 命令。Claude 使用 `-p` 明确进入非交互输出；OAuth/订阅登录不要配置 `--bare`
 - `flags.systemPrompt`：指定 `--system-prompt-file` 参数名（不同 CLI 可能不一样）
 - 运行时名称在 `stmem init` 时选择。创建后如需修改设置，仍通过 `stmem init --batch-file`；不要直接编辑 `stmem.json`
+
+Codex Subagent 默认保留 `--ignore-user-config` 隔离用户规则与 MCP，同时继续使用 `CODEX_HOME` 的 ChatGPT 登录。若当前线程已有官方 OpenAI API 配置，SM 会从同一份 `apiProvider` / `apiKeys` 临时传入模型、Base URL 与 Key；Key 只进入子进程环境变量。其他 Provider 只有明确支持 Responses 协议（credential 中声明 `"wireApi":"responses"`）时才会复用，普通 Chat Completions Provider 仍走 Codex 订阅登录，避免错误路由。
 
 ### 执行流程
 

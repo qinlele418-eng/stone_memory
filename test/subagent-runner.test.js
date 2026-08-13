@@ -6,7 +6,9 @@ const path = require("node:path");
 
 const {
   appendCodexMcpConfig,
+  appendCodexProviderConfig,
   buildStdinInvocation,
+  codexProviderFromConfig,
   extractSubagentFailure,
   normalizeClaudeInvocation,
   resolveWorkingDirectory,
@@ -106,6 +108,37 @@ test("Codex receives a temporary MCP config without changing user config", t => 
   assert.match(joined, /STMEM_SEARCH_ONLY/);
   assert.match(joined, /STMEM_THREAD_ID/);
   assert.match(joined, /default_tools_approval_mode/);
+});
+
+test("Codex reuses an existing OpenAI API provider without exposing its key in argv", () => {
+  const provider = codexProviderFromConfig({
+    thread: { apiProvider: "openai" },
+    apiKeys: { openai: { key: "secret-key", baseUrl: "https://api.openai.com", model: "gpt-test" } },
+  }, "thread");
+  assert.deepEqual(provider, {
+    provider: "openai",
+    key: "secret-key",
+    baseUrl: "https://api.openai.com/v1",
+    model: "gpt-test",
+    wireApi: "responses",
+  });
+  const args = [];
+  appendCodexProviderConfig(args, provider);
+  const joined = args.join(" ");
+  assert.match(joined, /model_provider/);
+  assert.match(joined, /STMEM_CODEX_API_KEY/);
+  assert.doesNotMatch(joined, /secret-key/);
+});
+
+test("Codex refuses to misroute Chat-Completions-only providers through Responses", () => {
+  assert.equal(codexProviderFromConfig({
+    thread: { apiProvider: "deepseek" },
+    apiKeys: { deepseek: { key: "secret", baseUrl: "https://api.deepseek.com", model: "deepseek-chat" } },
+  }, "thread"), null);
+  assert.ok(codexProviderFromConfig({
+    thread: { apiProvider: "proxy" },
+    apiKeys: { proxy: { key: "secret", baseUrl: "https://proxy.example/v1", model: "gpt-test", wireApi: "responses" } },
+  }, "thread"));
 });
 
 test("Claude deep search receives only its explicitly allowed MCP tools", () => {

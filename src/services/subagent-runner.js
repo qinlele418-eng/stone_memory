@@ -172,6 +172,9 @@ function buildStdinInvocation(runtimeName, opts = {}) {
   } else if (opts.mcpConfig && runtimeName === "codex") {
     appendCodexMcpConfig(invocation.args, opts.mcpConfig);
   }
+  if (runtimeName === "codex" && opts.codexProvider) {
+    appendCodexProviderConfig(invocation.args, opts.codexProvider);
+  }
   if (runtimeName === "claude" && opts.strictMcpConfig) {
     invocation.args.push("--strict-mcp-config");
   }
@@ -226,6 +229,41 @@ function appendCodexMcpConfig(args, configPath) {
   }
 }
 
+function normalizeCodexProviderBaseUrl(baseUrl) {
+  const value = String(baseUrl || "").replace(/\/+$/, "");
+  try {
+    const parsed = new URL(value);
+    if (parsed.hostname === "api.openai.com" && !/\/v\d+$/i.test(parsed.pathname)) return `${value}/v1`;
+  } catch {}
+  return value;
+}
+
+function codexProviderFromConfig(config, threadId) {
+  const thread = config?.[threadId] || {};
+  const provider = String(thread.apiProvider || "").trim();
+  const credential = config?.apiKeys?.[provider] || {};
+  const key = String(credential.key || "").trim();
+  const baseUrl = normalizeCodexProviderBaseUrl(credential.baseUrl);
+  const model = String(credential.model || "").trim();
+  if (!provider || !key || !baseUrl || !model) return null;
+
+  let hostname = "";
+  try { hostname = new URL(baseUrl).hostname; } catch {}
+  const wireApi = String(credential.wireApi || "").trim().toLowerCase();
+  if (wireApi !== "responses" && hostname !== "api.openai.com") return null;
+  return { provider, key, baseUrl, model, wireApi: "responses" };
+}
+
+function appendCodexProviderConfig(args, provider) {
+  if (!provider) return;
+  appendOption(args, "-c", 'model_provider="stmem"');
+  appendOption(args, "-c", `model_providers.stmem.name=${JSON.stringify(`Stone Memory · ${provider.provider}`)}`);
+  appendOption(args, "-c", `model_providers.stmem.base_url=${JSON.stringify(provider.baseUrl)}`);
+  appendOption(args, "-c", 'model_providers.stmem.env_key="STMEM_CODEX_API_KEY"');
+  appendOption(args, "-c", 'model_providers.stmem.wire_api="responses"');
+  appendOption(args, "-c", "model_providers.stmem.requires_openai_auth=false");
+}
+
 /**
  * @param {string} prompt
  * @param {object} opts
@@ -266,10 +304,17 @@ function runSubagent(prompt, opts = {}) {
     finalPrompt = `${opsContent}\n\n---\n\n${prompt}`;
   }
 
+  const codexProvider = runtimeName === "codex" && threadId
+    ? codexProviderFromConfig(loadConfig(), threadId)
+    : null;
   const baseInvocation = buildStdinInvocation(runtimeName, {
-    ...opts, opsFile, mcpConfig, model, reasoning,
+    ...opts, opsFile, mcpConfig, model: model || codexProvider?.model, reasoning, codexProvider,
   });
-  const childEnv = { ...process.env, ...(baseInvocation.env || {}) };
+  const childEnv = {
+    ...process.env,
+    ...(baseInvocation.env || {}),
+    ...(codexProvider ? { STMEM_CODEX_API_KEY: codexProvider.key } : {}),
+  };
   const invocation = resolveExecutableInvocation(baseInvocation, { env: childEnv });
   const childCwd = resolveWorkingDirectory(opts.cwd);
   try {
@@ -322,6 +367,9 @@ module.exports = {
   buildStdinCmd,
   buildStdinInvocation,
   appendCodexMcpConfig,
+  appendCodexProviderConfig,
+  codexProviderFromConfig,
+  normalizeCodexProviderBaseUrl,
   getRuntimeConfig,
   resolvePlaceholders,
   resolveWorkingDirectory,
