@@ -8,8 +8,46 @@ const {
   appendCodexMcpConfig,
   buildStdinInvocation,
   extractSubagentFailure,
+  normalizeClaudeInvocation,
   resolveWorkingDirectory,
 } = require("../src/services/subagent-runner");
+
+test("Claude subagents keep print mode and restore OAuth compatibility for legacy bare config", () => {
+  const invocation = normalizeClaudeInvocation({
+    file: "claude",
+    args: ["-p", "--bare"],
+    env: {},
+  }, {});
+  assert.deepEqual(invocation.args, ["-p"]);
+});
+
+test("Claude subagents retain bare mode when an explicit API credential is present", () => {
+  const invocation = normalizeClaudeInvocation({
+    file: "claude",
+    args: ["-p", "--bare"],
+    env: {},
+  }, { ANTHROPIC_API_KEY: "test-key" });
+  assert.deepEqual(invocation.args, ["-p", "--bare"]);
+});
+
+test("Claude runtime commands can carry an explicit API credential inline", () => {
+  const previous = process.env.ANTHROPIC_API_KEY;
+  delete process.env.ANTHROPIC_API_KEY;
+  try {
+    const invocation = buildStdinInvocation("claude", {
+      env: { ANTHROPIC_API_KEY: "test-key" },
+    });
+    assert.ok(invocation.args.includes("-p"));
+  } finally {
+    if (previous === undefined) delete process.env.ANTHROPIC_API_KEY;
+    else process.env.ANTHROPIC_API_KEY = previous;
+  }
+});
+
+test("Claude subagents add explicit print mode instead of relying on redirected stdin", () => {
+  const invocation = normalizeClaudeInvocation({ file: "claude", args: [], env: {} }, {});
+  assert.deepEqual(invocation.args, ["-p"]);
+});
 
 test("subagent failures keep the final machine diagnostic and omit echoed prompts", () => {
   const error = {

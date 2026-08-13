@@ -199,7 +199,7 @@ test("review workbench accepts per-candidate Claude Code and Codex profiles", ()
 
 test("subagent command adapter uses each CLI model flag and Codex-only reasoning", () => {
   assert.equal(buildStdinCmd("claude", { model: "claude-opus-4-6" }),
-    "claude -p --bare --model claude-opus-4-6");
+    "claude -p --model claude-opus-4-6");
   assert.equal(buildStdinCmd("codex", { model: "gpt-5.5", reasoning: "low" }),
     'codex exec --ephemeral --sandbox read-only --ignore-user-config --ignore-rules --color never -m gpt-5.5 -c model_reasoning_effort="low"');
   assert.throws(() => buildStdinCmd("claude", {

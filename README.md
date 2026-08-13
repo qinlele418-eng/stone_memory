@@ -411,7 +411,7 @@ stmem watcher set --thread <id> --dev-<name> on # 开发者插件必须使用 de
   },
   "runtimes": {
     "claude": {
-      "command": "claude -p --bare",
+      "command": "claude -p",
       "flags": { "systemPrompt": "--system-prompt-file" }
     }
   },
@@ -522,7 +522,7 @@ subagent 模式不依赖外部 API，通过宿主 Agent 的 CLI 执行挖掘、�
 {
   "runtimes": {
     "claude": {
-      "command": "claude -p --bare",
+      "command": "claude -p",
       "flags": { "systemPrompt": "--system-prompt-file", "mcpConfig": "--mcp-config", "model": "--model" }
     }
   }

@@ -4,7 +4,7 @@
  * stmem.json 配置示例:
  *   "runtimes": {
  *     "claude": {
- *       "command": "claude -p --bare",
+ *       "command": "claude -p",
  *       "flags": {
  *         "systemPrompt": "--system-prompt-file",
  *         "mcpConfig": "--mcp-config",
@@ -28,7 +28,7 @@ const { commandInvocation, appendOption, resolveExecutableInvocation } = require
 
 const BUILTIN_RUNTIMES = {
   claude: {
-    command: "claude -p --bare",
+    command: "claude -p",
     flags: {
       systemPrompt: "--system-prompt-file",
       mcpConfig: "--mcp-config",
@@ -118,14 +118,52 @@ function buildStdinCmd(runtimeName, opts = {}) {
     }
     cmd += ` -c model_reasoning_effort=${JSON.stringify(opts.reasoning)}`;
   }
+  if (runtimeName === "claude" && !hasExplicitClaudeApiCredentials(process.env)) {
+    cmd = cmd.replace(/(^|\s)--bare(?=\s|$)/g, "$1").replace(/\s+/g, " ").trim();
+    if (!/(?:^|\s)(?:-p|--print)(?:\s|$)/.test(cmd)) cmd += " -p";
+  }
   return cmd;
+}
+
+function hasExplicitClaudeApiCredentials(env = process.env) {
+  return [
+    "ANTHROPIC_API_KEY",
+    "CLAUDE_CODE_USE_BEDROCK",
+    "CLAUDE_CODE_USE_VERTEX",
+    "CLAUDE_CODE_USE_FOUNDRY",
+  ].some(name => String(env?.[name] || "").trim());
+}
+
+function normalizeClaudeInvocation(invocation, env = process.env) {
+  const args = [...invocation.args];
+  const printMode = args.includes("-p") || args.includes("--print");
+  if (!printMode) args.unshift("-p");
+
+  // Claude Code --bare deliberately skips OAuth/keychain credentials. Most SM
+  // subagent users authenticate through their working Claude subscription, so
+  // a legacy persisted `claude -p --bare` command must not silently log them
+  // out. Keep bare only when the caller has provided an explicit API/provider
+  // credential that bare mode is documented to support.
+  if (!hasExplicitClaudeApiCredentials(env)) {
+    for (let index = args.length - 1; index >= 0; index--) {
+      if (args[index] === "--bare") args.splice(index, 1);
+    }
+  }
+  return { ...invocation, args };
 }
 
 function buildStdinInvocation(runtimeName, opts = {}) {
   const rt = getRuntimeConfig(runtimeName);
   if (!rt) throw new Error(`Unknown runtime: ${runtimeName}. Add it to stmem.json → runtimes.`);
   const flags = rt.flags || {};
-  const invocation = commandInvocation(rt.command, { remove: ["-p"] });
+  let invocation = commandInvocation(rt.command);
+  if (runtimeName === "claude") {
+    invocation = normalizeClaudeInvocation(invocation, {
+      ...process.env,
+      ...(invocation.env || {}),
+      ...(opts.env || {}),
+    });
+  }
   if (opts.opsFile && flags.systemPrompt && fs.existsSync(opts.opsFile)) {
     appendOption(invocation.args, flags.systemPrompt, opts.opsFile);
   }
@@ -288,4 +326,6 @@ module.exports = {
   resolvePlaceholders,
   resolveWorkingDirectory,
   extractSubagentFailure,
+  hasExplicitClaudeApiCredentials,
+  normalizeClaudeInvocation,
 };
