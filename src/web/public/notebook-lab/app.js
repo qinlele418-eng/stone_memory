@@ -15,7 +15,7 @@
   const notice = $("#notice");
   const topicDialog = $("#topic-dialog");
   const noteDialog = $("#note-dialog");
-  let state = { topics: [], currentTopic: null, currentNote: null, currentEntries: [], turning: false };
+  let state = { topics: [], currentTopic: null, currentNote: null, currentEntries: [] };
   const paperStyleSelect = $("#paper-style");
   const PAPER_STYLES = new Set(["blank", "lined", "grid"]);
   const PAPER_STYLE_KEY = "stone:notebook:paper-style:v1";
@@ -131,51 +131,24 @@
     entries.querySelectorAll("[data-unseal-note]").forEach(button => button.onclick = () => unsealNote(button.dataset.unsealNote));
   }
 
-  async function readNote(noteId, { direction = "" } = {}) {
-    if (state.turning) return;
-    state.turning = Boolean(direction);
-    if (state.turning) { reader.dataset.turning = "true"; reader.setAttribute("aria-busy", "true"); }
-    try {
-      const note = await api.api(`${base}/entries/${encodeURIComponent(noteId)}`);
-      if (note.visibility === "sealed") return;
-      const animate = Boolean(direction && !reader.hidden);
-      if (animate) await animatePageTurn("out", direction);
-      state.currentNote = note;
-      const visibleEntries = state.currentEntries.filter(item => item.visibility !== "sealed");
-      const currentIndex = visibleEntries.findIndex(item => item.id === note.id);
-      const date = new Date(note.updatedAt || note.createdAt || Date.now());
-      const month = new Intl.DateTimeFormat("en-US", { month: "short" }).format(date).toUpperCase();
-      const day = String(date.getDate()).padStart(2, "0");
-      paper.innerHTML = `<span class="paper-ribbon" aria-hidden="true"></span><div class="book-page book-page-title"><header><div class="date-badge"><small>${month}</small><strong>${day}</strong></div><p>${formatLongDate(date)}<span class="leaf-divider" aria-hidden="true"></span>${escapeHtml(note.topicName)} · 第 ${note.revision} 版</p><h2>${escapeHtml(note.title)}</h2><div>${note.tags.map(tag => `<span>#${escapeHtml(tag)}</span>`).join("")}</div></header></div><div class="book-page book-page-body">${renderMarkdown(note.body)}</div><footer><span>${String(Math.max(0, currentIndex) + 1).padStart(2, "0")}</span><i>/</i><span>${String(visibleEntries.length).padStart(2, "0")}</span></footer>`;
-      const previous = $("#previous-note"), next = $("#next-note");
-      previous.disabled = currentIndex <= 0;
-      next.disabled = currentIndex < 0 || currentIndex >= visibleEntries.length - 1;
-      previous.dataset.note = currentIndex > 0 ? visibleEntries[currentIndex - 1].id : "";
-      next.dataset.note = currentIndex >= 0 && currentIndex < visibleEntries.length - 1 ? visibleEntries[currentIndex + 1].id : "";
-      workspace.hidden = true;
-      reader.hidden = false;
-      if (animate) await animatePageTurn("in", direction);
-      $("#reader-back").focus();
-    } finally {
-      state.turning = false;
-      delete reader.dataset.turning;
-      reader.removeAttribute("aria-busy");
-    }
-  }
-
-  async function animatePageTurn(phase, direction) {
-    if (typeof paper.animate !== "function" || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    const compact = window.matchMedia("(max-width: 520px)").matches;
-    const sign = direction === "next" ? -1 : 1;
-    const resting = compact ? "translateX(0px)" : "perspective(1500px) rotateY(0deg) translateX(0px)";
-    const shiftedOut = compact ? `translateX(${sign * 18}px)` : `perspective(1500px) rotateY(${sign * 8}deg) translateX(${sign * 10}px)`;
-    const shiftedIn = compact ? `translateX(${-sign * 18}px)` : `perspective(1500px) rotateY(${-sign * 8}deg) translateX(${-sign * 10}px)`;
-    paper.style.transformOrigin = direction === "next" ? "left center" : "right center";
-    const frames = phase === "out"
-      ? [{ transform: resting, opacity: 1 }, { transform: shiftedOut, opacity: .18 }]
-      : [{ transform: shiftedIn, opacity: .18 }, { transform: resting, opacity: 1 }];
-    const animation = paper.animate(frames, { duration: phase === "out" ? 130 : 190, easing: phase === "out" ? "ease-in" : "ease-out" });
-    try { await animation.finished; } catch {}
+  async function readNote(noteId) {
+    const note = await api.api(`${base}/entries/${encodeURIComponent(noteId)}`);
+    if (note.visibility === "sealed") return;
+    state.currentNote = note;
+    const visibleEntries = state.currentEntries.filter(item => item.visibility !== "sealed");
+    const currentIndex = visibleEntries.findIndex(item => item.id === note.id);
+    const date = new Date(note.updatedAt || note.createdAt || Date.now());
+    const month = new Intl.DateTimeFormat("en-US", { month: "short" }).format(date).toUpperCase();
+    const day = String(date.getDate()).padStart(2, "0");
+    paper.innerHTML = `<span class="paper-ribbon" aria-hidden="true"></span><div class="book-page book-page-title"><header><div class="date-badge"><small>${month}</small><strong>${day}</strong></div><p>${formatLongDate(date)}<span class="leaf-divider" aria-hidden="true"></span>${escapeHtml(note.topicName)} · 第 ${note.revision} 版</p><h2>${escapeHtml(note.title)}</h2><div>${note.tags.map(tag => `<span>#${escapeHtml(tag)}</span>`).join("")}</div></header></div><div class="book-page book-page-body">${renderMarkdown(note.body)}</div><footer><span>${String(Math.max(0, currentIndex) + 1).padStart(2, "0")}</span><i>/</i><span>${String(visibleEntries.length).padStart(2, "0")}</span></footer>`;
+    const previous = $("#previous-note"), next = $("#next-note");
+    previous.disabled = currentIndex <= 0;
+    next.disabled = currentIndex < 0 || currentIndex >= visibleEntries.length - 1;
+    previous.dataset.note = currentIndex > 0 ? visibleEntries[currentIndex - 1].id : "";
+    next.dataset.note = currentIndex >= 0 && currentIndex < visibleEntries.length - 1 ? visibleEntries[currentIndex + 1].id : "";
+    workspace.hidden = true;
+    reader.hidden = false;
+    $("#reader-back").focus();
   }
 
   function renderMarkdown(markdown) {
@@ -247,8 +220,8 @@
   $("#back").onclick = showLibrary;
   $("#reader-back").onclick = () => { reader.hidden = true; workspace.hidden = false; };
   $("#reader-index").onclick = () => { reader.hidden = true; workspace.hidden = false; };
-  $("#previous-note").onclick = event => event.currentTarget.dataset.note && readNote(event.currentTarget.dataset.note, { direction: "previous" });
-  $("#next-note").onclick = event => event.currentTarget.dataset.note && readNote(event.currentTarget.dataset.note, { direction: "next" });
+  $("#previous-note").onclick = event => event.currentTarget.dataset.note && readNote(event.currentTarget.dataset.note);
+  $("#next-note").onclick = event => event.currentTarget.dataset.note && readNote(event.currentTarget.dataset.note);
 
   $("#topic-form").addEventListener("submit", async event => {
     event.preventDefault();

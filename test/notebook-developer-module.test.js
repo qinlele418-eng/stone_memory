@@ -26,8 +26,7 @@ test("notebook developer module is detachable and bound to the selected memory t
   assert.match(html, /value="lined"/);
   assert.match(html, /value="grid"/);
   assert.match(app, /stone:notebook:paper-style:v1/);
-  assert.match(app, /prefers-reduced-motion/);
-  assert.match(app, /animatePageTurn/);
+  assert.doesNotMatch(app, /animatePageTurn|data\.turning/);
   assert.match(app, /expectedRevision/);
   assert.match(app, /method: noteId \? "PATCH" : "POST"/);
   assert.match(app, /data-manage-topic/);
