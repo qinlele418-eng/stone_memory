@@ -506,6 +506,51 @@ function serveStatic(req, res, pathname) {
   return true;
 }
 
+async function handleDreamSettings(req, url, threadId, resource) {
+  if (resource === "preferences") {
+    return JSON.parse(runStmem(["dream", "preferences", "--thread", threadId]));
+  }
+  if (resource === "pin") {
+    if (req.method === "PUT") {
+      const body = await readJson(req);
+      return JSON.parse(runStmem(["dream", "pin", "--thread", threadId, "--type", String(body.dreamType || "").trim()]));
+    }
+    if (req.method === "DELETE") {
+      return JSON.parse(runStmem(["dream", "unpin", "--thread", threadId]));
+    }
+  }
+  if (resource === "guard" && req.method === "PUT") {
+    const body = await readJson(req);
+    return JSON.parse(runStmem(["dream", "guard", "--thread", threadId, body.enabled ? "on" : "off"]));
+  }
+  if (resource === "multiplier" && req.method === "PUT") {
+    const body = await readJson(req);
+    const args = ["dream", "multiplier", "--thread", threadId];
+    for (const [type, value] of Object.entries(body.multipliers || {})) args.push(`--${type}`, String(value));
+    return JSON.parse(runStmem(args));
+  }
+  if (resource === "prompt") {
+    if (req.method === "GET") {
+      return JSON.parse(runStmem(["dream", "prompt", "--thread", threadId, "--type", String(url.searchParams.get("type") || "")]));
+    }
+    if (req.method === "DELETE") {
+      return JSON.parse(runStmem(["dream", "prompt", "--thread", threadId, "--type", String(url.searchParams.get("type") || ""), "--reset"]));
+    }
+    if (req.method === "PUT") {
+      const body = await readJson(req);
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-dream-prompt-"));
+      try {
+        const file = path.join(dir, "override.md");
+        fs.writeFileSync(file, String(body.content ?? ""), "utf8");
+        return JSON.parse(runStmem(["dream", "prompt", "--thread", threadId, "--type", String(body.type || "").trim(), "--set", file]));
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  }
+  throw new Error("不支持的织梦设置请求");
+}
+
 async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/review-lab/api/libraries") {
     const threadId = String(url.searchParams.get("threadId") || "");
@@ -712,6 +757,7 @@ async function handleApi(req, res, url) {
           ? selectedDate
           : dreamDates.at(-1) || null,
         dreamDates,
+        entries: reader.list(threadId),
         coverage: reader.coverage(threadId),
         eligibleDates: reader.eligibleDates(threadId),
         job: dreamJobs.get(threadId) || null,
@@ -742,6 +788,12 @@ async function handleApi(req, res, url) {
         });
       return json(res, 202, { success: true, job });
     }
+  }
+
+  const dreamSettingsMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/dreams\/(preferences|pin|guard|multiplier|prompt)$/);
+  if (dreamSettingsMatch) {
+    const threadId = decodeURIComponent(dreamSettingsMatch[1]);
+    return json(res, 200, await handleDreamSettings(req, url, threadId, dreamSettingsMatch[2]));
   }
 
   const libraryMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)$/);

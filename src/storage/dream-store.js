@@ -65,6 +65,14 @@ class DreamStore {
     return dates.length ? this.get(threadId, dates.at(-1)) : null;
   }
 
+  // 目录只读视图：按日期升序返回每场梦的元信息，不含正文。
+  list(threadId) {
+    return this.listDates(threadId).map(date => {
+      const dream = this.get(threadId, date);
+      return { date, dreamType: dream.dreamType, title: dream.title };
+    });
+  }
+
   coverage(threadId, eligibleDates) {
     assertThreadId(threadId);
     const expected = [...new Set((eligibleDates || []).map(assertDate))].sort();

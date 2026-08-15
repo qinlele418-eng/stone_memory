@@ -6,6 +6,8 @@ const path = require("node:path");
 const { getCfg, getThreadDir } = require("../config");
 const { MemoryStore } = require("../storage/memory-store");
 const { DreamStore } = require("../storage/dream-store");
+const { DreamPreferences } = require("./dream-preferences");
+const { resolveDreamType } = require("./dream-policy");
 const { runSubagent: defaultRunSubagent } = require("./subagent-runner");
 
 const ROLL_SCALE = 10_000;
@@ -26,6 +28,7 @@ class DreamService {
     runSubagent = defaultRunSubagent,
     promptDirectory = DEFAULT_PROMPT_DIRECTORY,
     operationDirectoryForThread = threadId => path.join(getThreadDir(threadId), "tmp"),
+    preferences = new DreamPreferences(),
   } = {}) {
     this.dreamStore = dreamStore;
     this.memoryStoreFactory = memoryStoreFactory;
@@ -34,9 +37,15 @@ class DreamService {
     this.runSubagent = runSubagent;
     this.promptDirectory = promptDirectory;
     this.operationDirectoryForThread = operationDirectoryForThread;
+    this.preferences = preferences;
   }
 
   generate({ threadId, date }) {
+    // 同一记忆体的织梦串行执行，保证 one-shot 的读→生成→保存→消费原子。
+    return this.preferences.withLock(threadId, () => this.#generate({ threadId, date }));
+  }
+
+  #generate({ threadId, date }) {
     const existing = this.dreamStore.get(threadId, date);
     if (existing) return { status: "already_exists", dream: existing };
 
@@ -61,13 +70,19 @@ class DreamService {
       error.code = "DREAM_SOURCE_EMPTY";
       throw error;
     }
-    const roll = rollDreamType({ randomInt: this.randomInt });
+    const prefs = this.preferences.read(threadId);
+    const roll = resolveDreamType({
+      prefs,
+      randomInt: this.randomInt,
+      roller: rollDreamType,
+    });
     const profile = this.getThreadConfig(threadId);
     const operation = buildDreamPrompt({
       dreamType: roll.finalType,
       userName: profile.userName,
       aiName: profile.aiName,
       promptDirectory: this.promptDirectory,
+      overrideDirectory: this.preferences.promptDirectoryFor(threadId),
     });
     const task = buildDreamTask({
       date,
@@ -94,6 +109,10 @@ class DreamService {
       title: generated.title,
       body: generated.body,
     });
+    // 只有最终梦境成功持久化后才消费 one-shot；子任务失败或保存冲突都不会走到这里。
+    if (prefs.oneShot?.token) {
+      this.preferences.consumeOneShot(threadId, prefs.oneShot.token);
+    }
     return { status: "completed", dream, roll };
   }
 }
@@ -151,9 +170,10 @@ function buildDreamPrompt({
   userName,
   aiName,
   promptDirectory = DEFAULT_PROMPT_DIRECTORY,
+  overrideDirectory = null,
 }) {
-  const common = fs.readFileSync(path.join(promptDirectory, "common-core.md"), "utf8");
-  const typePrompt = fs.readFileSync(path.join(promptDirectory, `${dreamType}.md`), "utf8").trim();
+  const common = readPromptAsset({ overrideDirectory, promptDirectory, fileName: "common-core.md" });
+  const typePrompt = readPromptAsset({ overrideDirectory, promptDirectory, fileName: `${dreamType}.md` }).trim();
   const values = {
     "{userName}": requiredText(userName, "userName"),
     "{aiName}": requiredText(aiName, "aiName"),
@@ -166,6 +186,33 @@ function buildDreamPrompt({
   const unresolved = prompt.match(/\{\{[^}]+\}\}|\{(?:userName|aiName)\}/);
   if (unresolved) throw new Error(`unresolved dream prompt placeholder: ${unresolved[0]}`);
   return prompt.trim();
+}
+
+// 线程 override 优先，缺失时回退 bundled operations/dream 内置资产。
+function readPromptAsset({ overrideDirectory, promptDirectory, fileName }) {
+  if (overrideDirectory) {
+    const overrideFile = path.join(overrideDirectory, fileName);
+    if (fs.existsSync(overrideFile)) return fs.readFileSync(overrideFile, "utf8");
+  }
+  return fs.readFileSync(path.join(promptDirectory, fileName), "utf8");
+}
+
+// 织梦秘典写入前的校验：拒绝空内容、损坏运行所需占位符契约。
+// 公共规则必须保留 {{typePrompt}} 插槽；类型秘典不得再引入需要替换的占位符。
+function validateDreamPromptOverride(fileName, content) {
+  const text = String(content ?? "").trim();
+  if (!text) throw new Error("dream prompt override must not be empty");
+  if (fileName === "common-core.md") {
+    if (!text.includes("{{typePrompt}}")) {
+      throw new Error("common dream rules must keep the {{typePrompt}} slot");
+    }
+    const unknown = (text.match(/\{\{[^}]+\}\}/g) || []).filter(slot => slot !== "{{typePrompt}}");
+    if (unknown.length) throw new Error(`unknown dream prompt placeholder: ${unknown[0]}`);
+  } else {
+    const unresolved = text.match(/\{\{[^}]+\}\}|\{(?:userName|aiName)\}/);
+    if (unresolved) throw new Error(`dream type prompt must not contain placeholder: ${unresolved[0]}`);
+  }
+  return text;
 }
 
 function buildDreamTask({ date, dreamType, current, historical }) {
@@ -230,6 +277,7 @@ function normalizeDreamMarkdown(output) {
 module.exports = {
   buildDreamTask,
   buildDreamPrompt,
+  validateDreamPromptOverride,
   DreamService,
   rollDreamType,
   selectDreamFeelings,

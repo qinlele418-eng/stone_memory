@@ -52,6 +52,20 @@ test("dream store atomically saves text and reads latest, exact date, and covera
   });
 });
 
+test("dream store lists dream metadata sorted by date without bodies", t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-dream-list-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const store = new DreamStore({ root });
+  store.save({ threadId: "thread-a", date: "2026-08-02", dreamType: "nightmare", title: "晚一点", body: "b" });
+  store.save({ threadId: "thread-a", date: "2026-07-27", dreamType: "beautiful", title: "灯塔仍亮着", body: "a" });
+
+  assert.deepEqual(store.list("thread-a"), [
+    { date: "2026-07-27", dreamType: "beautiful", title: "灯塔仍亮着" },
+    { date: "2026-08-02", dreamType: "nightmare", title: "晚一点" },
+  ]);
+  assert.deepEqual(store.list("thread-b"), []);
+});
+
 test("dream store refuses a target that appears after the initial existence check", t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-dream-race-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
