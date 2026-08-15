@@ -32,6 +32,16 @@ test("preferences round-trip per thread without cross-contamination", t => {
   assert.equal(store.read("thread-b").multipliers.beautiful, 1);
 });
 
+test("partial multiplier updates preserve previously set types", t => {
+  const store = makeStore(t);
+  store.setMultipliers("thread-a", { erotic: 2 });
+  store.setMultipliers("thread-a", { beautiful: 0.5 });
+  const prefs = store.read("thread-a");
+  assert.equal(prefs.multipliers.erotic, 2);
+  assert.equal(prefs.multipliers.beautiful, 0.5);
+  assert.equal(prefs.multipliers.nightmare, 1);
+});
+
 test("one-shot is consumed only when the token still matches", t => {
   const store = makeStore(t);
   const set = store.setOneShot("thread-a", "nightmare");

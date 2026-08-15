@@ -120,7 +120,9 @@ class DreamPreferences {
 
   setMultipliers(threadId, multipliers) {
     const current = this.read(threadId);
-    const normalized = normalizeMultipliers(multipliers);
+    // 部分更新语义：先把本次传入的类型合并到现有倍率，再归一化，
+    // 避免未传入的类型被 normalizeMultipliers 补成默认 1 而覆盖历史设置。
+    const normalized = normalizeMultipliers({ ...current.multipliers, ...multipliers });
     for (const type of DREAM_TYPE_ORDER) {
       assertMultiplierStep(normalized[type]);
     }
