@@ -20,6 +20,7 @@ const { MiningReviewStore } = require("../services/mining-review");
 const { editFusionCandidate } = require("../services/review-fusion");
 const { isArchiveConversation } = require("../services/thread-ingest");
 const { DreamReader } = require("../services/dream-reader");
+const { NotebookService } = require("../services/notebook-service");
 const { watcherActions, watcherEnabled } = require("../services/watcher-runtime");
 const { normalizeMiningApiProfile } = require("../services/mining-api-profile");
 const { buildFeelingPrompt, buildFeaturePrompt } = require("../services/memory-miner");
@@ -61,6 +62,14 @@ function runStmem(args, { timeout = 10 * 60 * 1000, maxBuffer = 32 * 1024 * 1024
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(safeStmemFailure(result.stderr, args[0], result.status));
   return (result.stdout || "").trim();
+}
+
+function runStmemBatch(args, payload) {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-web-batch-"));
+  const file = path.join(directory, "input.json");
+  fs.writeFileSync(file, JSON.stringify(payload || {}), { encoding: "utf8", mode: 0o600 });
+  try { return JSON.parse(runStmem([...args, "--batch-file", file])); }
+  finally { fs.rmSync(directory, { recursive: true, force: true }); }
 }
 
 function runStmemAsync(args, { maxOutput = 8000 } = {}) {
@@ -741,6 +750,69 @@ async function handleApi(req, res, url) {
           job.completedAt = new Date().toISOString();
         });
       return json(res, 202, { success: true, job });
+    }
+  }
+
+  const notebookMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/notebooks(?:\/(.*))?$/);
+  if (notebookMatch) {
+    const threadId = decodeURIComponent(notebookMatch[1]);
+    publicThreadSettings(threadId);
+    const parts = String(notebookMatch[2] || "").split("/").filter(Boolean).map(decodeURIComponent);
+    const service = new NotebookService();
+    if (req.method === "GET" && parts.length === 0) {
+      return json(res, 200, service.status({ threadId }));
+    }
+    if (req.method === "POST" && parts[0] === "topics" && parts.length === 1) {
+      const body = await readJson(req);
+      return json(res, 201, runStmemBatch(["notebook", "topic-create", "--thread", threadId], body));
+    }
+    if (req.method === "PATCH" && parts[0] === "topics" && parts[1]) {
+      const body = await readJson(req);
+      return json(res, 200, runStmemBatch(["notebook", "topic-update", "--thread", threadId], {
+        ...body, topicId: parts[1],
+      }));
+    }
+    if (req.method === "GET" && parts[0] === "topics" && parts[1] && parts[2] === "entries") {
+      return json(res, 200, service.list({ threadId, topicId: parts[1], includeBody: false }));
+    }
+    if (req.method === "POST" && parts[0] === "entries" && parts.length === 1) {
+      const body = await readJson(req);
+      return json(res, 201, runStmemBatch(["notebook", "write", "--thread", threadId], body));
+    }
+    if (req.method === "GET" && parts[0] === "entries" && parts[1]) {
+      const note = service.read({ threadId, noteId: parts[1] });
+      return json(res, note ? 200 : 404, note || { found: false, noteId: parts[1] });
+    }
+    if (req.method === "PATCH" && parts[0] === "entries" && parts[1] && parts[2] === "visibility") {
+      const body = await readJson(req);
+      const visibility = body.visibility === "sealed" ? "sealed" : body.visibility === "visible" ? "visible" : null;
+      if (!visibility) throw new Error("笔记展示状态必须是 visible 或 sealed");
+      const current = service.read({ threadId, noteId: parts[1] });
+      if (!current) return json(res, 404, { found: false, noteId: parts[1] });
+      return json(res, 200, runStmemBatch(["notebook", "write", "--thread", threadId], {
+        topicId: current.topicId,
+        noteId: current.id,
+        title: current.title,
+        body: current.body,
+        tags: current.tags,
+        visibility,
+        expectedRevision: current.revision,
+      }));
+    }
+    if (req.method === "PATCH" && parts[0] === "entries" && parts[1]) {
+      const body = await readJson(req);
+      return json(res, 200, runStmemBatch(["notebook", "write", "--thread", threadId], {
+        ...body, noteId: parts[1],
+      }));
+    }
+    if (req.method === "GET" && parts[0] === "search") {
+      return json(res, 200, service.query({
+        threadId,
+        query: String(url.searchParams.get("q") || ""),
+        topicId: url.searchParams.get("topicId") || null,
+        tags: String(url.searchParams.get("tags") || "").split(/[，,]/).map(value => value.trim()).filter(Boolean),
+        limit: Number(url.searchParams.get("limit") || 20),
+      }));
     }
   }
 

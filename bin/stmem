@@ -50,6 +50,8 @@ if (!cmd || cmd === "--help" || cmd === "-h") {
   stmem watcher [status|on|off] --thread <id>   查看/修改该记忆体 watcher 期望状态
   stmem watcher set --thread <id> --archive|--miner|--compression|--dream on|off  修改内置插件
   stmem watcher set --thread <id> --dev-<name> on|off  修改开发者插件（必须 dev- 前缀）
+  stmem notebook status|topic-create|topic-update|write|query|read|list --thread <id>
+                                                管理主题 Markdown 笔记本
   stmem web [--port 4173]                       启动本地记忆管理前端
   stmem db [status|migrate|migrate-all|export] [--thread <id>]  数据库管理
 
@@ -105,6 +107,14 @@ switch (cmd) {
   case "dream":
     try {
       require(path.join(SCRIPTS, "stmem-dream")).runDreamCommand(process.argv.slice(3));
+    } catch (error) {
+      console.error(error.message);
+      process.exit(1);
+    }
+    break;
+  case "notebook":
+    try {
+      require(path.join(SCRIPTS, "stmem-notebook")).runNotebookCommand(process.argv.slice(3));
     } catch (error) {
       console.error(error.message);
       process.exit(1);

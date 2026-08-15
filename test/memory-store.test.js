@@ -97,5 +97,9 @@ test("schema migration preserves old rows and allows distinct messages at one ti
     ["user", "first"],
     ["assistant", "second"],
   ]);
-  assert.equal(store.db.prepare("SELECT MAX(version) version FROM schema_migrations").get().version, 11);
+  assert.equal(store.db.prepare("SELECT MAX(version) version FROM schema_migrations").get().version, 13);
+  assert.ok(store.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='notebook_topics'").get());
+  assert.ok(store.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='notebook_entries'").get());
+  assert.ok(store.db.pragma("table_info(notebook_topics)").some(column => column.name === "is_default"));
+  assert.ok(store.db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_notebook_topics_one_default'").get());
 });
