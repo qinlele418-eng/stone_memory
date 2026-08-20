@@ -55,7 +55,6 @@ jobs:
           EVENT_PR_NUMBER: ${{ github.event.pull_request.number }}
           INPUT_PR_NUMBER: ${{ inputs.pr_number }}
           REPOSITORY: ${{ github.repository }}
-          REPOSITORY_URL: ${{ github.server_url }}/${{ github.repository }}.git
         run: |
           set -euo pipefail
 
@@ -113,14 +112,9 @@ jobs:
           fi
 
           merge_ref="refs/pull/${pr_number}/merge"
-          if ! merge_ref_listing="$(git -c "http.extraheader=AUTHORIZATION: bearer ${GH_TOKEN}" \
-            ls-remote "$REPOSITORY_URL" "$merge_ref")"; then
-            echo "::error::GitHub could not resolve ${merge_ref}; merge-result testing is unavailable."
-            exit 1
-          fi
-          merge_sha="$(awk 'NR == 1 { print $1 }' <<< "$merge_ref_listing")"
+          merge_sha="$(jq -r '.merge_commit_sha // empty' <<< "$pr_json")"
           if [[ ! "$merge_sha" =~ ^[0-9a-fA-F]{40}$ ]]; then
-            echo "::error::GitHub did not provide ${merge_ref}; merge-result testing is unavailable."
+            echo "::error::GitHub did not provide ${merge_ref} (merge_commit_sha); merge-result testing is unavailable."
             exit 1
           fi
 
