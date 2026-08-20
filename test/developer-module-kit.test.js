@@ -45,6 +45,7 @@ test("main developer mode lazy-loads the module workshop entry", () => {
   const app = fs.readFileSync(path.join(publicDir, "app.js"), "utf8");
   assert.doesNotMatch(html, /developer-kit\/bootstrap\.js/);
   assert.match(app, /loadOptionalScript\("\/developer-kit\/bootstrap\.js"\)/);
+  assert.match(app, /loadOptionalScript\("\/developer-modules\/stone-memory-assistant\/bootstrap\.js"\)/);
 });
 
 test("theme studio applies the saved theme before standalone CSS paints", () => {
