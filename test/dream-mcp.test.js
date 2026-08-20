@@ -6,6 +6,7 @@ const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { DreamStore } = require("../src/storage/dream-store");
 const { MemoryStore } = require("../src/storage/memory-store");
+const { childEnvWithHome } = require("../test-support/child-env");
 
 test("MCP exposes latest, coverage, and exact-date dream reads", t => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-dream-mcp-"));
@@ -98,10 +99,7 @@ test("MCP exposes latest, coverage, and exact-date dream reads", t => {
         arguments: { thread: "thread-test" },
       },
     },
-  ], {
-    HOME: home,
-    STMEM_DB_PATH: databasePath,
-  });
+  ], childEnvWithHome(home, { STMEM_DB_PATH: databasePath }));
 
   const tools = new Map(responses[0].result.tools.map(tool => [tool.name, tool]));
   assert.ok(tools.has("stmem_dream_latest"));

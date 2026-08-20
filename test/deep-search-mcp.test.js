@@ -41,7 +41,11 @@ test("main MCP advertises multi-memory and rebuild controls and reports real too
   assert.ok(tools.get("stmem_memory_search").inputSchema.properties.thread);
   assert.ok(tools.get("stmem_memory_deep_search").inputSchema.properties.thread);
   assert.deepEqual(Object.keys(tools.get("stmem_memory_rebuild").inputSchema.properties), ["thread"]);
-  assert.ok(tools.get("stmem_memory_rebuild_preview").inputSchema.properties.summaryLimit);
+  const summary = tools.get("stmem_memory_rebuild_preview").inputSchema.properties.summary;
+  assert.ok(summary);
+  assert.ok(summary.properties.mode);
+  assert.ok(summary.properties.limit);
+  assert.ok(summary.properties.minImportance);
   assert.equal(responses[1].result.isError, true);
   assert.match(responses[1].result.content[0].text, /未知工具/);
 });
