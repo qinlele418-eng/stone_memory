@@ -133,7 +133,10 @@ jobs:
             "refs/heads/main:refs/remotes/origin/ci-main" \
             "refs/pull/${pr_number}/head:refs/remotes/origin/ci-pr-${pr_number}"
           git -C merge-check checkout --detach "$base_sha"
-          if ! git -C merge-check merge --no-commit --no-ff "$head_sha"; then
+          if ! git -C merge-check \
+            -c user.name='Stone Memory CI' \
+            -c user.email='ci@stone-memory.invalid' \
+            merge --no-commit --no-ff "$head_sha"; then
             git -C merge-check merge --abort || true
             echo "::error::Pull request #${pr_number} cannot be merged with current main (${base_sha:0:7}); refusing to test main."
             exit 1
@@ -273,7 +276,10 @@ jobs:
           GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth_header}" \
           git fetch --no-tags origin \
             "refs/pull/${PR_NUMBER}/head:refs/remotes/origin/pr-${PR_NUMBER}"
-          if ! git merge --no-commit --no-ff "$HEAD_SHA"; then
+          if ! git \
+            -c user.name='Stone Memory CI' \
+            -c user.email='ci@stone-memory.invalid' \
+            merge --no-commit --no-ff "$HEAD_SHA"; then
             git merge --abort || true
             echo "::error::Pull request #${PR_NUMBER} cannot be merged into current main."
             exit 1
@@ -389,7 +395,10 @@ jobs:
           GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth_header}" \
           git fetch --no-tags origin \
             "refs/pull/${PR_NUMBER}/head:refs/remotes/origin/pr-${PR_NUMBER}"
-          if ! git merge --no-commit --no-ff "$HEAD_SHA"; then
+          if ! git \
+            -c user.name='Stone Memory CI' \
+            -c user.email='ci@stone-memory.invalid' \
+            merge --no-commit --no-ff "$HEAD_SHA"; then
             git merge --abort || true
             echo "::error::Pull request #${PR_NUMBER} cannot be merged into current main."
             exit 1
