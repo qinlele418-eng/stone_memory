@@ -1,0 +1,130 @@
+name: Stone Memory CI
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+      - labeled
+
+concurrency:
+  group: stone-memory-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: 22.x
+
+jobs:
+  test:
+    name: Test / ${{ matrix.name }}
+    if: >-
+      github.event.action != 'labeled' ||
+      github.event.label.name == 'ci:backfill' ||
+      github.event.label.name == 'ci:run'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Ubuntu
+            os: ubuntu-latest
+          - name: Windows
+            os: windows-latest
+          - name: macOS
+            os: macos-latest
+
+    steps:
+      - name: Check out pull request
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run test suite
+        run: npm test
+
+      - name: Smoke test the CLI
+        run: node bin/stmem --help
+
+  repository-checks:
+    name: Repository Checks
+    if: >-
+      github.event.action != 'labeled' ||
+      github.event.label.name == 'ci:backfill' ||
+      github.event.label.name == 'ci:run'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out pull request history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Check pull request diff whitespace
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git cat-file -e "$BASE_SHA^{commit}"
+          git cat-file -e "$HEAD_SHA^{commit}"
+          git diff --check "$BASE_SHA...$HEAD_SHA"
+
+  package-smoke:
+    name: Package Smoke
+    if: >-
+      github.event.action != 'labeled' ||
+      github.event.label.name == 'ci:backfill' ||
+      github.event.label.name == 'ci:run'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out pull request
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Pack the npm artifact
+        env:
+          PACKAGE_DIR: ${{ runner.temp }}/stone-memory-package
+          PACK_METADATA: ${{ runner.temp }}/stone-memory-pack.json
+        run: |
+          node -e "require('node:fs').mkdirSync(process.env.PACKAGE_DIR, { recursive: true })"
+          npm pack --json --pack-destination "$PACKAGE_DIR" > "$PACK_METADATA"
+
+      - name: Install and invoke the packed CLI
+        env:
+          PACKAGE_DIR: ${{ runner.temp }}/stone-memory-package
+          PACK_METADATA: ${{ runner.temp }}/stone-memory-pack.json
+          INSTALL_DIR: ${{ runner.temp }}/stone-memory-package-install
+        run: |
+          package_file="$(node -e 'const fs = require("node:fs"); const metadata = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); process.stdout.write(metadata[0].filename);' "$PACK_METADATA")"
+          mkdir -p "$INSTALL_DIR"
+          npm install --prefix "$INSTALL_DIR" --no-audit --no-fund "$PACKAGE_DIR/$package_file"
+          "$INSTALL_DIR/node_modules/.bin/stmem" --help
