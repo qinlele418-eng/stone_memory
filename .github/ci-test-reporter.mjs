@@ -119,6 +119,9 @@ const child = spawn(npmCommand, ['test'], {
   cwd: process.cwd(),
   env: process.env,
   stdio: ['inherit', 'pipe', 'pipe'],
+  // npm is a .cmd shim on Windows and must be launched through the shell.
+  // The command and arguments are fixed; no PR-controlled shell text is used.
+  shell: process.platform === 'win32',
 });
 let stdout = '';
 let spawnError;
