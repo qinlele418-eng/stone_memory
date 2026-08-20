@@ -98,6 +98,7 @@ function loadDeveloperModules() {
     loadOptionalScript("/developer-modules/stone-memory-assistant/bootstrap.js"),
     loadOptionalScript("/developer-kit/bootstrap.js"),
     loadOptionalScript("/dream-lab/bootstrap.js"),
+    loadOptionalScript("/notebook-lab/bootstrap.js"),
   ]).catch(error => showToast(error.message, "error"));
 }
 

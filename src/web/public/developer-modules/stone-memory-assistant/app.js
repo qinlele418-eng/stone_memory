@@ -525,9 +525,9 @@
   function fallbackColors() {
     const styles = getComputedStyle(document.documentElement);
     return {
-      accent: styles.getPropertyValue("--stone-tide-accent").trim() || "#397052",
-      surface: styles.getPropertyValue("--stone-tide-surface").trim() || "#fffef9",
-      font: styles.getPropertyValue("--stone-tide-font-body").trim() || "sans-serif"
+      accent: styles.getPropertyValue("--stone-theme-accent").trim() || "#397052",
+      surface: styles.getPropertyValue("--stone-theme-surface").trim() || "#fffef9",
+      font: styles.getPropertyValue("--stone-theme-font-body").trim() || "sans-serif"
     };
   }
 

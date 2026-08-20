@@ -36,10 +36,10 @@ test("developer mode bootstrap exposes the demo for the current memory body", ()
 test("module consumes theme variables without persisting assistant or business state", () => {
   const css = read("styles.css");
   const app = read("app.js");
-  assert.match(css, /--stone-tide-accent/);
-  assert.match(css, /--stone-tide-surface/);
-  assert.match(css, /--stone-tide-radius/);
-  assert.match(css, /--stone-tide-shadow/);
+  assert.match(css, /--stone-theme-accent/);
+  assert.match(css, /--stone-theme-surface/);
+  assert.match(css, /--stone-theme-radius/);
+  assert.match(css, /--stone-theme-shadow/);
   assert.doesNotMatch(app, /localStorage|sessionStorage|indexedDB/);
   assert.doesNotMatch(app, /\.apiKey\b|\[\s*["']apiKey["']\s*\]/);
   assert.doesNotMatch(app, /setInterval/);

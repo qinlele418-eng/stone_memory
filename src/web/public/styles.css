@@ -23,7 +23,7 @@
 
 * { box-sizing: border-box; }
 html { min-height: 100%; background: var(--leaf-50); }
-body { min-height: 100vh; margin: 0; background: var(--stone-tide-page-background,
+body { min-height: 100vh; margin: 0; background: var(--stone-theme-page-background,
   radial-gradient(circle at 10% 10%, rgba(214, 228, 204, .72), transparent 32rem),
   var(--leaf-50));
   background-repeat: no-repeat; background-size: 100% 100dvh; }
