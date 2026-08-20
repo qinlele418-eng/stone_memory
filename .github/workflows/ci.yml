@@ -125,9 +125,10 @@ jobs:
             exit 1
           fi
 
+          auth_header="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\r\n')"
           GIT_CONFIG_COUNT=1 \
           GIT_CONFIG_KEY_0=http.extraheader \
-          GIT_CONFIG_VALUE_0="AUTHORIZATION: bearer ${GH_TOKEN}" \
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth_header}" \
           git -C merge-check fetch --no-tags origin \
             "refs/heads/main:refs/remotes/origin/ci-main" \
             "refs/pull/${pr_number}/head:refs/remotes/origin/ci-pr-${pr_number}"
@@ -266,9 +267,10 @@ jobs:
           HEAD_SHA: ${{ needs.resolve_pr.outputs.head_sha }}
         run: |
           set -euo pipefail
+          auth_header="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\r\n')"
           GIT_CONFIG_COUNT=1 \
           GIT_CONFIG_KEY_0=http.extraheader \
-          GIT_CONFIG_VALUE_0="AUTHORIZATION: bearer ${GH_TOKEN}" \
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth_header}" \
           git fetch --no-tags origin \
             "refs/pull/${PR_NUMBER}/head:refs/remotes/origin/pr-${PR_NUMBER}"
           if ! git merge --no-commit --no-ff "$HEAD_SHA"; then
@@ -326,9 +328,10 @@ jobs:
           BASE_SHA: ${{ needs.resolve_pr.outputs.base_sha }}
         run: |
           set -euo pipefail
+          auth_header="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\r\n')"
           GIT_CONFIG_COUNT=1 \
           GIT_CONFIG_KEY_0=http.extraheader \
-          GIT_CONFIG_VALUE_0="AUTHORIZATION: bearer ${GH_TOKEN}" \
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth_header}" \
           git fetch --no-tags origin "$BASE_SHA"
 
       - name: Check pull request diff whitespace
@@ -380,9 +383,10 @@ jobs:
           HEAD_SHA: ${{ needs.resolve_pr.outputs.head_sha }}
         run: |
           set -euo pipefail
+          auth_header="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\r\n')"
           GIT_CONFIG_COUNT=1 \
           GIT_CONFIG_KEY_0=http.extraheader \
-          GIT_CONFIG_VALUE_0="AUTHORIZATION: bearer ${GH_TOKEN}" \
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth_header}" \
           git fetch --no-tags origin \
             "refs/pull/${PR_NUMBER}/head:refs/remotes/origin/pr-${PR_NUMBER}"
           if ! git merge --no-commit --no-ff "$HEAD_SHA"; then
