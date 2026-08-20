@@ -94,7 +94,7 @@ data-library-name
 
 ## 主题与视觉
 
-实验页面应加载 `theme-studio/bootstrap.js`，消费统一的 `--stone-tide-*` 语义变量。颜色、圆角、阴影、字体和动效必须优先引用这些变量，而不是复制一套固定色值。
+实验页面应加载 `theme-studio/bootstrap.js`，消费统一的 `--stone-theme-*` 语义变量。颜色、圆角、阴影、字体和动效必须优先引用这些变量，而不是复制一套固定色值。
 
 因此：
 

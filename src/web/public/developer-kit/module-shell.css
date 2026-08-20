@@ -3,7 +3,7 @@
   --stone-module-gutter: 32px;
 }
 
-html { min-height: 100%; background: var(--stone-tide-canvas, #f5f8f1); }
+html { min-height: 100%; background: var(--stone-theme-canvas, #f5f8f1); }
 body.stone-developer-module { min-height: 100dvh; }
 
 .stone-module-shell {
@@ -18,7 +18,7 @@ body.stone-developer-module { min-height: 100dvh; }
 
 .stone-module-eyebrow {
   margin: 28px 0 7px;
-  color: var(--stone-tide-accent, #397052);
+  color: var(--stone-theme-accent, #397052);
   font-size: 12px;
   font-weight: 800;
   letter-spacing: .18em;
@@ -26,7 +26,7 @@ body.stone-developer-module { min-height: 100dvh; }
 
 .stone-module-hero h1 {
   margin: 0;
-  font-family: var(--stone-tide-font-display, Georgia, "Noto Serif SC", serif);
+  font-family: var(--stone-theme-font-display, Georgia, "Noto Serif SC", serif);
   font-size: clamp(38px, 6vw, 58px);
   font-weight: 600;
 }
@@ -34,7 +34,7 @@ body.stone-developer-module { min-height: 100dvh; }
 .stone-module-hero > p:last-child {
   max-width: 750px;
   margin: 18px 0 0;
-  color: var(--stone-tide-ink-soft, #69756d);
+  color: var(--stone-theme-ink-soft, #69756d);
   line-height: 1.75;
 }
 
@@ -43,18 +43,18 @@ body.stone-developer-module { min-height: 100dvh; }
   align-items: center;
   min-height: 36px;
   padding: 0 13px;
-  color: var(--stone-tide-accent-strong, #295540);
+  color: var(--stone-theme-accent-strong, #295540);
   text-decoration: none;
-  border: 1px solid var(--stone-tide-line, #dce6d7);
+  border: 1px solid var(--stone-theme-line, #dce6d7);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--stone-tide-surface, #fffef9) 82%, transparent);
-  box-shadow: 0 10px 28px color-mix(in srgb, var(--stone-tide-accent, #397052) 8%, transparent);
+  background: color-mix(in srgb, var(--stone-theme-surface, #fffef9) 82%, transparent);
+  box-shadow: 0 10px 28px color-mix(in srgb, var(--stone-theme-accent, #397052) 8%, transparent);
   font-size: 12px;
   font-weight: 750;
 }
 
 .stone-module-back:hover {
-  border-color: var(--stone-tide-accent, #397052);
+  border-color: var(--stone-theme-accent, #397052);
   transform: translateY(-1px);
 }
 
@@ -63,14 +63,14 @@ body.stone-developer-module { min-height: 100dvh; }
   gap: 7px;
   align-items: center;
   margin-left: 9px;
-  color: var(--stone-tide-ink-soft, #69756d);
+  color: var(--stone-theme-ink-soft, #69756d);
   font-size: 11px;
 }
 
 .stone-module-context::before {
   width: 6px;
   height: 6px;
-  background: var(--stone-tide-status, #7ea36f);
+  background: var(--stone-theme-status, #7ea36f);
   border-radius: 50%;
   content: "";
 }

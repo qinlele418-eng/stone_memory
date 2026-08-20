@@ -17,15 +17,15 @@
   --sans: Inter, "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif;
   --shadow-paper: 0 18px 55px rgba(60, 51, 37, .12);
   --shadow-book: 7px 12px 20px rgba(48, 45, 34, .16), 1px 2px 3px rgba(48, 45, 34, .18);
-  --stone-tide-canvas: var(--cream);
-  --stone-tide-surface: var(--paper);
-  --stone-tide-ink: var(--ink);
-  --stone-tide-ink-soft: var(--ink-soft);
-  --stone-tide-accent: var(--forest);
-  --stone-tide-accent-strong: var(--forest-deep);
-  --stone-tide-line: var(--line);
-  --stone-tide-font-display: var(--serif);
-  --stone-tide-font-body: var(--sans);
+  --stone-theme-canvas: var(--cream);
+  --stone-theme-surface: var(--paper);
+  --stone-theme-ink: var(--ink);
+  --stone-theme-ink-soft: var(--ink-soft);
+  --stone-theme-accent: var(--forest);
+  --stone-theme-accent-strong: var(--forest-deep);
+  --stone-theme-line: var(--line);
+  --stone-theme-font-display: var(--serif);
+  --stone-theme-font-body: var(--sans);
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }

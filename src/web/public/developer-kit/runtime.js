@@ -4,24 +4,25 @@
   const MODULE_THEME_BRIDGE_KEY = "stone-memory-developer-semantic-theme-v1";
   const sharedThemeStyle = document.createElement("link");
   sharedThemeStyle.rel = "stylesheet";
-  sharedThemeStyle.href = "/theme-studio/tidal-tokens.css?v=10";
+  sharedThemeStyle.href = "/theme-studio/theme-tokens.css?v=11";
   sharedThemeStyle.dataset.stoneSharedTheme = "";
   document.head.append(sharedThemeStyle);
   const ALLOWED_SEMANTIC_PROPERTIES = new Set([
-    "--stone-tide-canvas", "--stone-tide-canvas-warm",
-    "--stone-tide-ink", "--stone-tide-ink-soft", "--stone-tide-ink-faint",
-    "--stone-tide-accent", "--stone-tide-accent-strong", "--stone-tide-accent-soft",
-    "--stone-tide-surface", "--stone-tide-surface-soft",
-    "--stone-tide-line", "--stone-tide-line-soft",
-    "--stone-tide-status", "--stone-tide-danger", "--stone-tide-warning",
-    "--stone-tide-info", "--stone-tide-conflict", "--stone-tide-fusion",
-    "--stone-tide-radius-xs", "--stone-tide-radius-sm", "--stone-tide-radius-md",
-    "--stone-tide-radius-lg", "--stone-tide-radius-pill",
-    "--stone-tide-shadow-card", "--stone-tide-shadow-panel",
-    "--stone-tide-shadow-floating", "--stone-tide-shadow-button",
-    "--stone-tide-space-1", "--stone-tide-space-2", "--stone-tide-space-3",
-    "--stone-tide-space-4", "--stone-tide-space-5", "--stone-tide-space-6",
-    "--stone-tide-motion-fast", "--stone-tide-motion-normal", "--stone-tide-ease-soft",
+    "--stone-theme-canvas", "--stone-theme-canvas-warm",
+    "--stone-theme-ink", "--stone-theme-ink-soft", "--stone-theme-ink-faint",
+    "--stone-theme-accent", "--stone-theme-accent-strong", "--stone-theme-accent-soft",
+    "--stone-theme-calendar-bloom",
+    "--stone-theme-surface", "--stone-theme-surface-soft",
+    "--stone-theme-line", "--stone-theme-line-soft",
+    "--stone-theme-status", "--stone-theme-danger", "--stone-theme-warning",
+    "--stone-theme-info", "--stone-theme-conflict", "--stone-theme-fusion",
+    "--stone-theme-radius-xs", "--stone-theme-radius-sm", "--stone-theme-radius-md",
+    "--stone-theme-radius-lg", "--stone-theme-radius-pill",
+    "--stone-theme-shadow-card", "--stone-theme-shadow-panel",
+    "--stone-theme-shadow-floating", "--stone-theme-shadow-button",
+    "--stone-theme-space-1", "--stone-theme-space-2", "--stone-theme-space-3",
+    "--stone-theme-space-4", "--stone-theme-space-5", "--stone-theme-space-6",
+    "--stone-theme-motion-fast", "--stone-theme-motion-normal", "--stone-theme-ease-soft",
   ]);
 
   const cleanCssValue = value => {
@@ -88,15 +89,15 @@
       const title = this.getAttribute("title") || "开发者模块";
       const description = this.getAttribute("description") || "";
       root.innerHTML = `<style>
-        :host { display:block; min-height:100dvh; color:var(--stone-tide-ink,#18372b); }
+        :host { display:block; min-height:100dvh; color:var(--stone-theme-ink,#18372b); }
         * { box-sizing:border-box; }
         main { width:min(1120px,calc(100% - 32px)); margin:0 auto; padding:26px 0 80px; }
         header { padding:18px 6px 28px; }
-        a { display:inline-flex; align-items:center; min-height:36px; padding:0 13px; color:var(--stone-tide-accent-strong,#295540); text-decoration:none; border:1px solid var(--stone-tide-line,#dce6d7); border-radius:999px; background:color-mix(in srgb,var(--stone-tide-surface,#fffef9) 82%,transparent); box-shadow:0 10px 28px color-mix(in srgb,var(--stone-tide-accent,#397052) 8%,transparent); font:750 12px var(--stone-tide-font-body,Inter,system-ui,sans-serif); cursor:pointer; }
-        a:hover { border-color:var(--stone-tide-accent,#397052); transform:translateY(-1px); }
-        .eyebrow { margin:28px 0 7px; color:var(--stone-tide-accent,#397052); font:800 12px var(--stone-tide-font-body,Inter,system-ui,sans-serif); letter-spacing:.18em; }
-        h1 { margin:0; font:600 clamp(38px,6vw,58px) var(--stone-tide-font-display,Georgia,"Noto Serif SC",serif); }
-        .description { max-width:750px; margin:18px 0 0; color:var(--stone-tide-ink-soft,#69756d); font:400 14px/1.75 var(--stone-tide-font-body,Inter,system-ui,sans-serif); }
+        a { display:inline-flex; align-items:center; min-height:36px; padding:0 13px; color:var(--stone-theme-accent-strong,#295540); text-decoration:none; border:1px solid var(--stone-theme-line,#dce6d7); border-radius:999px; background:color-mix(in srgb,var(--stone-theme-surface,#fffef9) 82%,transparent); box-shadow:0 10px 28px color-mix(in srgb,var(--stone-theme-accent,#397052) 8%,transparent); font:750 12px var(--stone-theme-font-body,Inter,system-ui,sans-serif); cursor:pointer; }
+        a:hover { border-color:var(--stone-theme-accent,#397052); transform:translateY(-1px); }
+        .eyebrow { margin:28px 0 7px; color:var(--stone-theme-accent,#397052); font:800 12px var(--stone-theme-font-body,Inter,system-ui,sans-serif); letter-spacing:.18em; }
+        h1 { margin:0; font:600 clamp(38px,6vw,58px) var(--stone-theme-font-display,Georgia,"Noto Serif SC",serif); }
+        .description { max-width:750px; margin:18px 0 0; color:var(--stone-theme-ink-soft,#69756d); font:400 14px/1.75 var(--stone-theme-font-body,Inter,system-ui,sans-serif); }
         .meta { margin-top:12px; }
         @media(max-width:680px) {
           main { width:min(100% - 20px,1120px); padding-top:14px; }

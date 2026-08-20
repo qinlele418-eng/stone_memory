@@ -8,7 +8,7 @@ test("main page enables the semantic theme bridge", () => {
     path.join(__dirname, "..", "src", "web", "public", "index.html"),
     "utf8",
   );
-  assert.match(html, /<body[^>]*\bclass="[^"]*\btidal-visual\b[^"]*"/);
+  assert.match(html, /<body[^>]*\bclass="[^"]*\bstone-theme-enabled\b[^"]*"/);
 });
 
 test("mobile workspace navigation top-aligns wrapped labels", () => {
@@ -83,8 +83,56 @@ test("theme studio remains a single removable frontend integration", () => {
     }
   };
   visit(publicDir);
-  assert.deepEqual(externalReferences, ["index.html"]);
+  assert.deepEqual(externalReferences, ["developer-kit/runtime.js", "index.html"]);
   assert.deepEqual(externalThemePersistence, []);
+});
+
+test("theme studio uses only the Stone Memory visual vocabulary and original presets", () => {
+  const repoDir = path.join(__dirname, "..");
+  const publicDir = path.join(repoDir, "src", "web", "public");
+  const themeDir = path.join(publicDir, "theme-studio");
+  const sourceFiles = [];
+  const visit = directory => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const absolute = path.join(directory, entry.name);
+      if (entry.isDirectory()) visit(absolute);
+      else if (/\.(?:css|html|js|json|md)$/.test(entry.name)) sourceFiles.push(absolute);
+    }
+  };
+  visit(publicDir);
+  visit(path.join(repoDir, "sm-developer-docs"));
+  const rootAgents = path.join(repoDir, "AGENTS.md");
+  if (fs.existsSync(rootAgents)) sourceFiles.push(rootAgents);
+  const source = sourceFiles.map(file => fs.readFileSync(file, "utf8")).join("\n");
+  const retiredIdentifiers = [
+    ["Tidal", "Echo"].join("_"),
+    ["Pearl", "Tide"].join(" "),
+    ["Har", "bor"].join(""),
+    ["stone", "tide"].join("-"),
+    ["tidal", "visual"].join("-"),
+    ["tidal", "tokens"].join("-"),
+  ];
+  for (const identifier of retiredIdentifiers) assert.equal(source.toLowerCase().includes(identifier.toLowerCase()), false, identifier);
+
+  assert.equal(fs.existsSync(path.join(themeDir, "theme-tokens.css")), true);
+  assert.equal(fs.existsSync(path.join(themeDir, ["tidal", "tokens.css"].join("-"))), false);
+  const contract = JSON.parse(fs.readFileSync(path.join(themeDir, "contract.json"), "utf8"));
+  const standalone = fs.readFileSync(path.join(themeDir, "standalone-app.js"), "utf8");
+  assert.equal(contract.coreTokenPrefix, "--stone-theme-");
+  assert.match(standalone, /pineInk:[\s\S]*?name:\s*"松烟青"/);
+  assert.doesNotMatch(standalone, /clayPaper|陶土纸/);
+  assert.match(standalone, /RETIRED_THEME_FINGERPRINTS/);
+  assert.match(standalone, /isRetiredBuiltinTheme\(input\)/);
+
+  const retiredVisualValues = [
+    ["#f7", "fafc"].join(""),
+    ["#253", "447"].join(""),
+    ["#4c", "6378"].join(""),
+    ["#f4", "f2ef"].join(""),
+    ["#364", "04b"].join(""),
+    ["#4a", "5d6c"].join(""),
+  ];
+  for (const value of retiredVisualValues) assert.equal(source.toLowerCase().includes(value), false, value);
 });
 
 test("semantic theme covers mining calendar states and preserves the developer lab visual layer", () => {
@@ -97,7 +145,7 @@ test("semantic theme covers mining calendar states and preserves the developer l
   const coverage = fs.readFileSync(path.join(publicDir, "theme-coverage.css"), "utf8");
   const developer = fs.readFileSync(path.join(publicDir, "developer-common.css"), "utf8");
   const workbench = fs.readFileSync(path.join(publicDir, "theme-workbench.css"), "utf8");
-  const tokens = fs.readFileSync(path.join(publicDir, "tidal-tokens.css"), "utf8");
+  const tokens = fs.readFileSync(path.join(publicDir, "theme-tokens.css"), "utf8");
   const bootstrap = fs.readFileSync(path.join(publicDir, "bootstrap.js"), "utf8");
   const standalone = fs.readFileSync(path.join(publicDir, "standalone-app.js"), "utf8");
   const standaloneCss = fs.readFileSync(path.join(publicDir, "standalone.css"), "utf8");
@@ -109,40 +157,42 @@ test("semantic theme covers mining calendar states and preserves the developer l
   for (const level of ["level-0", "level-1", "level-2", "level-3"]) {
     assert.ok(coverage.includes(`conversation-legend .${level}`));
   }
-  assert.match(coverage, /calendar-day\.level-3[\s\S]*stone-tide-accent/);
-  const activityLevels = coverage.match(/body\.tidal-visual \.calendar-day\.level-1,[\s\S]*?body\.tidal-visual \.calendar-day\.mining-none/)?.[0] || "";
-  assert.match(activityLevels, /stone-tide-accent/);
-  assert.doesNotMatch(activityLevels, /stone-tide-status/);
-  assert.match(coverage, /calendar-day\.mining-deep[\s\S]*stone-tide-status/);
-  assert.match(workbench, /body\.tidal-visual \.maintenance-card i\s*\{[\s\S]*?color:\s*var\(--stone-tide-accent-strong\);[\s\S]*?background:\s*var\(--stone-tide-accent-soft\)/);
-  assert.match(workbench, /body\.tidal-visual \.maintenance-card:hover i\s*\{[\s\S]*?color:\s*var\(--stone-tide-canvas\);[\s\S]*?background:\s*var\(--stone-tide-accent\)/);
-  assert.match(tokens, /body\.tidal-visual \.memory-entry-grid button,[\s\S]*?box-shadow:\s*var\(--stone-tide-shadow-card\)/);
-  assert.match(tokens, /body\.tidal-visual \.memory-entry-grid strong\s*\{[\s\S]*?font-family:\s*var\(--stone-tide-font-display\)/);
-  assert.match(workbench, /body\.tidal-visual \.memory-entry-grid button\s*\{[\s\S]*?border-radius:\s*var\(--stone-tide-radius-lg\)/);
-  assert.match(workbench, /body\.tidal-visual \.memory-entry-grid button:not\(:disabled\):hover\s*\{[\s\S]*?box-shadow:\s*var\(--stone-tide-shadow-panel\)/);
-  const calendarSurface = coverage.match(/body\.tidal-visual \.activity-calendar,[\s\S]*?\{([\s\S]*?)\}/)?.[1] || "";
-  const newCardSurface = coverage.match(/body\.tidal-visual \.new-card\s*\{([\s\S]*?)\}/)?.[1] || "";
-  assert.match(calendarSurface, /stone-tide-accent-soft/);
-  assert.match(newCardSurface, /stone-tide-accent-soft/);
+  assert.match(coverage, /calendar-day\.level-3[\s\S]*stone-theme-accent/);
+  const activityLevels = coverage.match(/body\.stone-theme-enabled \.calendar-day\.level-1,[\s\S]*?body\.stone-theme-enabled \.calendar-day\.mining-none/)?.[0] || "";
+  assert.match(activityLevels, /stone-theme-accent/);
+  assert.doesNotMatch(activityLevels, /stone-theme-status/);
+  const miningBloomStates = coverage.match(/body\.stone-theme-enabled \.calendar-day\.mining-light,[\s\S]*?body\.stone-theme-enabled \.calendar-day\.mining-failed/)?.[0] || "";
+  assert.match(miningBloomStates, /stone-theme-calendar-bloom/);
+  assert.doesNotMatch(miningBloomStates, /stone-theme-status/);
+  assert.match(workbench, /body\.stone-theme-enabled \.maintenance-card i\s*\{[\s\S]*?color:\s*var\(--stone-theme-accent-strong\);[\s\S]*?background:\s*var\(--stone-theme-accent-soft\)/);
+  assert.match(workbench, /body\.stone-theme-enabled \.maintenance-card:hover i\s*\{[\s\S]*?color:\s*var\(--stone-theme-canvas\);[\s\S]*?background:\s*var\(--stone-theme-accent\)/);
+  assert.match(tokens, /body\.stone-theme-enabled \.memory-entry-grid button,[\s\S]*?box-shadow:\s*var\(--stone-theme-shadow-card\)/);
+  assert.match(tokens, /body\.stone-theme-enabled \.memory-entry-grid strong\s*\{[\s\S]*?font-family:\s*var\(--stone-theme-font-display\)/);
+  assert.match(workbench, /body\.stone-theme-enabled \.memory-entry-grid button\s*\{[\s\S]*?border-radius:\s*var\(--stone-theme-radius-lg\)/);
+  assert.match(workbench, /body\.stone-theme-enabled \.memory-entry-grid button:not\(:disabled\):hover\s*\{[\s\S]*?box-shadow:\s*var\(--stone-theme-shadow-panel\)/);
+  const calendarSurface = coverage.match(/body\.stone-theme-enabled \.activity-calendar,[\s\S]*?\{([\s\S]*?)\}/)?.[1] || "";
+  const newCardSurface = coverage.match(/body\.stone-theme-enabled \.new-card\s*\{([\s\S]*?)\}/)?.[1] || "";
+  assert.match(calendarSurface, /stone-theme-accent-soft/);
+  assert.match(newCardSurface, /stone-theme-accent-soft/);
   assert.match(developer, /developer-experiment-card[\s\S]*linear-gradient/);
-  const developerCards = developer.match(/body\.tidal-visual \.developer-experiment-card,[\s\S]*?\{([\s\S]*?)\}/)?.[1] || "";
-  const developerEnter = developer.match(/body\.tidal-visual \.developer-enter\s*\{([\s\S]*?)\}/)?.[1] || "";
-  assert.match(developerCards, /stone-tide-surface/);
-  assert.match(developerCards, /stone-tide-accent-soft/);
-  assert.doesNotMatch(developerCards, /stone-tide-ink\)\s*90%/);
-  assert.match(developerEnter, /stone-tide-accent/);
-  assert.match(developerEnter, /stone-tide-shadow-button/);
+  const developerCards = developer.match(/body\.stone-theme-enabled \.developer-experiment-card,[\s\S]*?\{([\s\S]*?)\}/)?.[1] || "";
+  const developerEnter = developer.match(/body\.stone-theme-enabled \.developer-enter\s*\{([\s\S]*?)\}/)?.[1] || "";
+  assert.match(developerCards, /stone-theme-surface/);
+  assert.match(developerCards, /stone-theme-accent-soft/);
+  assert.doesNotMatch(developerCards, /stone-theme-ink\)\s*90%/);
+  assert.match(developerEnter, /stone-theme-accent/);
+  assert.match(developerEnter, /stone-theme-shadow-button/);
   assert.doesNotMatch(developer, /developer-experiment-card::before\s*\{\s*display:\s*none/);
   assert.doesNotMatch(developer, /developer-experiment-glow\s*\{\s*display:\s*none/);
-  assert.match(coverage, /new-card span[\s\S]*stone-tide-accent-soft/);
-  const topbarRule = workbench.match(/body\.tidal-visual \.topbar\s*\{([\s\S]*?)\}/)?.[1] || "";
-  const sidebarRule = workbench.match(/body\.tidal-visual \.sidebar\s*\{([\s\S]*?)\}/)?.[1] || "";
+  assert.match(coverage, /new-card span[\s\S]*stone-theme-accent-soft/);
+  const topbarRule = workbench.match(/body\.stone-theme-enabled \.topbar\s*\{([\s\S]*?)\}/)?.[1] || "";
+  const sidebarRule = workbench.match(/body\.stone-theme-enabled \.sidebar\s*\{([\s\S]*?)\}/)?.[1] || "";
   assert.doesNotMatch(topbarRule, /\b(?:margin|padding)\s*:/);
   assert.doesNotMatch(sidebarRule, /\b(?:margin|padding)\s*:/);
   assert.match(topbarRule, /background:\s*transparent/);
   assert.match(sidebarRule, /background:\s*transparent/);
-  assert.match(tokens, /--stone-tide-font-display:\s*Georgia,\s*"Noto Serif SC",\s*serif/);
-  assert.match(tokens, /--stone-tide-font-body:\s*Inter,\s*"Noto Sans SC",\s*"Microsoft YaHei",\s*system-ui,\s*sans-serif/);
+  assert.match(tokens, /--stone-theme-font-display:\s*Georgia,\s*"Noto Serif SC",\s*serif/);
+  assert.match(tokens, /--stone-theme-font-body:\s*Inter,\s*"Noto Sans SC",\s*"Microsoft YaHei",\s*system-ui,\s*sans-serif/);
   assert.doesNotMatch(bootstrap, /path:\s*"tokens\.typography\./);
   assert.match(standalone, /if\s*\(group === "typography"\)\s*continue/);
   assert.doesNotMatch(standalone, /Cormorant Garamond|Songti SC|STSong|SimSun/);
@@ -152,17 +202,19 @@ test("semantic theme covers mining calendar states and preserves the developer l
   assert.match(standalone, /tokens:\s*\{\s*colors:\s*preset\.colors,\s*shadows:\s*preset\.shadows\s*\}/);
   assert.match(bootstrap, /theme-studio\/\$\{file\}\?v=\$\{THEME_STYLE_VERSION\}/);
 
-  const pageGlow = workbench.match(/body\.tidal-visual::before\s*\{([\s\S]*?)\}/)?.[1] || "";
-  assert.match(pageGlow, /stone-tide-surface/);
-  assert.match(pageGlow, /stone-tide-accent-soft/);
-  assert.match(pageGlow, /stone-tide-canvas/);
-  assert.doesNotMatch(pageGlow, /rgba\(196,\s*211,\s*223/);
-  assert.match(tokens, /--moss-500:\s*var\(--stone-tide-accent\)/);
-  assert.match(tokens, /--moss-300:\s*color-mix\([^;]*--stone-tide-accent/);
-  assert.match(tokens, /--moss-200:\s*color-mix\([^;]*--stone-tide-accent-soft/);
-  assert.match(tokens, /--earth:\s*var\(--stone-tide-ink-faint\)/);
-  assert.match(reviewTheme, /\.model-builder,[\s\S]*stone-tide-surface-soft/);
-  assert.match(reviewTheme, /--pine:\s*var\(--stone-tide-accent/);
+  assert.match(tokens, /--stone-theme-page-background:/);
+  assert.match(tokens, /--stone-theme-custom-page-background:/);
+  assert.match(tokens, /--stone-theme-page-glow-strong:/);
+  assert.match(tokens, /:root\[data-stone-theme\]:not\(\[data-stone-theme="Stone Memory Original"\]\)/);
+  assert.match(tokens, /body\.stone-theme-enabled\s*\{[\s\S]*?background:\s*var\(--stone-theme-page-background\)/);
+  assert.doesNotMatch(workbench, /body\.stone-theme-enabled::before/);
+  assert.doesNotMatch(tokens, /rgba\(196,\s*211,\s*223/);
+  assert.match(tokens, /--moss-500:\s*var\(--stone-theme-accent\)/);
+  assert.match(tokens, /--moss-300:\s*color-mix\([^;]*--stone-theme-accent/);
+  assert.match(tokens, /--moss-200:\s*color-mix\([^;]*--stone-theme-accent-soft/);
+  assert.match(tokens, /--earth:\s*var\(--stone-theme-ink-faint\)/);
+  assert.match(reviewTheme, /\.model-builder,[\s\S]*stone-theme-surface-soft/);
+  assert.match(reviewTheme, /--pine:\s*var\(--stone-theme-accent/);
   assert.match(reviewTheme, /\.model:has\(input:checked\),[\s\S]*var\(--pine\)/);
 
   assert.equal(contract.version, 3);
@@ -175,8 +227,15 @@ test("semantic theme covers mining calendar states and preserves the developer l
   for (const token of ["status", "danger", "warning", "info", "conflict", "fusion"]) {
     assert.ok(contract.editable.colors.includes(token), `${token} should be editable`);
     assert.equal(typeof contract.defaults.tokens.colors[token], "string");
-    assert.match(developerRuntime, new RegExp(`"--stone-tide-${token}"`));
+    assert.match(developerRuntime, new RegExp(`"--stone-theme-${token}"`));
   }
+  assert.ok(contract.editable.colors.includes("calendarBloom"), "calendarBloom should be editable");
+  assert.equal(contract.defaults.tokens.colors.calendarBloom, "#d98794");
+  assert.match(bootstrap, /calendarBloom:\s*"--stone-theme-calendar-bloom"/);
+  assert.match(developerRuntime, /"--stone-theme-calendar-bloom"/);
+  assert.match(standalone, /tokens\.colors\.calendarBloom/);
+  assert.match(standalone, /calendarBloom:\s*"记忆花色"/);
+  assert.match(standalone, /calendarBloom:\s*"calendar-bloom"/);
   assert.match(bootstrap, /sessionStorage\.setItem\(MODULE_THEME_BRIDGE_KEY/);
   assert.match(standalone, /sessionStorage\.setItem\(MODULE_THEME_BRIDGE_KEY/);
   assert.match(developerRuntime, /sessionStorage\.getItem\(MODULE_THEME_BRIDGE_KEY\)/);
@@ -190,9 +249,17 @@ test("semantic theme covers mining calendar states and preserves the developer l
   assert.match(standalone, /const exportedTheme = \{[\s\S]*?\$schema:[\s\S]*?version:[\s\S]*?name:[\s\S]*?assets:[\s\S]*?tokens:/);
   assert.doesNotMatch(standalone, /JSON\.stringify\(state\.theme,\s*null,\s*2\)/);
   assert.match(standalone, /theme-calendar-preview/);
-  assert.match(standalone, /活动强度复用“界面色 → 强调色”/);
-  assert.match(standalone, /18% \/ 44% \/ 100%/);
-  assert.doesNotMatch(standalone, /挖掘轻\/深度/);
+  for (const state of ["mining-none", "mining-pending", "mining-light", "mining-deep"]) {
+    assert.match(standalone, new RegExp(`class="${state}`));
+  }
+  assert.match(standalone, /浅、深花色跟随“界面色 → 记忆花色”/);
+  assert.match(standalone, /选中外圈继续跟随强调色/);
+  assert.doesNotMatch(standalone, /活动强度复用“界面色 → 强调色”|18% \/ 44% \/ 100%/);
+  assert.match(standaloneCss, /\.theme-calendar-preview \.mining-light\s*\{[\s\S]*?stone-theme-calendar-bloom/);
+  assert.match(standaloneCss, /\.theme-calendar-preview \.mining-deep\s*\{[\s\S]*?background:\s*var\(--stone-theme-calendar-bloom\)/);
+  assert.match(standaloneCss, /\.theme-calendar-preview \.selected\s*\{[\s\S]*?outline:\s*2px solid var\(--stone-theme-accent\)/);
+  assert.match(standalone, /hasCalendarBloom[\s\S]*merged\.tokens\.colors\.calendarBloom\s*=\s*merged\.tokens\.colors\.accent/);
+  assert.match(bootstrap, /hasCalendarBloom[\s\S]*merged\.tokens\.colors\.calendarBloom\s*=\s*merged\.tokens\.colors\.accent/);
   assert.match(standalone, /分别跟随“状态色”中的正常、警告、信息、冲突、融合与危险颜色/);
   assert.match(standaloneCss, /\.theme-preview-hint\s*\{[\s\S]*?font-size:\s*9px/);
   assert.match(standalone, /tokens\.colors\.status/);
@@ -258,7 +325,7 @@ test("semantic theme covers mining calendar states and preserves the developer l
   assert.match(logoPreview, /max-width:\s*200px/);
   assert.doesNotMatch(compactLayout, /\.theme-logo-preview\s*\{[^}]*max-width:\s*none/);
   assert.match(standaloneCss, /\.theme-logo-preview img\s*\{[\s\S]*?object-fit:\s*contain/);
-  assert.match(standaloneCss, /\.theme-logo-status\.error\s*\{[^}]*stone-tide-danger/);
+  assert.match(standaloneCss, /\.theme-logo-status\.error\s*\{[^}]*stone-theme-danger/);
   assert.match(standalone, /logoStatus\(`Logo 上传失败：\$\{error\.message\}`,\s*true\)/);
   assert.match(standalone, /remove\.hidden\s*=\s*false;[\s\S]*remove\.disabled\s*=\s*!logo/);
   assert.match(standaloneCss, /\.secondary,\s*\.ghost,\s*\.theme-upload\s*\{/);
@@ -274,9 +341,9 @@ test("semantic theme covers mining calendar states and preserves the developer l
   assert.match(standalone, /theme-shadow-raw[\s\S]*?class="theme-field"[\s\S]*?class="theme-control"[\s\S]*?class="theme-value-input"/);
   assert.match(standaloneCss, /\.theme-shadow-group > summary\s*\{[\s\S]*?background:\s*transparent/);
   assert.match(standaloneCss, /\.token-group-shadow\.theme-shadow-group \.token-group-fields\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)/);
-  assert.match(standaloneCss, /\.theme-shadow-group\[open\] > \.token-group-fields\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);[\s\S]*?box-shadow:\s*var\(--stone-tide-shadow-floating\)/);
-  assert.match(standaloneCss, /\.theme-shadow-group\[open\] > \.token-group-fields\s*\{[\s\S]*?border-radius:\s*var\(--stone-tide-radius-lg\)/);
-  assert.match(standaloneCss, /\.theme-shadow-field\s*\{[\s\S]*?border:\s*0;[\s\S]*?border-top:\s*1px solid var\(--stone-tide-line-soft\);[\s\S]*?border-radius:\s*0/);
+  assert.match(standaloneCss, /\.theme-shadow-group\[open\] > \.token-group-fields\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);[\s\S]*?box-shadow:\s*var\(--stone-theme-shadow-floating\)/);
+  assert.match(standaloneCss, /\.theme-shadow-group\[open\] > \.token-group-fields\s*\{[\s\S]*?border-radius:\s*var\(--stone-theme-radius-lg\)/);
+  assert.match(standaloneCss, /\.theme-shadow-field\s*\{[\s\S]*?border:\s*0;[\s\S]*?border-top:\s*1px solid var\(--stone-theme-line-soft\);[\s\S]*?border-radius:\s*0/);
   assert.match(compactLayout, /\.theme-shadow-parts\s*\{\s*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
   assert.match(compactLayout, /\.theme-shadow-group\[open\] > \.token-group-fields\s*\{[\s\S]*?border-radius:\s*19px/);
   assert.match(compactLayout, /\.token-group-shadow \.theme-shadow-part\s*\{[\s\S]*?grid-template-columns:\s*50px minmax\(0,\s*1fr\);[\s\S]*?min-height:\s*32px/);
@@ -294,7 +361,7 @@ test("semantic theme covers mining calendar states and preserves the developer l
   assert.match(standaloneCss, /\.theme-groups::before\s*\{\s*left:\s*0;\s*\}[\s\S]*?\.theme-groups::after\s*\{\s*right:\s*0;\s*\}/);
   assert.match(standaloneCss, /\.token-group-logo,\s*\.theme-token-groups > \.token-group:nth-child\(even\)\s*\{[\s\S]*?border-left:\s*0/);
   assert.match(standaloneCss, /\.theme-support-card\s*\{\s*display:\s*contents;\s*\}/);
-  assert.match(standaloneCss, /@media \(min-width:\s*900px\)[\s\S]*?\.theme-support-card\s*\{[\s\S]*?border:\s*1px solid var\(--stone-tide-line-soft\);[\s\S]*?background:\s*var\(--stone-tide-surface\);[\s\S]*?box-shadow:\s*var\(--stone-tide-shadow-card\)/);
+  assert.match(standaloneCss, /@media \(min-width:\s*900px\)[\s\S]*?\.theme-support-card\s*\{[\s\S]*?border:\s*1px solid var\(--stone-theme-line-soft\);[\s\S]*?background:\s*var\(--stone-theme-surface\);[\s\S]*?box-shadow:\s*var\(--stone-theme-shadow-card\)/);
   assert.match(standaloneCss, /\.token-group-head\s*\{[\s\S]*?justify-content:\s*space-between/);
   assert.doesNotMatch(standaloneCss, /\.token-group-head > span/);
   assert.match(standalone, /const displayValue = definition\.kind === "color" \? colorToHex\(value\)\.toLowerCase\(\) : value/);
@@ -309,9 +376,9 @@ test("semantic theme covers mining calendar states and preserves the developer l
   assert.match(bootstrap, /fetch\(CONTRACT_URL\)/);
   assert.doesNotMatch(bootstrap, /const DEFAULT_THEME\s*=/);
   assert.match(bootstrap, /Number\(parsed\.version \|\| 1\) !== contract\.version/);
-  assert.match(reviewTheme, /--warning:\s*var\(--stone-tide-warning/);
-  assert.match(reviewTheme, /--conflict:\s*var\(--stone-tide-conflict/);
-  assert.match(reviewTheme, /--fusion:\s*var\(--stone-tide-fusion/);
+  assert.match(reviewTheme, /--warning:\s*var\(--stone-theme-warning/);
+  assert.match(reviewTheme, /--conflict:\s*var\(--stone-theme-conflict/);
+  assert.match(reviewTheme, /--fusion:\s*var\(--stone-theme-fusion/);
   assert.match(reviewTheme, /\.mix-actions \.fusion-button[\s\S]*var\(--fusion\)/);
   assert.match(reviewTheme, /\.item-flag\.conflict,[\s\S]*var\(--conflict\)/);
   assert.doesNotMatch(reviewTheme, /\.mix-actions \.fusion-button\s*\{[^}]*#765a96/);
