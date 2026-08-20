@@ -36,8 +36,8 @@ function location(value) {
 }
 
 function displayFile(file) {
-  const normalized = file.replaceAll('\\', '/');
-  const root = process.cwd().replaceAll('\\', '/').replace(/\/$/, '');
+  const normalized = file.replaceAll('\\', '/').replace(/\/{2,}/g, '/');
+  const root = process.cwd().replaceAll('\\', '/').replace(/\/{2,}/g, '/').replace(/\/$/, '');
   return normalized === root ? '.' : normalized.startsWith(`${root}/`) ? normalized.slice(root.length + 1) : normalized;
 }
 
