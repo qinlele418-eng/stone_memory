@@ -4,6 +4,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
+const { childEnvWithHome } = require("../test-support/child-env");
 
 test("watcher runtime can scan archive dates with automation disabled", t => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-watcher-runtime-"));
@@ -29,7 +30,7 @@ test("watcher runtime can scan archive dates with automation disabled", t => {
     "--thread", threadId,
     "--once",
   ], {
-    env: { ...process.env, HOME: home },
+    env: childEnvWithHome(home),
     encoding: "utf8",
     timeout: 10_000,
   });

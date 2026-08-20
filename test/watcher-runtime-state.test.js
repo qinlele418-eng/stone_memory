@@ -6,6 +6,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
+const { childEnvWithHome } = require("../test-support/child-env");
 
 const projectRoot = path.join(__dirname, "..");
 
@@ -72,7 +73,7 @@ test("watcher CLI only changes the selected memory body's desired state", t => {
     beta: { label: "B", runtime: "codex", purpose: "coding", automaticFullMining: true, automaticMemoryMaintenance: false },
   }));
   const result = spawnSync(process.execPath, [path.join(projectRoot, "bin", "stmem"), "watcher", "set", "--thread", "alpha", "--archive", "off", "--dream", "on", "--dev-custom-hook", "on"], {
-    env: { ...process.env, HOME: home }, encoding: "utf8",
+    env: childEnvWithHome(home), encoding: "utf8",
   });
   assert.equal(result.status, 0, result.stderr);
   const config = JSON.parse(fs.readFileSync(path.join(stone, "stmem.json"), "utf8"));
@@ -84,13 +85,13 @@ test("watcher CLI only changes the selected memory body's desired state", t => {
   assert.equal(fs.existsSync(path.join(stone, "watcher.pid")), false);
 
   const unprefixed = spawnSync(process.execPath, [path.join(projectRoot, "bin", "stmem"), "watcher", "set", "--thread", "alpha", "--custom-hook", "on"], {
-    env: { ...process.env, HOME: home }, encoding: "utf8",
+    env: childEnvWithHome(home), encoding: "utf8",
   });
   assert.notEqual(unprefixed.status, 0);
   assert.match(unprefixed.stderr, /必须使用 dev- 前缀/);
 
   const off = spawnSync(process.execPath, [path.join(projectRoot, "bin", "stmem"), "watcher", "off", "--thread", "alpha"], {
-    env: { ...process.env, HOME: home }, encoding: "utf8",
+    env: childEnvWithHome(home), encoding: "utf8",
   });
   assert.equal(off.status, 0, off.stderr);
   const disabled = JSON.parse(fs.readFileSync(path.join(stone, "stmem.json"), "utf8"));

@@ -6,6 +6,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const Database = require("better-sqlite3");
+const { childEnvWithHome } = require("../test-support/child-env");
 
 const THREAD_ID = "00000000-0000-4000-8000-000000000002";
 
@@ -25,7 +26,7 @@ function setupHome(t) {
   ];
   const threadFile = path.join(sessionDir, `${THREAD_ID}.jsonl`);
   fs.writeFileSync(threadFile, `${rows.map(JSON.stringify).join("\n")}\n`);
-  return { home, stoneDir, threadFile, env: { ...process.env, HOME: home, USERPROFILE: home } };
+  return { home, stoneDir, threadFile, env: childEnvWithHome(home) };
 }
 
 function filesWithHashes(dir) {
@@ -63,7 +64,7 @@ function setupCodexHome(t) {
   ];
   const threadFile = path.join(sessionDir, `${THREAD_ID}.jsonl`);
   fs.writeFileSync(threadFile, `${rows.map(JSON.stringify).join("\n")}\n`);
-  return { stoneDir, threadFile, env: { ...process.env, HOME: home, USERPROFILE: home } };
+  return { stoneDir, threadFile, env: childEnvWithHome(home) };
 }
 
 function archivedTexts(stoneDir) {
