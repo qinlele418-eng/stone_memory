@@ -73,6 +73,7 @@ export async function callZai({
   baseUrl = process.env.ZAI_BASE_URL || DEFAULT_ZAI_BASE_URL,
   model = process.env.ZAI_MODEL || DEFAULT_ZAI_MODEL,
   maxTokens = Number(process.env.ZAI_MAX_TOKENS || 16_000),
+  thinking,
   fetchImpl = globalThis.fetch,
   timeoutMs = 120_000,
 } = {}) {
@@ -93,6 +94,7 @@ export async function callZai({
         temperature: 0,
         max_tokens: maxTokens,
         stream: false,
+        ...(thinking ? { thinking } : {}),
       }),
       signal: controller.signal,
     });

@@ -21,6 +21,7 @@ test('Z.AI adapter uses bounded token budgets and preserves non-secret API error
     apiKey: 'test-key',
     prompt: '只回复 OK',
     maxTokens: 32,
+    thinking: { type: 'disabled' },
     fetchImpl: async (_url, init) => {
       request = JSON.parse(init.body);
       return { ok: true, status: 200, text: async () => JSON.stringify({ model: 'glm-4.7-flash', choices: [{ message: { content: 'OK' } }] }) };
@@ -28,6 +29,7 @@ test('Z.AI adapter uses bounded token budgets and preserves non-secret API error
   });
   assert.equal(success.text, 'OK');
   assert.equal(request.max_tokens, 32);
+  assert.deepEqual(request.thinking, { type: 'disabled' });
 
   await assert.rejects(
     callZai({

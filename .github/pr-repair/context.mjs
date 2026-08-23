@@ -41,8 +41,12 @@ export async function buildContext({ diagnosis, reproduction = {}, feedback = {}
   for (const file of files) {
     const base = await readFileAt(cwd, baseSha, file);
     const head = await readFileAt(cwd, headSha, file);
-    if (base === null || head === null) throw new Error(`无法读取上下文文件: ${file}`);
-    context.files.push({ path: file, currentMain: truncate(redactSensitiveText(base)), prHead: truncate(redactSensitiveText(head)) });
+    if (base === null && head === null) throw new Error(`无法读取上下文文件: ${file}`);
+    context.files.push({
+      path: file,
+      currentMain: base === null ? '[文件在 current main 中不存在]' : truncate(redactSensitiveText(base)),
+      prHead: head === null ? '[文件在 PR head 中不存在]' : truncate(redactSensitiveText(head)),
+    });
   }
   let serialized = JSON.stringify(context);
   if (serialized.length > MAX_CONTEXT_CHARS) {
