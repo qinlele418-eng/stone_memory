@@ -391,7 +391,7 @@ function repairGuidance(report, allowed) {
   if (allowed.includes('src/services/memory-keyword-search.js') && /memory-keyword-search|deep-search|paths\[0\]/i.test(evidence)) {
     hints.push({
       file: 'src/services/memory-keyword-search.js',
-      instruction: '具体修复：searchByKeyword 最终必须返回 { hits, text }；关键词模式的 hits 映射必须保留 t.date 与 t.utcTime；archive/event/pattern 搜索必须调用 readArchive(p.memoryDir, p.threadId, dateStr)，不能引用不存在的 p.archiveDir。',
+      instruction: '具体修复：searchByKeyword 最终必须返回 { hits, text }；renderRankedFeelings 的 keyword 分支在 { id, content, score } 后补上 date: t.date、utcTime: t.utcTime；searchArchiveContext 中把 readArchive(p.archiveDir, dateStr) 改为 readArchive(p.memoryDir, p.threadId, dateStr)。',
     });
   }
   if (allowed.includes('bin/stmem') && /ensureWatcher|watcher(?:\.pid|-supervisor|[-_ ]state)|ENOTEMPTY/i.test(evidence)) {
@@ -595,6 +595,7 @@ export function createAgentTools({
         result.references = references;
         result.referenceRange = { startLine: start, endLine: end };
       }
+      if (state.lastRepairGuidance.length > 0) result.repairGuidance = state.lastRepairGuidance;
     }
     return result;
   }
