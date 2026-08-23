@@ -30,9 +30,10 @@ function scriptedClient(messages) {
   };
 }
 
-function fakeTools() {
+function fakeTools({ remainingUnresolved = [] } = {}) {
   const calls = [];
   let lastTestPassed = false;
+  let patchIndex = 0;
   return {
     calls,
     definitions: [
@@ -44,7 +45,10 @@ function fakeTools() {
     async call(name, args) {
       calls.push([name, args]);
       if (name === 'read_file') return { ok: true, content: 'const value = 1;\n' };
-      if (name === 'apply_patch') return { ok: true, applied: true, changedFiles: ['src/example.js'] };
+      if (name === 'apply_patch') {
+        const unresolved = remainingUnresolved[patchIndex++] || [];
+        return { ok: true, applied: true, changedFiles: ['src/example.js'], remainingUnresolved: unresolved };
+      }
       if (name === 'run_tests') {
         lastTestPassed = true;
         return { ok: true, passed: true, result: { passed: 1, failed: 0 } };
@@ -93,6 +97,20 @@ test('agent rejects a repair completion before a passing test and fails closed a
   assert.match(result.reason, /回合上限|repair_complete/);
   assert.equal(result.metrics.logicalTurns, 5);
   assert.deepEqual(client.calls[2].tools.map((tool) => tool.function.name), ['apply_patch', 'run_tests', 'finish']);
+});
+
+test('agent finishes all unresolved conflict patches before running tests', async () => {
+  const client = scriptedClient([
+    { role: 'assistant', tool_calls: [toolCall('1', 'read_file', { path: 'src/example.js' })] },
+    { role: 'assistant', tool_calls: [toolCall('2', 'apply_patch', { patch: 'first' })] },
+    { role: 'assistant', tool_calls: [toolCall('3', 'apply_patch', { patch: 'second' })] },
+  ]);
+  const tools = fakeTools({ remainingUnresolved: [['src/other.js'], []] });
+  const result = await runRepairAgent({ task: '处理多文件冲突', client, tools });
+
+  assert.equal(result.status, 'repair_complete');
+  assert.deepEqual(tools.calls.map(([name]) => name), ['read_file', 'apply_patch', 'apply_patch', 'run_tests']);
+  assert.deepEqual(result.metrics.toolSequence, ['read_file', 'apply_patch', 'apply_patch', 'run_tests(auto)']);
 });
 
 test('agent never exposes an unrestricted shell tool', async () => {

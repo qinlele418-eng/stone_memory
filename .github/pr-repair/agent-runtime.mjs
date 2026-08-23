@@ -26,7 +26,7 @@ export const REPAIR_AGENT_SYSTEM_PROMPT = [
   '你是 Stone Memory 的 PR 冲突维修 coding agent，不是 reviewer，也不是计划生成器。',
   '你的任务是直接在隔离 repair worktree 中读取代码、调查 current main 与 PR 的差异、修改代码并运行测试。',
   '必须保留 PR 的原始功能意图，只处理 current main 导致的冲突或明确的相关测试失败。',
-  '冲突任务优先调用一次 get_status；其 conflictDetails 已集中给出所有未解决冲突块，ours 是 PR 侧、theirs 是 current main 侧，并带有前后文。不要逐个调用 git_show_file 来重新扫描这些冲突；读取集中结果后直接 apply_patch。每次 apply_patch 的结果会列出 remainingUnresolved；必须继续处理这些文件，直到列表为空。最多探索两回合后必须直接 apply_patch。每次成功 apply_patch 后 runtime 会自动运行一次相关测试，再根据结果继续。测试失败后只读取失败相关源码并立即修复；git_show_file 必须带 revision（base、pr 或 main），否则用 read_file。',
+  '冲突任务优先调用一次 get_status；其 conflictDetails 已集中给出所有未解决冲突块，ours 是 PR 侧、theirs 是 current main 侧，并带有前后文。不要逐个调用 git_show_file 来重新扫描这些冲突；读取集中结果后直接 apply_patch。每次 apply_patch 的结果会列出 remainingUnresolved；必须继续处理这些文件，直到列表为空。未解决冲突清空前不要调用 run_tests，先完成所有冲突文件；只有列表为空后才验证。最多探索两回合后必须直接 apply_patch。冲突清空后每次成功 apply_patch 后 runtime 会自动运行一次相关测试，再根据结果继续。测试失败后只读取失败相关源码并立即修复；git_show_file 必须带 revision（base、pr 或 main），否则用 read_file。',
   'apply_patch 的 patch 参数不要用 Markdown 围栏；可用标准 unified diff，或严格使用 *** Begin Patch、*** Update File: 路径、@@、带 +/- 前缀的行、*** End Patch 格式。',
   '不要输出计划来代替修改，不要输出完整文件，不要修改测试、依赖入口、workflow、权限或凭据。',
   '不要 commit、push、approve、merge、close PR；这些动作由外层机械层完成。',
@@ -152,6 +152,7 @@ function gateToolCall(name, args, state, limits) {
   }
   if (name === 'run_tests') {
     if (state.testCalls >= limits.maxTestCalls) return '测试调用达到硬上限';
+    if (state.remainingUnresolved.length > 0) return '仍存在未解决冲突，必须先 apply_patch 清空 remainingUnresolved';
   }
   if (name === 'finish' && args?.decision === 'repair_complete' && state.lastTestPassed !== true) {
     return 'repair_complete 必须在相关测试通过后调用';
@@ -222,6 +223,7 @@ export async function runRepairAgent({
     toolSequence: [],
     toolTrace: [],
     pendingVerification: false,
+    remainingUnresolved: [],
     lastTestPassed: false,
   };
   const messages = [
@@ -301,7 +303,8 @@ export async function runRepairAgent({
             result = { ok: false, error: redactErrorMessage(error) };
           }
           if (name === 'apply_patch' && result?.applied === true) {
-            state.pendingVerification = true;
+            state.remainingUnresolved = Array.isArray(result?.remainingUnresolved) ? result.remainingUnresolved : [];
+            state.pendingVerification = state.remainingUnresolved.length === 0;
             appliedInTurn = true;
           }
           if (name === 'run_tests') {
@@ -323,7 +326,7 @@ export async function runRepairAgent({
       if (name === 'finish' && result?.ok === true) finished = result;
     }
 
-    if (appliedInTurn && !explicitTestInTurn && state.testCalls < limits.maxTestCalls) {
+    if (appliedInTurn && state.remainingUnresolved.length === 0 && !explicitTestInTurn && state.testCalls < limits.maxTestCalls) {
       state.testCalls += 1;
       state.toolCalls += 1;
       state.toolSequence.push('run_tests(auto)');
