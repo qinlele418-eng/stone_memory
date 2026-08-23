@@ -228,6 +228,7 @@ jobs:
       pull-requests: read
     env:
       ZAI_BASE_URL: ${{ vars.ZAI_BASE_URL || 'https://api.z.ai/api/paas/v4' }}
+      ZAI_MODEL: ${{ vars.ZAI_MODEL || 'glm-4.7-flash' }}
     steps:
       - name: Check out trusted repair tools from main
         uses: actions/checkout@v4
