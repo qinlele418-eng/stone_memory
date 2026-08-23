@@ -688,12 +688,26 @@ export function createAgentTools({
     if (args.mode !== 'related' && args.mode !== 'full') throw new Error('run_tests 的 mode 必须是 related 或 full');
     const report = await runTestsImpl({ cwd, timeoutMs: 8 * 60 * 1_000 });
     state.lastTestPassed = report.passed === true;
-    state.lastFailureFiles = state.lastTestPassed
-      ? []
-      : [...new Set((report?.result?.failures || []).flatMap((failure) => {
+    if (state.lastTestPassed) {
+      state.lastFailureFiles = [];
+    } else {
+      const counts = new Map();
+      const addCandidate = (file) => {
+        const normalized = normalizeSafeRelativePath(file);
+        if (normalized && allowed.includes(normalized)) counts.set(normalized, (counts.get(normalized) || 0) + 1);
+      };
+      for (const failure of report?.result?.failures || []) {
         const evidence = JSON.stringify(failure || {});
-        return [failure?.file, ...allowed.filter((file) => evidence.includes(file))].filter(Boolean);
-      }))];
+        addCandidate(failure?.file);
+        const withoutTestSuffix = normalizeSafeRelativePath(failure?.file || '')?.replace(/\.test(?=\.[^.]+$)/, '');
+        const basename = withoutTestSuffix?.split('/').at(-1);
+        if (basename) allowed.filter((file) => file.split('/').at(-1) === basename).forEach(addCandidate);
+        allowed.filter((file) => evidence.includes(file)).forEach(addCandidate);
+      }
+      state.lastFailureFiles = [...counts.entries()]
+        .sort((left, right) => right[1] - left[1])
+        .map(([file]) => file);
+    }
     state.failureReadIndex = 0;
     return { ok: true, mode: 'full', requestedMode: args.mode, ...failureSummary(report) };
   }
