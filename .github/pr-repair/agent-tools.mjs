@@ -808,7 +808,8 @@ export function createAgentTools({
   }
 
   async function runTestsTool(args = {}) {
-    if (args.mode !== 'related' && args.mode !== 'full') throw new Error('run_tests 的 mode 必须是 related 或 full');
+    const mode = args.mode || 'related';
+    if (mode !== 'related' && mode !== 'full') throw new Error('run_tests 的 mode 必须是 related 或 full');
     // Keep the tool-local stage in sync with the runtime.  Automatic tests are
     // invoked by agent-runtime through this same tool, so relying on the
     // runtime's separate counter left failure-aware read routing disabled:
@@ -849,7 +850,7 @@ export function createAgentTools({
     return {
       ok: true,
       mode: 'full',
-      requestedMode: args.mode,
+      requestedMode: mode,
       ...failureSummary(report),
       ...(state.lastTestPassed ? {} : { repairGuidance: repairGuidance(report, allowed) }),
     };

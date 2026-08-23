@@ -5,16 +5,16 @@ import { callZaiChat, DEFAULT_ZAI_MODEL } from './zai-client.mjs';
 import { redactErrorMessage, redactModelValue } from './contract.mjs';
 
 export const AGENT_LIMITS = Object.freeze({
-  maxLogicalTurns: 16,
+  maxLogicalTurns: 20,
   maxExploreTurns: 2,
-  maxApiAttempts: 17,
+  maxApiAttempts: 21,
   maxTokensPerTurn: 4_096,
   maxCompletionTokens: 24_576,
   maxHistoryChars: 48_000,
-  maxReadOnlyCalls: 12,
+  maxReadOnlyCalls: 16,
   maxPatchCalls: 10,
   maxTestCalls: 5,
-  maxToolCalls: 34,
+  maxToolCalls: 40,
   maxPatchChars: 10_000,
   maxElapsedMs: 12 * 60 * 1_000,
 });
