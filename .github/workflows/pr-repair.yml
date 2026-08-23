@@ -257,6 +257,7 @@ jobs:
           path: evidence/reproduction
 
       - name: Smoke-test Z.AI access without PR data
+        id: zai_handshake
         env:
           ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
         run: node tools/.github/pr-repair/handshake.mjs
@@ -271,6 +272,7 @@ jobs:
         run: node tools/.github/pr-repair/context.mjs
 
       - name: Call Z.AI GLM-4.7-Flash round 1 (secret isolated to this step)
+        id: zai_round1
         env:
           ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
           REPAIR_INPUT_PATH: ${{ github.workspace }}/repair-input.json
@@ -280,7 +282,7 @@ jobs:
 
       - name: Apply candidate repair round 1
         id: apply1
-        if: always()
+        if: steps.zai_round1.outcome == 'success'
         env:
           GITHUB_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ env.PR_NUMBER }}
@@ -332,7 +334,7 @@ jobs:
             node:22-bookworm node /tools/test-runner.mjs
 
       - name: Record repair feedback round 1
-        if: always()
+        if: steps.apply1.outcome == 'success'
         env:
           REPAIR_PLAN_PATH: ${{ github.workspace }}/pr-repair-plan-1.json
           REPAIR_RESULT_PATH: ${{ github.workspace }}/pr-repair-result-1.json
@@ -361,6 +363,7 @@ jobs:
         run: node tools/.github/pr-repair/context.mjs
 
       - name: Call Z.AI GLM-4.7-Flash round 2 (secret isolated to this step)
+        id: zai_round2
         if: steps.apply1.outputs.status == 'repair_success' && steps.verify1.outcome != 'success'
         env:
           ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
@@ -371,7 +374,7 @@ jobs:
 
       - name: Apply candidate repair round 2
         id: apply2
-        if: steps.apply1.outputs.status == 'repair_success' && steps.verify1.outcome != 'success'
+        if: steps.apply1.outputs.status == 'repair_success' && steps.verify1.outcome != 'success' && steps.zai_round2.outcome == 'success'
         env:
           GITHUB_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ env.PR_NUMBER }}
@@ -423,7 +426,7 @@ jobs:
             node:22-bookworm node /tools/test-runner.mjs
 
       - name: Record repair feedback round 2
-        if: always()
+        if: steps.apply2.outcome == 'success'
         env:
           REPAIR_PLAN_PATH: ${{ github.workspace }}/pr-repair-plan-2.json
           REPAIR_RESULT_PATH: ${{ github.workspace }}/pr-repair-result-2.json
@@ -452,6 +455,7 @@ jobs:
         run: node tools/.github/pr-repair/context.mjs
 
       - name: Call Z.AI GLM-4.7-Flash round 3 (secret isolated to this step)
+        id: zai_round3
         if: steps.apply2.outputs.status == 'repair_success' && steps.verify2.outcome != 'success'
         env:
           ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
@@ -462,7 +466,7 @@ jobs:
 
       - name: Apply candidate repair round 3
         id: apply3
-        if: steps.apply2.outputs.status == 'repair_success' && steps.verify2.outcome != 'success'
+        if: steps.apply2.outputs.status == 'repair_success' && steps.verify2.outcome != 'success' && steps.zai_round3.outcome == 'success'
         env:
           GITHUB_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ env.PR_NUMBER }}
@@ -514,7 +518,10 @@ jobs:
             node:22-bookworm node /tools/test-runner.mjs
 
       - name: Select final bounded repair plan
-        if: always()
+        id: select_plan
+        if: >-
+          always() &&
+          hashFiles('pr-repair-plan-1.json', 'pr-repair-plan-2.json', 'pr-repair-plan-3.json') != ''
         run: |
           set -euo pipefail
           if [[ "${{ steps.verify1.outcome }}" == "success" ]]; then
@@ -532,7 +539,7 @@ jobs:
           fi
 
       - name: Upload bounded repair plan
-        if: always()
+        if: steps.select_plan.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: pr-repair-ai-plan-${{ env.PR_NUMBER }}

@@ -34,6 +34,10 @@ test('automation scripts come from trusted main checkouts, never from PR source'
   assert.match(workflow, /Call Z\.AI GLM-4\.7-Flash round 3/);
   assert.match(workflow, /Record repair feedback round 1/);
   assert.match(workflow, /Verify candidate repair round 3 without secrets/);
+  assert.match(workflow, /id: zai_handshake/);
+  assert.match(workflow, /id: zai_round1/);
+  assert.match(workflow, /steps\.zai_round1\.outcome == 'success'/);
+  assert.match(workflow, /hashFiles\('pr-repair-plan-1\.json', 'pr-repair-plan-2\.json', 'pr-repair-plan-3\.json'\)/);
 });
 
 test('workflow contains no force push or governance actions', () => {
