@@ -143,6 +143,9 @@ function gateToolCall(name, args, state, limits) {
   if (!name) return '工具调用缺少名称';
   if (state.toolCalls >= limits.maxToolCalls) return '工具调用达到硬上限';
   if (READ_ONLY_TOOLS.has(name) && state.readOnlyCalls >= limits.maxReadOnlyCalls) return '只读工具调用达到硬上限';
+  if (['read_file', 'git_show_file', 'search_code'].includes(name) && state.testCalls > 0 && state.lastTestPassed !== true && state.failureReadCalls >= 1) {
+    return '测试失败后已读取失败源码，必须直接 apply_patch';
+  }
   if (READ_ONLY_TOOLS.has(name) && state.patchCalls === 0 && state.logicalTurns > limits.maxExploreTurns) return '探索回合达到上限，请直接 apply_patch 或 needs_human';
   if (name === 'apply_patch') {
     if (state.readOnlyCalls < 1) return '必须先通过只读工具调查代码，再 apply_patch';
@@ -162,6 +165,7 @@ function gateToolCall(name, args, state, limits) {
 
 function availableDefinitions(definitions, state, limits) {
   if (state.patchCalls > 0 && state.lastTestPassed !== true) {
+    if (state.failureReadCalls >= 1) return definitions.filter((tool) => ['git_diff', 'apply_patch', 'finish'].includes(tool?.function?.name));
     return definitions.filter((tool) => ['read_file', 'git_diff', 'apply_patch', 'finish'].includes(tool?.function?.name));
   }
   if (state.patchCalls === 0 && state.logicalTurns > limits.maxExploreTurns) {
@@ -225,6 +229,7 @@ export async function runRepairAgent({
     pendingVerification: false,
     remainingUnresolved: [],
     lastTestPassed: false,
+    failureReadCalls: 0,
   };
   const messages = [
     { role: 'system', content: REPAIR_AGENT_SYSTEM_PROMPT },
@@ -294,6 +299,7 @@ export async function runRepairAgent({
         } else {
           state.toolCalls += 1;
           if (READ_ONLY_TOOLS.has(name)) state.readOnlyCalls += 1;
+          if (['read_file', 'git_show_file', 'search_code'].includes(name) && state.testCalls > 0 && state.lastTestPassed !== true) state.failureReadCalls += 1;
           if (name === 'apply_patch') state.patchCalls += 1;
           if (name === 'run_tests') state.testCalls += 1;
           if (name === 'run_tests') explicitTestInTurn = true;
@@ -305,6 +311,7 @@ export async function runRepairAgent({
           if (name === 'apply_patch' && Array.isArray(result?.remainingUnresolved)) {
             state.remainingUnresolved = result.remainingUnresolved;
           }
+          if (name === 'apply_patch') state.failureReadCalls = 0;
           if (name === 'apply_patch' && result?.applied === true) {
             state.pendingVerification = state.remainingUnresolved.length === 0;
             appliedInTurn = true;
@@ -312,6 +319,7 @@ export async function runRepairAgent({
           if (name === 'run_tests') {
             state.lastTestPassed = result?.passed === true;
             state.pendingVerification = false;
+            state.failureReadCalls = 0;
           }
         }
       }
