@@ -280,6 +280,26 @@ function parseApplyPatchFormat(value) {
   return operations;
 }
 
+function findConflictRanges(lines) {
+  const ranges = [];
+  for (let start = 0; start < lines.length; start += 1) {
+    if (!/^<<<<<<<(?: |$)/.test(lines[start])) continue;
+    const end = lines.findIndex((line, index) => index > start && /^>>>>>>>/.test(line));
+    if (end >= 0) ranges.push({ start, end });
+  }
+  return ranges;
+}
+
+function replaceSingleConflict(content, candidateLines, path) {
+  const lines = content.split('\n');
+  const ranges = findConflictRanges(lines);
+  if (ranges.length !== 1 || candidateLines.length === 0 || candidateLines.some((line) => /^(?:<<<<<<<|=======|>>>>>>>)/.test(line))) {
+    throw new Error(`apply_patch ${path} 找不到唯一可安全替换的冲突块`);
+  }
+  const { start, end } = ranges[0];
+  return [...lines.slice(0, start), ...candidateLines, ...lines.slice(end + 1)].join('\n');
+}
+
 function replaceUniqueLines(content, oldLines, newLines, path, addedLines = []) {
   const lines = content.split('\n');
   let matchAt = -1;
@@ -290,17 +310,11 @@ function replaceUniqueLines(content, oldLines, newLines, path, addedLines = []) 
     }
   }
   if (matchAt < 0) {
-    const conflictRanges = [];
-    for (let start = 0; start < lines.length; start += 1) {
-      if (!/^<<<<<<<(?: |$)/.test(lines[start])) continue;
-      const end = lines.findIndex((line, index) => index > start && /^>>>>>>>/.test(line));
-      if (end >= 0) conflictRanges.push({ start, end });
-    }
+    const conflictRanges = findConflictRanges(lines);
     const candidateLines = (addedLines.length > 0 ? addedLines : newLines.filter((line) => !oldLines.includes(line)))
       .filter((line) => !/^(?:<<<<<<<|=======|>>>>>>>)/.test(line));
     if (conflictRanges.length === 1 && candidateLines.length > 0) {
-      const { start, end } = conflictRanges[0];
-      return [...lines.slice(0, start), ...candidateLines, ...lines.slice(end + 1)].join('\n');
+      return replaceSingleConflict(content, candidateLines, path);
     }
     throw new Error(`apply_patch ${path} 找不到要替换的原文`);
   }
@@ -422,25 +436,63 @@ export function createAgentTools({
     return { ok: true, scope: args.scope || 'working', path, diff: clip(redactSensitiveText(result.stdout), AGENT_TOOL_LIMITS.maxDiffChars), truncated: result.stdout.length > AGENT_TOOL_LIMITS.maxDiffChars };
   }
 
+  async function applyConflictFallback(patch, validation) {
+    const unresolved = await runGitImpl(['diff', '--name-only', '--diff-filter=U'], { cwd, timeoutMs: 30_000 });
+    if (unresolved.code !== 0 || !unresolved.stdout.trim()) return null;
+    const patchLines = String(patch).replaceAll('\r', '').split('\n');
+    const added = patchLines
+      .filter((line) => line.startsWith('+') && !line.startsWith('+++'))
+      .map((line) => line.slice(1));
+    const rawContext = patchLines.filter((line) => (
+      line && !/^(?:diff --git|---|\+\+\+|@@|\*\*\*|[-+]|\\ )/.test(line)
+    ));
+    const candidateLines = (added.length > 0 ? added : rawContext)
+      .filter((line) => !/^(?:<<<<<<<|=======|>>>>>>>)/.test(line));
+    if (candidateLines.length === 0 || candidateLines.join('\n').length > AGENT_TOOL_LIMITS.maxPatchChars) return null;
+    const paths = validation.files.filter((file) => unresolved.stdout.split(/\r?\n/).includes(file));
+    if (paths.length !== 1) return null;
+    const { normalized, absolute } = safeReadPath(cwd, paths[0]);
+    const content = await readFile(absolute, 'utf8');
+    const updated = replaceSingleConflict(content, candidateLines, normalized);
+    await writeFile(absolute, updated, 'utf8');
+    state.changedFiles = [normalized];
+    return { ok: true, applied: true, changedFiles: state.changedFiles, format: 'conflict-fallback' };
+  }
+
   async function applyPatchTool(args = {}) {
     const patch = String(args.patch || '');
     if (!patch || patch.length > AGENT_TOOL_LIMITS.maxPatchChars) throw new Error(`patch 不能为空且不得超过 ${AGENT_TOOL_LIMITS.maxPatchChars} 字符`);
     const validation = validateRepairResponse({ decision: 'repair', summary: 'agent patch', patch }, { allowedFiles: allowed });
     if (!validation.ok) throw new Error(validation.errors.join('；'));
-    const applyPatchOperations = parseApplyPatchFormat(patch);
+    let applyPatchOperations;
+    let parseError;
+    try {
+      applyPatchOperations = parseApplyPatchFormat(patch);
+    } catch (error) {
+      parseError = error;
+    }
     if (applyPatchOperations) {
       const updates = [];
-      for (const operation of applyPatchOperations) {
-        const { normalized, absolute } = safeReadPath(cwd, operation.path);
-        if (!allowed.includes(normalized)) throw new Error(`禁止修改允许列表之外的文件: ${normalized}`);
-        let content = await readFile(absolute, 'utf8');
-        for (const hunk of operation.hunks) content = replaceUniqueLines(content, hunk.oldLines, hunk.newLines, normalized, hunk.addedLines);
-        updates.push({ normalized, absolute, content });
+      try {
+        for (const operation of applyPatchOperations) {
+          const { normalized, absolute } = safeReadPath(cwd, operation.path);
+          if (!allowed.includes(normalized)) throw new Error(`禁止修改允许列表之外的文件: ${normalized}`);
+          let content = await readFile(absolute, 'utf8');
+          for (const hunk of operation.hunks) content = replaceUniqueLines(content, hunk.oldLines, hunk.newLines, normalized, hunk.addedLines);
+          updates.push({ normalized, absolute, content });
+        }
+      } catch (error) {
+        const fallback = await applyConflictFallback(patch, validation);
+        if (fallback) return fallback;
+        throw error;
       }
       for (const update of updates) await writeFile(update.absolute, update.content, 'utf8');
       state.changedFiles = [...new Set(updates.map((update) => update.normalized))];
       return { ok: true, applied: true, changedFiles: state.changedFiles, format: 'apply_patch' };
     }
+    const fallback = await applyConflictFallback(patch, validation);
+    if (fallback) return fallback;
+    if (parseError) throw parseError;
     const directory = await mkdtemp(join(tmpdir(), 'stone-memory-pr-agent-'));
     const patchPath = join(directory, 'repair.patch');
     try {
