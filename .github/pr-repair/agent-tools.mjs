@@ -33,6 +33,14 @@ export async function runSandboxedTests({ cwd, runCommandImpl = runCommand, time
   try {
     await cp(packageJson, join(install, 'package.json'));
     await cp(packageLock, join(install, 'package-lock.json'));
+    // npm ci runs the repository preinstall hook; keep its trusted Node-version
+    // check available without copying any other source into the install boundary.
+    await mkdir(join(install, 'scripts'), { recursive: true });
+    try {
+      await cp(join(cwd, 'scripts', 'check-node-version.js'), join(install, 'scripts', 'check-node-version.js'));
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
     const installResult = await runCommandImpl('docker', [
       'run', '--rm', '--init', '--user', `${process.getuid?.() || 0}:${process.getgid?.() || 0}`,
       '-v', `${install}:/install:rw`, '-w', '/install',
