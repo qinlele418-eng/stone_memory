@@ -223,13 +223,15 @@ function parseApplyPatchFormat(value) {
     const hunks = [];
     let oldLines = [];
     let newLines = [];
+    let addedLines = [];
     let hunkStarted = false;
     const flush = () => {
       if (!hunkStarted) return;
       if (oldLines.length === 0 && newLines.length === 0) throw new Error(`apply_patch ${path} 包含空 hunk`);
-      hunks.push({ oldLines, newLines });
+      hunks.push({ oldLines, newLines, addedLines });
       oldLines = [];
       newLines = [];
+      addedLines = [];
       hunkStarted = false;
     };
     for (; index < lines.length; index += 1) {
@@ -250,6 +252,7 @@ function parseApplyPatchFormat(value) {
       }
       if (line.startsWith('+')) {
         newLines.push(line.slice(1));
+        addedLines.push(line.slice(1));
         continue;
       }
       if (line === '' && (index + 1 >= lines.length || lines[index + 1].trim() === '*** End Patch' || /^\*\*\* (?:Update|Add|Delete) File: /.test(lines[index + 1]))) {
@@ -276,7 +279,7 @@ function parseApplyPatchFormat(value) {
   return operations;
 }
 
-function replaceUniqueLines(content, oldLines, newLines, path) {
+function replaceUniqueLines(content, oldLines, newLines, path, addedLines = []) {
   const lines = content.split('\n');
   let matchAt = -1;
   for (let start = 0; start <= lines.length - oldLines.length; start += 1) {
@@ -292,10 +295,11 @@ function replaceUniqueLines(content, oldLines, newLines, path) {
       const end = lines.findIndex((line, index) => index > start && /^>>>>>>>/.test(line));
       if (end >= 0) conflictRanges.push({ start, end });
     }
-    const hasConflictMarkers = newLines.length > 0 && newLines.every((line) => !/^(?:<<<<<<<|=======|>>>>>>>)/.test(line));
-    if (conflictRanges.length === 1 && hasConflictMarkers) {
+    const candidateLines = (addedLines.length > 0 ? addedLines : newLines.filter((line) => !oldLines.includes(line)))
+      .filter((line) => !/^(?:<<<<<<<|=======|>>>>>>>)/.test(line));
+    if (conflictRanges.length === 1 && candidateLines.length > 0) {
       const { start, end } = conflictRanges[0];
-      return [...lines.slice(0, start), ...newLines, ...lines.slice(end + 1)].join('\n');
+      return [...lines.slice(0, start), ...candidateLines, ...lines.slice(end + 1)].join('\n');
     }
     throw new Error(`apply_patch ${path} 找不到要替换的原文`);
   }
@@ -429,7 +433,7 @@ export function createAgentTools({
         const { normalized, absolute } = safeReadPath(cwd, operation.path);
         if (!allowed.includes(normalized)) throw new Error(`禁止修改允许列表之外的文件: ${normalized}`);
         let content = await readFile(absolute, 'utf8');
-        for (const hunk of operation.hunks) content = replaceUniqueLines(content, hunk.oldLines, hunk.newLines, normalized);
+        for (const hunk of operation.hunks) content = replaceUniqueLines(content, hunk.oldLines, hunk.newLines, normalized, hunk.addedLines);
         updates.push({ normalized, absolute, content });
       }
       for (const update of updates) await writeFile(update.absolute, update.content, 'utf8');
