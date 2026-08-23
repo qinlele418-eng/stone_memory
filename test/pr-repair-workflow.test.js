@@ -67,3 +67,10 @@ test('publish is gated by the post-validation final status', () => {
   assert.match(workflow, /docker run --rm --init --network none/);
   assert.match(workflow, /pr-repair-test-output\/pr-repair-test\.json/);
 });
+
+test('final validation stages every trusted test-runner dependency and restores artifact files by name', () => {
+  assert.match(workflow, /cp tools\/\.github\/pr-repair\/contract\.mjs tools\/\.github\/pr-repair\/git\.mjs/);
+  assert.match(workflow, /bundle_path="\$\(find restore -type f -name repair\.bundle/);
+  assert.match(workflow, /plan_path="\$\(find restore -type f -name pr-repair-plan\.json/);
+  assert.match(workflow, /result_path="\$\(find restore -type f -name pr-repair-result\.json/);
+});

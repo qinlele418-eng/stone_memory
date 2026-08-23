@@ -800,7 +800,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/pr-repair-validation" "$RUNNER_TEMP/pr-repair-tools"
           cp -a repair/. "$RUNNER_TEMP/pr-repair-validation/"
           cp tools/.github/pr-repair/test-runner.mjs "$RUNNER_TEMP/pr-repair-tools/"
-          cp tools/.github/pr-repair/git.mjs tools/.github/pr-repair/tap.mjs "$RUNNER_TEMP/pr-repair-tools/"
+          cp tools/.github/pr-repair/contract.mjs tools/.github/pr-repair/git.mjs tools/.github/pr-repair/tap.mjs "$RUNNER_TEMP/pr-repair-tools/"
           cp tools/.github/pr-repair/finalize.mjs "$RUNNER_TEMP/pr-repair-tools/"
           chmod -R a-w "$RUNNER_TEMP/pr-repair-tools"
           git -C repair bundle create "$RUNNER_TEMP/repair.bundle" HEAD
@@ -893,9 +893,16 @@ jobs:
         if: always() && steps.apply.outputs.status == 'repair_success'
         run: |
           set -euo pipefail
-          cp restore/repair.bundle repair.bundle
-          cp restore/pr-repair-plan.json pr-repair-plan.json
-          cp restore/pr-repair-result.json pr-repair-result.json
+          # upload-artifact preserves the least-common-ancestor of absolute
+          # paths.  Resolve the trusted files by basename instead of assuming
+          # that the action materialises them directly below restore/.
+          bundle_path="$(find restore -type f -name repair.bundle -print -quit)"
+          plan_path="$(find restore -type f -name pr-repair-plan.json -print -quit)"
+          result_path="$(find restore -type f -name pr-repair-result.json -print -quit)"
+          test -n "$bundle_path" && test -n "$plan_path" && test -n "$result_path"
+          cp "$bundle_path" repair.bundle
+          cp "$plan_path" pr-repair-plan.json
+          cp "$result_path" pr-repair-result.json
 
       - name: Finalize report
         id: finalize
