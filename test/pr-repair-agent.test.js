@@ -202,3 +202,34 @@ test('agent apply_patch can resolve an actual current-main conflict in the repai
     await rm(cwd, { recursive: true, force: true });
   }
 });
+
+test('agent apply_patch accepts the bounded Begin Patch format emitted by coding models', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'stone-memory-agent-apply-format-'));
+  try {
+    const git = async (...args) => {
+      const result = await runGit(args, { cwd });
+      assert.equal(result.code, 0, `${args.join(' ')}\n${result.stderr}`);
+      return result.stdout.trim();
+    };
+    await git('init', '-b', 'main');
+    await git('config', 'user.name', 'test');
+    await git('config', 'user.email', 'test@example.invalid');
+    await writeFile(join(cwd, 'example.txt'), '<<<<<<< HEAD\npr\n=======\nmain\n>>>>>>> main\n');
+    await git('add', 'example.txt');
+    await git('commit', '-m', 'conflict');
+    const sha = await git('rev-parse', 'HEAD');
+    const tools = createAgentTools({
+      cwd,
+      revisions: { base: sha, pr: sha, main: sha },
+      allowedFiles: ['example.txt'],
+      runTestsImpl: async () => ({ passed: true, command: 'npm test', result: { total: 1, passed: 1, failed: 0, failures: [] }, stderr: '' }),
+    });
+    const result = await tools.call('apply_patch', {
+      patch: '*** Begin Patch\n*** Update File: example.txt\n@@\n-<<<<<<< HEAD\n-pr\n-=======\n-main\n->>>>>>> main\n+resolved\n*** End Patch\n',
+    });
+    assert.equal(result.applied, true, JSON.stringify(result));
+    assert.equal(await readFile(join(cwd, 'example.txt'), 'utf8'), 'resolved\n');
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});

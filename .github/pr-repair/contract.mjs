@@ -141,6 +141,8 @@ function changedPathsFromPatch(patch) {
     }
     const header = line.match(/^(?:---|\+\+\+) (.+?)(?:\t.*)?$/);
     if (header && header[1] !== '/dev/null') paths.add(header[1].replace(/^[ab]\//, ''));
+    const applyPatchHeader = line.match(/^\*\*\* (?:Update|Add|Delete) File: (.+)$/);
+    if (applyPatchHeader) paths.add(applyPatchHeader[1].trim());
   }
   return [...paths];
 }

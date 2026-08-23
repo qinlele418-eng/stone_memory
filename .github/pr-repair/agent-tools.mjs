@@ -160,7 +160,7 @@ const TOOL_DEFINITIONS = Object.freeze([
     type: 'function',
     function: {
       name: 'apply_patch',
-      description: '在当前 repair worktree 应用小范围 unified patch；这是唯一代码修改工具。',
+      description: '在当前 repair worktree 应用小范围 unified patch 或受限 Begin Patch（*** Begin Patch / *** Update File / @@ / +/- / *** End Patch）；不要 Markdown 围栏。这是唯一代码修改工具。',
       parameters: {
         type: 'object',
         properties: { patch: { type: 'string' } },
@@ -206,6 +206,84 @@ const TOOL_DEFINITIONS = Object.freeze([
 function clip(value, limit) {
   const text = String(value ?? '');
   return text.length <= limit ? text : `${text.slice(0, limit)}\n...[输出已截断]`;
+}
+
+function parseApplyPatchFormat(value) {
+  const lines = String(value ?? '').replaceAll('\r', '').split('\n');
+  const begin = lines.findIndex((line) => line.trim() === '*** Begin Patch');
+  if (begin < 0) return null;
+  const operations = [];
+  let index = begin + 1;
+  while (index < lines.length && lines[index].trim() !== '*** End Patch') {
+    const header = lines[index].match(/^\*\*\* (Update|Add|Delete) File: (.+)$/);
+    if (!header) throw new Error(`apply_patch 格式错误：第 ${index + 1} 行应为 Update File`);
+    if (header[1] !== 'Update') throw new Error('apply_patch 只允许更新已验证的冲突文件');
+    const path = header[2].trim();
+    index += 1;
+    const hunks = [];
+    let oldLines = [];
+    let newLines = [];
+    let hunkStarted = false;
+    const flush = () => {
+      if (!hunkStarted) return;
+      if (oldLines.length === 0 && newLines.length === 0) throw new Error(`apply_patch ${path} 包含空 hunk`);
+      hunks.push({ oldLines, newLines });
+      oldLines = [];
+      newLines = [];
+      hunkStarted = false;
+    };
+    for (; index < lines.length; index += 1) {
+      const line = lines[index];
+      if (line.trim() === '*** End Patch' || /^\*\*\* (?:Update|Add|Delete) File: /.test(line)) break;
+      if (line.startsWith('@@')) {
+        flush();
+        hunkStarted = true;
+        continue;
+      }
+      if (!hunkStarted) {
+        if (line.trim() === '' || line.trim() === '*** End of File') continue;
+        throw new Error(`apply_patch ${path} 缺少 hunk 标记`);
+      }
+      if (line.startsWith('-')) {
+        oldLines.push(line.slice(1));
+        continue;
+      }
+      if (line.startsWith('+')) {
+        newLines.push(line.slice(1));
+        continue;
+      }
+      if (line === '' && (index + 1 >= lines.length || lines[index + 1].trim() === '*** End Patch' || /^\*\*\* (?:Update|Add|Delete) File: /.test(lines[index + 1]))) {
+        index += 1;
+        break;
+      }
+      if (line.startsWith(' ') || line === '') {
+        const context = line.startsWith(' ') ? line.slice(1) : '';
+        oldLines.push(context);
+        newLines.push(context);
+        continue;
+      }
+      if (line === '\\ No newline at end of file') continue;
+      throw new Error(`apply_patch ${path} 包含无法识别的 hunk 行`);
+    }
+    flush();
+    if (hunks.length === 0) throw new Error(`apply_patch ${path} 缺少有效 hunk`);
+    operations.push({ path, hunks });
+  }
+  if (index >= lines.length || lines[index].trim() !== '*** End Patch') throw new Error('apply_patch 缺少 *** End Patch');
+  return operations;
+}
+
+function replaceUniqueLines(content, oldLines, newLines, path) {
+  const lines = content.split('\n');
+  let matchAt = -1;
+  for (let start = 0; start <= lines.length - oldLines.length; start += 1) {
+    if (oldLines.every((line, offset) => lines[start + offset] === line)) {
+      if (matchAt >= 0) throw new Error(`apply_patch ${path} 的旧文本匹配多处，拒绝猜测修改位置`);
+      matchAt = start;
+    }
+  }
+  if (matchAt < 0) throw new Error(`apply_patch ${path} 找不到要替换的原文`);
+  return [...lines.slice(0, matchAt), ...newLines, ...lines.slice(matchAt + oldLines.length)].join('\n');
 }
 
 function safeReadPath(root, file, { allowDirectory = false } = {}) {
@@ -328,6 +406,20 @@ export function createAgentTools({
     if (!patch || patch.length > AGENT_TOOL_LIMITS.maxPatchChars) throw new Error(`patch 不能为空且不得超过 ${AGENT_TOOL_LIMITS.maxPatchChars} 字符`);
     const validation = validateRepairResponse({ decision: 'repair', summary: 'agent patch', patch }, { allowedFiles: allowed });
     if (!validation.ok) throw new Error(validation.errors.join('；'));
+    const applyPatchOperations = parseApplyPatchFormat(patch);
+    if (applyPatchOperations) {
+      const updates = [];
+      for (const operation of applyPatchOperations) {
+        const { normalized, absolute } = safeReadPath(cwd, operation.path);
+        if (!allowed.includes(normalized)) throw new Error(`禁止修改允许列表之外的文件: ${normalized}`);
+        let content = await readFile(absolute, 'utf8');
+        for (const hunk of operation.hunks) content = replaceUniqueLines(content, hunk.oldLines, hunk.newLines, normalized);
+        updates.push({ normalized, absolute, content });
+      }
+      for (const update of updates) await writeFile(update.absolute, update.content, 'utf8');
+      state.changedFiles = [...new Set(updates.map((update) => update.normalized))];
+      return { ok: true, applied: true, changedFiles: state.changedFiles, format: 'apply_patch' };
+    }
     const directory = await mkdtemp(join(tmpdir(), 'stone-memory-pr-agent-'));
     const patchPath = join(directory, 'repair.patch');
     try {
