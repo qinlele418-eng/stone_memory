@@ -156,6 +156,7 @@ export async function commitAgentRepair({
   diagnosis,
   summary = '',
   model = process.env.ZAI_MODEL || 'glm-4.5-flash',
+  agentChangedFiles = [],
   token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN,
   prNumber = diagnosis?.pr?.number || process.env.PR_NUMBER,
   baseSha = diagnosis?.currentMainSha || process.env.BASE_SHA,
@@ -174,10 +175,12 @@ export async function commitAgentRepair({
   const untrackedNames = await runGit(['ls-files', '--others', '--exclude-standard'], { cwd });
   const changedFiles = [...new Set(`${worktreeNames.stdout}\n${preStagedNames.stdout}\n${untrackedNames.stdout}`.split(/\r?\n/).filter(Boolean))];
   if (changedFiles.length === 0) return { version: 1, status: 'repair_failed', error: 'Agent 没有产生文件变更' };
+  const modelChangedFiles = [...new Set((Array.isArray(agentChangedFiles) && agentChangedFiles.length > 0 ? agentChangedFiles : changedFiles).filter(Boolean))];
+  if (modelChangedFiles.length === 0) return { version: 1, status: 'repair_failed', error: 'Agent 没有报告模型修改文件' };
   const validation = validateRepairResponse({
     decision: 'repair',
     summary: String(summary || '').slice(0, 2_000),
-    changes: changedFiles.map((path) => ({ path, content: 'agent workspace change' })),
+    changes: modelChangedFiles.map((path) => ({ path, content: 'agent workspace change' })),
   }, { allowedFiles });
   if (!validation.ok) return { version: 1, status: 'repair_failed', error: validation.errors.join('；') };
   const diffCheck = await runGit(['diff', '--check'], { cwd });

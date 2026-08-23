@@ -17,6 +17,7 @@ export async function main() {
       diagnosis,
       summary: agent.summary || '',
       model: agent.model || process.env.ZAI_MODEL || 'glm-4.5-flash',
+      agentChangedFiles: agent.changedFiles || [],
       prNumber: process.env.PR_NUMBER,
     });
   }

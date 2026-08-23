@@ -483,7 +483,7 @@ export function createAgentTools({
     const updated = replaceSingleConflict(content, candidateLines, normalized);
     await writeFile(absolute, updated, 'utf8');
     await stageFiles([normalized]);
-    state.changedFiles = await changedFileNames();
+    state.changedFiles = [normalized];
     return { ok: true, applied: true, changedFiles: state.changedFiles, format: 'conflict-fallback' };
   }
 
@@ -516,7 +516,7 @@ export function createAgentTools({
       }
       for (const update of updates) await writeFile(update.absolute, update.content, 'utf8');
       await stageFiles(updates.map((update) => update.normalized));
-      state.changedFiles = await changedFileNames();
+      state.changedFiles = [...new Set(updates.map((update) => update.normalized))];
       return { ok: true, applied: true, changedFiles: state.changedFiles, format: 'apply_patch' };
     }
     const fallback = await applyConflictFallback(patch, validation);
@@ -536,8 +536,11 @@ export function createAgentTools({
         }
       }
       if (result.code !== 0) return { ok: false, applied: false, error: clip(redactErrorMessage(result.stderr || result.stdout || 'git apply 失败'), 8_000) };
+      const names = await runGitImpl(['diff', '--name-only'], { cwd, timeoutMs: 30_000 });
       await stageFiles(validation.files);
-      state.changedFiles = await changedFileNames();
+      state.changedFiles = names.code === 0 && names.stdout.trim()
+        ? names.stdout.split(/\r?\n/).filter(Boolean)
+        : validation.files;
       return { ok: true, applied: true, changedFiles: state.changedFiles };
     } finally {
       await rm(directory, { recursive: true, force: true });
