@@ -62,7 +62,14 @@ export async function main() {
   let reproduction = {};
   try { reproduction = JSON.parse(readFileSync(process.env.REPRODUCTION_PATH || 'pr-repair-reproduction.json', 'utf8')); } catch { /* conflict-only runs have no reproduction */ }
   let feedback = {};
-  try { feedback = JSON.parse(readFileSync(process.env.FEEDBACK_PATH || 'pr-repair-feedback.json', 'utf8')); } catch { /* first round has no repair feedback */ }
+  if (process.env.FEEDBACK_PATH) {
+    try {
+      feedback = JSON.parse(readFileSync(process.env.FEEDBACK_PATH, 'utf8'));
+      if (!feedback || typeof feedback !== 'object' || Array.isArray(feedback)) throw new Error('维修反馈不是 JSON 对象');
+    } catch (error) {
+      throw new Error(`维修反馈缺失或无效：${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
  const output = process.env.CONTEXT_PATH || 'pr-repair-context.json';
   if (process.env.ALLOW_EXTERNAL_MODEL_DATA !== 'true') {
     writeFileSync(output, `${JSON.stringify({ externalModelDataAllowed: false, error: '未明确允许向外部模型发送 PR 内容' }, null, 2)}\n`, 'utf8');

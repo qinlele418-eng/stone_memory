@@ -20,7 +20,7 @@ function cleanEnv(token) {
 
 async function install(cwd) {
   const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-  const result = await runCommand(npmCommand, ['ci', '--no-audit', '--no-fund'], {
+  const result = await runCommand(npmCommand, ['ci', '--ignore-scripts', '--no-audit', '--no-fund'], {
     cwd,
     env: cleanEnv(),
     timeoutMs: 1_200_000,

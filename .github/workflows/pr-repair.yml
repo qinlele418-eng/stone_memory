@@ -314,7 +314,7 @@ jobs:
             -e HOME=/tmp -e npm_config_cache=/tmp/npm-cache \
             -e GITHUB_TOKEN= -e GH_TOKEN= -e ZAI_API_KEY= -e NPM_TOKEN= -e NODE_AUTH_TOKEN= \
             -e ACTIONS_RUNTIME_TOKEN= -e ACTIONS_ID_TOKEN_REQUEST_TOKEN= \
-            node:22-bookworm npm ci --no-audit --no-fund; then
+            node:22-bookworm npm ci --ignore-scripts --no-audit --no-fund; then
             node -e "require('fs').writeFileSync(process.env.TEST_REPORT_PATH, JSON.stringify({command:'npm test',exitCode:1,timedOut:false,result:{total:1,passed:0,failed:1,failures:[{name:'npm ci',error:'依赖安装失败'}]},stderr:'',passed:false}))"
             exit 1
           fi
@@ -349,6 +349,7 @@ jobs:
           git -C source clean -fdx
 
       - name: Build model context for repair round 2
+        id: context2
         if: steps.apply1.outputs.status == 'repair_success' && steps.verify1.outcome != 'success'
         env:
           DIAGNOSIS_PATH: ${{ github.workspace }}/evidence/diagnosis/pr-repair-diagnosis.json
@@ -361,7 +362,7 @@ jobs:
 
       - name: Call Z.AI GLM-4.7-Flash round 2 (secret isolated to this step)
         id: zai_round2
-        if: steps.apply1.outputs.status == 'repair_success' && steps.verify1.outcome != 'success'
+        if: steps.apply1.outputs.status == 'repair_success' && steps.verify1.outcome != 'success' && steps.context2.outcome == 'success'
         env:
           ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
           REPAIR_INPUT_PATH: ${{ github.workspace }}/repair-input-2.json
@@ -406,7 +407,7 @@ jobs:
             -e HOME=/tmp -e npm_config_cache=/tmp/npm-cache \
             -e GITHUB_TOKEN= -e GH_TOKEN= -e ZAI_API_KEY= -e NPM_TOKEN= -e NODE_AUTH_TOKEN= \
             -e ACTIONS_RUNTIME_TOKEN= -e ACTIONS_ID_TOKEN_REQUEST_TOKEN= \
-            node:22-bookworm npm ci --no-audit --no-fund; then
+            node:22-bookworm npm ci --ignore-scripts --no-audit --no-fund; then
             node -e "require('fs').writeFileSync(process.env.TEST_REPORT_PATH, JSON.stringify({command:'npm test',exitCode:1,timedOut:false,result:{total:1,passed:0,failed:1,failures:[{name:'npm ci',error:'依赖安装失败'}]},stderr:'',passed:false}))"
             exit 1
           fi
@@ -441,6 +442,7 @@ jobs:
           git -C source clean -fdx
 
       - name: Build model context for repair round 3
+        id: context3
         if: steps.apply2.outputs.status == 'repair_success' && steps.verify2.outcome != 'success'
         env:
           DIAGNOSIS_PATH: ${{ github.workspace }}/evidence/diagnosis/pr-repair-diagnosis.json
@@ -453,7 +455,7 @@ jobs:
 
       - name: Call Z.AI GLM-4.7-Flash round 3 (secret isolated to this step)
         id: zai_round3
-        if: steps.apply2.outputs.status == 'repair_success' && steps.verify2.outcome != 'success'
+        if: steps.apply2.outputs.status == 'repair_success' && steps.verify2.outcome != 'success' && steps.context3.outcome == 'success'
         env:
           ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
           REPAIR_INPUT_PATH: ${{ github.workspace }}/repair-input-3.json
@@ -498,7 +500,7 @@ jobs:
             -e HOME=/tmp -e npm_config_cache=/tmp/npm-cache \
             -e GITHUB_TOKEN= -e GH_TOKEN= -e ZAI_API_KEY= -e NPM_TOKEN= -e NODE_AUTH_TOKEN= \
             -e ACTIONS_RUNTIME_TOKEN= -e ACTIONS_ID_TOKEN_REQUEST_TOKEN= \
-            node:22-bookworm npm ci --no-audit --no-fund; then
+            node:22-bookworm npm ci --ignore-scripts --no-audit --no-fund; then
             node -e "require('fs').writeFileSync(process.env.TEST_REPORT_PATH, JSON.stringify({command:'npm test',exitCode:1,timedOut:false,result:{total:1,passed:0,failed:1,failures:[{name:'npm ci',error:'依赖安装失败'}]},stderr:'',passed:false}))"
             exit 1
           fi
@@ -857,7 +859,7 @@ jobs:
             -e HOME=/tmp -e npm_config_cache=/tmp/npm-cache \
             -e GITHUB_TOKEN= -e GH_TOKEN= -e ZAI_API_KEY= -e NPM_TOKEN= -e NODE_AUTH_TOKEN= \
             -e ACTIONS_RUNTIME_TOKEN= -e ACTIONS_ID_TOKEN_REQUEST_TOKEN= \
-            node:22-bookworm npm ci --no-audit --no-fund; then
+            node:22-bookworm npm ci --ignore-scripts --no-audit --no-fund; then
             node -e "require('fs').writeFileSync(process.env.TEST_REPORT_PATH, JSON.stringify({command:'npm test',exitCode:1,timedOut:false,result:{total:1,passed:0,failed:1,failures:[{name:'npm ci',error:'依赖安装失败'}]},stderr:'',passed:false}))"
             exit 1
           fi

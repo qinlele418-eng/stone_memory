@@ -33,8 +33,9 @@ export async function runSandboxedTests({ cwd, runCommandImpl = runCommand, time
   try {
     await cp(packageJson, join(install, 'package.json'));
     await cp(packageLock, join(install, 'package-lock.json'));
-    // npm ci runs the repository preinstall hook; keep its trusted Node-version
-    // check available without copying any other source into the install boundary.
+    // Install dependencies without executing PR-controlled lifecycle scripts.
+    // The test container below is network-isolated; npm ci must not be able to
+    // exfiltrate the checked-out source through an install hook.
     await mkdir(join(install, 'scripts'), { recursive: true });
     try {
       await cp(join(cwd, 'scripts', 'check-node-version.js'), join(install, 'scripts', 'check-node-version.js'));
@@ -48,7 +49,7 @@ export async function runSandboxedTests({ cwd, runCommandImpl = runCommand, time
       '-e', 'GITHUB_TOKEN=', '-e', 'GH_TOKEN=', '-e', 'ZAI_API_KEY=',
       '-e', 'NPM_TOKEN=', '-e', 'NODE_AUTH_TOKEN=',
       '-e', 'ACTIONS_RUNTIME_TOKEN=', '-e', 'ACTIONS_ID_TOKEN_REQUEST_TOKEN=',
-      'node:22-bookworm', 'npm', 'ci', '--no-audit', '--no-fund',
+      'node:22-bookworm', 'npm', 'ci', '--ignore-scripts', '--no-audit', '--no-fund',
     ], { cwd, timeoutMs });
     if (installResult.code !== 0) {
       return {

@@ -74,3 +74,15 @@ test('final validation stages every trusted test-runner dependency and restores 
   assert.match(workflow, /result_path="\$\(find restore -type f -name pr-repair-result\.json/);
   assert.doesNotMatch(workflow, /test -n "\$bundle_path" && test -n "\$plan_path"/);
 });
+
+test('all untrusted dependency installs disable PR lifecycle scripts before tests run', () => {
+  assert.equal((workflow.match(/npm ci --ignore-scripts --no-audit --no-fund/g) || []).length, 4);
+  assert.doesNotMatch(workflow, /npm ci --no-audit --no-fund/);
+});
+
+test('missing feedback fails closed before another model round', () => {
+  assert.match(workflow, /id: context2/);
+  assert.match(workflow, /steps\.context2\.outcome == 'success'/);
+  assert.match(workflow, /id: context3/);
+  assert.match(workflow, /steps\.context3\.outcome == 'success'/);
+});
