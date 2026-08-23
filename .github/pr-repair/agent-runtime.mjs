@@ -349,6 +349,12 @@ export async function runRepairAgent({
       });
     }
 
+    if (!finished && appliedInTurn && state.lastTestPassed === true) {
+      return finalResult('repair_complete', null, state, limits, startedAt, clock, {
+        summary: '代码修改已应用，隔离相关测试通过，运行时自动完成维修。',
+      });
+    }
+
     if (finished) {
       if (finished.status === 'repair_complete') {
         return finalResult('repair_complete', null, state, limits, startedAt, clock, { summary: finished.summary || '' });

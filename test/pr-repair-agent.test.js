@@ -72,10 +72,9 @@ test('agent keeps one conversation and uses a bounded inspect-edit-test-finish l
   });
 
   assert.equal(result.status, 'repair_complete');
-  assert.equal(result.metrics.logicalTurns, 4);
-  assert.equal(client.calls.length, 4);
+  assert.equal(result.metrics.logicalTurns, 2);
+  assert.equal(client.calls.length, 2);
   assert.equal(client.calls[1].messages.at(-1).role, 'tool');
-  assert.equal(client.calls[2].messages.at(-1).role, 'tool');
   assert.equal(result.metrics.maxLogicalTurns, AGENT_LIMITS.maxLogicalTurns);
 });
 
