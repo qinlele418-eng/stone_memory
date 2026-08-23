@@ -721,7 +721,11 @@ export function createAgentTools({
       // correction cycles, use the trusted current-main implementation for
       // that one file. The PR's independent command/index files remain intact
       // and the outer test gate still decides whether this is acceptable.
-      if (state.testCalls >= 3 && revisions.main) {
+      // Two complete verification reports are enough evidence to stop
+      // spending model turns on the same stale PR algorithm.  The model has
+      // already attempted the source, and the trusted current-main version
+      // is the bounded semantic fallback for this exact file.
+      if (state.testCalls >= 2 && revisions.main) {
         const mainContent = await readFileAt(cwd, revisions.main, normalized);
         if (mainContent !== null) updated = mainContent;
       }
