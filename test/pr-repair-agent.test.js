@@ -93,6 +93,7 @@ test('agent rejects a repair completion before a passing test and fails closed a
   assert.equal(result.status, 'needs_human');
   assert.match(result.reason, /回合上限|repair_complete/);
   assert.equal(result.metrics.logicalTurns, 5);
+  assert.deepEqual(client.calls[2].tools.map((tool) => tool.function.name), ['apply_patch', 'run_tests', 'finish']);
 });
 
 test('agent never exposes an unrestricted shell tool', async () => {

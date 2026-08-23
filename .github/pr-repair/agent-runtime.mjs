@@ -146,6 +146,13 @@ function gateToolCall(name, args, state, limits) {
   return null;
 }
 
+function availableDefinitions(definitions, state, limits) {
+  if (state.patchCalls === 0 && state.logicalTurns > limits.maxExploreTurns) {
+    return definitions.filter((tool) => ['apply_patch', 'run_tests', 'finish'].includes(tool?.function?.name));
+  }
+  return definitions;
+}
+
 function defaultTask({ diagnosis, reproduction = {} } = {}) {
   const failures = reproduction?.pr?.result?.failures || [];
   return [
@@ -217,7 +224,7 @@ export async function runRepairAgent({
         const requestMessages = compactMessages(messages, tools.snapshot?.() || {}, limits);
         completion = await client.complete({
           messages: requestMessages,
-          tools: tools.definitions,
+          tools: availableDefinitions(tools.definitions, state, limits),
           maxTokens: limits.maxTokensPerTurn,
         });
         state.apiAttempts += Number(completion?.attempts || 1);
