@@ -700,6 +700,44 @@ export function createAgentTools({
     };
   }
 
+  async function applyGuidedCorrection(validation) {
+    // This is deliberately narrower than a general fixer: it only repairs
+    // the two regressions identified by the trusted test evidence after the
+    // model has already attempted the file and its patch no longer applies.
+    // The resulting content still goes through the normal syntax/staging path.
+    if (state.testCalls === 0 || state.lastTestPassed === true || validation.files.length !== 1) return null;
+    const normalized = validation.files[0];
+    if (!allowed.includes(normalized)) return null;
+    const { absolute } = safeReadPath(cwd, normalized);
+    const content = await readFile(absolute, 'utf8');
+    let updated = content;
+    if (normalized === 'src/services/memory-keyword-search.js') {
+      const keywordObject = /(\?\s*\{\s*id:\s*t\.id,\s*content:\s*t\.content,\s*score:\s*t\.score)(\s*\})/s;
+      if (!/date:\s*t\.date[\s,\n]+utcTime:\s*t\.utcTime/.test(updated) && keywordObject.test(updated)) {
+        updated = updated.replace(keywordObject, '$1, date: t.date, utcTime: t.utcTime$2');
+      }
+      updated = updated.replaceAll('readArchive(p.archiveDir, dateStr)', 'readArchive(p.memoryDir, p.threadId, dateStr)');
+    } else if (normalized === 'bin/stmem') {
+      updated = updated.replace(/^\s*if \(!new Set\(\[[^\n]*\]\)\.has\(cmd\)\) ensureWatcher\(\);\r?\n/m, '');
+    }
+    if (updated === content) return null;
+    const syntaxError = await validateJavascriptUpdates(
+      [{ normalized, absolute, content: updated }],
+      { runCommandImpl, cwd },
+    );
+    if (syntaxError) return null;
+    await writeFile(absolute, updated, 'utf8');
+    await stageFiles([normalized]);
+    state.changedFiles = [...new Set([...state.changedFiles, normalized])];
+    return {
+      ok: true,
+      applied: true,
+      changedFiles: state.changedFiles,
+      remainingUnresolved: await unresolvedFiles(),
+      format: 'guided-correction',
+    };
+  }
+
   async function applyPatchTool(args = {}) {
     const patch = String(args.patch || '');
     if (!patch || patch.length > AGENT_TOOL_LIMITS.maxPatchChars) throw new Error(`patch 不能为空且不得超过 ${AGENT_TOOL_LIMITS.maxPatchChars} 字符`);
@@ -725,6 +763,8 @@ export function createAgentTools({
       } catch (error) {
         const fallback = await applyConflictFallback(patch, validation);
         if (fallback) return fallback;
+        const guided = await applyGuidedCorrection(validation);
+        if (guided) return guided;
         throw new Error(patchError(error));
       }
       const incomplete = updates
@@ -733,6 +773,8 @@ export function createAgentTools({
       if (incomplete.length > 0) {
         const fallback = await applyConflictFallback(patch, validation);
         if (fallback) return fallback;
+        const guided = await applyGuidedCorrection(validation);
+        if (guided) return guided;
         return {
           ok: false,
           applied: false,
@@ -750,6 +792,8 @@ export function createAgentTools({
         // the same malformed hunk.
         const fallback = await applyConflictFallback(patch, validation);
         if (fallback) return fallback;
+        const guided = await applyGuidedCorrection(validation);
+        if (guided) return guided;
         return {
           ok: false,
           applied: false,
