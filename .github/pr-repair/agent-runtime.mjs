@@ -6,6 +6,7 @@ import { redactErrorMessage, redactModelValue } from './contract.mjs';
 
 export const AGENT_LIMITS = Object.freeze({
   maxLogicalTurns: 6,
+  maxExploreTurns: 2,
   maxApiAttempts: 7,
   maxTokensPerTurn: 4_096,
   maxCompletionTokens: 24_576,
@@ -25,7 +26,7 @@ export const REPAIR_AGENT_SYSTEM_PROMPT = [
   '你是 Stone Memory 的 PR 冲突维修 coding agent，不是 reviewer，也不是计划生成器。',
   '你的任务是直接在隔离 repair worktree 中读取代码、调查 current main 与 PR 的差异、修改代码并运行测试。',
   '必须保留 PR 的原始功能意图，只处理 current main 导致的冲突或明确的相关测试失败。',
-  '先使用只读工具获取证据，再使用 apply_patch 修改；apply_patch 后必须运行相关测试。',
+  '先使用只读工具获取证据；最多探索两回合后必须直接 apply_patch。每次成功 apply_patch 后 runtime 会自动运行一次相关测试，再根据结果继续。',
   '不要输出计划来代替修改，不要输出完整文件，不要修改测试、依赖入口、workflow、权限或凭据。',
   '不要 commit、push、approve、merge、close PR；这些动作由外层机械层完成。',
   '如果证据不足、需要产品决策、预算耗尽或无法保守完成，调用 finish(decision="needs_human")。',
@@ -102,6 +103,7 @@ function metrics(state, limits, startedAt, clock = nowMs) {
     maxTokensPerTurn: limits.maxTokensPerTurn,
     maxCompletionTokens: limits.maxCompletionTokens,
     elapsedMs: Math.max(0, clock() - startedAt),
+    toolSequence: [...(state.toolSequence || [])],
   };
 }
 
@@ -128,6 +130,7 @@ function gateToolCall(name, args, state, limits) {
   if (!name) return '工具调用缺少名称';
   if (state.toolCalls >= limits.maxToolCalls) return '工具调用达到硬上限';
   if (READ_ONLY_TOOLS.has(name) && state.readOnlyCalls >= limits.maxReadOnlyCalls) return '只读工具调用达到硬上限';
+  if (READ_ONLY_TOOLS.has(name) && state.patchCalls === 0 && state.logicalTurns > limits.maxExploreTurns) return '探索回合达到上限，请直接 apply_patch 或 needs_human';
   if (name === 'apply_patch') {
     if (state.readOnlyCalls < 1) return '必须先通过只读工具调查代码，再 apply_patch';
     if (state.patchCalls >= limits.maxPatchCalls) return '修改批次达到硬上限';
@@ -193,6 +196,7 @@ export async function runRepairAgent({
     patchCalls: 0,
     testCalls: 0,
     toolCalls: 0,
+    toolSequence: [],
     pendingVerification: false,
     lastTestPassed: false,
   };
@@ -248,8 +252,11 @@ export async function runRepairAgent({
     messages.push({ role: 'assistant', content: message.content || null, tool_calls: calls });
 
     let finished = null;
+    let appliedInTurn = false;
+    let explicitTestInTurn = false;
     for (const call of calls) {
       const name = call.function.name;
+      state.toolSequence.push(name);
       const args = toolArguments(call);
       let result;
       if (args === null) {
@@ -263,12 +270,16 @@ export async function runRepairAgent({
           if (READ_ONLY_TOOLS.has(name)) state.readOnlyCalls += 1;
           if (name === 'apply_patch') state.patchCalls += 1;
           if (name === 'run_tests') state.testCalls += 1;
+          if (name === 'run_tests') explicitTestInTurn = true;
           try {
             result = await tools.call(name, args);
           } catch (error) {
             result = { ok: false, error: redactErrorMessage(error) };
           }
-          if (name === 'apply_patch' && result?.applied === true) state.pendingVerification = true;
+          if (name === 'apply_patch' && result?.applied === true) {
+            state.pendingVerification = true;
+            appliedInTurn = true;
+          }
           if (name === 'run_tests') {
             state.lastTestPassed = result?.passed === true;
             state.pendingVerification = false;
@@ -278,6 +289,25 @@ export async function runRepairAgent({
       const serialized = safeJson(result);
       messages.push({ role: 'tool', tool_call_id: call.id || `${name}-${state.toolCalls}`, content: serialized.slice(0, 16_000) });
       if (name === 'finish' && result?.ok === true) finished = result;
+    }
+
+    if (appliedInTurn && !explicitTestInTurn && state.testCalls < limits.maxTestCalls) {
+      state.testCalls += 1;
+      state.toolCalls += 1;
+      state.toolSequence.push('run_tests(auto)');
+      let automaticTest;
+      try {
+        automaticTest = await tools.call('run_tests', { mode: 'related' });
+      } catch (error) {
+        automaticTest = { ok: false, passed: false, error: redactErrorMessage(error) };
+      }
+      state.lastTestPassed = automaticTest?.passed === true;
+      state.pendingVerification = false;
+      messages.push({
+        role: 'tool',
+        tool_call_id: `auto-test-${state.toolCalls}`,
+        content: safeJson({ automatic: true, ...automaticTest }).slice(0, 16_000),
+      });
     }
 
     if (finished) {
