@@ -47,6 +47,17 @@ function safeJson(value) {
   try { return JSON.stringify(redactModelValue(value)); } catch { return '{"error":"无法序列化工具结果"}'; }
 }
 
+function testTrace(result) {
+  return redactModelValue({
+    command: result?.command,
+    exitCode: result?.exitCode,
+    timedOut: result?.timedOut,
+    passed: result?.passed,
+    result: result?.result,
+    stderr: result?.stderr,
+  });
+}
+
 function toolArguments(call) {
   const raw = call?.function?.arguments ?? '{}';
   try {
@@ -149,6 +160,9 @@ function gateToolCall(name, args, state, limits) {
 }
 
 function availableDefinitions(definitions, state, limits) {
+  if (state.patchCalls > 0 && state.lastTestPassed !== true) {
+    return definitions.filter((tool) => ['apply_patch', 'run_tests', 'finish'].includes(tool?.function?.name));
+  }
   if (state.patchCalls === 0 && state.logicalTurns > limits.maxExploreTurns) {
     return definitions.filter((tool) => ['apply_patch', 'run_tests', 'finish'].includes(tool?.function?.name));
   }
@@ -302,6 +316,7 @@ export async function runRepairAgent({
         applied: result?.applied === true,
         passed: result?.passed === true,
         ...(result?.error ? { error: String(result.error).slice(0, 1_000) } : {}),
+        ...(name === 'run_tests' ? { test: testTrace(result) } : {}),
       });
       const serialized = safeJson(result);
       messages.push({ role: 'tool', tool_call_id: call.id || `${name}-${state.toolCalls}`, content: serialized.slice(0, 16_000) });
@@ -325,6 +340,7 @@ export async function runRepairAgent({
         ok: automaticTest?.ok === true,
         passed: automaticTest?.passed === true,
         ...(automaticTest?.error ? { error: String(automaticTest.error).slice(0, 1_000) } : {}),
+        test: testTrace(automaticTest),
       });
       messages.push({
         role: 'tool',
