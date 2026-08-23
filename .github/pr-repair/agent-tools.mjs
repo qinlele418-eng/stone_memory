@@ -384,6 +384,26 @@ function failureSummary(report) {
   };
 }
 
+function conflictBlocks(content, path) {
+  const lines = String(content ?? '').replaceAll('\r', '').split('\n');
+  const conflicts = [];
+  for (let start = 0; start < lines.length; start += 1) {
+    if (!/^<<<<<<<(?: |$)/.test(lines[start])) continue;
+    const divider = lines.findIndex((line, index) => index > start && line === '=======');
+    const end = lines.findIndex((line, index) => index > (divider >= 0 ? divider : start) && /^>>>>>>>/.test(line));
+    if (divider < 0 || end < 0) continue;
+    conflicts.push({
+      startLine: start + 1,
+      endLine: end + 1,
+      ours: clip(redactSensitiveText(lines.slice(start + 1, divider).join('\n')), 8_000),
+      theirs: clip(redactSensitiveText(lines.slice(divider + 1, end).join('\n')), 8_000),
+      before: clip(redactSensitiveText(lines.slice(Math.max(0, start - 3), start).join('\n')), 1_000),
+      after: clip(redactSensitiveText(lines.slice(end + 1, Math.min(lines.length, end + 4)).join('\n')), 1_000),
+    });
+  }
+  return { path, conflicts };
+}
+
 export function createAgentTools({
   cwd,
   revisions = {},
@@ -429,6 +449,16 @@ export function createAgentTools({
       runGitImpl(['diff', '--name-only', '--diff-filter=U'], { cwd, timeoutMs: 30_000 }),
       runGitImpl(['rev-parse', 'HEAD'], { cwd, timeoutMs: 30_000 }),
     ]);
+    const unresolvedFiles = unresolved.code === 0 ? unresolved.stdout.split(/\r?\n/).filter(Boolean) : [];
+    const conflictDetails = [];
+    for (const file of unresolvedFiles.slice(0, 12)) {
+      try {
+        const { absolute } = safeReadPath(cwd, file);
+        conflictDetails.push(conflictBlocks(await readFile(absolute, 'utf8'), file));
+      } catch (error) {
+        conflictDetails.push({ path: file, conflicts: [], error: redactErrorMessage(error) });
+      }
+    }
     return {
       ok: status.code === 0 && unresolved.code === 0 && head.code === 0,
       headSha: head.code === 0 ? head.stdout.trim() : null,
@@ -436,7 +466,8 @@ export function createAgentTools({
       prSha: revisions.pr || null,
       mainSha: revisions.main || revisions.base || null,
       status: clip(redactSensitiveText(`${status.stdout}${status.stderr}`), 8_000),
-      unresolved: unresolved.code === 0 ? unresolved.stdout.split(/\r?\n/).filter(Boolean) : [],
+      unresolved: unresolvedFiles,
+      conflictDetails,
     };
   }
 

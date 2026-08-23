@@ -192,6 +192,11 @@ test('agent apply_patch can resolve an actual current-main conflict in the repai
     assert.match(conflictText, /<<<<<<< HEAD/);
     assert.deepEqual(conflictText.split(/\n/), ['<<<<<<< HEAD', 'pr', '=======', 'main', `>>>>>>> ${mainSha}`, '']);
     const tools = createAgentTools({ cwd, revisions: { base: mainSha, pr: prSha, main: mainSha }, allowedFiles: ['example.txt'] });
+    const status = await tools.call('get_status', {});
+    assert.deepEqual(status.unresolved, ['example.txt']);
+    assert.equal(status.conflictDetails[0].conflicts[0].startLine, 1);
+    assert.equal(status.conflictDetails[0].conflicts[0].ours, 'pr');
+    assert.equal(status.conflictDetails[0].conflicts[0].theirs, 'main');
     const result = await tools.call('apply_patch', {
       patch: `diff --git a/example.txt b/example.txt\n--- a/example.txt\n+++ b/example.txt\n@@ -1,5 +1 @@\n-<<<<<<< HEAD\n-pr\n-=======\n-main\n->>>>>>> ${mainSha}\n+resolved\n`,
     });
