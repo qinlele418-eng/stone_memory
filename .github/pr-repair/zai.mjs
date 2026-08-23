@@ -75,9 +75,9 @@ export async function callZai({
   baseUrl = process.env.ZAI_BASE_URL || DEFAULT_ZAI_BASE_URL,
   model = process.env.ZAI_MODEL || DEFAULT_ZAI_MODEL,
   maxTokens = Number(process.env.ZAI_MAX_TOKENS || 16_000),
-  thinking,
+  thinking = process.env.ZAI_THINKING === 'disabled' ? { type: 'disabled' } : undefined,
   fetchImpl = globalThis.fetch,
-  timeoutMs = 120_000,
+  timeoutMs = Number(process.env.ZAI_TIMEOUT_MS || 120_000),
 } = {}) {
   if (!apiKey) throw new Error('缺少 ZAI_API_KEY');
   if (typeof fetchImpl !== 'function') throw new Error('当前 Node 环境没有 fetch');
