@@ -302,8 +302,10 @@ export async function runRepairAgent({
           } catch (error) {
             result = { ok: false, error: redactErrorMessage(error) };
           }
+          if (name === 'apply_patch' && Array.isArray(result?.remainingUnresolved)) {
+            state.remainingUnresolved = result.remainingUnresolved;
+          }
           if (name === 'apply_patch' && result?.applied === true) {
-            state.remainingUnresolved = Array.isArray(result?.remainingUnresolved) ? result.remainingUnresolved : [];
             state.pendingVerification = state.remainingUnresolved.length === 0;
             appliedInTurn = true;
           }

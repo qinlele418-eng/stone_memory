@@ -587,6 +587,18 @@ export function createAgentTools({
         if (fallback) return fallback;
         throw error;
       }
+      const incomplete = updates
+        .filter((update) => findConflictRanges(update.content.replaceAll('\r', '').split('\n')).length > 0)
+        .map((update) => update.normalized);
+      if (incomplete.length > 0) {
+        return {
+          ok: false,
+          applied: false,
+          changedFiles: state.changedFiles,
+          remainingUnresolved: await unresolvedFiles(),
+          error: `补丁未移除目标文件的冲突标记: ${incomplete.join(', ')}`,
+        };
+      }
       for (const update of updates) await writeFile(update.absolute, update.content, 'utf8');
       await stageFiles(updates.map((update) => update.normalized));
       state.changedFiles = [...new Set([
@@ -618,6 +630,16 @@ export function createAgentTools({
         }
       }
       if (result.code !== 0) return { ok: false, applied: false, error: clip(redactErrorMessage(result.stderr || result.stdout || 'git apply 失败'), 8_000) };
+      const remainingAfterApply = await unresolvedFiles();
+      const incomplete = validation.files.filter((file) => remainingAfterApply.includes(file));
+      if (incomplete.length > 0) {
+        return {
+          ok: false,
+          applied: false,
+          remainingUnresolved: remainingAfterApply,
+          error: `补丁未移除目标文件的冲突标记: ${incomplete.join(', ')}`,
+        };
+      }
       const names = await runGitImpl(['diff', '--name-only'], { cwd, timeoutMs: 30_000 });
       await stageFiles(validation.files);
       state.changedFiles = [...new Set([
