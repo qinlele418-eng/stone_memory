@@ -104,6 +104,7 @@ function metrics(state, limits, startedAt, clock = nowMs) {
     maxCompletionTokens: limits.maxCompletionTokens,
     elapsedMs: Math.max(0, clock() - startedAt),
     toolSequence: [...(state.toolSequence || [])],
+    toolTrace: [...(state.toolTrace || [])],
   };
 }
 
@@ -204,6 +205,7 @@ export async function runRepairAgent({
     testCalls: 0,
     toolCalls: 0,
     toolSequence: [],
+    toolTrace: [],
     pendingVerification: false,
     lastTestPassed: false,
   };
@@ -293,6 +295,13 @@ export async function runRepairAgent({
           }
         }
       }
+      state.toolTrace.push({
+        name,
+        ok: result?.ok === true,
+        applied: result?.applied === true,
+        passed: result?.passed === true,
+        ...(result?.error ? { error: String(result.error).slice(0, 1_000) } : {}),
+      });
       const serialized = safeJson(result);
       messages.push({ role: 'tool', tool_call_id: call.id || `${name}-${state.toolCalls}`, content: serialized.slice(0, 16_000) });
       if (name === 'finish' && result?.ok === true) finished = result;
@@ -310,6 +319,12 @@ export async function runRepairAgent({
       }
       state.lastTestPassed = automaticTest?.passed === true;
       state.pendingVerification = false;
+      state.toolTrace.push({
+        name: 'run_tests(auto)',
+        ok: automaticTest?.ok === true,
+        passed: automaticTest?.passed === true,
+        ...(automaticTest?.error ? { error: String(automaticTest.error).slice(0, 1_000) } : {}),
+      });
       messages.push({
         role: 'tool',
         tool_call_id: `auto-test-${state.toolCalls}`,
