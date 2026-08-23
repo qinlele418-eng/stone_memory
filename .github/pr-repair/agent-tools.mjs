@@ -244,7 +244,8 @@ function parseApplyPatchFormat(value) {
       }
       if (!hunkStarted) {
         if (line.trim() === '' || line.trim() === '*** End of File') continue;
-        throw new Error(`apply_patch ${path} 缺少 hunk 标记`);
+        // Accept the common compact form that omits an empty @@ marker.
+        hunkStarted = true;
       }
       if (line.startsWith('-')) {
         oldLines.push(line.slice(1));
