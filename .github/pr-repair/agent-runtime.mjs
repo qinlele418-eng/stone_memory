@@ -5,16 +5,16 @@ import { callZaiChat, DEFAULT_ZAI_MODEL } from './zai-client.mjs';
 import { redactErrorMessage, redactModelValue } from './contract.mjs';
 
 export const AGENT_LIMITS = Object.freeze({
-  maxLogicalTurns: 10,
+  maxLogicalTurns: 12,
   maxExploreTurns: 2,
-  maxApiAttempts: 11,
+  maxApiAttempts: 13,
   maxTokensPerTurn: 4_096,
   maxCompletionTokens: 24_576,
   maxHistoryChars: 48_000,
   maxReadOnlyCalls: 12,
-  maxPatchCalls: 6,
+  maxPatchCalls: 8,
   maxTestCalls: 5,
-  maxToolCalls: 24,
+  maxToolCalls: 28,
   maxPatchChars: 10_000,
   maxElapsedMs: 12 * 60 * 1_000,
 });
@@ -26,7 +26,7 @@ export const REPAIR_AGENT_SYSTEM_PROMPT = [
   '你是 Stone Memory 的 PR 冲突维修 coding agent，不是 reviewer，也不是计划生成器。',
   '你的任务是直接在隔离 repair worktree 中读取代码、调查 current main 与 PR 的差异、修改代码并运行测试。',
   '必须保留 PR 的原始功能意图，只处理 current main 导致的冲突或明确的相关测试失败。',
-  '冲突任务优先调用一次 get_status；其 conflictDetails 已集中给出所有未解决冲突块，ours 是 PR 侧、theirs 是 current main 侧，并带有前后文。不要逐个调用 git_show_file 来重新扫描这些冲突；读取集中结果后直接 apply_patch。每次 apply_patch 的结果会列出 remainingUnresolved；必须继续处理这些文件，直到列表为空。未解决冲突清空前不要调用 run_tests，先完成所有冲突文件；只有列表为空后才验证。最多探索两回合后必须直接 apply_patch。冲突清空后每次成功 apply_patch 后 runtime 会自动运行一次相关测试，再根据结果继续。测试失败后只读取失败相关源码并立即修复；git_show_file 必须带 revision（base、pr 或 main），否则用 read_file。',
+  '冲突任务优先调用一次 get_status；其 conflictDetails 已集中给出所有未解决冲突块，ours 是 PR 侧、theirs 是 current main 侧，并带有前后文。不要逐个调用 git_show_file 来重新扫描这些冲突；读取集中结果后直接 apply_patch。每次 apply_patch 的结果会列出 remainingUnresolved；必须继续处理这些文件，直到列表为空。未解决冲突清空前不要调用 run_tests，先完成所有冲突文件；只有列表为空后才验证。每次读取若省略 path，runtime 会优先给出仍未解决的文件；不要重复修改或读取已经解决的文件。最多探索两回合后必须直接 apply_patch。冲突清空后每次成功 apply_patch 后 runtime 会自动运行一次相关测试，再根据结果继续。测试失败后只读取失败相关源码并立即修复；git_show_file 必须带 revision（base、pr 或 main），否则用 read_file。',
   'apply_patch 的 patch 参数不要用 Markdown 围栏；可用标准 unified diff，或严格使用 *** Begin Patch、*** Update File: 路径、@@、带 +/- 前缀的行、*** End Patch 格式。',
   '不要输出计划来代替修改，不要输出完整文件，不要修改测试、依赖入口、workflow、权限或凭据。',
   '不要 commit、push、approve、merge、close PR；这些动作由外层机械层完成。',
@@ -319,6 +319,7 @@ export async function runRepairAgent({
         applied: result?.applied === true,
         passed: result?.passed === true,
         ...(result?.error ? { error: String(result.error).slice(0, 1_000) } : {}),
+        ...(name === 'apply_patch' && Array.isArray(result?.remainingUnresolved) ? { remainingUnresolved: result.remainingUnresolved } : {}),
         ...(name === 'run_tests' ? { test: testTrace(result) } : {}),
       });
       const serialized = safeJson(result);

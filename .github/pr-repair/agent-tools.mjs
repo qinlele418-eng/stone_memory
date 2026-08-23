@@ -487,7 +487,8 @@ export function createAgentTools({
   }
 
   async function readFileTool(args = {}) {
-    const fallbackPath = state.changedFiles.at(-1) || allowed.at(0);
+    const unresolved = await unresolvedFiles();
+    const fallbackPath = unresolved.at(0) || state.changedFiles.at(-1) || allowed.at(0);
     const { normalized, absolute } = safeReadPath(cwd, args.path || fallbackPath);
     const content = await readFile(absolute, 'utf8');
     const lines = content.split(/\r?\n/);
@@ -507,7 +508,8 @@ export function createAgentTools({
   }
 
   async function gitShowFile(args = {}) {
-    const fallbackPath = state.changedFiles.at(-1) || allowed.at(0);
+    const unresolved = await unresolvedFiles();
+    const fallbackPath = unresolved.at(0) || state.changedFiles.at(-1) || allowed.at(0);
     const { normalized } = safeReadPath(cwd, args.path || fallbackPath);
     const revision = revisions[args.revision || 'main'];
     if (!revision) throw new Error(`没有配置 revision: ${args.revision}`);
