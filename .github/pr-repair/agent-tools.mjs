@@ -384,6 +384,31 @@ function failureSummary(report) {
   };
 }
 
+function repairGuidance(report, allowed) {
+  const hints = [];
+  const failures = Array.isArray(report?.result?.failures) ? report.result.failures : [];
+  const evidence = failures.map((failure) => JSON.stringify(failure || {})).join('\n');
+  if (allowed.includes('src/services/memory-keyword-search.js') && /memory-keyword-search|deep-search|paths\[0\]/i.test(evidence)) {
+    hints.push({
+      file: 'src/services/memory-keyword-search.js',
+      instruction: '保留关键词搜索 hits 中已有的 date 与 utcTime 元数据；检查 archive 搜索是否把当前线程的 memoryDir/threadId 传给 readArchive，不能引用不存在的 archiveDir。',
+    });
+  }
+  if (allowed.includes('bin/stmem') && /ensureWatcher|watcher(?:\.pid|-supervisor|[-_ ]state)|ENOTEMPTY/i.test(evidence)) {
+    hints.push({
+      file: 'bin/stmem',
+      instruction: '入口冲突必须同时保留 PR 的命令分支与 current main 的无副作用 CLI 语义；不要让普通 notebook/rebuild 命令隐式拉起 watcher，也不能调用未定义的 ensureWatcher。',
+    });
+  }
+  if (allowed.includes('scripts/stmem-notebook.js') && /notebook/i.test(evidence)) {
+    hints.push({
+      file: 'scripts/stmem-notebook.js',
+      instruction: '若 notebook MCP/web 报 JSON 解析错误，只让 CLI stdout 输出单行 JSON；诊断信息走 stderr，不要改测试或反复修改 bin/stmem。',
+    });
+  }
+  return hints;
+}
+
 async function validateJavascriptUpdates(updates, {
   runCommandImpl = runCommand,
   cwd,
@@ -821,7 +846,13 @@ export function createAgentTools({
         .map(([file]) => file);
     }
     state.failureReadIndex = 0;
-    return { ok: true, mode: 'full', requestedMode: args.mode, ...failureSummary(report) };
+    return {
+      ok: true,
+      mode: 'full',
+      requestedMode: args.mode,
+      ...failureSummary(report),
+      ...(state.lastTestPassed ? {} : { repairGuidance: repairGuidance(report, allowed) }),
+    };
   }
 
   async function finishTool(args = {}) {
