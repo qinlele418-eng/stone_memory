@@ -626,6 +626,31 @@ export function createAgentTools({
       { runCommandImpl, cwd },
     );
     if (syntaxError) {
+      // A malformed model hunk must not leave the conflict file wedged.  The PR
+      // revision is a trusted, complete source for this exact path; use it only
+      // as a bounded recovery for the attempted conflict file, then continue
+      // through the normal tests and model review.
+      if (revisions.pr) {
+        const prContent = await readFileAt(cwd, revisions.pr, normalized);
+        if (prContent !== null && findConflictRanges(prContent.replaceAll('\r', '').split('\n')).length === 0) {
+          const prSyntaxError = await validateJavascriptUpdates(
+            [{ normalized, absolute, content: prContent }],
+            { runCommandImpl, cwd },
+          );
+          if (!prSyntaxError) {
+            await writeFile(absolute, prContent, 'utf8');
+            await stageFiles([normalized]);
+            state.changedFiles = [...new Set([...state.changedFiles, normalized])];
+            return {
+              ok: true,
+              applied: true,
+              changedFiles: state.changedFiles,
+              remainingUnresolved: await unresolvedFiles(),
+              format: 'trusted-pr-recovery',
+            };
+          }
+        }
+      }
       return {
         ok: false,
         applied: false,
