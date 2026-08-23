@@ -743,9 +743,13 @@ export function createAgentTools({
       state.lastFailureFiles = [];
     } else {
       const counts = new Map();
+      const firstSeen = new Map();
       const addCandidate = (file) => {
         const normalized = normalizeSafeRelativePath(file);
-        if (normalized && allowed.includes(normalized)) counts.set(normalized, (counts.get(normalized) || 0) + 1);
+        if (normalized && allowed.includes(normalized)) {
+          if (!firstSeen.has(normalized)) firstSeen.set(normalized, firstSeen.size);
+          counts.set(normalized, (counts.get(normalized) || 0) + 1);
+        }
       };
       for (const failure of report?.result?.failures || []) {
         const evidence = JSON.stringify(failure || {});
@@ -756,7 +760,10 @@ export function createAgentTools({
         allowed.filter((file) => evidence.includes(file)).forEach(addCandidate);
       }
       state.lastFailureFiles = [...counts.entries()]
-        .sort((left, right) => right[1] - left[1])
+        // Start with the first reported failure.  A high-frequency cascade (for
+        // example, one malformed CLI file) must not starve an earlier, independent
+        // source regression that the model can fix first.
+        .sort((left, right) => (firstSeen.get(left[0]) - firstSeen.get(right[0])) || (right[1] - left[1]))
         .map(([file]) => file);
     }
     state.failureReadIndex = 0;
