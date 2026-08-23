@@ -247,6 +247,8 @@ test('agent apply_patch accepts the bounded Begin Patch format emitted by coding
       allowedFiles: ['example.txt'],
       runTestsImpl: async () => ({ passed: true, command: 'npm test', result: { total: 1, passed: 1, failed: 0, failures: [] }, stderr: '' }),
     });
+    const status = await tools.call('get_status', {});
+    assert.deepEqual(status.unresolved, ['example.txt']);
     const result = await tools.call('apply_patch', {
       patch: '*** Begin Patch\n*** Update File: example.txt\n@@\n-<<<<<<< HEAD\n-pr\n-=======\n-main\n->>>>>>> main\n+resolved\n*** End Patch\n',
     });

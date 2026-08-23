@@ -426,7 +426,18 @@ export function createAgentTools({
 
   async function unresolvedFiles() {
     const result = await runGitImpl(['diff', '--name-only', '--diff-filter=U'], { cwd, timeoutMs: 30_000 });
-    return result.code === 0 ? result.stdout.split(/\r?\n/).filter(Boolean) : [];
+    const indexUnresolved = result.code === 0 ? result.stdout.split(/\r?\n/).filter(Boolean) : [];
+    const markerUnresolved = [];
+    for (const file of allowed) {
+      try {
+        const { absolute } = safeReadPath(cwd, file);
+        const content = await readFile(absolute, 'utf8');
+        if (findConflictRanges(content.replaceAll('\r', '').split('\n')).length > 0) markerUnresolved.push(file);
+      } catch {
+        // Missing or unreadable files are handled by the normal patch validation path.
+      }
+    }
+    return [...new Set([...indexUnresolved, ...markerUnresolved])];
   }
 
   async function stageFiles(paths) {
@@ -449,14 +460,13 @@ export function createAgentTools({
   }
 
   async function getStatus() {
-    const [status, unresolved, head] = await Promise.all([
+    const [status, head] = await Promise.all([
       runGitImpl(['status', '--short', '--branch'], { cwd, timeoutMs: 30_000 }),
-      runGitImpl(['diff', '--name-only', '--diff-filter=U'], { cwd, timeoutMs: 30_000 }),
       runGitImpl(['rev-parse', 'HEAD'], { cwd, timeoutMs: 30_000 }),
     ]);
-    const unresolvedFiles = unresolved.code === 0 ? unresolved.stdout.split(/\r?\n/).filter(Boolean) : [];
+    const unresolvedPaths = await unresolvedFiles();
     const conflictDetails = [];
-    for (const file of unresolvedFiles.slice(0, 12)) {
+    for (const file of unresolvedPaths.slice(0, 12)) {
       try {
         const { absolute } = safeReadPath(cwd, file);
         conflictDetails.push(conflictBlocks(await readFile(absolute, 'utf8'), file));
@@ -465,13 +475,13 @@ export function createAgentTools({
       }
     }
     return {
-      ok: status.code === 0 && unresolved.code === 0 && head.code === 0,
+      ok: status.code === 0 && head.code === 0,
       headSha: head.code === 0 ? head.stdout.trim() : null,
       baseSha: revisions.base || null,
       prSha: revisions.pr || null,
       mainSha: revisions.main || revisions.base || null,
       status: clip(redactSensitiveText(`${status.stdout}${status.stderr}`), 8_000),
-      unresolved: unresolvedFiles,
+      unresolved: unresolvedPaths,
       conflictDetails,
     };
   }
