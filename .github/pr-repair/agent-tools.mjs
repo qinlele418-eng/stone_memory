@@ -739,6 +739,13 @@ export function createAgentTools({
       }
       const syntaxError = await validateJavascriptUpdates(updates, { runCommandImpl, cwd });
       if (syntaxError) {
+        // A model can produce a syntactically invalid hunk while the file is
+        // still carrying merge markers. Recover the exact PR-side file in
+        // that narrow state, then let the normal tests and agent correction
+        // loop review the complete source instead of burning every turn on
+        // the same malformed hunk.
+        const fallback = await applyConflictFallback(patch, validation);
+        if (fallback) return fallback;
         return {
           ok: false,
           applied: false,
