@@ -150,7 +150,12 @@ export async function main() {
     process.exitCode = 1;
   }
   writeFileSync(output, `${JSON.stringify(result, null, 2)}\n`, 'utf8');
-  process.stdout.write(`${JSON.stringify({ decision: result.decision, round: result.round, files: result.files || [] })}\n`);
+  process.stdout.write(`${JSON.stringify({
+    decision: result.decision,
+    round: result.round,
+    files: result.files || [],
+    ...(result.reason ? { reason: result.reason } : {}),
+  })}\n`);
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) await main();
