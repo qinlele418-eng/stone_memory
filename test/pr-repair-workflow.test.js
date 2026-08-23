@@ -10,6 +10,7 @@ test('PR Repair workflow auto-runs on PR changes and keeps manual no-push contro
   assert.match(workflow, /push_repair:\n[\s\S]*?default: false/);
   assert.match(workflow, /allow_external_model_data:\n[\s\S]*?default: false/);
   assert.match(workflow, /PR_REPAIR_ALLOW_EXTERNAL_MODEL_DATA/);
+  assert.match(workflow, /statuses: read/);
 });
 
 test('Z.AI secret is isolated from the test and apply jobs', () => {

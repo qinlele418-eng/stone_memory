@@ -29,6 +29,7 @@ concurrency:
 permissions:
   contents: read
   pull-requests: read
+  statuses: read
 
 env:
   NODE_VERSION: 22.x
@@ -44,6 +45,7 @@ jobs:
       contents: read
       pull-requests: read
       checks: read
+      statuses: read
     outputs:
       status: ${{ steps.diagnose.outputs.status }}
       next_action: ${{ steps.diagnose.outputs.next_action }}
@@ -843,6 +845,7 @@ jobs:
       contents: read
       pull-requests: read
       checks: read
+      statuses: read
     steps:
       - name: Check out trusted repair tools from main
         uses: actions/checkout@v4
