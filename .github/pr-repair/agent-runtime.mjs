@@ -328,6 +328,7 @@ export async function runRepairAgent({
         ok: result?.ok === true,
         applied: result?.applied === true,
         passed: result?.passed === true,
+        ...(READ_ONLY_TOOLS.has(name) && result?.path ? { path: result.path } : {}),
         ...(result?.error ? { error: String(result.error).slice(0, 1_000) } : {}),
         ...(name === 'apply_patch' && Array.isArray(result?.remainingUnresolved) ? { remainingUnresolved: result.remainingUnresolved } : {}),
         ...(name === 'run_tests' ? { test: testTrace(result) } : {}),

@@ -479,7 +479,11 @@ export function createAgentTools({
     const paths = [];
     for (const failureFile of state.lastFailureFiles) {
       const normalized = normalizeSafeRelativePath(failureFile);
-      if (allowed.includes(normalized)) paths.push(normalized);
+      const isTestPath = /(?:^|\/)(?:test|tests|__tests__)(?:\/|$)/i.test(normalized || '')
+        || /\.(?:test|spec)\.[^/]+$/i.test(normalized || '');
+      // Test files are evidence, not repair targets.  Never let a test path
+      // consume the first failure read; map it to the matching source below.
+      if (!isTestPath && allowed.includes(normalized)) paths.push(normalized);
       const withoutTestSuffix = normalized.replace(/\.test(?=\.[^.]+$)/, '');
       const basename = withoutTestSuffix.split('/').at(-1);
       const matchingSource = allowed.find((file) => file.split('/').at(-1) === basename);
