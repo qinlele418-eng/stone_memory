@@ -391,7 +391,7 @@ function repairGuidance(report, allowed) {
   if (allowed.includes('src/services/memory-keyword-search.js') && /memory-keyword-search|deep-search|paths\[0\]/i.test(evidence)) {
     hints.push({
       file: 'src/services/memory-keyword-search.js',
-      instruction: '具体修复：关键词模式的 hits 映射必须保留 t.date 与 t.utcTime；archive/event/pattern 搜索必须调用 readArchive(p.memoryDir, p.threadId, dateStr)，不能引用不存在的 p.archiveDir。',
+      instruction: '具体修复：searchByKeyword 最终必须返回 { hits, text }；关键词模式的 hits 映射必须保留 t.date 与 t.utcTime；archive/event/pattern 搜索必须调用 readArchive(p.memoryDir, p.threadId, dateStr)，不能引用不存在的 p.archiveDir。',
     });
   }
   if (allowed.includes('bin/stmem') && /ensureWatcher|watcher(?:\.pid|-supervisor|[-_ ]state)|ENOTEMPTY/i.test(evidence)) {
@@ -474,6 +474,7 @@ export function createAgentTools({
     testCalls: 0,
     lastFailureFiles: [],
     failureReadIndex: 0,
+    lastRepairGuidance: [],
   };
 
   async function unresolvedFiles() {
@@ -683,7 +684,7 @@ export function createAgentTools({
         applied: false,
         changedFiles: state.changedFiles,
         remainingUnresolved: unresolvedPaths,
-        error: syntaxError,
+        error: patchError(syntaxError),
       };
     }
     await writeFile(absolute, updated, 'utf8');
@@ -723,7 +724,7 @@ export function createAgentTools({
       } catch (error) {
         const fallback = await applyConflictFallback(patch, validation);
         if (fallback) return fallback;
-        throw error;
+        throw new Error(patchError(error));
       }
       const incomplete = updates
         .filter((update) => findConflictRanges(update.content.replaceAll('\r', '').split('\n')).length > 0)
@@ -753,7 +754,7 @@ export function createAgentTools({
           applied: false,
           changedFiles: state.changedFiles,
           remainingUnresolved: await unresolvedFiles(),
-          error: syntaxError,
+          error: patchError(syntaxError),
         };
       }
       for (const update of updates) await writeFile(update.absolute, update.content, 'utf8');
@@ -829,6 +830,7 @@ export function createAgentTools({
     state.lastTestPassed = report.passed === true;
     if (state.lastTestPassed) {
       state.lastFailureFiles = [];
+      state.lastRepairGuidance = [];
     } else {
       const counts = new Map();
       const firstSeen = new Map();
@@ -854,6 +856,7 @@ export function createAgentTools({
         // source regression that the model can fix first.
         .sort((left, right) => (firstSeen.get(left[0]) - firstSeen.get(right[0])) || (right[1] - left[1]))
         .map(([file]) => file);
+      state.lastRepairGuidance = repairGuidance(report, allowed);
     }
     state.failureReadIndex = 0;
     return {
@@ -863,6 +866,13 @@ export function createAgentTools({
       ...failureSummary(report),
       ...(state.lastTestPassed ? {} : { repairGuidance: repairGuidance(report, allowed) }),
     };
+  }
+
+  function patchError(error) {
+    const message = redactErrorMessage(error);
+    if (state.lastRepairGuidance.length === 0) return message;
+    const hints = state.lastRepairGuidance.map((hint) => `${hint.file}: ${hint.instruction}`).join('；');
+    return `${message}。请依据当前源码重做补丁；当前失败证据的定向提示：${hints}`;
   }
 
   async function finishTool(args = {}) {
