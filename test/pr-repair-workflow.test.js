@@ -71,6 +71,6 @@ test('publish is gated by the post-validation final status', () => {
 test('final validation stages every trusted test-runner dependency and restores artifact files by name', () => {
   assert.match(workflow, /cp tools\/\.github\/pr-repair\/contract\.mjs tools\/\.github\/pr-repair\/git\.mjs/);
   assert.match(workflow, /bundle_path="\$\(find restore -type f -name repair\.bundle/);
-  assert.match(workflow, /plan_path="\$\(find restore -type f -name pr-repair-plan\.json/);
   assert.match(workflow, /result_path="\$\(find restore -type f -name pr-repair-result\.json/);
+  assert.doesNotMatch(workflow, /test -n "\$bundle_path" && test -n "\$plan_path"/);
 });

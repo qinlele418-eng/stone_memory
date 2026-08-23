@@ -812,7 +812,6 @@ jobs:
           name: pr-repair-prevalidation-${{ env.PR_NUMBER }}
           path: |
             ${{ runner.temp }}/repair.bundle
-            pr-repair-plan.json
             pr-repair-result.json
           if-no-files-found: error
           retention-days: 7
@@ -897,11 +896,9 @@ jobs:
           # paths.  Resolve the trusted files by basename instead of assuming
           # that the action materialises them directly below restore/.
           bundle_path="$(find restore -type f -name repair.bundle -print -quit)"
-          plan_path="$(find restore -type f -name pr-repair-plan.json -print -quit)"
           result_path="$(find restore -type f -name pr-repair-result.json -print -quit)"
-          test -n "$bundle_path" && test -n "$plan_path" && test -n "$result_path"
+          test -n "$bundle_path" && test -n "$result_path"
           cp "$bundle_path" repair.bundle
-          cp "$plan_path" pr-repair-plan.json
           cp "$result_path" pr-repair-result.json
 
       - name: Finalize report
