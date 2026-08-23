@@ -423,6 +423,7 @@ export function createAgentTools({
     patchCalls: 0,
     testCalls: 0,
     lastFailureFiles: [],
+    failureReadIndex: 0,
   };
 
   async function unresolvedFiles() {
@@ -449,16 +450,25 @@ export function createAgentTools({
     return safePaths;
   }
 
-  function failureFallbackPath() {
+  function failureFallbackPaths() {
+    const paths = [];
     for (const failureFile of state.lastFailureFiles) {
       const normalized = normalizeSafeRelativePath(failureFile);
-      if (allowed.includes(normalized)) return normalized;
+      if (allowed.includes(normalized)) paths.push(normalized);
       const withoutTestSuffix = normalized.replace(/\.test(?=\.[^.]+$)/, '');
       const basename = withoutTestSuffix.split('/').at(-1);
       const matchingSource = allowed.find((file) => file.split('/').at(-1) === basename);
-      if (matchingSource) return matchingSource;
+      if (matchingSource) paths.push(matchingSource);
     }
-    return null;
+    return [...new Set(paths)];
+  }
+
+  function failureFallbackPath() {
+    const paths = failureFallbackPaths();
+    if (paths.length === 0) return null;
+    const path = paths[state.failureReadIndex % paths.length];
+    state.failureReadIndex += 1;
+    return path;
   }
 
   async function changedFileNames() {
@@ -680,7 +690,11 @@ export function createAgentTools({
     state.lastTestPassed = report.passed === true;
     state.lastFailureFiles = state.lastTestPassed
       ? []
-      : [...new Set((report?.result?.failures || []).map((failure) => failure?.file).filter(Boolean))];
+      : [...new Set((report?.result?.failures || []).flatMap((failure) => {
+        const evidence = JSON.stringify(failure || {});
+        return [failure?.file, ...allowed.filter((file) => evidence.includes(file))].filter(Boolean);
+      }))];
+    state.failureReadIndex = 0;
     return { ok: true, mode: 'full', requestedMode: args.mode, ...failureSummary(report) };
   }
 
