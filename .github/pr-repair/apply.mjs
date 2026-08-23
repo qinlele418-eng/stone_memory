@@ -170,8 +170,9 @@ export async function commitAgentRepair({
   const unresolved = await runGit(['diff', '--name-only', '--diff-filter=U'], { cwd });
   if (unresolved.code !== 0 || unresolved.stdout.trim()) return { version: 1, status: 'repair_failed', error: `仍存在未解决冲突：${unresolved.stdout.trim()}` };
   const worktreeNames = await runGit(['diff', '--name-only'], { cwd });
+  const preStagedNames = await runGit(['diff', '--cached', '--name-only'], { cwd });
   const untrackedNames = await runGit(['ls-files', '--others', '--exclude-standard'], { cwd });
-  const changedFiles = [...new Set(`${worktreeNames.stdout}\n${untrackedNames.stdout}`.split(/\r?\n/).filter(Boolean))];
+  const changedFiles = [...new Set(`${worktreeNames.stdout}\n${preStagedNames.stdout}\n${untrackedNames.stdout}`.split(/\r?\n/).filter(Boolean))];
   if (changedFiles.length === 0) return { version: 1, status: 'repair_failed', error: 'Agent 没有产生文件变更' };
   const validation = validateRepairResponse({
     decision: 'repair',
