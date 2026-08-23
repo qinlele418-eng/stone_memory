@@ -201,6 +201,7 @@ test('agent apply_patch can resolve an actual current-main conflict in the repai
       patch: `diff --git a/example.txt b/example.txt\n--- a/example.txt\n+++ b/example.txt\n@@ -1,5 +1 @@\n-<<<<<<< HEAD\n-pr\n-=======\n-main\n->>>>>>> ${mainSha}\n+resolved\n`,
     });
     assert.equal(result.applied, true, JSON.stringify(result));
+    assert.deepEqual(result.remainingUnresolved, []);
     assert.equal((await readFile(join(cwd, 'example.txt'), 'utf8')).trim(), 'resolved');
   } finally {
     await rm(cwd, { recursive: true, force: true });

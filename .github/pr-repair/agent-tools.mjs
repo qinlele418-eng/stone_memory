@@ -424,6 +424,11 @@ export function createAgentTools({
     testCalls: 0,
   };
 
+  async function unresolvedFiles() {
+    const result = await runGitImpl(['diff', '--name-only', '--diff-filter=U'], { cwd, timeoutMs: 30_000 });
+    return result.code === 0 ? result.stdout.split(/\r?\n/).filter(Boolean) : [];
+  }
+
   async function stageFiles(paths) {
     const safePaths = [...new Set(paths.map(normalizeSafeRelativePath).filter((path) => path && allowed.includes(path)))];
     if (safePaths.length === 0) throw new Error('没有可标记为已解决的允许文件');
@@ -531,8 +536,14 @@ export function createAgentTools({
     const updated = replaceSingleConflict(content, candidateLines, normalized);
     await writeFile(absolute, updated, 'utf8');
     await stageFiles([normalized]);
-    state.changedFiles = [normalized];
-    return { ok: true, applied: true, changedFiles: state.changedFiles, format: 'conflict-fallback' };
+    state.changedFiles = [...new Set([...state.changedFiles, normalized])];
+    return {
+      ok: true,
+      applied: true,
+      changedFiles: state.changedFiles,
+      remainingUnresolved: await unresolvedFiles(),
+      format: 'conflict-fallback',
+    };
   }
 
   async function applyPatchTool(args = {}) {
@@ -564,8 +575,17 @@ export function createAgentTools({
       }
       for (const update of updates) await writeFile(update.absolute, update.content, 'utf8');
       await stageFiles(updates.map((update) => update.normalized));
-      state.changedFiles = [...new Set(updates.map((update) => update.normalized))];
-      return { ok: true, applied: true, changedFiles: state.changedFiles, format: 'apply_patch' };
+      state.changedFiles = [...new Set([
+        ...state.changedFiles,
+        ...updates.map((update) => update.normalized),
+      ])];
+      return {
+        ok: true,
+        applied: true,
+        changedFiles: state.changedFiles,
+        remainingUnresolved: await unresolvedFiles(),
+        format: 'apply_patch',
+      };
     }
     const fallback = await applyConflictFallback(patch, validation);
     if (fallback) return fallback;
@@ -586,10 +606,18 @@ export function createAgentTools({
       if (result.code !== 0) return { ok: false, applied: false, error: clip(redactErrorMessage(result.stderr || result.stdout || 'git apply 失败'), 8_000) };
       const names = await runGitImpl(['diff', '--name-only'], { cwd, timeoutMs: 30_000 });
       await stageFiles(validation.files);
-      state.changedFiles = names.code === 0 && names.stdout.trim()
-        ? names.stdout.split(/\r?\n/).filter(Boolean)
-        : validation.files;
-      return { ok: true, applied: true, changedFiles: state.changedFiles };
+      state.changedFiles = [...new Set([
+        ...state.changedFiles,
+        ...(names.code === 0 && names.stdout.trim()
+          ? names.stdout.split(/\r?\n/).filter(Boolean)
+          : validation.files),
+      ])];
+      return {
+        ok: true,
+        applied: true,
+        changedFiles: state.changedFiles,
+        remainingUnresolved: await unresolvedFiles(),
+      };
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
