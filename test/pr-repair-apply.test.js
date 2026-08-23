@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { applyRepair } from '../.github/pr-repair/apply.mjs';
+import { applyRepair, commitAgentRepair } from '../.github/pr-repair/apply.mjs';
 import { runGit } from '../.github/pr-repair/git.mjs';
 
 async function git(cwd, ...args) {
@@ -119,4 +119,30 @@ test('bugfix repair stops without touching the PR when current main already fixe
     plan: { decision: 'needs_human', bugStatus: 'already_fixed', reason: 'current main 已修复' },
   });
   assert.equal(result.status, 'bug_already_fixed');
+});
+
+test('agent workspace commit preserves the PR head ancestor and rejects out-of-scope files', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'stone-memory-agent-commit-'));
+  try {
+    await git(cwd, 'init', '-b', 'main');
+    await git(cwd, 'config', 'user.name', 'test');
+    await git(cwd, 'config', 'user.email', 'test@example.invalid');
+    await writeFile(join(cwd, 'example.txt'), 'base\n');
+    await git(cwd, 'add', 'example.txt');
+    await git(cwd, 'commit', '-m', 'base');
+    const baseSha = await git(cwd, 'rev-parse', 'HEAD');
+    await git(cwd, 'switch', '-c', 'pr');
+    await writeFile(join(cwd, 'example.txt'), 'pr\n');
+    await git(cwd, 'add', 'example.txt');
+    await git(cwd, 'commit', '-m', 'pr');
+    const headSha = await git(cwd, 'rev-parse', 'HEAD');
+    await writeFile(join(cwd, 'example.txt'), 'resolved\n');
+    const diagnosis = { currentMainSha: baseSha, changedFiles: ['example.txt'], pr: { number: 102, headSha } };
+    const result = await commitAgentRepair({ cwd, diagnosis, summary: '直接完成冲突修复', model: 'glm-4.5-flash' });
+    assert.equal(result.status, 'repair_success', JSON.stringify(result));
+    assert.equal(await git(cwd, 'rev-parse', 'HEAD^'), headSha);
+    assert.equal(await readFile(join(cwd, 'example.txt'), 'utf8'), 'resolved\n');
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
 });

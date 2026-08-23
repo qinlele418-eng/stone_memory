@@ -25,6 +25,21 @@ test('Z.AI secret is isolated from the test and apply jobs', () => {
   assert.match(workflow, /Smoke-test Z\.AI access without PR data/);
 });
 
+test('cloud repair uses one bounded ReAct job and disables the legacy one-shot path', () => {
+  const legacyStart = workflow.indexOf('  ai_plan:');
+  const agentStart = workflow.indexOf('  ai_agent:');
+  const applyStart = workflow.indexOf('  apply_and_verify:');
+  assert.ok(legacyStart >= 0 && agentStart > legacyStart && applyStart > agentStart);
+  assert.match(workflow.slice(legacyStart, agentStart), /if: false/);
+  const agentJob = workflow.slice(agentStart, applyStart);
+  assert.match(agentJob, /Run bounded GLM-4\.5-Flash ReAct repair/);
+  assert.match(agentJob, /group: stone-memory-pr-repair-zai/);
+  assert.match(agentJob, /node tools\/\.github\/pr-repair\/agent-runtime\.mjs/);
+  assert.match(agentJob, /ZAI_MODEL: glm-4\.5-flash/);
+  assert.doesNotMatch(agentJob, /ZAI_MAX_TOKENS/);
+  assert.match(agentJob, /repair\.bundle/);
+});
+
 test('automation scripts come from trusted main checkouts, never from PR source', () => {
   assert.doesNotMatch(workflow, /node merged\/\.github\/pr-repair/);
   assert.doesNotMatch(workflow, /node repair\/\.github\/pr-repair/);

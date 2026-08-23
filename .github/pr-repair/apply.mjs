@@ -151,6 +151,75 @@ export async function applyRepair({
   }
 }
 
+export async function commitAgentRepair({
+  cwd = process.env.REPAIR_WORKTREE,
+  diagnosis,
+  summary = '',
+  model = process.env.ZAI_MODEL || 'glm-4.5-flash',
+  token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN,
+  prNumber = diagnosis?.pr?.number || process.env.PR_NUMBER,
+  baseSha = diagnosis?.currentMainSha || process.env.BASE_SHA,
+  headSha = diagnosis?.pr?.headSha || process.env.HEAD_SHA,
+} = {}) {
+  if (!cwd || !diagnosis || !baseSha || !headSha) throw new Error('agent commit 缺少工作区、诊断或 SHA');
+  const allowedFiles = [...new Set([
+    ...(diagnosis.changedFiles || []),
+    ...(diagnosis.merge?.conflictFiles || []),
+    ...(diagnosis.reproduction?.pr?.result?.failures || []).map((failure) => failure.file).filter(Boolean),
+  ])];
+  const unresolved = await runGit(['diff', '--name-only', '--diff-filter=U'], { cwd });
+  if (unresolved.code !== 0 || unresolved.stdout.trim()) return { version: 1, status: 'repair_failed', error: `仍存在未解决冲突：${unresolved.stdout.trim()}` };
+  const worktreeNames = await runGit(['diff', '--name-only'], { cwd });
+  const untrackedNames = await runGit(['ls-files', '--others', '--exclude-standard'], { cwd });
+  const changedFiles = [...new Set(`${worktreeNames.stdout}\n${untrackedNames.stdout}`.split(/\r?\n/).filter(Boolean))];
+  if (changedFiles.length === 0) return { version: 1, status: 'repair_failed', error: 'Agent 没有产生文件变更' };
+  const validation = validateRepairResponse({
+    decision: 'repair',
+    summary: String(summary || '').slice(0, 2_000),
+    changes: changedFiles.map((path) => ({ path, content: 'agent workspace change' })),
+  }, { allowedFiles });
+  if (!validation.ok) return { version: 1, status: 'repair_failed', error: validation.errors.join('；') };
+  const diffCheck = await runGit(['diff', '--check'], { cwd });
+  if (diffCheck.code !== 0) return { version: 1, status: 'repair_failed', error: redactErrorMessage(diffCheck.stderr || diffCheck.stdout || '工作区 diff 检查失败') };
+  const add = await runGit(['add', '--all'], { cwd });
+  if (add.code !== 0) return { version: 1, status: 'repair_failed', error: redactErrorMessage(add.stderr || add.stdout) };
+  const stagedCheck = await runGit(['diff', '--cached', '--check'], { cwd });
+  if (stagedCheck.code !== 0) return { version: 1, status: 'repair_failed', error: redactErrorMessage(stagedCheck.stderr || stagedCheck.stdout || '暂存区 diff 检查失败') };
+  const stagedNames = await runGit(['diff', '--cached', '--name-only'], { cwd });
+  if (stagedNames.code !== 0 || !stagedNames.stdout.trim()) return { version: 1, status: 'repair_failed', error: 'Agent 暂存区没有文件变更' };
+  const subject = `chore(pr-repair): repair #${prNumber} against current main`;
+  const body = [
+    'Automated PR repair.',
+    '',
+    `PR: #${prNumber}`,
+    `PR head before repair: ${headSha}`,
+    `Current main: ${baseSha}`,
+    '',
+    `Repairs: ${redactSensitiveText(String(summary || '')).slice(0, 2_000)}`,
+    '',
+    'Validation: agent tool loop completed; full validation runs in the no-secret job.',
+    `AI-Assisted-By: ${redactSensitiveText(String(model || 'glm-4.5-flash')).slice(0, 200)}`,
+    `PR-Repair-Base: ${baseSha}`,
+    `PR-Repair-Original-Head: ${headSha}`,
+  ].join('\n');
+  const commit = await runGit(['-c', 'user.name=Stone Memory PR Repair', '-c', 'user.email=pr-repair@stone-memory.invalid', 'commit', '-m', subject, '-m', body], { cwd, env: authEnv(token) });
+  if (commit.code !== 0) return { version: 1, status: 'repair_failed', error: redactErrorMessage(commit.stderr || commit.stdout) };
+  const commitSha = await runGit(['rev-parse', 'HEAD'], { cwd });
+  const ancestor = await isAncestor(cwd, headSha, commitSha.stdout.trim());
+  if (!ancestor) return { version: 1, status: 'repair_failed', error: '原始 PR head 不是 Agent repair commit 的祖先，拒绝继续' };
+  return {
+    version: 1,
+    status: 'repair_success',
+    commitSha: commitSha.stdout.trim(),
+    originalHead: headSha,
+    currentMain: baseSha,
+    changedFiles: stagedNames.stdout.split(/\r?\n/).filter(Boolean),
+    mergeCommit: (await runGit(['rev-parse', '--verify', 'MERGE_HEAD'], { cwd })).code === 0,
+    pushed: false,
+    model,
+  };
+}
+
 export async function main() {
   const diagnosisPath = process.env.DIAGNOSIS_PATH || 'pr-repair-diagnosis.json';
   const planPath = process.env.REPAIR_PLAN_PATH || 'pr-repair-plan.json';

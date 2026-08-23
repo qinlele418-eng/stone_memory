@@ -211,16 +211,7 @@ jobs:
   ai_plan:
     name: Ask GLM for a bounded repair plan
     needs: [diagnose, reproduce]
-    if: >-
-      always() &&
-      (inputs.allow_external_model_data == true || vars.PR_REPAIR_ALLOW_EXTERNAL_MODEL_DATA == 'true') &&
-      needs.diagnose.outputs.eligible_for_repair == 'true' &&
-      (
-        needs.diagnose.outputs.next_action == 'ai_conflict' ||
-        (needs.diagnose.outputs.next_action == 'reproduce_tests' &&
-        needs.reproduce.result == 'success' &&
-        needs.reproduce.outputs.relation == 'pr_related_failure')
-      )
+    if: false
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -555,16 +546,145 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  ai_agent:
+    name: Run bounded GLM-4.5-Flash ReAct repair
+    needs: [diagnose, reproduce]
+    if: >-
+      always() &&
+      (inputs.allow_external_model_data == true || vars.PR_REPAIR_ALLOW_EXTERNAL_MODEL_DATA == 'true') &&
+      needs.diagnose.outputs.eligible_for_repair == 'true' &&
+      (
+        needs.diagnose.outputs.next_action == 'ai_conflict' ||
+        (needs.diagnose.outputs.next_action == 'reproduce_tests' &&
+        needs.reproduce.result == 'success' &&
+        needs.reproduce.outputs.relation == 'pr_related_failure')
+      )
+    concurrency:
+      group: stone-memory-pr-repair-zai
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      pull-requests: read
+    env:
+      ZAI_BASE_URL: ${{ vars.ZAI_BASE_URL || 'https://api.z.ai/api/paas/v4' }}
+      ZAI_MODEL: glm-4.5-flash
+      ZAI_TIMEOUT_MS: '120000'
+      ZAI_RETRY_DELAY_MS: '60000'
+    steps:
+      - name: Check out trusted repair tools from main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+          path: tools
+
+      - name: Check out PR repair workspace
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.diagnose.outputs.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: repair
+
+      - name: Download diagnosis
+        uses: actions/download-artifact@v4
+        with:
+          name: pr-repair-diagnosis-${{ env.PR_NUMBER }}
+          path: evidence/diagnosis
+
+      - name: Download reproduction evidence when available
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: pr-repair-reproduction-${{ env.PR_NUMBER }}
+          path: evidence/reproduction
+
+      - name: Smoke-test Z.AI access without PR data
+        env:
+          ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
+        run: node tools/.github/pr-repair/handshake.mjs
+
+      - name: Prepare current-main merge workspace
+        env:
+          BASE_SHA: ${{ needs.diagnose.outputs.base_sha }}
+          HEAD_SHA: ${{ needs.diagnose.outputs.head_sha }}
+        working-directory: ${{ github.workspace }}/repair
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$BASE_SHA"
+          git switch --detach "$HEAD_SHA"
+          set +e
+          git -c user.name='Stone Memory PR Repair' -c user.email='pr-repair@stone-memory.invalid' merge --no-commit --no-ff "$BASE_SHA"
+          merge_code=$?
+          set -e
+          if [[ "$merge_code" -ne 0 ]]; then
+            conflicts="$(git diff --name-only --diff-filter=U)"
+            if [[ -z "$conflicts" ]]; then
+              echo 'current-main merge failed without a resolvable conflict' >&2
+              exit "$merge_code"
+            fi
+          fi
+
+      - name: Run bounded ReAct coding agent
+        id: agent
+        continue-on-error: true
+        env:
+          ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
+          DIAGNOSIS_PATH: ${{ github.workspace }}/evidence/diagnosis/pr-repair-diagnosis.json
+          REPRODUCTION_PATH: ${{ github.workspace }}/evidence/reproduction/pr-repair-reproduction.json
+          REPAIR_WORKTREE: ${{ github.workspace }}/repair
+          AGENT_RESULT_PATH: ${{ github.workspace }}/pr-repair-agent-result.json
+        run: node tools/.github/pr-repair/agent-runtime.mjs
+
+      - name: Commit verified agent workspace
+        id: agent_commit
+        if: always() && hashFiles('pr-repair-agent-result.json') != ''
+        continue-on-error: true
+        env:
+          PR_NUMBER: ${{ env.PR_NUMBER }}
+          DIAGNOSIS_PATH: ${{ github.workspace }}/evidence/diagnosis/pr-repair-diagnosis.json
+          REPRODUCTION_PATH: ${{ github.workspace }}/evidence/reproduction/pr-repair-reproduction.json
+          REPAIR_WORKTREE: ${{ github.workspace }}/repair
+          AGENT_RESULT_PATH: ${{ github.workspace }}/pr-repair-agent-result.json
+          REPAIR_RESULT_PATH: ${{ github.workspace }}/pr-repair-result.json
+          ZAI_MODEL: glm-4.5-flash
+        run: node tools/.github/pr-repair/agent-commit.mjs
+
+      - name: Create verified repair bundle
+        if: always() && hashFiles('pr-repair-result.json') != ''
+        working-directory: ${{ github.workspace }}/repair
+        run: |
+          set -euo pipefail
+          status="$(node -e "console.log(JSON.parse(require('fs').readFileSync('$GITHUB_WORKSPACE/pr-repair-result.json','utf8')).status || '')")"
+          if [[ "$status" == "repair_success" ]]; then
+            git bundle create "$GITHUB_WORKSPACE/repair.bundle" HEAD
+          fi
+
+      - name: Upload ReAct repair artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-repair-ai-plan-${{ env.PR_NUMBER }}
+          path: |
+            pr-repair-agent-result.json
+            pr-repair-result.json
+            repair.bundle
+          if-no-files-found: warn
+          retention-days: 7
+
   apply_and_verify:
     name: Apply repair and verify without secrets
-    needs: [diagnose, reproduce, deterministic_plan, ai_plan]
+    needs: [diagnose, reproduce, deterministic_plan, ai_plan, ai_agent]
     if: >-
       always() &&
       needs.diagnose.outputs.eligible_for_repair == 'true' &&
       (
         (needs.diagnose.outputs.next_action == 'deterministic_diff_check' && needs.deterministic_plan.result == 'success') ||
-        (needs.diagnose.outputs.next_action == 'ai_conflict' && needs.ai_plan.result == 'success') ||
-        (needs.diagnose.outputs.next_action == 'reproduce_tests' && needs.ai_plan.result == 'success' && needs.reproduce.outputs.relation == 'pr_related_failure')
+        (needs.diagnose.outputs.next_action == 'ai_conflict' && needs.ai_agent.result == 'success') ||
+        (needs.diagnose.outputs.next_action == 'reproduce_tests' && needs.ai_agent.result == 'success' && needs.reproduce.outputs.relation == 'pr_related_failure')
       )
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -626,6 +746,8 @@ jobs:
           set -euo pipefail
           if [[ "$NEXT_ACTION" == "deterministic_diff_check" ]]; then
             cp evidence/deterministic/pr-repair-plan.json pr-repair-plan.json
+          elif [[ -f evidence/ai/pr-repair-result.json ]]; then
+            echo 'Using the already committed ReAct workspace result.'
           else
             cp evidence/ai/pr-repair-plan.json pr-repair-plan.json
           fi
@@ -640,7 +762,25 @@ jobs:
           REPRODUCTION_PATH: ${{ github.workspace }}/evidence/reproduction/pr-repair-reproduction.json
           REPAIR_PLAN_PATH: ${{ github.workspace }}/pr-repair-plan.json
           REPAIR_RESULT_PATH: ${{ github.workspace }}/pr-repair-result.json
-        run: node tools/.github/pr-repair/apply.mjs
+        run: |
+          set -euo pipefail
+          agent_result="$GITHUB_WORKSPACE/evidence/ai/pr-repair-result.json"
+          if [[ -f "$agent_result" ]]; then
+            cp "$agent_result" "$REPAIR_RESULT_PATH"
+            status="$(node -e "console.log(JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')).status || '')" "$REPAIR_RESULT_PATH")"
+            if [[ "$status" == "repair_success" ]]; then
+              bundle="$GITHUB_WORKSPACE/evidence/ai/repair.bundle"
+              commit_sha="$(node -e "console.log(JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')).commitSha || '')" "$REPAIR_RESULT_PATH")"
+              git -C repair bundle verify "$bundle"
+              git -C repair fetch "$bundle" "$commit_sha"
+              git -C repair checkout --detach "$commit_sha"
+            fi
+            echo "status=$status" >> "$GITHUB_OUTPUT"
+            echo "commit_sha=$(node -e "console.log(JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')).commitSha || '')" "$REPAIR_RESULT_PATH")" >> "$GITHUB_OUTPUT"
+            echo "original_head=$(node -e "console.log(JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')).originalHead || '')" "$REPAIR_RESULT_PATH")" >> "$GITHUB_OUTPUT"
+          else
+            node tools/.github/pr-repair/apply.mjs
+          fi
 
       - name: Stage trusted finalizer before validation cleanup
         if: always()
