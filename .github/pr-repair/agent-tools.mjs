@@ -621,6 +621,19 @@ export function createAgentTools({
     const { normalized, absolute } = safeReadPath(cwd, paths[0]);
     const content = await readFile(absolute, 'utf8');
     const updated = replaceSingleConflict(content, candidateLines, normalized);
+    const syntaxError = await validateJavascriptUpdates(
+      [{ normalized, absolute, content: updated }],
+      { runCommandImpl, cwd },
+    );
+    if (syntaxError) {
+      return {
+        ok: false,
+        applied: false,
+        changedFiles: state.changedFiles,
+        remainingUnresolved: unresolvedPaths,
+        error: syntaxError,
+      };
+    }
     await writeFile(absolute, updated, 'utf8');
     await stageFiles([normalized]);
     state.changedFiles = [...new Set([...state.changedFiles, normalized])];
