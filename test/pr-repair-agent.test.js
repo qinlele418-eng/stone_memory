@@ -252,8 +252,11 @@ test('agent apply_patch accepts the bounded Begin Patch format emitted by coding
     const partial = await tools.call('apply_patch', {
       patch: '*** Begin Patch\n*** Update File: example.txt\n@@\n pr\n+extra\n*** End Patch\n',
     });
-    assert.equal(partial.applied, false);
-    assert.deepEqual(partial.remainingUnresolved, ['example.txt']);
+    assert.equal(partial.applied, true, JSON.stringify(partial));
+    assert.equal(partial.format, 'conflict-fallback');
+    assert.deepEqual(partial.remainingUnresolved, []);
+    await writeFile(join(cwd, 'example.txt'), '<<<<<<< HEAD\npr\n=======\nmain\n>>>>>>> main\n');
+    await git('add', 'example.txt');
     const result = await tools.call('apply_patch', {
       patch: '*** Begin Patch\n*** Update File: example.txt\n@@\n-<<<<<<< HEAD\n-pr\n-=======\n-main\n->>>>>>> main\n+resolved\n*** End Patch\n',
     });

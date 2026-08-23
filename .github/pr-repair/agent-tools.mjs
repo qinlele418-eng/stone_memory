@@ -544,8 +544,8 @@ export function createAgentTools({
   }
 
   async function applyConflictFallback(patch, validation) {
-    const unresolved = await runGitImpl(['diff', '--name-only', '--diff-filter=U'], { cwd, timeoutMs: 30_000 });
-    if (unresolved.code !== 0 || !unresolved.stdout.trim()) return null;
+    const unresolvedPaths = await unresolvedFiles();
+    if (unresolvedPaths.length === 0) return null;
     const patchLines = String(patch).replaceAll('\r', '').split('\n');
     const added = patchLines
       .filter((line) => line.startsWith('+') && !line.startsWith('+++'))
@@ -556,7 +556,7 @@ export function createAgentTools({
     const candidateLines = (added.length > 0 ? added : rawContext)
       .filter((line) => !/^(?:<<<<<<<|=======|>>>>>>>)/.test(line));
     if (candidateLines.length === 0 || candidateLines.join('\n').length > AGENT_TOOL_LIMITS.maxPatchChars) return null;
-    const paths = validation.files.filter((file) => unresolved.stdout.split(/\r?\n/).includes(file));
+    const paths = validation.files.filter((file) => unresolvedPaths.includes(file));
     if (paths.length !== 1) return null;
     const { normalized, absolute } = safeReadPath(cwd, paths[0]);
     const content = await readFile(absolute, 'utf8');
@@ -604,6 +604,8 @@ export function createAgentTools({
         .filter((update) => findConflictRanges(update.content.replaceAll('\r', '').split('\n')).length > 0)
         .map((update) => update.normalized);
       if (incomplete.length > 0) {
+        const fallback = await applyConflictFallback(patch, validation);
+        if (fallback) return fallback;
         return {
           ok: false,
           applied: false,
