@@ -784,6 +784,12 @@ export function createAgentTools({
 
   async function runTestsTool(args = {}) {
     if (args.mode !== 'related' && args.mode !== 'full') throw new Error('run_tests 的 mode 必须是 related 或 full');
+    // Keep the tool-local stage in sync with the runtime.  Automatic tests are
+    // invoked by agent-runtime through this same tool, so relying on the
+    // runtime's separate counter left failure-aware read routing disabled:
+    // after a failed verification the model's requested CLI path won over the
+    // first failing source file.
+    state.testCalls += 1;
     const report = await runTestsImpl({ cwd, timeoutMs: 8 * 60 * 1_000 });
     state.lastTestPassed = report.passed === true;
     if (state.lastTestPassed) {

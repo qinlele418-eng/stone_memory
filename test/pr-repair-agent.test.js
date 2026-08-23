@@ -178,6 +178,41 @@ test('agent tools expose bounded file/diff/edit/test seams without a shell', asy
   }
 });
 
+test('failed verification routes the next read to the first failing source file', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'stone-memory-agent-failure-routing-'));
+  try {
+    const git = async (...args) => {
+      const result = await runGit(args, { cwd });
+      assert.equal(result.code, 0, `${args.join(' ')}\n${result.stderr}`);
+      return result.stdout.trim();
+    };
+    await git('init', '-b', 'main');
+    await git('config', 'user.name', 'test');
+    await git('config', 'user.email', 'test@example.invalid');
+    await writeFile(join(cwd, 'bin.stmem'), 'cli\n');
+    await writeFile(join(cwd, 'src.js'), 'source\n');
+    await git('add', '.');
+    await git('commit', '-m', 'base');
+    const sha = await git('rev-parse', 'HEAD');
+    const tools = createAgentTools({
+      cwd,
+      revisions: { base: sha, pr: sha, main: sha },
+      allowedFiles: ['bin.stmem', 'src.js'],
+      runTestsImpl: async () => ({
+        passed: false,
+        command: 'npm test',
+        result: { total: 2, passed: 1, failed: 1, failures: [{ file: 'test/src.test.js', error: 'source regression' }] },
+        stderr: '',
+      }),
+    });
+    await tools.call('run_tests', { mode: 'related' });
+    const read = await tools.call('read_file', { path: 'bin.stmem', start_line: 1, end_line: 1 });
+    assert.equal(read.path, 'src.js');
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test('agent apply_patch can resolve an actual current-main conflict in the repair worktree', async () => {
   const cwd = await mkdtemp(join(tmpdir(), 'stone-memory-agent-conflict-'));
   try {
