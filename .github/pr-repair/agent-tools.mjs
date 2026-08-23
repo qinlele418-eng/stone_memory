@@ -282,7 +282,20 @@ function replaceUniqueLines(content, oldLines, newLines, path) {
       matchAt = start;
     }
   }
-  if (matchAt < 0) throw new Error(`apply_patch ${path} 找不到要替换的原文`);
+  if (matchAt < 0) {
+    const conflictRanges = [];
+    for (let start = 0; start < lines.length; start += 1) {
+      if (!/^<<<<<<<(?: |$)/.test(lines[start])) continue;
+      const end = lines.findIndex((line, index) => index > start && /^>>>>>>>/.test(line));
+      if (end >= 0) conflictRanges.push({ start, end });
+    }
+    const hasConflictMarkers = newLines.length > 0 && newLines.every((line) => !/^(?:<<<<<<<|=======|>>>>>>>)/.test(line));
+    if (conflictRanges.length === 1 && hasConflictMarkers) {
+      const { start, end } = conflictRanges[0];
+      return [...lines.slice(0, start), ...newLines, ...lines.slice(end + 1)].join('\n');
+    }
+    throw new Error(`apply_patch ${path} 找不到要替换的原文`);
+  }
   return [...lines.slice(0, matchAt), ...newLines, ...lines.slice(matchAt + oldLines.length)].join('\n');
 }
 

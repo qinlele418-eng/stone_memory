@@ -233,3 +233,39 @@ test('agent apply_patch accepts the bounded Begin Patch format emitted by coding
     await rm(cwd, { recursive: true, force: true });
   }
 });
+
+test('agent resolves a conflict when a model patch has a stale conflict footer', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'stone-memory-agent-stale-footer-'));
+  try {
+    const git = async (...args) => {
+      const result = await runGit(args, { cwd });
+      assert.equal(result.code === 0 || args[0] === 'merge', true, `${args.join(' ')}\n${result.stderr}`);
+      return result.stdout.trim();
+    };
+    await git('init', '-b', 'main');
+    await git('config', 'user.name', 'test');
+    await git('config', 'user.email', 'test@example.invalid');
+    await writeFile(join(cwd, 'example.txt'), 'base\n');
+    await git('add', 'example.txt');
+    await git('commit', '-m', 'base');
+    const base = await git('rev-parse', 'HEAD');
+    await git('switch', '-c', 'pr');
+    await writeFile(join(cwd, 'example.txt'), 'pr\n');
+    await git('add', 'example.txt');
+    await git('commit', '-m', 'pr');
+    const pr = await git('rev-parse', 'HEAD');
+    await git('switch', 'main');
+    await writeFile(join(cwd, 'example.txt'), 'main\n');
+    await git('add', 'example.txt');
+    await git('commit', '-m', 'main');
+    const main = await git('rev-parse', 'HEAD');
+    await git('switch', 'pr');
+    await git('merge', '--no-commit', '--no-ff', main);
+    const tools = createAgentTools({ cwd, revisions: { base, pr, main }, allowedFiles: ['example.txt'] });
+    const result = await tools.call('apply_patch', { patch: '*** Begin Patch\n*** Update File: example.txt\n@@\n-<<<<<<< HEAD\n-pr\n-=======\n-main\n->>>>>>> stale-footer\n+resolved\n*** End Patch\n' });
+    assert.equal(result.applied, true, JSON.stringify(result));
+    assert.equal(await readFile(join(cwd, 'example.txt'), 'utf8'), 'resolved\n');
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
