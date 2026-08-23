@@ -61,6 +61,22 @@ export async function runSandboxedTests({ cwd, runCommandImpl = runCommand, time
         passed: false,
       };
     }
+    const rebuildResult = await runCommandImpl('docker', [
+      'run', '--rm', '--init', '--user', `${process.getuid?.() || 0}:${process.getgid?.() || 0}`,
+      '-v', `${install}:/install:rw`, '-w', '/install',
+      '-e', 'HOME=/tmp', '-e', 'npm_config_cache=/tmp/npm-cache',
+      'node:22-bookworm', 'npm', 'rebuild', 'better-sqlite3', '--no-audit', '--no-fund',
+    ], { cwd, timeoutMs });
+    if (rebuildResult.code !== 0) {
+      return {
+        command: 'npm test',
+        exitCode: rebuildResult.code,
+        timedOut: rebuildResult.timedOut,
+        result: { total: 1, passed: 0, failed: 1, failures: [{ name: 'npm rebuild better-sqlite3', error: '隔离原生依赖构建失败' }] },
+        stderr: clip(redactSensitiveText(rebuildResult.stderr || rebuildResult.stdout), AGENT_TOOL_LIMITS.maxTestChars),
+        passed: false,
+      };
+    }
     await rm(join(cwd, 'node_modules'), { recursive: true, force: true });
     await cp(join(install, 'node_modules'), join(cwd, 'node_modules'), { recursive: true });
     const reportPath = join(output, 'pr-repair-test.json');

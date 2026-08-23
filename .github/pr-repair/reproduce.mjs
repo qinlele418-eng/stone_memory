@@ -25,7 +25,13 @@ async function install(cwd) {
     env: cleanEnv(),
     timeoutMs: 1_200_000,
   });
-  return result.code === 0 ? null : redactErrorMessage(result.stderr || result.stdout || `npm ci 退出码 ${result.code}`);
+  if (result.code !== 0) return redactErrorMessage(result.stderr || result.stdout || `npm ci 退出码 ${result.code}`);
+  const rebuild = await runCommand(npmCommand, ['rebuild', 'better-sqlite3', '--no-audit', '--no-fund'], {
+    cwd,
+    env: cleanEnv(),
+    timeoutMs: 1_200_000,
+  });
+  return rebuild.code === 0 ? null : redactErrorMessage(rebuild.stderr || rebuild.stdout || `npm rebuild 退出码 ${rebuild.code}`);
 }
 
 export async function reproduce({

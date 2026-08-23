@@ -318,6 +318,10 @@ jobs:
             node -e "require('fs').writeFileSync(process.env.TEST_REPORT_PATH, JSON.stringify({command:'npm test',exitCode:1,timedOut:false,result:{total:1,passed:0,failed:1,failures:[{name:'npm ci',error:'依赖安装失败'}]},stderr:'',passed:false}))"
             exit 1
           fi
+          docker run --rm --init --user "$(id -u):$(id -g)" \
+            -v "$INSTALL_CWD:/install:rw" -w /install \
+            -e HOME=/tmp -e npm_config_cache=/tmp/npm-cache \
+            node:22-bookworm npm rebuild better-sqlite3 --no-audit --no-fund
           rm -rf "$TEST_CWD/node_modules"
           cp -a "$INSTALL_CWD/node_modules" "$TEST_CWD/"
           docker run --rm --init --network none --user "$(id -u):$(id -g)" \
@@ -411,6 +415,10 @@ jobs:
             node -e "require('fs').writeFileSync(process.env.TEST_REPORT_PATH, JSON.stringify({command:'npm test',exitCode:1,timedOut:false,result:{total:1,passed:0,failed:1,failures:[{name:'npm ci',error:'依赖安装失败'}]},stderr:'',passed:false}))"
             exit 1
           fi
+          docker run --rm --init --user "$(id -u):$(id -g)" \
+            -v "$INSTALL_CWD:/install:rw" -w /install \
+            -e HOME=/tmp -e npm_config_cache=/tmp/npm-cache \
+            node:22-bookworm npm rebuild better-sqlite3 --no-audit --no-fund
           rm -rf "$TEST_CWD/node_modules"
           cp -a "$INSTALL_CWD/node_modules" "$TEST_CWD/"
           docker run --rm --init --network none --user "$(id -u):$(id -g)" \
@@ -504,6 +512,10 @@ jobs:
             node -e "require('fs').writeFileSync(process.env.TEST_REPORT_PATH, JSON.stringify({command:'npm test',exitCode:1,timedOut:false,result:{total:1,passed:0,failed:1,failures:[{name:'npm ci',error:'依赖安装失败'}]},stderr:'',passed:false}))"
             exit 1
           fi
+          docker run --rm --init --user "$(id -u):$(id -g)" \
+            -v "$INSTALL_CWD:/install:rw" -w /install \
+            -e HOME=/tmp -e npm_config_cache=/tmp/npm-cache \
+            node:22-bookworm npm rebuild better-sqlite3 --no-audit --no-fund
           rm -rf "$TEST_CWD/node_modules"
           cp -a "$INSTALL_CWD/node_modules" "$TEST_CWD/"
           docker run --rm --init --network none --user "$(id -u):$(id -g)" \
@@ -863,6 +875,10 @@ jobs:
             node -e "require('fs').writeFileSync(process.env.TEST_REPORT_PATH, JSON.stringify({command:'npm test',exitCode:1,timedOut:false,result:{total:1,passed:0,failed:1,failures:[{name:'npm ci',error:'依赖安装失败'}]},stderr:'',passed:false}))"
             exit 1
           fi
+          docker run --rm --init --user "$(id -u):$(id -g)" \
+            -v "$INSTALL_CWD:/install:rw" -w /install \
+            -e HOME=/tmp -e npm_config_cache=/tmp/npm-cache \
+            node:22-bookworm npm rebuild better-sqlite3 --no-audit --no-fund
           rm -rf "$TEST_CWD/node_modules"
           cp -a "$INSTALL_CWD/node_modules" "$TEST_CWD/"
           docker run --rm --init --network none --user "$(id -u):$(id -g)" \

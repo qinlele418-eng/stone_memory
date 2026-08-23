@@ -77,6 +77,7 @@ test('final validation stages every trusted test-runner dependency and restores 
 
 test('all untrusted dependency installs disable PR lifecycle scripts before tests run', () => {
   assert.equal((workflow.match(/npm ci --ignore-scripts --no-audit --no-fund/g) || []).length, 4);
+  assert.equal((workflow.match(/npm rebuild better-sqlite3 --no-audit --no-fund/g) || []).length, 4);
   assert.doesNotMatch(workflow, /npm ci --no-audit --no-fund/);
 });
 
