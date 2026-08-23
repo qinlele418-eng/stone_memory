@@ -391,7 +391,7 @@ function repairGuidance(report, allowed) {
   if (allowed.includes('src/services/memory-keyword-search.js') && /memory-keyword-search|deep-search|paths\[0\]/i.test(evidence)) {
     hints.push({
       file: 'src/services/memory-keyword-search.js',
-      instruction: '保留关键词搜索 hits 中已有的 date 与 utcTime 元数据；检查 archive 搜索是否把当前线程的 memoryDir/threadId 传给 readArchive，不能引用不存在的 archiveDir。',
+      instruction: '具体修复：关键词模式的 hits 映射必须保留 t.date 与 t.utcTime；archive/event/pattern 搜索必须调用 readArchive(p.memoryDir, p.threadId, dateStr)，不能引用不存在的 p.archiveDir。',
     });
   }
   if (allowed.includes('bin/stmem') && /ensureWatcher|watcher(?:\.pid|-supervisor|[-_ ]state)|ENOTEMPTY/i.test(evidence)) {
@@ -400,7 +400,7 @@ function repairGuidance(report, allowed) {
       instruction: '入口冲突必须同时保留 PR 的命令分支与 current main 的无副作用 CLI 语义；不要让普通 notebook/rebuild 命令隐式拉起 watcher，也不能调用未定义的 ensureWatcher。',
     });
   }
-  if (allowed.includes('scripts/stmem-notebook.js') && /notebook/i.test(evidence)) {
+  if (allowed.includes('scripts/stmem-notebook.js') && /JSON\.parse|Unexpected non-whitespace|after JSON|serializer|单行 JSON/i.test(evidence)) {
     hints.push({
       file: 'scripts/stmem-notebook.js',
       instruction: '若 notebook MCP/web 报 JSON 解析错误，只让 CLI stdout 输出单行 JSON；诊断信息走 stderr，不要改测试或反复修改 bin/stmem。',
@@ -520,9 +520,11 @@ export function createAgentTools({
   function failureFallbackPath() {
     const paths = failureFallbackPaths();
     if (paths.length === 0) return null;
-    const path = paths[state.failureReadIndex % paths.length];
-    state.failureReadIndex += 1;
-    return path;
+    // Stay on the first failing source until the model applies a correction
+    // and the next test report can establish a new first failure. Rotating on
+    // every read sent the agent to unrelated notebook/CLI files after one
+    // failed hunk, starving the original regression of a usable patch.
+    return paths[0];
   }
 
   async function changedFileNames() {
