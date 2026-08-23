@@ -72,6 +72,7 @@ export async function callZai({
   apiKey = process.env.ZAI_API_KEY,
   baseUrl = process.env.ZAI_BASE_URL || DEFAULT_ZAI_BASE_URL,
   model = process.env.ZAI_MODEL || DEFAULT_ZAI_MODEL,
+  maxTokens = Number(process.env.ZAI_MAX_TOKENS || 16_000),
   fetchImpl = globalThis.fetch,
   timeoutMs = 120_000,
 } = {}) {
@@ -90,13 +91,19 @@ export async function callZai({
         model,
         messages: [{ role: 'user', content: prompt }],
         temperature: 0,
-        max_tokens: 16_000,
+        max_tokens: maxTokens,
         stream: false,
       }),
       signal: controller.signal,
     });
-    if (!response.ok) throw new Error(`Z.AI API 请求失败（HTTP ${response.status}）`);
-    const body = await response.json();
+    const responseTextBody = await response.text();
+    let body;
+    try { body = JSON.parse(responseTextBody); } catch { body = null; }
+    if (!response.ok) {
+      const code = body?.error?.code || body?.code || 'unknown';
+      const message = body?.error?.message || body?.message || '无业务错误详情';
+      throw new Error(`Z.AI API 请求失败（HTTP ${response.status}, code ${code}: ${message}）`);
+    }
     if (body?.choices?.[0]?.finish_reason === 'length') throw new Error('Z.AI 模型响应达到 token 上限，按 fail-closed 处理');
     const text = responseText(body);
     if (!text) throw new Error('Z.AI 返回中没有模型文本');
