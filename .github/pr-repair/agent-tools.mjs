@@ -256,14 +256,17 @@ function parseApplyPatchFormat(value) {
         index += 1;
         break;
       }
+      if (line === '*** End of File' || line === '\\ No newline at end of file') continue;
       if (line.startsWith(' ') || line === '') {
         const context = line.startsWith(' ') ? line.slice(1) : '';
         oldLines.push(context);
         newLines.push(context);
         continue;
       }
-      if (line === '\\ No newline at end of file') continue;
-      throw new Error(`apply_patch ${path} 包含无法识别的 hunk 行`);
+      // Some coding models omit the single context-space required by patch format.
+      // Treat such a line as context, never as an instruction to write arbitrary text.
+      oldLines.push(line);
+      newLines.push(line);
     }
     flush();
     if (hunks.length === 0) throw new Error(`apply_patch ${path} 缺少有效 hunk`);
