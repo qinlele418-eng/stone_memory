@@ -384,6 +384,31 @@ function failureSummary(report) {
   };
 }
 
+async function validateJavascriptUpdates(updates, {
+  runCommandImpl = runCommand,
+  cwd,
+} = {}) {
+  const candidates = updates.filter(({ normalized }) => (
+    /(?:^|\/)(?:[^/]+\.(?:c?m?js)|stmem)$/.test(normalized)
+  ));
+  if (candidates.length === 0) return null;
+  const directory = await mkdtemp(join(tmpdir(), 'stone-memory-pr-syntax-'));
+  try {
+    for (const update of candidates) {
+      const temporary = join(directory, update.normalized.replaceAll('/', '__'));
+      await writeFile(temporary, update.content, 'utf8');
+      const result = await runCommandImpl(process.execPath, ['--check', temporary], { cwd, timeoutMs: 30_000 });
+      if (result.code !== 0) {
+        const detail = redactErrorMessage(result.stderr || result.stdout || 'node --check 失败');
+        return `补丁会使 ${update.normalized} 产生语法错误，未应用任何文件：${detail}。请以当前文件内容为准，缩小补丁并修复语法。`;
+      }
+    }
+    return null;
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
 function conflictBlocks(content, path) {
   const lines = String(content ?? '').replaceAll('\r', '').split('\n');
   const conflicts = [];
@@ -524,9 +549,15 @@ export function createAgentTools({
       for (const [label, revision] of [['main', revisions.main], ['pr', revisions.pr]]) {
         if (!revision) continue;
         const reference = await readFileAt(cwd, revision, normalized);
-        if (reference !== null) references[label] = clip(redactSensitiveText(reference), AGENT_TOOL_LIMITS.maxReadChars);
+        if (reference !== null) {
+          const referenceLines = reference.split(/\r?\n/);
+          references[label] = clip(redactSensitiveText(referenceLines.slice(start - 1, end).join('\n')), AGENT_TOOL_LIMITS.maxReadChars);
+        }
       }
-      if (Object.keys(references).length > 0) result.references = references;
+      if (Object.keys(references).length > 0) {
+        result.references = references;
+        result.referenceRange = { startLine: start, endLine: end };
+      }
     }
     return result;
   }
@@ -632,6 +663,16 @@ export function createAgentTools({
           changedFiles: state.changedFiles,
           remainingUnresolved: await unresolvedFiles(),
           error: `补丁未移除目标文件的冲突标记: ${incomplete.join(', ')}`,
+        };
+      }
+      const syntaxError = await validateJavascriptUpdates(updates, { runCommandImpl, cwd });
+      if (syntaxError) {
+        return {
+          ok: false,
+          applied: false,
+          changedFiles: state.changedFiles,
+          remainingUnresolved: await unresolvedFiles(),
+          error: syntaxError,
         };
       }
       for (const update of updates) await writeFile(update.absolute, update.content, 'utf8');
