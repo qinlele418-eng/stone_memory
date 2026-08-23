@@ -422,6 +422,7 @@ export function createAgentTools({
     readOnlyCalls: 0,
     patchCalls: 0,
     testCalls: 0,
+    lastFailureFiles: [],
   };
 
   async function unresolvedFiles() {
@@ -446,6 +447,18 @@ export function createAgentTools({
     const result = await runGitImpl(['add', '--', ...safePaths], { cwd, timeoutMs: 30_000 });
     if (result.code !== 0) throw new Error(redactErrorMessage(result.stderr || result.stdout || '标记冲突文件已解决失败'));
     return safePaths;
+  }
+
+  function failureFallbackPath() {
+    for (const failureFile of state.lastFailureFiles) {
+      const normalized = normalizeSafeRelativePath(failureFile);
+      if (allowed.includes(normalized)) return normalized;
+      const withoutTestSuffix = normalized.replace(/\.test(?=\.[^.]+$)/, '');
+      const basename = withoutTestSuffix.split('/').at(-1);
+      const matchingSource = allowed.find((file) => file.split('/').at(-1) === basename);
+      if (matchingSource) return matchingSource;
+    }
+    return null;
   }
 
   async function changedFileNames() {
@@ -488,7 +501,7 @@ export function createAgentTools({
 
   async function readFileTool(args = {}) {
     const unresolved = await unresolvedFiles();
-    const fallbackPath = unresolved.at(0) || state.changedFiles.at(-1) || allowed.at(0);
+    const fallbackPath = unresolved.at(0) || failureFallbackPath() || state.changedFiles.at(-1) || allowed.at(0);
     const { normalized, absolute } = safeReadPath(cwd, args.path || fallbackPath);
     const content = await readFile(absolute, 'utf8');
     const lines = content.split(/\r?\n/);
@@ -509,7 +522,7 @@ export function createAgentTools({
 
   async function gitShowFile(args = {}) {
     const unresolved = await unresolvedFiles();
-    const fallbackPath = unresolved.at(0) || state.changedFiles.at(-1) || allowed.at(0);
+    const fallbackPath = unresolved.at(0) || failureFallbackPath() || state.changedFiles.at(-1) || allowed.at(0);
     const { normalized } = safeReadPath(cwd, args.path || fallbackPath);
     const revision = revisions[args.revision || 'main'];
     if (!revision) throw new Error(`没有配置 revision: ${args.revision}`);
@@ -663,6 +676,9 @@ export function createAgentTools({
     if (args.mode !== 'related' && args.mode !== 'full') throw new Error('run_tests 的 mode 必须是 related 或 full');
     const report = await runTestsImpl({ cwd, timeoutMs: 8 * 60 * 1_000 });
     state.lastTestPassed = report.passed === true;
+    state.lastFailureFiles = state.lastTestPassed
+      ? []
+      : [...new Set((report?.result?.failures || []).map((failure) => failure?.file).filter(Boolean))];
     return { ok: true, mode: 'full', requestedMode: args.mode, ...failureSummary(report) };
   }
 
