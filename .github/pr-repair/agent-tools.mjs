@@ -397,7 +397,7 @@ function repairGuidance(report, allowed) {
   if (allowed.includes('bin/stmem') && /ensureWatcher|watcher(?:\.pid|-supervisor|[-_ ]state)|ENOTEMPTY/i.test(evidence)) {
     hints.push({
       file: 'bin/stmem',
-      instruction: '入口冲突必须同时保留 PR 的命令分支与 current main 的无副作用 CLI 语义；不要让普通 notebook/rebuild 命令隐式拉起 watcher，也不能调用未定义的 ensureWatcher。',
+      instruction: '入口冲突必须同时保留 PR 的 search/search-index 命令分支与 current main 的无副作用 CLI 语义；删除或禁用文件顶部对 ensureWatcher() 的普通命令自动调用（尤其 notebook、rebuild、watcher），因为 current main 不在 CLI 入口隐式拉起 watcher。',
     });
   }
   if (allowed.includes('scripts/stmem-notebook.js') && /JSON\.parse|Unexpected non-whitespace|after JSON|serializer|单行 JSON/i.test(evidence)) {
