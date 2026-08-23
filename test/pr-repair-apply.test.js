@@ -137,8 +137,15 @@ test('agent workspace commit preserves the PR head ancestor and rejects out-of-s
     await git(cwd, 'commit', '-m', 'pr');
     const headSha = await git(cwd, 'rev-parse', 'HEAD');
     await writeFile(join(cwd, 'example.txt'), 'resolved\n');
+    await writeFile(join(cwd, 'current-main-doc.md'), 'current main\n\n');
     const diagnosis = { currentMainSha: baseSha, changedFiles: ['example.txt'], pr: { number: 102, headSha } };
-    const result = await commitAgentRepair({ cwd, diagnosis, summary: '直接完成冲突修复', model: 'glm-4.5-flash' });
+    const result = await commitAgentRepair({
+      cwd,
+      diagnosis,
+      summary: '直接完成冲突修复',
+      model: 'glm-4.5-flash',
+      agentChangedFiles: ['example.txt'],
+    });
     assert.equal(result.status, 'repair_success', JSON.stringify(result));
     assert.equal(await git(cwd, 'rev-parse', 'HEAD^'), headSha);
     assert.equal(await readFile(join(cwd, 'example.txt'), 'utf8'), 'resolved\n');

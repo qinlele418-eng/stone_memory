@@ -183,11 +183,11 @@ export async function commitAgentRepair({
     changes: modelChangedFiles.map((path) => ({ path, content: 'agent workspace change' })),
   }, { allowedFiles });
   if (!validation.ok) return { version: 1, status: 'repair_failed', error: validation.errors.join('；') };
-  const diffCheck = await runGit(['diff', '--check'], { cwd });
+  const diffCheck = await runGit(['diff', '--check', '--', ...modelChangedFiles], { cwd });
   if (diffCheck.code !== 0) return { version: 1, status: 'repair_failed', error: redactErrorMessage(diffCheck.stderr || diffCheck.stdout || '工作区 diff 检查失败') };
   const add = await runGit(['add', '--all'], { cwd });
   if (add.code !== 0) return { version: 1, status: 'repair_failed', error: redactErrorMessage(add.stderr || add.stdout) };
-  const stagedCheck = await runGit(['diff', '--cached', '--check'], { cwd });
+  const stagedCheck = await runGit(['diff', '--cached', '--check', '--', ...modelChangedFiles], { cwd });
   if (stagedCheck.code !== 0) return { version: 1, status: 'repair_failed', error: redactErrorMessage(stagedCheck.stderr || stagedCheck.stdout || '暂存区 diff 检查失败') };
   const stagedNames = await runGit(['diff', '--cached', '--name-only'], { cwd });
   if (stagedNames.code !== 0 || !stagedNames.stdout.trim()) return { version: 1, status: 'repair_failed', error: 'Agent 暂存区没有文件变更' };
