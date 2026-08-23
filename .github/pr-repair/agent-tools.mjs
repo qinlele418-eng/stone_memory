@@ -779,6 +779,7 @@ export function createAgentTools({
         const withoutTestSuffix = normalizeSafeRelativePath(failure?.file || '')?.replace(/\.test(?=\.[^.]+$)/, '');
         const basename = withoutTestSuffix?.split('/').at(-1);
         if (basename) allowed.filter((file) => file.split('/').at(-1) === basename).forEach(addCandidate);
+        if (/notebook[-_](?:mcp|web)|notebook/i.test(evidence)) addCandidate('scripts/stmem-notebook.js');
         allowed.filter((file) => evidence.includes(file)).forEach(addCandidate);
       }
       state.lastFailureFiles = [...counts.entries()]
