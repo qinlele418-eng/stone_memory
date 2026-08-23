@@ -477,7 +477,8 @@ export function createAgentTools({
   }
 
   async function readFileTool(args = {}) {
-    const { normalized, absolute } = safeReadPath(cwd, args.path);
+    const fallbackPath = state.changedFiles.at(-1) || allowed.at(0);
+    const { normalized, absolute } = safeReadPath(cwd, args.path || fallbackPath);
     const content = await readFile(absolute, 'utf8');
     const lines = content.split(/\r?\n/);
     const start = Math.max(1, Number(args.start_line || 1));
@@ -496,8 +497,9 @@ export function createAgentTools({
   }
 
   async function gitShowFile(args = {}) {
-    const { normalized } = safeReadPath(cwd, args.path);
-    const revision = revisions[args.revision];
+    const fallbackPath = state.changedFiles.at(-1) || allowed.at(0);
+    const { normalized } = safeReadPath(cwd, args.path || fallbackPath);
+    const revision = revisions[args.revision || 'main'];
     if (!revision) throw new Error(`没有配置 revision: ${args.revision}`);
     const content = await readFileAt(cwd, revision, normalized);
     return { ok: content !== null, path: normalized, revision: args.revision, content: content === null ? '[文件不存在]' : clip(redactSensitiveText(content), AGENT_TOOL_LIMITS.maxReadChars) };

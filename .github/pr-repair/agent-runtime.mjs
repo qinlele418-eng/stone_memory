@@ -161,7 +161,7 @@ function gateToolCall(name, args, state, limits) {
 
 function availableDefinitions(definitions, state, limits) {
   if (state.patchCalls > 0 && state.lastTestPassed !== true) {
-    return definitions.filter((tool) => ['apply_patch', 'run_tests', 'finish'].includes(tool?.function?.name));
+    return definitions.filter((tool) => ['read_file', 'git_diff', 'apply_patch', 'finish'].includes(tool?.function?.name));
   }
   if (state.patchCalls === 0 && state.logicalTurns > limits.maxExploreTurns) {
     return definitions.filter((tool) => ['apply_patch', 'run_tests', 'finish'].includes(tool?.function?.name));
