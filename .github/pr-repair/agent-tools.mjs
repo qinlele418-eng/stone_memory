@@ -540,8 +540,13 @@ export function createAgentTools({
 
   async function readFileTool(args = {}) {
     const unresolved = await unresolvedFiles();
-    const fallbackPath = unresolved.at(0) || failureFallbackPath() || state.changedFiles.at(-1) || allowed.at(0);
-    const { normalized, absolute } = safeReadPath(cwd, args.path || fallbackPath);
+    const failureStage = state.testCalls > 0 && state.lastTestPassed !== true;
+    const firstFailurePath = failureStage && unresolved.length === 0 ? failureFallbackPath() : null;
+    const fallbackPath = unresolved.at(0) || firstFailurePath || state.changedFiles.at(-1) || allowed.at(0);
+    // After a failed test, force the first diagnostic read to the first reported
+    // source file even when the model repeats a cascaded CLI path explicitly.
+    const requestedPath = unresolved.length > 0 ? (args.path || fallbackPath) : (firstFailurePath || args.path || fallbackPath);
+    const { normalized, absolute } = safeReadPath(cwd, requestedPath);
     const content = await readFile(absolute, 'utf8');
     const lines = content.split(/\r?\n/);
     const start = Math.max(1, Number(args.start_line || 1));
