@@ -406,12 +406,6 @@ function repairGuidance(report, allowed) {
       instruction: '若 notebook MCP/web 报 JSON 解析错误，只让 CLI stdout 输出单行 JSON；诊断信息走 stderr，不要改测试或反复修改 bin/stmem。',
     });
   }
-  if (/stone-tide|tidal-visual|tidal-tokens|Tidal_Echo|Pearl Tide/i.test(evidence)) {
-    hints.push({
-      file: 'PR changed frontend source files',
-      instruction: '这是 current main 已迁移命名但 PR 仍带旧兼容命名的失败。run_tests 已附带允许 PR 文件 repairSources 和 main/pr 参考；不要再次 search_code 或 git_diff，直接只修改 PR changedFiles 中命中的源码或仍断言旧命名的测试，把 stone-tide、tidal-visual、tidal-tokens、Tidal_Echo、Pearl Tide 等旧命名迁移到 current main 的 --stone-theme-*、stone-theme-* 契约；不得削弱、删除或绕过测试。',
-    });
-  }
   return hints;
 }
 
@@ -524,22 +518,6 @@ export function createAgentTools({
       if (matchingSource) paths.push(matchingSource);
     }
     const unique = [...new Set(paths)];
-    // A test can report a retired identifier without naming the source file.
-    // Resolve that evidence against the already allowed PR source files before
-    // the model's first post-failure read, so it receives the actual edit
-    // target instead of having to guess a path through repeated calls.
-    if (/stone-tide|tidal-visual|tidal-tokens|Tidal_Echo|Pearl Tide/i.test(state.lastFailureEvidence.join('\n'))) {
-      for (const file of allowed) {
-        if (/(?:^|\/)(?:test|tests|__tests__)(?:\/|$)/i.test(file) || /\.(?:test|spec)\.[^/]+$/i.test(file)) continue;
-        try {
-          const { absolute } = safeReadPath(cwd, file);
-          const content = await readFile(absolute, 'utf8');
-          if (/stone-tide|tidal-visual|tidal-tokens|Tidal_Echo|Pearl Tide/i.test(content)) unique.push(file);
-        } catch {
-          // The normal read path will report missing files; do not guess here.
-        }
-      }
-    }
     return [...new Set(unique)];
   }
 
@@ -812,94 +790,6 @@ export function createAgentTools({
     };
   }
 
-  async function applyGuidedCorrection(validation) {
-    // This is deliberately narrower than a general fixer: it only repairs
-    // the regressions identified by trusted test evidence after the model has
-    // attempted the file.  A stale PR test assertion is included when the
-    // evidence names the retired vocabulary; that is a mechanical contract
-    // migration, not permission to weaken or delete tests.
-    // The resulting content still goes through the normal syntax/staging path.
-    if (state.testCalls === 0 || state.lastTestPassed === true) return null;
-    const failureEvidence = state.lastFailureEvidence.join('\n');
-    if (/stone-tide|tidal-visual|tidal-tokens|Tidal_Echo|Pearl Tide/i.test(failureEvidence)) {
-      // The current-main visual vocabulary migration is a mechanical rename,
-      // not a product decision.  The CI failure names the retired vocabulary
-      // and the allowed PR files are the complete repair boundary.  Include
-      // PR-owned tests only when they still assert that same retired name.
-      const updates = [];
-      for (const candidate of allowed) {
-        const isTest = /(?:^|\/)(?:test|tests|__tests__)(?:\/|$)/i.test(candidate)
-          || /\.(?:test|spec)\.[^/]+$/i.test(candidate);
-        if (!candidate.startsWith('src/') && !isTest) continue;
-        if (!/\.(?:css|html|js|mjs|json|md)$/i.test(candidate)) continue;
-        let absolute;
-        try { absolute = safeReadPath(cwd, candidate).absolute; } catch { continue; }
-        const content = await readFile(absolute, 'utf8');
-        const updated = content
-          .replaceAll('stone-tide', 'stone-theme')
-          .replaceAll('tidal-visual', 'stone-theme-enabled')
-          .replaceAll('tidal-tokens.css', 'theme-tokens.css');
-        if (updated !== content) updates.push({ normalized: candidate, absolute, content: updated });
-      }
-      if (updates.length === 0) return null;
-      const syntaxError = await validateJavascriptUpdates(updates, { runCommandImpl, cwd });
-      if (syntaxError) return null;
-      for (const update of updates) await writeFile(update.absolute, update.content, 'utf8');
-      await stageFiles(updates.map((update) => update.normalized));
-      state.changedFiles = [...new Set([...state.changedFiles, ...updates.map((update) => update.normalized)])];
-      return {
-        ok: true,
-        applied: true,
-        changedFiles: state.changedFiles,
-        remainingUnresolved: await unresolvedFiles(),
-        format: 'guided-vocabulary-rename',
-      };
-    }
-    if (validation.files.length !== 1) return null;
-    const normalized = validation.files[0];
-    if (!allowed.includes(normalized)) return null;
-    const { absolute } = safeReadPath(cwd, normalized);
-    const content = await readFile(absolute, 'utf8');
-    let updated = content;
-    if (normalized === 'src/services/memory-keyword-search.js') {
-      const keywordObject = /(\?\s*\{\s*id:\s*t\.id,\s*content:\s*t\.content,\s*score:\s*t\.score)(\s*\})/s;
-      if (!/date:\s*t\.date[\s,\n]+utcTime:\s*t\.utcTime/.test(updated) && keywordObject.test(updated)) {
-        updated = updated.replace(keywordObject, '$1, date: t.date, utcTime: t.utcTime$2');
-      }
-      updated = updated.replaceAll('readArchive(p.archiveDir, dateStr)', 'readArchive(p.memoryDir, p.threadId, dateStr)');
-      // If the same search source still fails after several verified
-      // correction cycles, use the trusted current-main implementation for
-      // that one file. The PR's independent command/index files remain intact
-      // and the outer test gate still decides whether this is acceptable.
-      // Two complete verification reports are enough evidence to stop
-      // spending model turns on the same stale PR algorithm.  The model has
-      // already attempted the source, and the trusted current-main version
-      // is the bounded semantic fallback for this exact file.
-      if (state.testCalls >= 2 && revisions.main) {
-        const mainContent = await readFileAt(cwd, revisions.main, normalized);
-        if (mainContent !== null) updated = mainContent;
-      }
-    } else if (normalized === 'bin/stmem') {
-      updated = updated.replace(/^\s*if \(!new Set\(\[[^\n]*\]\)\.has\(cmd\)\) ensureWatcher\(\);\r?\n/m, '');
-    }
-    if (updated === content) return null;
-    const syntaxError = await validateJavascriptUpdates(
-      [{ normalized, absolute, content: updated }],
-      { runCommandImpl, cwd },
-    );
-    if (syntaxError) return null;
-    await writeFile(absolute, updated, 'utf8');
-    await stageFiles([normalized]);
-    state.changedFiles = [...new Set([...state.changedFiles, normalized])];
-    return {
-      ok: true,
-      applied: true,
-      changedFiles: state.changedFiles,
-      remainingUnresolved: await unresolvedFiles(),
-      format: 'guided-correction',
-    };
-  }
-
   async function applyPatchTool(args = {}) {
     const patch = String(args.patch || '');
     if (!patch || patch.length > AGENT_TOOL_LIMITS.maxPatchChars) throw new Error(`patch 不能为空且不得超过 ${AGENT_TOOL_LIMITS.maxPatchChars} 字符`);
@@ -933,8 +823,6 @@ export function createAgentTools({
       } catch (error) {
         const fallback = await applyConflictFallback(patch, validation);
         if (fallback) return fallback;
-        const guided = await applyGuidedCorrection(validation);
-        if (guided) return guided;
         throw new Error(patchError(error));
       }
       const incomplete = updates
@@ -943,8 +831,6 @@ export function createAgentTools({
       if (incomplete.length > 0) {
         const fallback = await applyConflictFallback(patch, validation);
         if (fallback) return fallback;
-        const guided = await applyGuidedCorrection(validation);
-        if (guided) return guided;
         return {
           ok: false,
           applied: false,
@@ -962,8 +848,6 @@ export function createAgentTools({
         // the same malformed hunk.
         const fallback = await applyConflictFallback(patch, validation);
         if (fallback) return fallback;
-        const guided = await applyGuidedCorrection(validation);
-        if (guided) return guided;
         return {
           ok: false,
           applied: false,
@@ -1108,10 +992,6 @@ export function createAgentTools({
     return { ok: true, status: args.decision, summary: clip(redactSensitiveText(args.summary || ''), 2_000), reason: clip(redactSensitiveText(args.reason || ''), 2_000) };
   }
 
-  async function recoverLatestFailure() {
-    return applyGuidedCorrection({ files: [...state.lastFailureFiles] });
-  }
-
   async function call(name, args = {}) {
     state.readOnlyCalls += 0;
     if (name === 'get_status') return getStatus();
@@ -1128,7 +1008,6 @@ export function createAgentTools({
   return {
     definitions: TOOL_DEFINITIONS,
     call,
-    recoverLatestFailure,
     snapshot() {
       return {
         ...state,

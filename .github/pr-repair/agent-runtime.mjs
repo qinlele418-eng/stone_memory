@@ -33,7 +33,7 @@ export const REPAIR_AGENT_SYSTEM_PROMPT = [
   '必须保留 PR 的原始功能意图，只处理 current main 导致的冲突或明确的相关测试失败。',
   '冲突任务优先调用一次 get_status；其 conflictDetails 已集中给出所有未解决冲突块，ours 是 PR 侧、theirs 是 current main 侧，并带有前后文。不要逐个调用 git_show_file 来重新扫描这些冲突；读取集中结果后直接 apply_patch。每次 apply_patch 的结果会列出 remainingUnresolved；必须继续处理这些文件，直到列表为空。未解决冲突清空前不要调用 run_tests，先完成所有冲突文件；只有列表为空后才验证。每次读取若省略 path，runtime 会优先给出仍未解决的文件。CI 失败任务只做少量初始取证，runtime 随后会强制 run_tests；不要重复读取同一个测试文件或反复猜搜索词。测试失败时，runtime 会依据失败证据优先路由到允许的相关源码，并附带 main/pr 参考、repairGuidance 和相关候选文件；按需读取、修改并验证。若 notebook MCP/web 报 JSON 解析错误，读取并修复受限的 scripts/stmem-notebook.js（CLI 必须输出单行 JSON），不要只反复改 bin/stmem。冲突清空后每次成功 apply_patch 后 runtime 会自动运行一次相关测试，再根据结果继续。git_show_file 必须带 revision（base、pr 或 main），否则用 read_file。',
   'apply_patch 的 patch 参数不要用 Markdown 围栏；可用标准 unified diff，或严格使用 *** Begin Patch、*** Update File: 路径、@@、带 +/- 前缀的行、*** End Patch 格式。',
-  '不要输出计划来代替修改，不要输出完整文件，不要为了让测试变绿而削弱或删除测试；如果可信 CI 直接证明 PR 自带测试仍断言已弃用命名规则，可以只做等价的机械命名迁移。不要修改依赖入口、workflow、权限或凭据。',
+  '不要输出计划来代替修改，不要输出完整文件，不要为了让测试变绿而削弱或删除测试；如果失败测试本身属于允许的 PR 变更且明确断言了与 current main 合约不一致的旧行为，可以做等价的机械断言迁移。不要修改依赖入口、workflow、权限或凭据。',
   '不要 commit、push、approve、merge、close PR；这些动作由外层机械层完成。',
   '如果证据不足、需要产品决策、预算耗尽或无法保守完成，调用 finish(decision="needs_human")。',
   '只有相关测试通过且冲突已经解决时，才能调用 finish(decision="repair_complete")。',
@@ -251,6 +251,7 @@ export async function runRepairAgent({
     failureReadCalls: 0,
     failureEvidenceDelivered: false,
     patchRetryRequired: false,
+    rejectedToolCalls: 0,
   };
   const messages = [
     { role: 'system', content: REPAIR_AGENT_SYSTEM_PROMPT },
@@ -306,6 +307,7 @@ export async function runRepairAgent({
     let finished = null;
     let appliedInTurn = false;
     let explicitTestInTurn = false;
+    let forcedStopReason = null;
     for (const call of calls) {
       const name = call.function.name;
       state.toolSequence.push(name);
@@ -317,7 +319,12 @@ export async function runRepairAgent({
         const gateError = gateToolCall(name, args, state, limits);
         if (gateError) {
           result = { ok: false, error: gateError };
+          state.rejectedToolCalls += 1;
+          if (state.rejectedToolCalls >= 2) {
+            forcedStopReason = '模型连续调用被禁止的工具，已停止本轮以避免无效回合消耗';
+          }
         } else {
+          state.rejectedToolCalls = 0;
           state.toolCalls += 1;
           if (READ_ONLY_TOOLS.has(name)) state.readOnlyCalls += 1;
           if (['read_file', 'git_show_file', 'search_code'].includes(name) && state.testCalls > 0 && state.lastTestPassed !== true) state.failureReadCalls += 1;
@@ -376,7 +383,10 @@ export async function runRepairAgent({
       const serialized = safeJson(result);
       messages.push({ role: 'tool', tool_call_id: call.id || `${name}-${state.toolCalls}`, content: serialized.slice(0, 16_000) });
       if (name === 'finish' && result?.ok === true) finished = result;
+      if (forcedStopReason) break;
     }
+
+    if (forcedStopReason) return finalResult('needs_human', forcedStopReason, state, limits, startedAt, clock);
 
     if (appliedInTurn && state.remainingUnresolved.length === 0 && !explicitTestInTurn && state.testCalls < limits.maxTestCalls) {
       state.testCalls += 1;
@@ -414,71 +424,11 @@ export async function runRepairAgent({
         tool_call_id: `auto-test-${state.toolCalls}`,
         content: safeJson({ automatic: true, ...automaticTest }).slice(0, 16_000),
       });
-
-      // If the model's patch exposed a second, mechanically related naming
-      // failure, use the bounded trusted recovery seam once before asking the
-      // model for another turn.  GLM occasionally ignores the narrowed tool
-      // list and repeats read_file anyway; allowing those rejected calls to
-      // consume 20+ API turns recreates the timeout we are trying to prevent.
-      if (automaticTest?.passed !== true
-        && typeof tools.recoverLatestFailure === 'function'
-        && state.testCalls < limits.maxTestCalls
-        && state.toolCalls + 2 <= limits.maxToolCalls) {
-        let guided;
-        try {
-          guided = await tools.recoverLatestFailure();
-        } catch (error) {
-          guided = { ok: false, applied: false, error: redactErrorMessage(error) };
-        }
-        if (guided?.applied === true) {
-          state.toolCalls += 1;
-          state.patchCalls += 1;
-          state.toolSequence.push('apply_guided_correction');
-          state.remainingUnresolved = Array.isArray(guided.remainingUnresolved)
-            ? guided.remainingUnresolved
-            : state.remainingUnresolved;
-          state.toolTrace.push({
-            name: 'apply_guided_correction',
-            ok: true,
-            applied: true,
-            passed: false,
-            format: guided.format,
-          });
-          messages.push({
-            role: 'tool',
-            tool_call_id: `guided-correction-${state.toolCalls}`,
-            content: safeJson(guided).slice(0, 16_000),
-          });
-
-          state.testCalls += 1;
-          state.toolCalls += 1;
-          state.toolSequence.push('run_tests(auto-guided)');
-          let guidedTest;
-          try {
-            guidedTest = await tools.call('run_tests', { mode: 'related' });
-          } catch (error) {
-            guidedTest = { ok: false, passed: false, error: redactErrorMessage(error) };
-          }
-          state.lastTestPassed = guidedTest?.passed === true;
-          state.pendingVerification = false;
-          state.failureReadCalls = 0;
-          state.failureEvidenceDelivered = state.lastTestPassed !== true
-            && ((Array.isArray(guidedTest?.repairTargets) && guidedTest.repairTargets.length > 0)
-              || (Array.isArray(guidedTest?.repairSources) && guidedTest.repairSources.length > 0)
-              || (guidedTest?.result?.failures?.length > 0));
-          state.toolTrace.push({
-            name: 'run_tests(auto-guided)',
-            ok: guidedTest?.ok === true,
-            passed: guidedTest?.passed === true,
-            ...(guidedTest?.error ? { error: String(guidedTest.error).slice(0, 1_000) } : {}),
-            test: testTrace(guidedTest),
-          });
-          messages.push({
-            role: 'tool',
-            tool_call_id: `auto-guided-test-${state.toolCalls}`,
-            content: safeJson({ automatic: true, guided: true, ...guidedTest }).slice(0, 16_000),
-          });
-        }
+      if (automaticTest?.passed !== true && state.failureEvidenceDelivered) {
+        messages.push({
+          role: 'system',
+          content: '自动复测已返回完整失败报告和相关文件内容。下一次只能直接 apply_patch、再次 run_tests 或 finish；不要重新读取、搜索或猜测路径。',
+        });
       }
     }
 

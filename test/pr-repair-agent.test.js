@@ -114,12 +114,12 @@ test('failed tests get bundled source evidence while retaining a bounded repair 
       { type: 'function', function: { name: 'finish', parameters: { type: 'object' } } },
     ],
     async call(name) {
-      if (name === 'read_file') return { ok: true, path: 'src/theme.js', repairTargets: ['src/theme.js'], content: 'const prefix = "--stone-tide-";\n', relatedFiles: [{ path: 'src/theme.js', content: '...' }] };
+      if (name === 'read_file') return { ok: true, path: 'src/theme.js', repairTargets: ['src/theme.js'], content: 'const prefix = "--legacy-contract-";\n', relatedFiles: [{ path: 'src/theme.js', content: '...' }] };
       if (name === 'apply_patch') return { ok: true, applied: true, changedFiles: ['src/theme.js'], remainingUnresolved: [] };
       if (name === 'run_tests') {
         testCalls += 1;
         return testCalls === 1
-          ? { ok: true, passed: false, result: { total: 1, passed: 0, failed: 1, failures: [{ file: 'test/theme.test.js', error: 'stone-tide' }] } }
+          ? { ok: true, passed: false, result: { total: 1, passed: 0, failed: 1, failures: [{ file: 'test/theme.test.js', error: 'legacy-contract' }] } }
           : { ok: true, passed: true, result: { total: 1, passed: 1, failed: 0, failures: [] } };
       }
       return { ok: true, status: 'needs_human' };
@@ -161,8 +161,8 @@ test('automatic failed verification locks the next turn onto the new repair evid
             ok: true,
             passed: false,
             repairTargets: [],
-            repairSources: [{ path: 'test/theme.test.js', content: 'stone-tide', role: 'failing-test-evidence' }],
-            result: { total: 2, passed: 1, failed: 1, failures: [{ file: 'test/theme.test.js', error: 'stone-tide' }] },
+            repairSources: [{ path: 'test/theme.test.js', content: 'legacy-contract', role: 'failing-test-evidence' }],
+            result: { total: 2, passed: 1, failed: 1, failures: [{ file: 'test/theme.test.js', error: 'legacy-contract' }] },
           }
           : { ok: true, passed: true, result: { total: 2, passed: 2, failed: 0, failures: [] } };
       }
@@ -178,10 +178,12 @@ test('automatic failed verification locks the next turn onto the new repair evid
   assert.equal(client.calls[2].tools.some((tool) => tool.function.name === 'apply_patch'), true);
 });
 
-test('automatic naming failure uses one bounded guided recovery before another model turn', async () => {
+test('repeated forbidden reads fail closed instead of spending model turns', async () => {
   const client = scriptedClient([
     { role: 'assistant', tool_calls: [toolCall('1', 'read_file', { path: 'src/theme.js' })] },
     { role: 'assistant', tool_calls: [toolCall('2', 'apply_patch', { patch: 'diff --git a/src/theme.js b/src/theme.js\n' })] },
+    { role: 'assistant', tool_calls: [toolCall('3', 'read_file', { path: 'test/theme.test.js' })] },
+    { role: 'assistant', tool_calls: [toolCall('4', 'read_file', { path: 'test/theme.test.js' })] },
   ]);
   let testCalls = 0;
   const tools = {
@@ -192,28 +194,22 @@ test('automatic naming failure uses one bounded guided recovery before another m
       { type: 'function', function: { name: 'finish', parameters: { type: 'object' } } },
     ],
     async call(name) {
-      if (name === 'read_file') return { ok: true, path: 'src/theme.js', content: 'const prefix = "--stone-tide-";\n' };
+      if (name === 'read_file') return { ok: true, path: 'src/theme.js', content: 'source' };
       if (name === 'apply_patch') return { ok: true, applied: true, changedFiles: ['src/theme.js'], remainingUnresolved: [] };
       if (name === 'run_tests') {
         testCalls += 1;
-        return testCalls === 1
-          ? { ok: true, passed: false, repairSources: [{ path: 'test/theme.test.js', content: 'stone-tide' }], result: { total: 2, passed: 1, failed: 1, failures: [{ file: 'test/theme.test.js', error: 'stone-tide' }] } }
-          : { ok: true, passed: true, result: { total: 2, passed: 2, failed: 0, failures: [] } };
+        return { ok: true, passed: false, repairSources: [{ path: 'test/theme.test.js', content: 'failure evidence' }], result: { total: 1, passed: 0, failed: 1, failures: [{ file: 'test/theme.test.js', error: 'failure' }] } };
       }
       return { ok: true, status: 'needs_human' };
     },
-    async recoverLatestFailure() {
-      return { ok: true, applied: true, changedFiles: ['test/theme.test.js'], remainingUnresolved: [], format: 'guided-vocabulary-rename' };
-    },
     snapshot() { return {}; },
   };
-  const result = await runRepairAgent({ task: '修复命名迁移后的 CI 失败', client, tools });
+  const result = await runRepairAgent({ task: '修复 CI 失败', client, tools });
 
-  assert.equal(result.status, 'repair_complete');
-  assert.deepEqual(result.metrics.toolSequence, [
-    'read_file', 'apply_patch', 'run_tests(auto)', 'apply_guided_correction', 'run_tests(auto-guided)',
-  ]);
-  assert.equal(client.calls.length, 2);
+  assert.equal(result.status, 'needs_human');
+  assert.match(result.reason, /禁止的工具/);
+  assert.equal(result.metrics.logicalTurns, 4);
+  assert.equal(testCalls, 1);
 });
 
 test('agent finishes all unresolved conflict patches before running tests', async () => {
@@ -330,47 +326,8 @@ test('failed verification routes the next read to the first failing source file'
   }
 });
 
-test('failed naming evidence returns matching allowed source files on the first follow-up read', async () => {
-  const cwd = await mkdtemp(join(tmpdir(), 'stone-memory-agent-naming-evidence-'));
-  try {
-    const git = async (...args) => {
-      const result = await runGit(args, { cwd });
-      assert.equal(result.code, 0, `${args.join(' ')}\n${result.stderr}`);
-      return result.stdout.trim();
-    };
-    await git('init', '-b', 'main');
-    await git('config', 'user.name', 'test');
-    await git('config', 'user.email', 'test@example.invalid');
-    await writeFile(join(cwd, 'src-theme.js'), 'const prefix = "--stone-tide-";\n');
-    await writeFile(join(cwd, 'test-theme.test.js'), 'test\n');
-    await git('add', '.');
-    await git('commit', '-m', 'base');
-    const sha = await git('rev-parse', 'HEAD');
-    const tools = createAgentTools({
-      cwd,
-      revisions: { base: sha, pr: sha, main: sha },
-      allowedFiles: ['src-theme.js', 'test-theme.test.js'],
-      runTestsImpl: async () => ({
-        passed: false,
-        command: 'npm test',
-        result: { total: 1, passed: 0, failed: 1, failures: [{ file: 'test-theme.test.js', error: 'stone-tide\\n\\ntrue !== false' }] },
-        stderr: '',
-      }),
-    });
-    const failed = await tools.call('run_tests', { mode: 'related' });
-    assert.ok(failed.repairSources.some((source) => source.path === 'src-theme.js'));
-    const search = await tools.call('search_code', {});
-    assert.ok(search.repairSources.some((source) => source.path === 'src-theme.js'));
-    const read = await tools.call('read_file', { path: 'test-theme.test.js' });
-    assert.equal(read.path, 'src-theme.js');
-    assert.match(read.content, /stone-tide/);
-  } finally {
-    await rm(cwd, { recursive: true, force: true });
-  }
-});
-
-test('failed naming evidence recovers a stale model patch with a bounded vocabulary rename', async () => {
-  const cwd = await mkdtemp(join(tmpdir(), 'stone-memory-agent-naming-recovery-'));
+test('failed evidence returns matching allowed source files on the first follow-up read', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'stone-memory-agent-evidence-'));
   try {
     const git = async (...args) => {
       const result = await runGit(args, { cwd });
@@ -381,30 +338,30 @@ test('failed naming evidence recovers a stale model patch with a bounded vocabul
     await git('config', 'user.name', 'test');
     await git('config', 'user.email', 'test@example.invalid');
     await mkdir(join(cwd, 'src'), { recursive: true });
-    await writeFile(join(cwd, 'src', 'theme.css'), 'body { color: var(--stone-tide-ink); }\n');
-    await writeFile(join(cwd, 'src', 'index.html'), '<body class="tidal-visual">\n');
+    await mkdir(join(cwd, 'test'), { recursive: true });
+    await writeFile(join(cwd, 'src', 'theme.js'), 'const prefix = "--legacy-contract-";\n');
+    await writeFile(join(cwd, 'test', 'theme.test.js'), 'test\n');
     await git('add', '.');
     await git('commit', '-m', 'base');
     const sha = await git('rev-parse', 'HEAD');
     const tools = createAgentTools({
       cwd,
       revisions: { base: sha, pr: sha, main: sha },
-      allowedFiles: ['src/theme.css', 'src/index.html'],
+      allowedFiles: ['src/theme.js', 'test/theme.test.js'],
       runTestsImpl: async () => ({
         passed: false,
         command: 'npm test',
-        result: { total: 1, passed: 0, failed: 1, failures: [{ file: 'theme.test.js', error: 'stone-tide\n\ntrue !== false' }] },
+        result: { total: 1, passed: 0, failed: 1, failures: [{ file: 'test/theme.test.js', error: 'legacy-contract\\n\\ntrue !== false' }] },
         stderr: '',
       }),
     });
-    await tools.call('run_tests', { mode: 'related' });
-    const result = await tools.call('apply_patch', {
-      patch: '*** Begin Patch\n*** Update File: src/theme.css\n@@\n-old context\n+new context\n*** End Patch\n',
-    });
-    assert.equal(result.applied, true, JSON.stringify(result));
-    assert.equal(result.format, 'guided-vocabulary-rename');
-    assert.match(await readFile(join(cwd, 'src', 'theme.css'), 'utf8'), /stone-theme-ink/);
-    assert.match(await readFile(join(cwd, 'src', 'index.html'), 'utf8'), /stone-theme-enabled/);
+    const failed = await tools.call('run_tests', { mode: 'related' });
+    assert.ok(failed.repairSources.some((source) => source.path === 'src/theme.js'));
+    const search = await tools.call('search_code', {});
+    assert.ok(search.repairSources.some((source) => source.path === 'src/theme.js'));
+    const read = await tools.call('read_file', { path: 'test/theme.test.js' });
+    assert.equal(read.path, 'src/theme.js');
+    assert.match(read.content, /legacy-contract/);
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
