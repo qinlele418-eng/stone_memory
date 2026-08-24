@@ -14,6 +14,12 @@ function truncate(value, limit = MAX_FILE_CHARS) {
 function failureFiles(reproduction) {
   const files = [];
   for (const failure of reproduction?.pr?.result?.failures || []) if (failure.file) files.push(failure.file);
+  for (const failure of reproduction?.remote?.failures || []) {
+    const text = `${failure.name || ''}\n${failure.summary || ''}\n${failure.log || ''}`;
+    for (const match of text.matchAll(/(?:^|[^A-Za-z0-9_.-])((?:[A-Za-z0-9_.-]+\/)+[A-Za-z0-9_.-]+\.(?:c?m?js|json|css|md|test\.[A-Za-z0-9]+))/g)) {
+      files.push(match[1]);
+    }
+  }
   return files;
 }
 
@@ -35,7 +41,10 @@ export async function buildContext({ diagnosis, reproduction = {}, feedback = {}
     changedFiles: files,
     diff: truncate(redactSensitiveText(diffResult.stdout), 48_000),
     files: [],
-    failures: redactModelValue(reproduction?.pr?.result?.failures || []),
+    failures: redactModelValue([
+      ...(reproduction?.pr?.result?.failures || []),
+      ...(reproduction?.remote?.failures || []),
+    ]),
     repairFeedback: truncate(JSON.stringify(redactModelValue(feedback)), 20_000),
   };
   for (const file of files) {

@@ -1,7 +1,7 @@
 import { appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { classifyChecks, classifyPrKind, redactErrorMessage, redactSensitiveText } from './contract.mjs';
-import { getCheckRuns, getCommitStatuses, getCurrentMainSha, getPullRequest } from './github.mjs';
+import { getCheckFailureEvidence, getCheckRuns, getCommitStatuses, getCurrentMainSha, getPullRequest } from './github.mjs';
 import { diffCheck, fetchPullRequest, isAncestorDetailed, listChangedFiles, mergeCheck, patchEquivalentDetailed } from './git.mjs';
 import { writeReport } from './report.mjs';
 
@@ -55,6 +55,14 @@ export async function diagnose({
     getCommitStatuses(repository, pr.headSha, { token, fetchImpl }),
   ]);
   const checks = classifyChecks([...checkRuns, ...commitStatuses]);
+  // Keep completed remote CI failure evidence with the diagnosis.  This is
+  // needed for cleanly mergeable PRs whose only regressions appear on a
+  // Windows/macOS runner and therefore cannot be reproduced by the Ubuntu
+  // reproduction job alone.
+  if (checks.failures.length > 0) {
+    const failureEvidence = await getCheckFailureEvidence(repository, checkRuns, { token, fetchImpl });
+    if (failureEvidence.length > 0) checks.failureEvidence = failureEvidence;
+  }
   const prKind = classifyPrKind(pr);
   const report = baseReport(pr, currentMainSha, checks, prKind);
 

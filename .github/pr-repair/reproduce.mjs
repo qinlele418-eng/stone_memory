@@ -18,6 +18,19 @@ function cleanEnv(token) {
   return env;
 }
 
+export function classifyReproductionRelation({ baseline = {}, pr = {}, changedFiles = [], remoteFailures = [] } = {}) {
+  if (!baseline.passed && !baseline.flaky) return 'main_ci_failure';
+  if (baseline.flaky || pr.flaky) return 'needs_human';
+  // A clean Ubuntu reproduction does not disprove a real PR regression on a
+  // remote Windows/macOS/Linux runner.  Preserve completed remote failure
+  // evidence so the bounded coding agent can inspect the exact assertion.
+  if (pr.passed && remoteFailures.length > 0) return 'pr_related_failure';
+  if (pr.passed) return 'tests_passed';
+  const failureFiles = (pr.result?.failures || []).map((failure) => failure.file).filter(Boolean);
+  const related = failureFiles.length > 0 && failureFiles.some((file) => changedFiles.includes(file));
+  return related ? 'pr_related_failure' : 'needs_human';
+}
+
 async function install(cwd) {
   const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
   const result = await runCommand(npmCommand, ['ci', '--ignore-scripts', '--no-audit', '--no-fund'], {
@@ -65,6 +78,9 @@ export async function reproduce({
     try { return JSON.parse(readFileSync(diagnosisPath, 'utf8')); } catch { return {}; }
   })();
   const changedFiles = diagnosis.changedFiles || [];
+  const remoteFailures = Array.isArray(diagnosis.checks?.failureEvidence)
+    ? diagnosis.checks.failureEvidence.filter(failure => failure?.conclusion !== 'cancelled')
+    : [];
   const isolatedRoot = `${process.env.RUNNER_TEMP || '/tmp'}/stone-memory-pr-reproduction-${Date.now()}`;
   await mkdir(isolatedRoot, { recursive: true });
   const isolatedBaseline = `${isolatedRoot}/baseline`;
@@ -89,17 +105,9 @@ export async function reproduce({
   if (!pr.passed && !mergedInstallError) prRetry = await runTests({ cwd: isolatedMerged });
   if (prRetry?.passed) pr = { ...pr, flaky: true, retry: prRetry };
 
-  let relation = 'needs_human';
-  if (!baseline.passed && !baseline.flaky) relation = 'main_ci_failure';
-  else if (baseline.flaky || pr.flaky) relation = 'needs_human';
-  else if (pr.passed) relation = 'tests_passed';
-  else {
-    const failureFiles = (pr.result?.failures || []).map((failure) => failure.file).filter(Boolean);
-    const related = failureFiles.length > 0 && failureFiles.some((file) => changedFiles.includes(file));
-    relation = related ? 'pr_related_failure' : 'needs_human';
-  }
+  const relation = classifyReproductionRelation({ baseline, pr, changedFiles, remoteFailures });
   await rm(isolatedRoot, { recursive: true, force: true });
-  return { version: 1, relation, baseline, pr };
+  return { version: 1, relation, baseline, pr, remote: { failures: remoteFailures } };
 }
 
 export async function main() {
@@ -115,7 +123,7 @@ export async function main() {
     const messages = {
       pr_related_failure: '🔧 current main 通过、PR 合并结果失败：允许进入有限维修流程。',
       main_ci_failure: '⚠️ current main 自身也失败：停止，不污染 PR。',
-      tests_passed: 'ℹ️ Ubuntu 复现测试通过，但远程仍有红灯：不擅自改代码。',
+      tests_passed: 'ℹ️ Ubuntu 与远程 CI 复现均通过：不擅自改代码。',
       merge_conflict: '⚠️ 复现阶段发现合并冲突：交给受限维修计划。',
       needs_human: '⚠️ 测试复现证据不足：交给人类判断。',
     };

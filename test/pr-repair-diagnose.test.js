@@ -78,3 +78,45 @@ test('unknown PR type stops before touching repository code', async () => {
   assert.equal(report.nextAction, 'needs_human');
   assert.equal(report.eligibleForRepair, false);
 });
+
+test('completed failing check runs retain redacted runner logs for reproduction', async () => {
+  const calls = [];
+  const report = await diagnose({
+    repository: 'stone-memory-empire/stmem_core',
+    prNumber: 25,
+    token: 'synthetic-token',
+    cwd: '/tmp/does-not-need-to-exist',
+    fetchImpl: async (url) => {
+      calls.push(url);
+      if (url.includes('/pulls/')) return response({
+        number: 25,
+        title: 'Please review this change',
+        body: '',
+        state: 'open',
+        base: { ref: 'main', sha: 'b'.repeat(40) },
+        head: { ref: 'pr-25', sha: 'c'.repeat(40), repo: { full_name: 'stone-memory-empire/stmem_core' } },
+      });
+      if (url.includes('/git/ref/heads/main')) return response({ object: { sha: 'd'.repeat(40) } });
+      if (url.includes('/actions/jobs/123/logs')) return {
+        ok: true,
+        status: 200,
+        text: async () => 'assertion failed on Windows token=secret-value',
+      };
+      if (url.includes('/check-runs')) return response({ check_runs: [{
+        id: 123,
+        name: 'Test / Windows',
+        status: 'completed',
+        conclusion: 'failure',
+        details_url: 'https://example.invalid/windows',
+        output: { summary: 'runner failed with token=summary-secret' },
+      }] });
+      return response({ statuses: [] });
+    },
+  });
+  assert.equal(report.nextAction, 'needs_human');
+  assert.equal(report.checks.failureEvidence.length, 1);
+  assert.match(report.checks.failureEvidence[0].log, /assertion failed on Windows/);
+  assert.doesNotMatch(report.checks.failureEvidence[0].log, /secret-value/);
+  assert.doesNotMatch(report.checks.failureEvidence[0].summary, /summary-secret/);
+  assert.ok(calls.some((url) => url.includes('/actions/jobs/123/logs')));
+});

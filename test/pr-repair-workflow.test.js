@@ -11,6 +11,7 @@ test('PR Repair workflow auto-runs on PR changes and keeps manual no-push contro
   assert.match(workflow, /allow_external_model_data:\n[\s\S]*?default: false/);
   assert.match(workflow, /PR_REPAIR_ALLOW_EXTERNAL_MODEL_DATA/);
   assert.match(workflow, /statuses: read/);
+  assert.match(workflow, /actions: read/);
   assert.match(workflow, /ZAI_BASE_URL: \$\{\{ vars\.ZAI_BASE_URL \|\| 'https:\/\/api\.z\.ai\/api\/paas\/v4' \}\}/);
 });
 
@@ -44,6 +45,7 @@ test('automation scripts come from trusted main checkouts, never from PR source'
   assert.doesNotMatch(workflow, /node merged\/\.github\/pr-repair/);
   assert.doesNotMatch(workflow, /node repair\/\.github\/pr-repair/);
   assert.match(workflow, /run: node tools\/\.github\/pr-repair\/reproduce\.mjs/);
+  assert.match(workflow, /pr_related_failure/);
   assert.match(workflow, /run: node tools\/\.github\/pr-repair\/deterministic\.mjs/);
   assert.match(workflow, /pr-repair-validation/);
   assert.match(workflow, /Poll official checks/);
