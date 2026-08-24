@@ -10,7 +10,7 @@ export const AGENT_LIMITS = Object.freeze({
   maxTokensPerTurn: 4_096,
   maxCompletionTokens: 24_576,
   maxHistoryChars: 48_000,
-  maxReadOnlyCalls: 16,
+  maxReadOnlyCalls: 24,
   maxPatchCalls: 10,
   maxTestCalls: 5,
   maxToolCalls: 40,
@@ -20,6 +20,7 @@ export const AGENT_LIMITS = Object.freeze({
 
 const READ_ONLY_TOOLS = new Set(['get_status', 'read_file', 'search_code', 'git_show_file', 'git_diff']);
 const FINISH_TOOLS = new Set(['finish']);
+const FAILURE_READ_RESERVE = 8;
 
 export const REPAIR_AGENT_SYSTEM_PROMPT = [
   '你是 Stone Memory 的 PR 冲突维修 coding agent，不是 reviewer，也不是计划生成器。',
@@ -142,6 +143,10 @@ function gateToolCall(name, args, state, limits) {
   if (!name) return '工具调用缺少名称';
   if (state.toolCalls >= limits.maxToolCalls) return '工具调用达到硬上限';
   if (READ_ONLY_TOOLS.has(name) && state.readOnlyCalls >= limits.maxReadOnlyCalls) return '只读工具调用达到硬上限';
+  const initialReadBudget = Math.max(1, limits.maxReadOnlyCalls - FAILURE_READ_RESERVE);
+  if (READ_ONLY_TOOLS.has(name) && state.testCalls === 0 && state.patchCalls === 0 && state.readOnlyCalls >= initialReadBudget) {
+    return '初始源码读取预算已用尽，请先运行测试获取失败证据';
+  }
   if (name === 'apply_patch') {
     if (state.readOnlyCalls < 1) return '必须先通过只读工具调查代码，再 apply_patch';
     if (state.patchCalls >= limits.maxPatchCalls) return '修改批次达到硬上限';
@@ -159,6 +164,10 @@ function gateToolCall(name, args, state, limits) {
 }
 
 function availableDefinitions(definitions, state, limits) {
+  const initialReadBudget = Math.max(1, limits.maxReadOnlyCalls - FAILURE_READ_RESERVE);
+  if (state.testCalls === 0 && state.patchCalls === 0 && state.readOnlyCalls >= initialReadBudget) {
+    return definitions.filter((tool) => ['apply_patch', 'run_tests', 'finish'].includes(tool?.function?.name));
+  }
   return definitions;
 }
 

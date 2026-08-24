@@ -559,7 +559,7 @@ export function createAgentTools({
         const { absolute } = safeReadPath(cwd, normalized);
         sources.push({
           path: normalized,
-          content: clip(redactSensitiveText(await readFile(absolute, 'utf8')), 4_000),
+          content: clip(redactSensitiveText(await readFile(absolute, 'utf8')), 2_000),
         });
       } catch {
         // Keep the evidence that is available; a concurrent file removal is
@@ -660,10 +660,12 @@ export function createAgentTools({
     const query = String(args.query || '').trim();
     const failureStage = state.testCalls > 0 && state.lastTestPassed !== true;
     if (!query && failureStage) {
+      const repairTargets = (await failureFallbackPaths()).slice(0, 8);
       return {
         ok: true,
         query: '',
         matches: '',
+        repairTargets,
         repairSources: await failureSourceEvidence(),
         note: '失败测试的允许 PR 源码已直接返回；无需继续猜测搜索词。',
       };
@@ -678,7 +680,10 @@ export function createAgentTools({
       path: target.normalized,
       matches: clip(redactSensitiveText(result.stdout), AGENT_TOOL_LIMITS.maxSearchChars),
       truncated: result.stdout.length > AGENT_TOOL_LIMITS.maxSearchChars,
-      ...(failureStage ? { repairSources: await failureSourceEvidence() } : {}),
+      ...(failureStage ? {
+        repairTargets: (await failureFallbackPaths()).slice(0, 8),
+        repairSources: await failureSourceEvidence(),
+      } : {}),
     };
   }
 
@@ -1002,12 +1007,14 @@ export function createAgentTools({
       state.lastRepairGuidance = repairGuidance(report, allowed);
     }
     state.failureReadIndex = 0;
+    const repairTargets = state.lastTestPassed ? [] : (await failureFallbackPaths()).slice(0, 8);
     return {
       ok: true,
       mode: 'full',
       requestedMode: mode,
       ...failureSummary(report),
       ...(state.lastTestPassed ? {} : {
+        repairTargets,
         repairGuidance: repairGuidance(report, allowed),
         repairSources: await failureSourceEvidence(),
       }),
