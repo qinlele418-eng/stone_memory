@@ -6,9 +6,13 @@
   "scope": "memory",
   "permissions": ["core:read", "generation:use"],
   "entry": { "frontend": "index.html", "commands": { "scratch": "backend/commands/scratch.js" } },
-  "storage": { "files": ["settings.json", "history.jsonl"] },
+  "storage": { "files": ["settings.json", "history.jsonl"], "browser": ["session-state"] },
   "legacy": {
     "frontend": "src/web/public/developer-modules/my-module",
-    "commands": { "scratch": "scripts/stmem-scratch.js" }
+    "commands": { "scratch": "scripts/stmem-scratch.js" },
+    "storage": [
+      { "path": "<thread-dir>/memory/developer-modules/my-module.json", "mode": "奖励设置" },
+      { "path": "浏览器 sessionStorage", "mode": "单次刮卡状态" }
+    ]
   }
 }

@@ -6,9 +6,15 @@
   "scope": "memory",
   "permissions": ["core:read", "mining:review", "generation:use"],
   "entry": { "frontend": "index.html", "commands": { "review": "backend/commands/review.js" } },
-  "storage": { "database": "module.sqlite", "files": ["candidates", "batches", "backups"] },
+  "storage": { "database": "module.sqlite", "files": ["candidates", "batches", "backups"], "browser": ["review-preferences"] },
   "legacy": {
     "frontend": "src/web/public/review-lab",
-    "commands": { "review": "scripts/stmem-mine-review.js" }
+    "commands": { "review": "scripts/stmem-mine-review.js" },
+    "storage": [
+      { "path": "<thread-dir>/memory/review-candidates/", "mode": "候选摘要" },
+      { "path": "<thread-dir>/memory/review-batches/", "mode": "批处理状态" },
+      { "path": "<thread-dir>/memory/backups/", "mode": "采用前备份" },
+      { "path": "<thread-dir>/memory/memory.sqlite", "mode": "采用后写入正式摘要/素材表" }
+    ]
   }
 }

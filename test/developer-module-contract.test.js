@@ -52,3 +52,23 @@ test("developer module audit rejects missing entries without touching user data"
   assert.equal(report.ok, false);
   assert.ok(report.findings.some(item => item.code === "entry-missing"));
 });
+
+test("developer module audit blocks direct Core storage and undeclared browser persistence", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-module-storage-audit-"));
+  const moduleDir = path.join(root, "unsafe-module");
+  fs.mkdirSync(moduleDir);
+  fs.writeFileSync(path.join(moduleDir, "index.js"), "getThreadDir(threadId); localStorage.setItem('x', 'y');\n");
+  fs.writeFileSync(path.join(moduleDir, "module.json"), JSON.stringify({
+    id: "unsafe-module",
+    version: "1.0.0",
+    sdkVersion: 1,
+    scope: "memory",
+    permissions: [],
+    entry: { frontend: "index.js", commands: {} },
+    storage: {},
+  }));
+  const report = auditDeveloperModules({ root });
+  assert.equal(report.ok, false);
+  assert.ok(report.findings.some(item => item.code === "storage-core-path"));
+  assert.ok(report.findings.some(item => item.code === "storage-browser-undeclared"));
+});

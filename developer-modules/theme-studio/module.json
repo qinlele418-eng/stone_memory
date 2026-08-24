@@ -6,6 +6,12 @@
   "scope": "global",
   "permissions": ["theme:write"],
   "entry": { "frontend": "index.html", "commands": {} },
-  "storage": { "files": ["themes", "assets"] },
-  "legacy": { "frontend": "src/web/public/theme-studio" }
+  "storage": { "browser": ["theme", "custom-themes", "assets"] },
+  "legacy": {
+    "frontend": "src/web/public/theme-studio",
+    "storage": [
+      { "path": "浏览器 localStorage", "mode": "主题、素材和自定义主题" },
+      { "path": "浏览器 sessionStorage", "mode": "跨模块主题快照" }
+    ]
+  }
 }

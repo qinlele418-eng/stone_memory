@@ -34,6 +34,15 @@ function auditModule(moduleDir) {
   const findings = validateManifest(manifest, { directoryName })
     .map(message => finding("error", "manifest-contract", id, message, manifestFile));
   const legacy = manifest.legacy || {};
+  for (const storage of legacy.storage || []) {
+    findings.push(finding(
+      "warning",
+      "legacy-storage",
+      id,
+      `运行数据仍写入历史位置：${storage.path}${storage.mode ? `（${storage.mode}）` : ""}`,
+      manifestFile,
+    ));
+  }
   const frontend = manifest.entry?.frontend;
   if (frontend) {
     try {
@@ -58,6 +67,15 @@ function auditModule(moduleDir) {
   const source = [...new Set(sourceRoots.flatMap(root => fs.existsSync(root) && fs.statSync(root).isDirectory() ? walk(root) : [root]))]
     .filter(file => /\.(?:js|mjs|cjs|ts)$/u.test(file) && fs.existsSync(file))
     .map(file => fs.readFileSync(file, "utf8")).join("\n");
+  const canonicalSource = walk(moduleDir)
+    .filter(file => /\.(?:js|mjs|cjs|ts)$/u.test(file))
+    .map(file => fs.readFileSync(file, "utf8")).join("\n");
+  if (/getThreadDir\s*\(|\.stone_memory|openDatabase\s*\([^)]*(?:memoryDir|getThreadDir)/u.test(canonicalSource)) {
+    findings.push(finding("error", "storage-core-path", id, "模块代码直接定位 Core/线程数据目录；应使用 SDK 提供的 moduleDataDir", manifestFile));
+  }
+  if (/localStorage\.(?:getItem|setItem|removeItem)\s*\(/u.test(canonicalSource) && !manifest.storage?.browser) {
+    findings.push(finding("error", "storage-browser-undeclared", id, "模块使用浏览器持久化但未声明 storage.browser", manifestFile));
+  }
   if (/CREATE\s+TABLE|better-sqlite3|\.sqlite\b/iu.test(source) && !manifest.storage?.database) {
     findings.push(finding("warning", "storage-database-undeclared", id, "检测到数据库逻辑，但 manifest 未声明 storage.database", manifestFile));
   }
