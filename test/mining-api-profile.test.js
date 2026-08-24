@@ -22,7 +22,8 @@ test("optimized API profile raises the output budget and disables thinking", () 
   assert.deepEqual(body.thinking, { type: "disabled" });
 });
 
-test("unknown API profiles fall back to the legacy profile", () => {
-  assert.equal(normalizeMiningApiProfile("nope"), "raw");
-  assert.equal(miningApiProfile("nope").maxTokens, 4000);
+test("missing or unknown API profiles fall back to the optimized profile", () => {
+  assert.equal(normalizeMiningApiProfile(), "optimized");
+  assert.equal(normalizeMiningApiProfile("nope"), "optimized");
+  assert.equal(miningApiProfile("nope").maxTokens, 8000);
 });

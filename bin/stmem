@@ -39,6 +39,14 @@ if (!cmd || cmd === "--help" || cmd === "-h") {
   stmem mine --thread <id> --stop                  停止该记忆体当前挖掘任务
   stmem mine [--thread <id>] --targeted --batch-file <json>  对选中的对话精准补挖并追加摘要
   stmem mine-review preview|list|mix|apply|discard            可审阅候选与按日替换
+  stmem scratch inspect|settings|generate --thread <id>      刮刮乐奖励读取、设置与生成
+  stmem dream --thread <id> --date <YYYY-MM-DD>     织梦：为已挖掘完成的日期生成一场梦
+  stmem dream preferences --thread <id>            查看织梦策略与秘典状态
+  stmem dream pin --thread <id> --type <type>      梦向牵引：指定下一场梦类型
+  stmem dream unpin --thread <id>                  取消梦向牵引
+  stmem dream guard --thread <id> on|off           安梦守护：随机排除噩梦与噩梦染春梦
+  stmem dream multiplier --thread <id> --<type> <x> 梦谱调律：调整某类型倍率
+  stmem dream prompt --thread <id> --type <key> [--set <file>|--reset]  织梦秘典：查看/保存/恢复 Prompt
   stmem rebuild --thread <id> [--window N] [--tool-pairs N]  预览重建
   stmem rebuild --thread <id> --queue           安全排队，下次主 MCP 启动时应用
   stmem rebuild --thread <id> --summary-limit N --min-importance N  临时筛选本次注入摘要
@@ -50,6 +58,8 @@ if (!cmd || cmd === "--help" || cmd === "-h") {
   stmem watcher [status|on|off] --thread <id>   查看/修改该记忆体 watcher 期望状态
   stmem watcher set --thread <id> --archive|--miner|--compression|--dream on|off  修改内置插件
   stmem watcher set --thread <id> --dev-<name> on|off  修改开发者插件（必须 dev- 前缀）
+  stmem notebook status|topic-create|topic-update|write|query|read|list --thread <id>
+                                                管理主题 Markdown 笔记本
   stmem web [--port 4173]                       启动本地记忆管理前端
   stmem db [status|migrate|migrate-all|export] [--thread <id>]  数据库管理
 
@@ -102,9 +112,24 @@ switch (cmd) {
   case "mine-review":
     require(path.join(SCRIPTS, "stmem-mine-review"));
     break;
+  case "scratch":
+    Promise.resolve(require(path.join(SCRIPTS, "stmem-scratch")).runScratchCommand(process.argv.slice(3)))
+      .catch(error => {
+        console.error(`[scratch] error: ${error.message}`);
+        process.exitCode = 1;
+      });
+    break;
   case "dream":
     try {
       require(path.join(SCRIPTS, "stmem-dream")).runDreamCommand(process.argv.slice(3));
+    } catch (error) {
+      console.error(error.message);
+      process.exit(1);
+    }
+    break;
+  case "notebook":
+    try {
+      require(path.join(SCRIPTS, "stmem-notebook")).runNotebookCommand(process.argv.slice(3));
     } catch (error) {
       console.error(error.message);
       process.exit(1);

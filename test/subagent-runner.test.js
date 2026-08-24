@@ -6,10 +6,50 @@ const path = require("node:path");
 
 const {
   appendCodexMcpConfig,
+  appendCodexProviderConfig,
   buildStdinInvocation,
+  codexProviderFromConfig,
   extractSubagentFailure,
+  normalizeClaudeInvocation,
   resolveWorkingDirectory,
 } = require("../src/services/subagent-runner");
+
+test("Claude subagents keep print mode and restore OAuth compatibility for legacy bare config", () => {
+  const invocation = normalizeClaudeInvocation({
+    file: "claude",
+    args: ["-p", "--bare"],
+    env: {},
+  }, {});
+  assert.deepEqual(invocation.args, ["-p"]);
+});
+
+test("Claude subagents retain bare mode when an explicit API credential is present", () => {
+  const invocation = normalizeClaudeInvocation({
+    file: "claude",
+    args: ["-p", "--bare"],
+    env: {},
+  }, { ANTHROPIC_API_KEY: "test-key" });
+  assert.deepEqual(invocation.args, ["-p", "--bare"]);
+});
+
+test("Claude runtime commands can carry an explicit API credential inline", () => {
+  const previous = process.env.ANTHROPIC_API_KEY;
+  delete process.env.ANTHROPIC_API_KEY;
+  try {
+    const invocation = buildStdinInvocation("claude", {
+      env: { ANTHROPIC_API_KEY: "test-key" },
+    });
+    assert.ok(invocation.args.includes("-p"));
+  } finally {
+    if (previous === undefined) delete process.env.ANTHROPIC_API_KEY;
+    else process.env.ANTHROPIC_API_KEY = previous;
+  }
+});
+
+test("Claude subagents add explicit print mode instead of relying on redirected stdin", () => {
+  const invocation = normalizeClaudeInvocation({ file: "claude", args: [], env: {} }, {});
+  assert.deepEqual(invocation.args, ["-p"]);
+});
 
 test("subagent failures keep the final machine diagnostic and omit echoed prompts", () => {
   const error = {
@@ -68,6 +108,37 @@ test("Codex receives a temporary MCP config without changing user config", t => 
   assert.match(joined, /STMEM_SEARCH_ONLY/);
   assert.match(joined, /STMEM_THREAD_ID/);
   assert.match(joined, /default_tools_approval_mode/);
+});
+
+test("Codex reuses an existing OpenAI API provider without exposing its key in argv", () => {
+  const provider = codexProviderFromConfig({
+    thread: { apiProvider: "openai" },
+    apiKeys: { openai: { key: "secret-key", baseUrl: "https://api.openai.com", model: "gpt-test" } },
+  }, "thread");
+  assert.deepEqual(provider, {
+    provider: "openai",
+    key: "secret-key",
+    baseUrl: "https://api.openai.com/v1",
+    model: "gpt-test",
+    wireApi: "responses",
+  });
+  const args = [];
+  appendCodexProviderConfig(args, provider);
+  const joined = args.join(" ");
+  assert.match(joined, /model_provider/);
+  assert.match(joined, /STMEM_CODEX_API_KEY/);
+  assert.doesNotMatch(joined, /secret-key/);
+});
+
+test("Codex refuses to misroute Chat-Completions-only providers through Responses", () => {
+  assert.equal(codexProviderFromConfig({
+    thread: { apiProvider: "deepseek" },
+    apiKeys: { deepseek: { key: "secret", baseUrl: "https://api.deepseek.com", model: "deepseek-chat" } },
+  }, "thread"), null);
+  assert.ok(codexProviderFromConfig({
+    thread: { apiProvider: "proxy" },
+    apiKeys: { proxy: { key: "secret", baseUrl: "https://proxy.example/v1", model: "gpt-test", wireApi: "responses" } },
+  }, "thread"));
 });
 
 test("Claude deep search receives only its explicitly allowed MCP tools", () => {

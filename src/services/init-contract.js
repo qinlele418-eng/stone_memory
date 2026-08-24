@@ -13,6 +13,10 @@ const INIT_SCHEMA = {
     ai: { type: "string", minLength: 1, description: "AI 的显示名字。" },
     user: { type: "string", minLength: 1, description: "用户的显示名字。" },
     userGender: { type: "string", enum: ["female", "male", "unspecified"], default: "unspecified" },
+    relationshipTimeline: {
+      type: "array", default: [], items: { type: "string", minLength: 1 },
+      description: "关系阶段时间线，每行一条；Miner 用于判断当天所处阶段，空数组表示不提供。",
+    },
     runtime: { type: "string", enum: ["claude", "codex"] },
     purpose: { type: "string", enum: ["accompany", "coding", "study"] },
     sessionDir: { type: "string", minLength: 1, description: "线程文件搜索根目录，不是 JSONL 文件名；Stone Memory 会递归查找。" },
@@ -51,6 +55,7 @@ function buildInitTemplate(runtime = "codex") {
     ai: "AI名字",
     user: "用户名字",
     userGender: "unspecified",
+    relationshipTimeline: [],
     runtime: selected,
     purpose: "accompany",
     sessionDir: selected === "codex"

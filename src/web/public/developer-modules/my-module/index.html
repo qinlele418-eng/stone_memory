@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Stone Memory · 刮刮乐</title>
+  <script src="/developer-kit/runtime.js?v=5"></script>
+  <link rel="stylesheet" href="/developer-modules/my-module/styles.css?v=2">
+  <script src="/developer-modules/my-module/app.js?v=3" defer></script>
+</head>
+<body class="stone-theme-enabled">
+  <stone-module-page eyebrow="MEMORY SCRATCH · COMMUNITY EXPERIMENT" title="刮刮乐" description="手指划过票面，让藏在记忆里的五色石头开花。每张票可能出现 0～5 颗不同石头；奖励只在结算页展示，不会写回记忆。">
+    <div slot="meta" class="module-meta"><span>作者：SM帝国左丞相可</span><span class="meta-dot" aria-hidden="true"></span><span id="library-name">正在读取当前记忆体…</span></div>
+
+    <svg class="symbol-library" aria-hidden="true">
+      <symbol id="icon-stone" viewBox="0 0 72 64">
+        <path class="stone-rock" d="M13 56c0-16 5-31 13-39 6-6 14-9 24-7 11 2 18 10 21 20 3 9 2 18-1 26z"/>
+        <path class="stone-moss" d="M17 36c6-2 9-9 15-9 7 0 9 6 15 4 7-2 10-10 16-8 4 1 7 5 9 9-3-12-11-20-22-22-10-2-18 1-24 7-5 5-8 12-10 20z"/>
+        <path class="stone-stem" d="M47 11c0-5 2-8 5-11"/>
+        <path class="stone-leaf" d="M52 5c-5 0-8-2-8-6 5-1 8 1 8 6z"/>
+        <g class="stone-flower" transform="translate(55 1)">
+          <ellipse rx="5" ry="3" transform="translate(5 0)"/><ellipse rx="5" ry="3" transform="rotate(72) translate(5 0)"/>
+          <ellipse rx="5" ry="3" transform="rotate(144) translate(5 0)"/><ellipse rx="5" ry="3" transform="rotate(216) translate(5 0)"/>
+          <ellipse rx="5" ry="3" transform="rotate(288) translate(5 0)"/><circle r="2.5"/>
+        </g>
+      </symbol>
+      <symbol id="icon-star" viewBox="0 0 32 32"><path d="m16 4 3.1 7.2 7.9.7-6 5.2 1.8 7.7-6.8-4-6.8 4 1.8-7.7-6-5.2 7.9-.7z"/></symbol>
+      <symbol id="icon-letter" viewBox="0 0 32 32"><rect x="4" y="7" width="24" height="18"/><path d="m5 9 11 9 11-9"/></symbol>
+      <symbol id="icon-leaf" viewBox="0 0 32 32"><path d="M26 5C15 5 7 11 7 20c0 4 3 7 7 7 9 0 13-11 12-22Z"/><path d="M8 25c4-6 8-9 14-14"/></symbol>
+      <symbol id="icon-moon" viewBox="0 0 32 32"><path d="M24 24A12 12 0 0 1 10 6a11 11 0 1 0 14 18Z"/></symbol>
+      <symbol id="icon-clock" viewBox="0 0 32 32"><circle cx="16" cy="16" r="11"/><path d="M16 9v8l5 3"/></symbol>
+      <symbol id="icon-wave" viewBox="0 0 32 32"><path d="M3 12c4 0 4 4 8 4s4-4 8-4 4 4 10 4M3 20c4 0 4 4 8 4s4-4 8-4 4 4 10 4"/></symbol>
+      <symbol id="icon-spark" viewBox="0 0 32 32"><path d="M16 3c1 8 5 12 13 13-8 1-12 5-13 13-1-8-5-12-13-13 8-1 12-5 13-13Z"/></symbol>
+      <symbol id="icon-thread" viewBox="0 0 32 32"><path d="M7 7c12-6 22 3 17 10-4 6-13 0-8-5 3-3 9 1 8 7-1 8-12 11-19 5"/></symbol>
+    </svg>
+
+    <section class="scratch-layout" aria-label="刮刮乐工作台">
+      <article class="ticket-panel">
+        <div class="ticket-toolbar">
+          <div><p class="section-kicker">TODAY'S TICKET</p><h2>记忆刮刮卡</h2></div>
+          <span id="ticket-number">第 1 张</span>
+        </div>
+        <div class="ticket" id="ticket">
+          <div class="ticket-brand"><span>SM</span><strong>MEMORY SCRATCH</strong><small>0—5 STONES IN BLOOM</small></div>
+          <div class="play-area" id="play-area" aria-label="刮奖区域">
+            <div class="symbol-grid" id="symbol-grid" aria-hidden="true"></div>
+            <canvas id="scratch-layer" aria-label="用手指或鼠标刮开涂层"></canvas>
+            <div class="scratch-hint" id="scratch-hint"><span>↗</span>按住并涂抹刮开</div>
+          </div>
+          <div class="ticket-foot"><span>STONE MEMORY</span><i></i><span>GOOD LUCK</span></div>
+        </div>
+        <div class="scratch-progress-row"><label for="scratch-progress">已刮开 <strong id="scratch-percent">0%</strong></label><progress id="scratch-progress" max="100" value="0"></progress></div>
+        <div class="ticket-actions"><button class="secondary" id="reveal-ticket" type="button">直接揭晓</button><button class="primary" id="new-ticket" type="button">换一张</button></div>
+        <p class="module-status" id="module-status" role="status">正在准备记忆票池…</p>
+      </article>
+
+      <aside class="stone-guide" aria-label="五色石头奖励说明">
+        <div class="guide-head"><p class="section-kicker">PRIZE GUIDE</p><h2>五色开花石</h2><p>颜色越稀有，奖励越深入。不可用的奖励会在记忆条件满足前暂时休眠。</p></div>
+        <div id="stone-guide-list" class="stone-guide-list"></div>
+        <p class="odds-note">空奖后下一张至少出现一颗石头；同一张不会重复颜色。</p>
+      </aside>
+    </section>
+
+    <section class="settlement" id="settlement" hidden aria-labelledby="settlement-title">
+      <div class="settlement-head"><div><p class="section-kicker">SETTLEMENT</p><h2 id="settlement-title">本张结算</h2></div><span id="settlement-count"></span></div>
+      <div id="settlement-state" class="settlement-state" role="status"></div>
+      <div id="reward-list" class="reward-list"></div>
+      <div class="settlement-actions"><button class="primary" id="copy-result" type="button" disabled>复制全部结果</button><button class="secondary" id="retry-result" type="button" hidden>重试未完成奖励</button><button class="secondary" id="next-ticket" type="button">再刮一张</button></div>
+    </section>
+
+    <details class="settings-card" id="settings-card">
+      <summary><span><small>OPTIONAL</small><strong>自定义五色奖励</strong></span><i>⌄</i></summary>
+      <div class="settings-body">
+        <p>填写后会完全替换该颜色的默认记忆奖励，并跳过模型生成；清空即可恢复默认。</p>
+        <form id="reward-settings">
+          <div id="settings-grid" class="settings-grid"></div>
+          <div class="settings-actions"><button class="primary" type="submit">保存奖励设置</button><span id="settings-status" role="status"></span></div>
+        </form>
+      </div>
+    </details>
+  </stone-module-page>
+</body>
+</html>

@@ -3,6 +3,8 @@
 const fs = require("fs");
 const { execFileSync } = require("child_process");
 
+const WINDOWS_PROCESS_QUERY_TIMEOUT_MS = 8_000;
+
 function processCommand(pid, adapters = {}) {
   const number = Number(pid);
   if (!Number.isInteger(number) || number <= 0) return "";
@@ -20,7 +22,7 @@ function processCommand(pid, adapters = {}) {
       return run("powershell.exe", [
         "-NoProfile", "-Command",
         `(Get-CimInstance Win32_Process -Filter "ProcessId=${number}").CommandLine`,
-      ], { encoding: "utf8", timeout: 3000, windowsHide: true }).trim();
+      ], { encoding: "utf8", timeout: WINDOWS_PROCESS_QUERY_TIMEOUT_MS, windowsHide: true }).trim();
     } catch { return ""; }
   }
   try {

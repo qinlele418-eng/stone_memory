@@ -6,6 +6,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
+const { childEnvWithHome } = require("../test-support/child-env");
 
 const supervisorScript = path.join(__dirname, "..", "scripts", "watcher-supervisor.js");
 
@@ -48,7 +49,7 @@ test("one supervisor converges ON memory body to one worker and OFF to zero", as
   fs.mkdirSync(stone, { recursive: true });
   fs.mkdirSync(path.join(home, "sessions"), { recursive: true });
   fs.writeFileSync(path.join(stone, "stmem.json"), JSON.stringify(config));
-  const env = { ...process.env, HOME: home };
+  const env = childEnvWithHome(home);
   const first = spawn(process.execPath, [supervisorScript, "--interval", "2"], { env, stdio: "ignore" });
   t.after(async () => {
     try { first.kill("SIGTERM"); } catch {}

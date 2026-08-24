@@ -93,6 +93,9 @@ function createThread(input, { allowExisting = false, requireSession = true } = 
     ai: String(input.ai).trim(),
     user: String(input.user).trim(),
     userGender: String(input.userGender || "unspecified").trim(),
+    relationshipTimeline: Array.isArray(input.relationshipTimeline)
+      ? input.relationshipTimeline.map(row => String(row || "").trim()).filter(Boolean)
+      : (Array.isArray(existing.relationshipTimeline) ? existing.relationshipTimeline : []),
     label: libraryName,
     runtime: input.runtime,
     purpose: input.purpose,
@@ -127,7 +130,7 @@ function createThread(input, { allowExisting = false, requireSession = true } = 
     };
   }
   config.runtimes = config.runtimes || {
-    claude: { command: "claude -p --bare", flags: { systemPrompt: "--system-prompt-file", mcpConfig: "--mcp-config", model: "--model" } },
+    claude: { command: "claude -p", flags: { systemPrompt: "--system-prompt-file", mcpConfig: "--mcp-config", model: "--model" } },
   };
   config[threadId] = entry;
   saveConfig(config);

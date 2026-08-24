@@ -1,6 +1,6 @@
 const crypto = require("crypto");
 const { parseJsonObject } = require("../lib/json-parse");
-const { feelingEventTime, normalizeNewImportance } = require("./memory-miner");
+const { feelingEventTime, normalizeNewImportance, normalizeFeelingImportance } = require("./memory-miner");
 
 const FEATURE_CATEGORIES = new Set([
   "eat", "body", "sleep", "work", "relation",
@@ -24,7 +24,9 @@ function buildFusionPlan(sourceCandidate, parentCandidates = []) {
         content: String(row.content || ""),
         eventTime: kind === "feelings" ? feelingEventTime(row, sourceCandidate.date) || row.eventTime || null : null,
         category: row.category || null,
-        importance: normalizeNewImportance(row.importance),
+        importance: kind === "feelings"
+          ? normalizeFeelingImportance(row.importance)
+          : normalizeNewImportance(row.importance),
         candidateId: source.candidateId || null,
         profileId: source.profileId || parent?.profile?.id || null,
         modelLabel: parent?.profile?.label || parent?.profile?.model || source.profileId || "候选来源",

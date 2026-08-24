@@ -23,9 +23,10 @@
 
 * { box-sizing: border-box; }
 html { min-height: 100%; background: var(--leaf-50); }
-body { min-height: 100vh; margin: 0; background:
+body { min-height: 100vh; margin: 0; background: var(--stone-theme-page-background,
   radial-gradient(circle at 10% 10%, rgba(214, 228, 204, .72), transparent 32rem),
-  radial-gradient(circle at 90% 90%, rgba(234, 242, 229, .9), transparent 38rem), var(--leaf-50); }
+  var(--leaf-50));
+  background-repeat: no-repeat; background-size: 100% 100dvh; }
 button, input, select, textarea {
   color: var(--pine-950);
   font: inherit;
@@ -347,3 +348,14 @@ td.context { min-width: 320px; max-width: 460px; line-height: 1.5; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
 }
+
+.mining-prompts-section { margin-top: 0; }
+.mining-prompts-details { border: 1px solid var(--pine-200,#c8d6c1); border-radius: 8px; }
+.mining-prompts-details[open] { padding-bottom: 16px; }
+.mining-prompts-summary { cursor: pointer; padding: 14px 18px; display: flex; justify-content: space-between; align-items: center; user-select: none; }
+.mining-prompts-summary strong { font-size: 1.05rem; }
+.mining-prompts-summary small { color: var(--pine-700,#5b7a66); font-size: .85rem; margin-left: 12px; }
+.mining-prompts-body { padding: 0 18px; }
+.mining-prompts-status { min-height: 22px; margin-bottom: 8px; }
+.mining-prompt-textarea { width: 100%; min-height: 200px; font-family: "JetBrains Mono","Cascadia Code","Fira Code",monospace; font-size: .82rem; line-height: 1.55; padding: 12px; border: 1px solid var(--pine-200,#c8d6c1); border-radius: 6px; background: var(--pine-50,#f6f9f4); resize: vertical; }
+#mining-timeline { min-height: 80px; }

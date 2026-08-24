@@ -4,6 +4,7 @@ const path = require("path");
 const { MemoryStore } = require("../storage/memory-store");
 const {
   normalizeNewImportance,
+  normalizeFeelingImportance,
   sortFeelingsChronologically,
   feelingEventTime,
 } = require("./memory-miner");
@@ -17,7 +18,7 @@ const REVIEW_RULES = Object.freeze({
   "conflict-context": "冷淡、冲突、吃醋或抱怨必须保留当日上下文；单次局部体验不得自动升级为长期稳定 feature。",
   "intimate-facts": "成年人自愿的亲密内容按原文事实提取，不因表达直白而跳过；不得续写、补全或虚构。",
   "count-limit": "证据充分时生成 8 到 20 条 feelings；证据不足允许少于 8 条，禁止凑数，且不得超过 20 条。",
-  "strict-importance": "importance 只允许 2、3、5；features 宁缺毋滥，只保留有跨日价值且有原文证据的稳定索引。",
+  "strict-importance": "feelings 按 1 到 5 表达记忆分量；features 只允许 2、3、5，并且宁缺毋滥，只保留有跨日价值且有原文证据的稳定索引。",
 });
 
 function buildReviewOverlay({ ruleIds = [], additionalInstruction = "" } = {}) {
@@ -46,7 +47,7 @@ function normalizeCandidateResults({ date, feelings = [], features = [], enforce
     return [{
       content,
       eventTime: item.eventTime || feelingEventTime({ content }, date),
-      importance: normalizeNewImportance(item.importance),
+      importance: normalizeFeelingImportance(item.importance),
     }];
   });
   if (enforceCountLimit && normalizedFeelings.length > 20) {

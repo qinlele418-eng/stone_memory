@@ -4,32 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>Stone Memory · 自动织梦</title>
-  <script src="../developer-kit/runtime.js"></script>
+  <script src="../developer-kit/runtime.js?v=5"></script>
   <link rel="stylesheet" href="./styles.css">
 </head>
-<body>
-  <stone-module-page eyebrow="DREAM WEAVING · COMMUNITY EXPERIMENT" title="自动织梦" description="梦境只读取当前记忆体已经入库的摘要。开启后，每天的记忆挖掘完成时自动生成一场梦。">
+<body class="stone-theme-enabled">
+  <stone-module-page eyebrow="DREAM WEAVING · COMMUNITY EXPERIMENT" title="自动织梦" description="让小机在记忆挖掘完成后，做一场属于自己的梦。梦境只读取当前记忆体已经入库的摘要，可管理织梦秘典与梦境生成策略。">
     <small slot="meta">贡献人：大司空歪</small>
-    <section class="card">
-      <div>
-        <span class="label">当前记忆体</span>
-        <strong class="library" data-stone-library>正在读取……</strong>
-      </div>
-      <label class="switch-row">
-        <span><strong>自动织梦</strong><small>切换后 watcher 将由后台自动刷新，不需要执行命令。</small></span>
-        <input id="enabled" type="checkbox">
-      </label>
-      <div id="status" class="status">正在读取织梦状态……</div>
-    </section>
-    <section class="card">
-      <div class="section-title"><div><span class="label">手动体验</span><h2>选择已经挖掘完成的一天</h2></div></div>
-      <div class="generate-row"><select id="date"></select><button id="generate">立即织梦</button></div>
-      <p class="hint">同一日期只保存一场梦；已经存在时不会覆盖。</p>
-    </section>
-    <section class="card">
-      <div class="section-title dream-title"><div><span class="label">梦境档案</span><h2>已经做过的梦</h2></div><label><span>选择日期</span><select id="dream-date"></select></label></div>
-      <div id="latest" class="dream empty">还没有梦境。</div>
-    </section>
+    <div id="dream-root" aria-live="polite"></div>
   </stone-module-page>
   <script src="./app.js"></script>
 </body>

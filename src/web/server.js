@@ -6,7 +6,7 @@ const zlib = require("zlib");
 const crypto = require("crypto");
 const { spawn, spawnSync } = require("child_process");
 const { URL } = require("url");
-const { loadConfig, listThreadIds, getThreadDir } = require("../config");
+const { loadConfig, listThreadIds, getThreadDir, CONFIG_PATH } = require("../config");
 const { readImportSource } = require("../services/import-source");
 const { MemoryStore } = require("../storage/memory-store");
 const { buildRebuildPreview } = require("../services/rebuild-workbench");
@@ -20,9 +20,12 @@ const { MiningReviewStore } = require("../services/mining-review");
 const { editFusionCandidate } = require("../services/review-fusion");
 const { isArchiveConversation } = require("../services/thread-ingest");
 const { DreamReader } = require("../services/dream-reader");
+const { NotebookService } = require("../services/notebook-service");
 const { watcherActions, watcherEnabled } = require("../services/watcher-runtime");
 const { normalizeMiningApiProfile } = require("../services/mining-api-profile");
 const { configuredRuntimeIds } = require("../services/mining-review-batch");
+const { buildFeelingPrompt, buildFeaturePrompt } = require("../services/memory-miner");
+const { normalizeRebuildRequest, rebuildRequestCliArgs } = require("../services/rebuild-request");
 
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MAX_UPLOAD = 512 * 1024 * 1024;
@@ -31,6 +34,7 @@ const miningJobs = new Map();
 const compressionJobs = new Set();
 const reviewJobs = new Map();
 const dreamJobs = new Map();
+const scratchJobs = new Map();
 const PROJECT_ROOT = path.join(__dirname, "..", "..");
 const STMEM_BIN = path.join(PROJECT_ROOT, "bin", "stmem");
 
@@ -62,6 +66,14 @@ function runStmem(args, { timeout = 10 * 60 * 1000, maxBuffer = 32 * 1024 * 1024
   return (result.stdout || "").trim();
 }
 
+function runStmemBatch(args, payload) {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-web-batch-"));
+  const file = path.join(directory, "input.json");
+  fs.writeFileSync(file, JSON.stringify(payload || {}), { encoding: "utf8", mode: 0o600 });
+  try { return JSON.parse(runStmem([...args, "--batch-file", file])); }
+  finally { fs.rmSync(directory, { recursive: true, force: true }); }
+}
+
 function runStmemAsync(args, { maxOutput = 8000 } = {}) {
   return new Promise((resolve, reject) => {
     const child=spawn(process.execPath,[STMEM_BIN,...args],{cwd:PROJECT_ROOT,stdio:["ignore","pipe","pipe"]});
@@ -71,6 +83,29 @@ function runStmemAsync(args, { maxOutput = 8000 } = {}) {
     child.once("error",reject);
     child.once("close",code=>code===0?resolve(stdout.trim()):reject(new Error(safeStmemFailure(stderr,args[0],code))));
   });
+}
+
+function startScratchJob({ threadId, payload }) {
+  const id = crypto.randomUUID();
+  const createdAt = new Date().toISOString();
+  const job = { id, threadId, status: "running", createdAt, completedAt: null, result: null, error: null };
+  const batch = writePrivateBatch(payload);
+  scratchJobs.set(id, job);
+  runStmemAsync(["scratch", "generate", "--thread", threadId, "--batch-file", batch.file], {
+    maxOutput: 512 * 1024,
+  })
+    .then(output => {
+      job.status = "completed";
+      job.result = JSON.parse(output);
+      job.completedAt = new Date().toISOString();
+    })
+    .catch(error => {
+      job.status = "failed";
+      job.error = String(error.message || error).slice(0, 1000);
+      job.completedAt = new Date().toISOString();
+    })
+    .finally(batch.cleanup);
+  return job;
 }
 
 function miningDatesFromStore(store,threadId) {
@@ -95,17 +130,17 @@ function miningDates(threadId) {
   finally{store.close();}
 }
 
-function miningCommandArgs(threadId, date, mode, force = false, apiProfile = "raw") {
+function miningCommandArgs(threadId, date, mode, force = false, apiProfile = "optimized") {
   const profileArgs = mode === "api" && normalizeMiningApiProfile(apiProfile) === "optimized" ? ["--api-profile", "optimized"] : [];
   return ["mine","--thread",threadId,"--date",date,mode==="api"?"--api":"--subagent",...profileArgs,...(force?["--force"]:[])];
 }
 
-function miningCheckCommandArgs(threadId, date, mode, apiProfile = "raw") {
+function miningCheckCommandArgs(threadId, date, mode, apiProfile = "optimized") {
   const profileArgs = mode === "api" && normalizeMiningApiProfile(apiProfile) === "optimized" ? ["--api-profile", "optimized"] : [];
   return ["mine","--thread",threadId,"--date",date,"--check","--json",mode==="api"?"--api":"--subagent",...profileArgs];
 }
 
-function targetedMiningCommandArgs(threadId, mode, batchFile, apiProfile = "raw") {
+function targetedMiningCommandArgs(threadId, mode, batchFile, apiProfile = "optimized") {
   const profileArgs = mode === "api" && normalizeMiningApiProfile(apiProfile) === "optimized" ? ["--api-profile", "optimized"] : [];
   return ["mine","--thread",threadId,"--targeted","--batch-file",batchFile,mode==="api"?"--api":"--subagent",...profileArgs];
 }
@@ -485,6 +520,37 @@ function listLibraries() {
   });
 }
 
+function listDeveloperModules(publicDir = PUBLIC_DIR) {
+  const root = path.join(publicDir, "developer-modules");
+  if (!fs.existsSync(root)) return [];
+  return fs.readdirSync(root, { withFileTypes: true })
+    .filter(entry => entry.isDirectory())
+    .flatMap(entry => {
+      try {
+        const manifest = JSON.parse(fs.readFileSync(path.join(root, entry.name, "module.json"), "utf8"));
+        const id = String(manifest.id || "").trim();
+        const expectedEntry = `/developer-modules/${id}/`;
+        if (!/^[a-z0-9][a-z0-9-]*$/u.test(id) || id !== entry.name || manifest.entry !== expectedEntry) return [];
+        return [{
+          id,
+          title: String(manifest.title || id),
+          summary: String(manifest.summary || ""),
+          contributor: String(manifest.contributor || ""),
+          status: String(manifest.status || "社区实验"),
+          eyebrow: String(manifest.eyebrow || "COMMUNITY MODULE"),
+          actionLabel: String(manifest.actionLabel || "打开 →"),
+          metaLabel: String(manifest.metaLabel || "Module"),
+          features: Array.isArray(manifest.features) ? manifest.features.map(String).slice(0, 6) : [],
+          order: Number.isFinite(Number(manifest.order)) ? Number(manifest.order) : 100,
+          entry: expectedEntry,
+        }];
+      } catch {
+        return [];
+      }
+    })
+    .sort((left, right) => left.order - right.order || left.id.localeCompare(right.id));
+}
+
 function overview(threadId) {
   const library = listLibraries().find(item => item.threadId === threadId);
   if (!library) return null;
@@ -537,7 +603,87 @@ function serveStatic(req, res, pathname) {
   return true;
 }
 
+async function handleDreamSettings(req, url, threadId, resource) {
+  if (resource === "preferences") {
+    return JSON.parse(runStmem(["dream", "preferences", "--thread", threadId]));
+  }
+  if (resource === "pin") {
+    if (req.method === "PUT") {
+      const body = await readJson(req);
+      return JSON.parse(runStmem(["dream", "pin", "--thread", threadId, "--type", String(body.dreamType || "").trim()]));
+    }
+    if (req.method === "DELETE") {
+      return JSON.parse(runStmem(["dream", "unpin", "--thread", threadId]));
+    }
+  }
+  if (resource === "guard" && req.method === "PUT") {
+    const body = await readJson(req);
+    return JSON.parse(runStmem(["dream", "guard", "--thread", threadId, body.enabled ? "on" : "off"]));
+  }
+  if (resource === "multiplier" && req.method === "PUT") {
+    const body = await readJson(req);
+    const args = ["dream", "multiplier", "--thread", threadId];
+    for (const [type, value] of Object.entries(body.multipliers || {})) args.push(`--${type}`, String(value));
+    return JSON.parse(runStmem(args));
+  }
+  if (resource === "prompt") {
+    if (req.method === "GET") {
+      return JSON.parse(runStmem(["dream", "prompt", "--thread", threadId, "--type", String(url.searchParams.get("type") || "")]));
+    }
+    if (req.method === "DELETE") {
+      return JSON.parse(runStmem(["dream", "prompt", "--thread", threadId, "--type", String(url.searchParams.get("type") || ""), "--reset"]));
+    }
+    if (req.method === "PUT") {
+      const body = await readJson(req);
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-dream-prompt-"));
+      try {
+        const file = path.join(dir, "override.md");
+        fs.writeFileSync(file, String(body.content ?? ""), "utf8");
+        return JSON.parse(runStmem(["dream", "prompt", "--thread", threadId, "--type", String(body.type || "").trim(), "--set", file]));
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  }
+  throw new Error("不支持的织梦设置请求");
+}
+
 async function handleApi(req, res, url) {
+  if (req.method === "GET" && url.pathname === "/api/developer-modules") {
+    return json(res, 200, { modules: listDeveloperModules() });
+  }
+
+  const scratchJobMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/scratch\/jobs\/([^/]+)$/);
+  if (req.method === "GET" && scratchJobMatch) {
+    const threadId = decodeURIComponent(scratchJobMatch[1]);
+    publicThreadSettings(threadId);
+    const job = scratchJobs.get(decodeURIComponent(scratchJobMatch[2]));
+    if (!job || job.threadId !== threadId) return error(res, 404, "刮刮乐任务不存在或已经过期");
+    return json(res, 200, { job });
+  }
+
+  const scratchMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/scratch(?:\/(settings|generate))?$/);
+  if (scratchMatch) {
+    const threadId = decodeURIComponent(scratchMatch[1]);
+    const action = scratchMatch[2] || "inspect";
+    publicThreadSettings(threadId);
+    if (req.method === "GET" && action === "inspect") {
+      return json(res, 200, JSON.parse(runStmem(["scratch", "inspect", "--thread", threadId])));
+    }
+    if (req.method === "PATCH" && action === "settings") {
+      const batch = writePrivateBatch(await readJson(req));
+      try {
+        return json(res, 200, JSON.parse(runStmem(["scratch", "settings", "--thread", threadId, "--batch-file", batch.file])));
+      } finally {
+        batch.cleanup();
+      }
+    }
+    if (req.method === "POST" && action === "generate") {
+      const job = startScratchJob({ threadId, payload: await readJson(req) });
+      return json(res, 202, { job: { id: job.id, status: job.status } });
+    }
+  }
+
   if (req.method === "GET" && url.pathname === "/review-lab/api/libraries") {
     const threadId = String(url.searchParams.get("threadId") || "");
     if (!threadId) throw new Error("缺少当前记忆体标识，请从开发者模式进入记忆审阅实验室");
@@ -777,6 +923,7 @@ async function handleApi(req, res, url) {
           ? selectedDate
           : dreamDates.at(-1) || null,
         dreamDates,
+        entries: reader.list(threadId),
         coverage: reader.coverage(threadId),
         eligibleDates: reader.eligibleDates(threadId),
         job: dreamJobs.get(threadId) || null,
@@ -807,6 +954,75 @@ async function handleApi(req, res, url) {
         });
       return json(res, 202, { success: true, job });
     }
+  }
+
+  const dreamSettingsMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/dreams\/(preferences|pin|guard|multiplier|prompt)$/);
+  if (dreamSettingsMatch) {
+    const threadId = decodeURIComponent(dreamSettingsMatch[1]);
+    return json(res, 200, await handleDreamSettings(req, url, threadId, dreamSettingsMatch[2]));
+  }
+
+  const notebookMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/notebooks(?:\/(.*))?$/);
+  if (notebookMatch) {
+    const threadId = decodeURIComponent(notebookMatch[1]);
+    publicThreadSettings(threadId);
+    const parts = String(notebookMatch[2] || "").split("/").filter(Boolean).map(decodeURIComponent);
+    const service = new NotebookService();
+    if (req.method === "GET" && parts.length === 0) {
+      return json(res, 200, service.status({ threadId }));
+    }
+    if (req.method === "POST" && parts[0] === "topics" && parts.length === 1) {
+      const body = await readJson(req);
+      return json(res, 201, runStmemBatch(["notebook", "topic-create", "--thread", threadId], body));
+    }
+    if (req.method === "PATCH" && parts[0] === "topics" && parts[1]) {
+      const body = await readJson(req);
+      return json(res, 200, runStmemBatch(["notebook", "topic-update", "--thread", threadId], {
+        ...body, topicId: parts[1],
+      }));
+    }
+    if (req.method === "GET" && parts[0] === "topics" && parts[1] && parts[2] === "entries") {
+      return json(res, 200, service.list({ threadId, topicId: parts[1], includeBody: false }));
+    }
+    if (req.method === "POST" && parts[0] === "entries" && parts.length === 1) {
+      const body = await readJson(req);
+      return json(res, 201, runStmemBatch(["notebook", "write", "--thread", threadId], body));
+    }
+    if (req.method === "GET" && parts[0] === "entries" && parts[1]) {
+      const note = service.read({ threadId, noteId: parts[1] });
+      return json(res, note ? 200 : 404, note || { found: false, noteId: parts[1] });
+    }
+    if (req.method === "PATCH" && parts[0] === "entries" && parts[1] && parts[2] === "visibility") {
+      const body = await readJson(req);
+      const visibility = body.visibility === "sealed" ? "sealed" : body.visibility === "visible" ? "visible" : null;
+      if (!visibility) throw new Error("笔记展示状态必须是 visible 或 sealed");
+      const current = service.read({ threadId, noteId: parts[1] });
+      if (!current) return json(res, 404, { found: false, noteId: parts[1] });
+      return json(res, 200, runStmemBatch(["notebook", "write", "--thread", threadId], {
+        topicId: current.topicId,
+        noteId: current.id,
+        title: current.title,
+        body: current.body,
+        tags: current.tags,
+        visibility,
+        expectedRevision: current.revision,
+      }));
+    }
+    if (req.method === "PATCH" && parts[0] === "entries" && parts[1]) {
+      const body = await readJson(req);
+      return json(res, 200, runStmemBatch(["notebook", "write", "--thread", threadId], {
+        ...body, noteId: parts[1],
+      }));
+    }
+    if (req.method === "GET" && parts[0] === "search") {
+      return json(res, 200, service.query({
+        threadId,
+        query: String(url.searchParams.get("q") || ""),
+        topicId: url.searchParams.get("topicId") || null,
+        tags: String(url.searchParams.get("tags") || "").split(/[，,]/).map(value => value.trim()).filter(Boolean),
+        limit: Number(url.searchParams.get("limit") || 20),
+      }));
+     }
   }
 
   const libraryMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)$/);
@@ -892,6 +1108,57 @@ async function handleApi(req, res, url) {
       miningJobs.set(threadId,job);
       executeMiningJob(job).catch(cause=>{job.status="failed";job.currentDate=null;job.error=String(cause.message||cause).slice(0,500);job.updatedAt=new Date().toISOString();});
       return json(res,202,{job});
+    }
+  }
+
+  const promptsMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/mining\/prompts$/);
+  if (promptsMatch) {
+    const threadId = decodeURIComponent(promptsMatch[1]);
+    const settings = publicThreadSettings(threadId);
+    if (settings.purpose !== "accompany") throw new Error("提示词与关系时间轴编辑仅适用于陪伴场景");
+    const config = loadConfig(); const entry = config[threadId] || {};
+    const timeline = Array.isArray(entry.relationshipTimeline) ? entry.relationshipTimeline : [];
+    const opsDir = path.join(__dirname, "..", "..", "operations");
+    const overridesDir = path.join(path.dirname(CONFIG_PATH), "prompt-overrides");
+    const summaryDefaultPath = path.join(opsDir, "memory-miner-operations.md");
+    const featureDefaultPath = path.join(opsDir, "memory-miner-feature-operations.md");
+    const summaryPath = path.join(overridesDir, "memory-miner-operations.md");
+    const featurePath = path.join(overridesDir, "memory-miner-feature-operations.md");
+    if (req.method === "GET") {
+      let defaultSummary = buildFeelingPrompt(settings.ai, settings.user, settings.purpose, settings.userGender, timeline);
+      let defaultFeature = buildFeaturePrompt(settings.user, settings.purpose);
+      try { defaultSummary = fs.readFileSync(summaryDefaultPath, "utf8"); } catch {}
+      try { defaultFeature = fs.readFileSync(featureDefaultPath, "utf8"); } catch {}
+      let summaryPrompt = "", featurePrompt = "";
+      try { summaryPrompt = fs.readFileSync(summaryPath, "utf8"); }
+      catch { try { summaryPrompt = fs.readFileSync(summaryDefaultPath, "utf8"); } catch { summaryPrompt = defaultSummary; } }
+      try { featurePrompt = fs.readFileSync(featurePath, "utf8"); }
+      catch { try { featurePrompt = fs.readFileSync(featureDefaultPath, "utf8"); } catch { featurePrompt = defaultFeature; } }
+      return json(res, 200, { summaryPrompt, featurePrompt, defaultSummary, defaultFeature, timeline });
+    }
+    if (req.method === "PUT") {
+      const body = await readJson(req);
+      let defSummary = buildFeelingPrompt(settings.ai, settings.user, settings.purpose, settings.userGender, timeline);
+      let defFeature = buildFeaturePrompt(settings.user, settings.purpose);
+      try { defSummary = fs.readFileSync(summaryDefaultPath, "utf8"); } catch {}
+      try { defFeature = fs.readFileSync(featureDefaultPath, "utf8"); } catch {}
+      if (String(body.summaryPrompt || "").length > 100000 || String(body.featurePrompt || "").length > 100000) {
+        throw new Error("单份挖掘提示词不能超过 100000 个字符");
+      }
+      fs.mkdirSync(overridesDir, { recursive: true });
+      if (body.summaryPrompt !== undefined) fs.writeFileSync(summaryPath, String(body.summaryPrompt || defSummary), "utf8");
+      if (body.featurePrompt !== undefined) fs.writeFileSync(featurePath, String(body.featurePrompt || defFeature), "utf8");
+      if (Array.isArray(body.timeline)) {
+        const strings = body.timeline.map(String).filter(s => s.trim());
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-web-timeline-"));
+        const batchFile = path.join(tmpDir, "config.json");
+        try {
+          const cur = publicThreadSettings(threadId);
+          fs.writeFileSync(batchFile, JSON.stringify({ ...cur, relationshipTimeline: strings, threadId, runtime: cur.runtime, purpose: cur.purpose }), { encoding: "utf8", mode: 0o600 });
+          runStmem(["init", "--thread", threadId, "--batch-file", batchFile]);
+        } finally { fs.rmSync(tmpDir, { recursive: true, force: true }); }
+      }
+      return json(res, 200, { success: true });
     }
   }
 
@@ -1028,7 +1295,7 @@ async function handleApi(req, res, url) {
     const threadId = decodeURIComponent(rebuildMatch[1]), action = rebuildMatch[2];
     // The service may have access to a shared sessions root, but the web API
     // may only operate on threads explicitly registered in stmem config.
-    publicThreadSettings(threadId);
+    const threadSettings = publicThreadSettings(threadId);
     if (req.method === "GET" && action === "preview") {
       const windowDays = Math.max(1, Number(url.searchParams.get("windowDays")) || 3);
       const toolValue = url.searchParams.get("toolPairs");
@@ -1044,46 +1311,36 @@ async function handleApi(req, res, url) {
       return json(res,200,parseRebuildDryRun(runStmem(rebuildArgs)));
     }
     if(req.method==="POST"&&action==="dry-run"){
-      const body=await readJson(req),windowDays=Math.max(1,Number(body.windowDays)||3),toolPairs=Math.max(0,body.toolPairs===undefined?30:Number(body.toolPairs)),watermark=body.watermark===true,summaryLimit=Math.max(0,Number(body.summaryLimit)||0),minImportance=Math.max(0,Math.min(5,Number(body.minImportance)||0));
+      const body=await readJson(req),request=normalizeRebuildRequest({...body,trigger:"web"},{windowDays:3,toolPairs:30,trigger:"web"});
       const dir=fs.mkdtempSync(path.join(os.tmpdir(),"stmem-rebuild-preview-")),planFile=path.join(dir,"plan.json");
-      fs.writeFileSync(planFile,JSON.stringify({excludedMessages:body.excludedMessages||[],excludedTools:body.excludedTools||[]}),{encoding:"utf8",mode:0o600});
-      const rebuildArgs=["rebuild","--thread",threadId,"--window",String(windowDays),"--tool-pairs",String(toolPairs),"--plan",planFile];
-      if(watermark)rebuildArgs.push("--watermark");
-      rebuildArgs.push("--summary-limit",String(summaryLimit),"--min-importance",String(minImportance));
+      fs.writeFileSync(planFile,JSON.stringify(request.trim),{encoding:"utf8",mode:0o600});
+      const rebuildArgs=["rebuild","--thread",threadId,...rebuildRequestCliArgs(request),"--plan",planFile];
       try{return json(res,200,parseRebuildDryRun(runStmem(rebuildArgs)));}
       finally{fs.rmSync(dir,{recursive:true,force:true});}
     }
     if (req.method === "GET" && action === "check") return json(res, 200, JSON.parse(runStmem(["rebuild", "--thread", threadId, "--check"])));
     if (req.method === "POST" && action === "repair") return json(res, 200, JSON.parse(runStmem(["rebuild", "--thread", threadId, "--repair"])));
     if (req.method === "POST" && action === "queue") {
+      if (threadSettings.runtime === "codex") return json(res, 409, { error: "Codex 不支持延时重建队列，请使用 apply 并在成功后立即重启 Codex/app-server" });
       const body = await readJson(req);
-      const requestedTools = body.toolPairs === undefined ? 30 : Number(body.toolPairs);
-      const windowDays = String(Math.max(1, Number(body.windowDays) || 3));
-      const toolPairs = String(Math.max(0, requestedTools));
-      const summaryLimit = String(Math.max(0, Number(body.summaryLimit) || 0));
-      const minImportance = String(Math.max(0, Math.min(5, Number(body.minImportance) || 0)));
-      const excludedMessages = Array.isArray(body.excludedMessages) ? body.excludedMessages.map(String).filter(Boolean) : [];
-      const excludedTools = Array.isArray(body.excludedTools) ? body.excludedTools.map(String).filter(Boolean) : [];
+      const request = normalizeRebuildRequest({ ...body, trigger: "web" }, { windowDays: 3, toolPairs: 30, trigger: "web" });
       const planDir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-rebuild-queue-plan-"));
       const planFile = path.join(planDir, "plan.json");
-      fs.writeFileSync(planFile, JSON.stringify({ excludedMessages, excludedTools }), { encoding: "utf8", mode: 0o600 });
-      const rebuildArgs = ["rebuild", "--thread", threadId, "--window", windowDays, "--tool-pairs", toolPairs,
-        "--summary-limit", summaryLimit, "--min-importance", minImportance, "--trigger", "web", "--plan", planFile, "--queue"];
-      if (body.watermark === true) rebuildArgs.push("--watermark");
+      fs.writeFileSync(planFile, JSON.stringify(request.trim), { encoding: "utf8", mode: 0o600 });
+      const rebuildArgs = ["rebuild", "--thread", threadId, ...rebuildRequestCliArgs(request), "--plan", planFile, "--queue"];
       try {
         const queued = JSON.parse(runStmem(rebuildArgs));
         return json(res, 202, { success: true, queued: true, ...queued });
       } finally { fs.rmSync(planDir, { recursive: true, force: true }); }
     }
     if (req.method === "POST" && action === "apply") {
+      if (threadSettings.runtime !== "codex") return json(res, 409, { error: "Claude Code 必须使用重建队列，以避免 UUID 链断裂" });
       const body = await readJson(req);
+      const request = normalizeRebuildRequest({ ...body, trigger: "web" }, { windowDays: 3, toolPairs: 30, trigger: "web" });
       const planFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "stmem-rebuild-plan-")), "plan.json");
-      fs.writeFileSync(planFile, JSON.stringify({ excludedMessages: body.excludedMessages || [], excludedTools: body.excludedTools || [] }), "utf8");
+      fs.writeFileSync(planFile, JSON.stringify(request.trim), "utf8");
       try {
-        const requestedTools = body.toolPairs === undefined ? 30 : Number(body.toolPairs);
-        const rebuildArgs=["rebuild", "--thread", threadId, "--window", String(Math.max(1, Number(body.windowDays) || 3)), "--tool-pairs", String(Math.max(0, requestedTools)), "--plan", planFile, "--trigger", "web", "--apply"];
-        if(body.watermark===true)rebuildArgs.push("--watermark");
-        rebuildArgs.push("--summary-limit",String(Math.max(0,Number(body.summaryLimit)||0)),"--min-importance",String(Math.max(0,Math.min(5,Number(body.minImportance)||0))));
+        const rebuildArgs=["rebuild", "--thread", threadId, ...rebuildRequestCliArgs(request), "--plan", planFile, "--apply"];
         const output = runStmem(rebuildArgs);
         const integrity = JSON.parse(runStmem(["rebuild", "--thread", threadId, "--check"]));
         return json(res, 200, { success: true, output, integrity });
@@ -1169,6 +1426,10 @@ function cleanupPreviews() {
     const timestamp = Date.parse(job.completedAt || job.createdAt || "");
     if (Number.isFinite(timestamp) && timestamp < cutoff) reviewJobs.delete(id);
   }
+  for (const [id, job] of scratchJobs) {
+    const timestamp = Date.parse(job.completedAt || job.createdAt || "");
+    if (job.status !== "running" && Number.isFinite(timestamp) && timestamp < cutoff) scratchJobs.delete(id);
+  }
 }
 
 function startWebServer({ host = "127.0.0.1", port = 4173 } = {}) {
@@ -1192,6 +1453,7 @@ function startWebServer({ host = "127.0.0.1", port = 4173 } = {}) {
 
 module.exports = {
   startWebServer, listLibraries, overview, previewRows, paginate, buildConversationCalendar,
+  listDeveloperModules,
   miningDatesFromStore, miningCommandArgs, miningCheckCommandArgs, targetedMiningCommandArgs,
   timelineCommandArgs, compactTimelineReport, compressionCommandArgs, safeStmemFailure, runStmem,
   reviewCandidateForWeb, reviewProfileFromInput, reviewBatchPayload, reviewBatchCommandArgs,

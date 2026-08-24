@@ -12,6 +12,18 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
+test("restoring official mining prompts never clears the relationship timeline", () => {
+  const app = fs.readFileSync(path.join(__dirname, "..", "src", "web", "public", "app.js"), "utf8");
+  assert.match(app, /恢复官方提示词/);
+  assert.doesNotMatch(app, /timelineTa\.value=timelineTa\.dataset\.default/);
+});
+
+test("the relationship prompt editor is mounted only for accompany memories", () => {
+  const app = fs.readFileSync(path.join(__dirname, "..", "src", "web", "public", "app.js"), "utf8");
+  assert.match(app, /library\.purpose==="accompany"\)loadMiningPrompts/);
+  assert.match(app, /else content\.querySelector\("\.mining-prompts-section"\)\?\.remove\(\)/);
+});
+
 test("import preview paginates only cleaned archive conversations", () => {
   const records = [
     { raw: { type: "session_meta" }, message: null },
@@ -60,14 +72,14 @@ test("conversation calendar renders complete months newest first", () => {
 });
 
 test("web mining reuses one existing single-date CLI command per selected day", () => {
-  assert.deepEqual(miningCommandArgs("thread-1", "2026-07-04", "api"), ["mine", "--thread", "thread-1", "--date", "2026-07-04", "--api"]);
+  assert.deepEqual(miningCommandArgs("thread-1", "2026-07-04", "api"), ["mine", "--thread", "thread-1", "--date", "2026-07-04", "--api", "--api-profile", "optimized"]);
   assert.deepEqual(miningCommandArgs("thread-1", "2026-07-04", "api", false, "optimized"), ["mine", "--thread", "thread-1", "--date", "2026-07-04", "--api", "--api-profile", "optimized"]);
   assert.deepEqual(miningCommandArgs("thread-1", "2026-07-16", "subagent"), ["mine", "--thread", "thread-1", "--date", "2026-07-16", "--subagent"]);
 });
 
 test("web mining self-check reuses the formal CLI diagnostic command", () => {
   assert.deepEqual(miningCheckCommandArgs("thread-1", "2026-07-04", "api"),
-    ["mine", "--thread", "thread-1", "--date", "2026-07-04", "--check", "--json", "--api"]);
+    ["mine", "--thread", "thread-1", "--date", "2026-07-04", "--check", "--json", "--api", "--api-profile", "optimized"]);
   assert.deepEqual(miningCheckCommandArgs("thread-1", "2026-07-04", "api", "optimized"),
     ["mine", "--thread", "thread-1", "--date", "2026-07-04", "--check", "--json", "--api", "--api-profile", "optimized"]);
 });
@@ -96,7 +108,7 @@ test("web subprocess errors never expose unmarked conversation output", () => {
 test("web targeted mining goes through the CLI append command", () => {
   assert.deepEqual(
     targetedMiningCommandArgs("thread-1", "api", "/tmp/selection.json"),
-    ["mine", "--thread", "thread-1", "--targeted", "--batch-file", "/tmp/selection.json", "--api"],
+    ["mine", "--thread", "thread-1", "--targeted", "--batch-file", "/tmp/selection.json", "--api", "--api-profile", "optimized"],
   );
 });
 
@@ -207,7 +219,7 @@ test("review workbench accepts per-candidate Claude Code and Codex profiles", ()
 
 test("subagent command adapter uses each CLI model flag and Codex-only reasoning", () => {
   assert.equal(buildStdinCmd("claude", { model: "claude-opus-4-6" }),
-    "claude -p --bare --model claude-opus-4-6");
+    "claude -p --model claude-opus-4-6");
   assert.equal(buildStdinCmd("codex", { model: "gpt-5.5", reasoning: "low" }),
     'codex exec --ephemeral --sandbox read-only --ignore-user-config --ignore-rules --color never -m gpt-5.5 -c model_reasoning_effort="low"');
   assert.throws(() => buildStdinCmd("claude", {
@@ -235,7 +247,7 @@ test("web mining adds force only for explicitly confirmed completed dates", () =
     "mine", "--thread", "thread-1", "--date", "2026-07-04", "--subagent",
   ]);
   assert.deepEqual(miningCommandArgs("thread-1", "2026-07-04", "api", true), [
-    "mine", "--thread", "thread-1", "--date", "2026-07-04", "--api", "--force",
+    "mine", "--thread", "thread-1", "--date", "2026-07-04", "--api", "--api-profile", "optimized", "--force",
   ]);
 });
 

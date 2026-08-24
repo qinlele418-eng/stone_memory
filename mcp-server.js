@@ -16,17 +16,26 @@ const { runSubagent } = require("./src/services/subagent-runner");
 const { readFeelings: readDatabaseFeelings, readFeatures: readDatabaseFeatures } = require("./src/storage/memory-reader");
 const { MemoryStore } = require("./src/storage/memory-store");
 const { resolveMcpThread } = require("./src/services/mcp-thread-resolution");
-const { buildMcpRebuildPreviewArgs, buildMcpRebuildQueueArgs } = require("./src/services/mcp-rebuild-preview");
+const { buildMcpRebuildRequest, buildMcpRebuildPreviewArgs, buildMcpRebuildExecuteArgs } = require("./src/services/mcp-rebuild-preview");
 const { buildMcpMineArgs } = require("./src/services/mcp-mine-command");
 const { DreamReader } = require("./src/services/dream-reader");
+const { NotebookService } = require("./src/services/notebook-service");
+const {
+  buildNotebookStewardPrompt,
+  parseNotebookStewardPlan,
+  executeNotebookStewardPlan,
+} = require("./src/services/notebook-steward");
 
 const CONFIG_PATH = path.join(os.homedir(), ".stone_memory", "stmem.json");
 const PROJECT_ROOT = path.resolve(__dirname);
 const LOG_FILE = path.join(os.homedir(), ".stone_memory", "logs", "mcp.log");
 const SEARCH_ONLY = process.env.STMEM_SEARCH_ONLY === "1";
+const NOTEBOOK_STEWARD_MODE = process.env.STMEM_NOTEBOOK_STEWARD === "1";
 const SEARCH_THREAD_ID = String(process.env.STMEM_THREAD_ID || "").trim();
 const MAX_DEEP_SEARCH_TOOL_CALLS = 5;
+const MAX_NOTEBOOK_STEWARD_TOOL_CALLS = 6;
 let deepSearchToolCalls = 0;
+let notebookStewardToolCalls = 0;
 const rebuildPreviews = new Map();
 
 /** 获取 feeling 的完整日期字符串，优先从 createdAt 取年份，无 createdAt 时从月份推断（跨年保护） */
@@ -49,7 +58,7 @@ function runPendingRebuilds() {
   const cli = path.join(PROJECT_ROOT, "bin", "stmem");
   if (!fs.existsSync(cli)) return;
   try {
-    const output = execFileSync(process.execPath, [cli, "rebuild", "--run-pending"], {
+    const output = execFileSync(process.execPath, [cli, "rebuild", "--run-pending", "--mcp-startup"], {
       encoding: "utf8",
       timeout: 120000,
       maxBuffer: 10 * 1024 * 1024,
@@ -80,8 +89,9 @@ function resolveThread(args, cfg) {
   const tc = config[sessionId] || {};
   return {
     threadId: sessionId,
-    windowDays: args.window || tc.windowDays || 3,
-    toolPairs: args.toolPairs ?? tc.keepToolPairs ?? 30,
+    runtime: tc.runtime || "claude",
+    windowDays: args.context?.windowDays || args.window || tc.windowDays || 3,
+    toolPairs: args.context?.toolPairs ?? args.toolPairs ?? tc.keepToolPairs ?? 30,
   };
 }
 
@@ -128,6 +138,176 @@ function toolTriggersCheck(args) {
   }
 }
 
+function resolveNotebookThread(args) {
+  const cfg = loadConfig();
+  if (!cfg) throw new Error("未配置 stmem.json");
+  return resolveThread(args || {}, cfg).threadId;
+}
+
+function runNotebookCli(action, threadId, payload) {
+  const cli = path.join(PROJECT_ROOT, "bin", "stmem");
+  const tmpDir = path.join(getThreadDir(threadId), "tmp");
+  const batchFile = path.join(tmpDir, `mcp-notebook-${action}-${process.pid}-${Date.now()}.json`);
+  fs.mkdirSync(tmpDir, { recursive: true, mode: 0o700 });
+  try {
+    fs.writeFileSync(batchFile, JSON.stringify(payload || {}), { encoding: "utf8", mode: 0o600, flag: "wx" });
+    const output = execFileSync(process.execPath, [
+      cli, "notebook", action, "--thread", threadId, "--batch-file", batchFile,
+    ], { encoding: "utf8", timeout: 30_000, maxBuffer: 5 * 1024 * 1024, cwd: PROJECT_ROOT, windowsHide: true });
+    return JSON.parse(output);
+  } finally {
+    try { fs.unlinkSync(batchFile); } catch {}
+  }
+}
+
+function withNotebookService(args, operation) {
+  const threadId = resolveNotebookThread(args);
+  return operation(new NotebookService(), threadId);
+}
+
+function toolNotebookStatus(args) {
+  return JSON.stringify(withNotebookService(args, (service, threadId) => service.status({ threadId })), null, 2);
+}
+
+function toolNotebookTopicManage(args) {
+  const threadId = resolveNotebookThread(args);
+  const action = args.action === "create" ? "topic-create" : "topic-update";
+  const payload = { ...args };
+  delete payload.thread;
+  delete payload.action;
+  return JSON.stringify(runNotebookCli(action, threadId, payload), null, 2);
+}
+
+function toolNotebookWrite(args) {
+  const threadId = resolveNotebookThread(args);
+  const payload = { ...args };
+  delete payload.thread;
+  return JSON.stringify(runNotebookCli("write", threadId, payload), null, 2);
+}
+
+function toolNotebookQuery(args) {
+  return JSON.stringify(withNotebookService(args, (service, threadId) => service.query({
+    threadId, query: args.query || "", topicId: args.topicId || null, tags: args.tags || [], limit: args.limit,
+  })), null, 2);
+}
+
+function toolNotebookRead(args) {
+  return JSON.stringify(withNotebookService(args, (service, threadId) => {
+    const note = service.read({ threadId, noteId: args.noteId });
+    return note || { found: false, threadId, noteId: args.noteId };
+  }), null, 2);
+}
+
+function toolNotebookDelegate(args) {
+  const cfg = loadConfig();
+  if (!cfg) throw new Error("未配置 stmem.json");
+  const resolved = resolveThread(args || {}, cfg);
+  const threadId = resolved.threadId;
+  const input = {
+    request: args.request,
+    content: args.content || "",
+    title: args.title || "",
+    tags: args.tags || [],
+    visibility: args.visibility,
+    updateMode: args.updateMode,
+    allowCreateTopic: args.allowCreateTopic === true,
+  };
+  const tmpDir = path.join(getThreadDir(threadId), "tmp");
+  const mcpConfig = path.join(tmpDir, "notebook-steward-mcp.json");
+  fs.mkdirSync(tmpDir, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(mcpConfig, JSON.stringify({
+    mcpServers: {
+      stone_notebook_steward: {
+        command: process.execPath,
+        args: [path.join(PROJECT_ROOT, "mcp-server.js")],
+        cwd: PROJECT_ROOT,
+        env: { STMEM_NOTEBOOK_STEWARD: "1", STMEM_THREAD_ID: threadId },
+      },
+    },
+  }, null, 2), { mode: 0o600 });
+
+  const startedAt = Date.now();
+  log(`notebook steward start: thread=${threadId} requestChars=${String(input.request || "").length} contentChars=${input.content.length}`);
+  const rawPlan = runSubagent(buildNotebookStewardPrompt(input), {
+    threadId,
+    runtime: resolved.runtime,
+    opsFile: path.join(PROJECT_ROOT, "operations", "notebook-subagent-operations.md"),
+    mcpConfig,
+    cwd: PROJECT_ROOT,
+    timeout: 120_000,
+    strictMcpConfig: true,
+    permissionMode: "auto",
+    allowedTools: [
+      "mcp__stone_notebook_steward__notebook_catalog",
+      "mcp__stone_notebook_steward__notebook_search",
+      "mcp__stone_notebook_steward__notebook_read",
+    ],
+  });
+  const plan = parseNotebookStewardPlan(rawPlan);
+  const service = new NotebookService();
+  let receipt;
+  try {
+    receipt = executeNotebookStewardPlan({
+      threadId,
+      input,
+      plan,
+      service,
+      writeAction: (action, payload) => runNotebookCli(action, threadId, payload),
+    });
+  } catch (error) {
+    if (["NOTEBOOK_TOPIC_CONFIRMATION_REQUIRED", "NOTEBOOK_TOPIC_CONFIDENCE_LOW"].includes(error.code)) {
+      receipt = {
+        schemaVersion: "stone.notebook.steward-receipt.v1",
+        threadId,
+        action: plan.action,
+        status: "needs_confirmation",
+        response: error.message,
+        reason: plan.reason,
+        confidence: plan.confidence,
+      };
+    } else throw error;
+  }
+  appendNotebookStewardAudit(threadId, input, plan, receipt);
+  log(`notebook steward complete: thread=${threadId} action=${receipt.action} status=${receipt.status} durationMs=${Date.now() - startedAt}`);
+  return JSON.stringify(receipt, null, 2);
+}
+
+function appendNotebookStewardAudit(threadId, input, plan, receipt) {
+  const directory = path.join(getThreadDir(threadId), "memory", "notebook", "steward");
+  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const content = String(input.content || "");
+  const row = {
+    schemaVersion: "stone.notebook.steward-audit.v1",
+    at: new Date().toISOString(),
+    threadId,
+    request: String(input.request || "").slice(0, 1000),
+    contentCharacters: content.length,
+    contentSha256: require("node:crypto").createHash("sha256").update(content).digest("hex"),
+    plan,
+    receipt,
+  };
+  fs.appendFileSync(path.join(directory, "operations.jsonl"), `${JSON.stringify(row)}\n`, { encoding: "utf8", mode: 0o600 });
+}
+
+function toolInternalNotebookCatalog() {
+  return JSON.stringify(withNotebookService({}, (service, threadId) => service.status({ threadId })), null, 2);
+}
+
+function toolInternalNotebookSearch(args) {
+  const query = String(args.query || "").trim();
+  const tags = Array.isArray(args.tags) ? args.tags : [];
+  if (!query && !tags.length) throw new Error("query or tags is required");
+  return JSON.stringify(withNotebookService({}, (service, threadId) => service.query({
+    threadId, query, topicId: args.topicId || null, tags, limit: Math.min(20, Number(args.limit) || 10),
+  })), null, 2);
+}
+
+function toolInternalNotebookRead(args) {
+  const noteId = String(args.noteId || "").trim();
+  if (!noteId) throw new Error("noteId is required");
+  return JSON.stringify(withNotebookService({}, (service, threadId) => service.read({ threadId, noteId }) || { found: false, noteId }), null, 2);
+}
+
 // ── 工具实现 ──
 
 function resolveRebuildCommand(args, builder) {
@@ -139,16 +319,28 @@ function resolveRebuildCommand(args, builder) {
   if (!fs.existsSync(cli)) throw new Error("找不到 stmem CLI");
   const tc = cfg[resolved.threadId] || {};
   const useDefaults = tc.mcpRebuildDefaultsEnabled === true;
-  const rebuildArgs = builder(cli, resolved, {
-    ...args,
-    summaryLimit: args.summaryLimit ?? (useDefaults ? Math.max(0, Number(tc.mcpSummaryLimit) || 0) : 0),
-    minImportance: args.minImportance ?? (useDefaults ? Math.max(0, Math.min(5, Number(tc.mcpMinImportance) || 0)) : 0),
-  });
-  return { rebuildArgs, resolved };
+  const effectiveArgs = args.summary ? { ...args } : {
+      ...args,
+      summaryLimit: args.summaryLimit ?? (useDefaults ? Math.max(0, Number(tc.mcpSummaryLimit) || 0) : 0),
+      minImportance: args.minImportance ?? (useDefaults ? Math.max(0, Math.min(5, Number(tc.mcpMinImportance) || 0)) : 0),
+    };
+  const request = buildMcpRebuildRequest(resolved, effectiveArgs);
+  const rebuildArgs = builder(cli, resolved, effectiveArgs);
+  return { rebuildArgs, resolved, request };
+}
+
+function temporaryRebuildPlan(request) {
+  if (!request?.trim?.excludedMessages?.length && !request?.trim?.excludedTools?.length) return null;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-mcp-rebuild-plan-"));
+  const file = path.join(dir, "plan.json");
+  fs.writeFileSync(file, JSON.stringify(request.trim), { encoding: "utf8", mode: 0o600 });
+  return { dir, file };
 }
 
 function toolRebuildPreview(args) {
-  const { rebuildArgs, resolved } = resolveRebuildCommand(args, buildMcpRebuildPreviewArgs);
+  const { rebuildArgs, resolved, request } = resolveRebuildCommand(args, buildMcpRebuildPreviewArgs);
+  const plan = temporaryRebuildPlan(request);
+  if (plan) rebuildArgs.push("--plan", plan.file);
   try {
     const output = execFileSync(process.execPath, rebuildArgs, {
       encoding: "utf8",
@@ -157,11 +349,15 @@ function toolRebuildPreview(args) {
       windowsHide: true,
       cwd: PROJECT_ROOT,
     });
-    const { rebuildArgs: queueArgs } = resolveRebuildCommand(args, buildMcpRebuildQueueArgs);
-    rebuildPreviews.set(resolved.threadId, queueArgs);
-    return `${output.trim()}\n\n这是只读 dry-run。确认结果无误后，可调用 stmem_memory_rebuild 将这组原样参数写入安全队列。`;
+    rebuildPreviews.set(resolved.threadId, request);
+    const nextStep = resolved.runtime === "codex"
+      ? "确认结果无误后，可调用 stmem_memory_rebuild 立即 apply；完成后必须立刻完全重启 Codex/app-server。"
+      : "确认结果无误后，可调用 stmem_memory_rebuild 将这组原样参数写入 Claude Code 安全队列。";
+    return `${output.trim()}\n\n这是只读 dry-run。${nextStep}`;
   } catch (err) {
     throw new Error(`重建预览失败: ${String(err.stderr || err.message).trim()}`);
+  } finally {
+    if (plan) fs.rmSync(plan.dir, { recursive: true, force: true });
   }
 }
 
@@ -170,22 +366,36 @@ function toolRebuild(args) {
   if (!cfg) throw new Error("未配置 stmem.json");
   const resolved = resolveThread(args, cfg);
   if (!resolved?.threadId) throw new Error("无法确定线程 ID");
-  const rebuildArgs = rebuildPreviews.get(resolved.threadId);
-  if (!rebuildArgs) {
+  const request = rebuildPreviews.get(resolved.threadId);
+  if (!request) {
     throw new Error("当前 MCP 会话中没有该线程的已确认预览；请先调用 stmem_memory_rebuild_preview");
   }
+  const plan = temporaryRebuildPlan(request);
   try {
+    const cli = path.join(PROJECT_ROOT, "bin", "stmem");
+    const rebuildArgs = buildMcpRebuildExecuteArgs(cli, resolved, {
+      summaryLimit: request.summary.limit,
+      minImportance: request.summary.minImportance,
+      window: request.context.windowDays,
+      toolPairs: request.context.toolPairs,
+      watermark: request.context.mode === "watermark",
+    });
+    if (plan) rebuildArgs.splice(-1, 0, "--plan", plan.file);
     execFileSync(process.execPath, rebuildArgs, {
       encoding: "utf8",
-      timeout: 30000,
+      timeout: 120000,
       maxBuffer: 1024 * 1024,
       windowsHide: true,
       cwd: PROJECT_ROOT,
     });
     rebuildPreviews.delete(resolved.threadId);
-    return `已将线程 ${resolved.threadId} 的 rebuild 写入安全队列。不会在当前活动会话中改写线程；下一次主 MCP 启动时将通过 stmem CLI 自动应用。`;
+    return resolved.runtime === "codex"
+      ? `线程 ${resolved.threadId} 已完成 rebuild apply。请不要继续发送消息，立即完全重启 Codex/app-server；重启前继续对话可能写入旧文件描述符并丢失。`
+      : `已将线程 ${resolved.threadId} 的 rebuild 写入安全队列。不会在当前活动会话中改写线程；下一次 Claude Code 主 MCP 重新载入时将通过 stmem CLI 自动应用。`;
   } catch (err) {
-    throw new Error(`重建排队失败: ${String(err.stderr || err.message).trim()}`);
+    throw new Error(`重建执行失败: ${String(err.stderr || err.message).trim()}`);
+  } finally {
+    if (plan) fs.rmSync(plan.dir, { recursive: true, force: true });
   }
 }
 
@@ -559,7 +769,7 @@ function toolAuditQuery(args) {
 const TOOLS = [
   {
     name: "stmem_memory_rebuild",
-    description: "Queue the exact parameters from this MCP session's latest successful rebuild preview. Call stmem_memory_rebuild_preview first. The queue is applied safely on the next main MCP startup.",
+    description: "Apply the latest successful rebuild preview using runtime-safe routing: Codex applies immediately and must restart at once; Claude Code queues for the next MCP load.",
     inputSchema: {
       type: "object",
       properties: {
@@ -570,16 +780,40 @@ const TOOLS = [
   },
   {
     name: "stmem_memory_rebuild_preview",
-    description: "Generate a read-only thread rebuild dry-run without queuing or applying it.",
+    description: "生成只读线程重建预览，不排队、不改写线程。请使用统一结构：summary={mode,limit,minImportance}，context={mode,windowDays,toolPairs}，trim={excludedMessages,excludedTools}。这份完整请求会保留到确认阶段；随后调用 stmem_memory_rebuild，系统按 runtime 分流：Codex 立即 apply，Claude Code 写入 queue。trigger 由系统自动标记为 mcp，无需也不允许 Agent 填写。",
     inputSchema: {
       type: "object",
       properties: {
         thread: { type: "string", description: "线程 ID，默认自动检测当前 session" },
-        window: { type: "integer", minimum: 1, description: "窗口天数，默认 stmem.json 的 windowDays" },
-        toolPairs: { type: "integer", minimum: 0, description: "保留最近 N 对工具链调用" },
-        watermark: { type: "boolean", description: "使用最后一条摘要对应原文作为近期上下文水位线" },
-        summaryLimit: { type: "integer", minimum: 0, description: "最多注入最近 N 条符合条件的摘要；0 表示不限量" },
-        minImportance: { type: "integer", minimum: 0, maximum: 5, description: "仅注入 importance 不低于该值的摘要；锚点仍受保护" },
+        summary: {
+          type: "object",
+          description: "摘要注入方式。default 注入全部非 hidden 历史摘要；limited 按数量和 importance 筛选，锚点仍受保护。",
+          properties: {
+            mode: { type: "string", enum: ["default", "limited"] },
+            limit: { type: "integer", minimum: 0, description: "limited 模式最多保留多少条；0 表示不限数量" },
+            minImportance: { type: "integer", minimum: 0, maximum: 5 },
+          },
+          required: ["mode"], additionalProperties: false,
+        },
+        context: {
+          type: "object",
+          description: "近期上下文方式。active_days 按活跃对话日保留；watermark 从最后一条摘要对应原文开始保留。",
+          properties: {
+            mode: { type: "string", enum: ["active_days", "watermark"] },
+            windowDays: { type: "integer", minimum: 1, description: "活跃对话日数量；水位线无法定位时也作为安全回退" },
+            toolPairs: { type: "integer", minimum: 0, description: "保留最近 N 组完整工具调用" },
+          },
+          required: ["mode"], additionalProperties: false,
+        },
+        trim: {
+          type: "object",
+          description: "本次永久裁剪范围；通常保持空数组，只有用户明确确认裁剪时才能填写。",
+          properties: {
+            excludedMessages: { type: "array", items: { type: "string" } },
+            excludedTools: { type: "array", items: { type: "string" } },
+          },
+          additionalProperties: false,
+        },
       },
       additionalProperties: false,
     },
@@ -634,6 +868,101 @@ const TOOLS = [
         date: { type: "string", description: "梦境日期 YYYY-MM-DD" },
       },
       required: ["date"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "stmem_notebook_status",
+    description: "高级/调试用低层工具：查看当前记忆体的主题目录与安全概览。日常自然语言操作优先使用 stmem_notebook_delegate。封存笔记不返回正文摘要。",
+    inputSchema: {
+      type: "object",
+      properties: { thread: { type: "string", description: "线程 ID；存在多个记忆体时必须提供" } },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "stmem_notebook_topic_manage",
+    description: "高级/调试用低层工具：创建或更新主题笔记本。日常归类优先使用 stmem_notebook_delegate。create 需要 name；update 需要 topicId。",
+    inputSchema: {
+      type: "object",
+      required: ["action"],
+      properties: {
+        thread: { type: "string" },
+        action: { type: "string", enum: ["create", "update"] },
+        topicId: { type: "string" },
+        name: { type: "string" },
+        description: { type: "string" },
+        coverPath: { type: "string", enum: ["", "preset:forest", "preset:mist", "preset:amber", "preset:berry", "preset:night"], description: "内置封面预设；留空或 preset:forest 为默认松林绿。" },
+        visibility: { type: "string", enum: ["visible", "sealed"] },
+        archived: { type: "boolean" },
+        isDefault: { type: "boolean", description: "是否设为当前记忆体唯一的默认写入主题；不会根据最近使用自动变化。" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "stmem_notebook_write",
+    description: "高级/调试用低层工具：创建或更新 Markdown 笔记。日常写作优先使用 stmem_notebook_delegate，由管家处理主题和 revision。直接更新必须提供 noteId 与当前 expectedRevision。",
+    inputSchema: {
+      type: "object",
+      required: ["title", "body"],
+      properties: {
+        thread: { type: "string" },
+        noteId: { type: "string" },
+        topicId: { type: "string" },
+        title: { type: "string" },
+        body: { type: "string" },
+        tags: { type: "array", items: { type: "string" }, maxItems: 20 },
+        visibility: { type: "string", enum: ["visible", "sealed"] },
+        expectedRevision: { type: "integer", minimum: 1 },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "stmem_notebook_query",
+    description: "高级/调试用低层工具：组合搜索主题笔记。日常查询优先使用 stmem_notebook_delegate。包含封存笔记，因为封存不是 Agent 读取权限。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        thread: { type: "string" },
+        query: { type: "string" },
+        topicId: { type: "string" },
+        tags: { type: "array", items: { type: "string" }, maxItems: 20, description: "需要全部命中的精确标签，可与 query/topicId 组合。" },
+        limit: { type: "integer", minimum: 1, maximum: 50 },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "stmem_notebook_read",
+    description: "高级/调试用低层工具：按 noteId 读取完整 Markdown。日常读取优先使用 stmem_notebook_delegate；返回 revision 供安全修改。",
+    inputSchema: {
+      type: "object",
+      required: ["noteId"],
+      properties: {
+        thread: { type: "string" },
+        noteId: { type: "string" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "stmem_notebook_delegate",
+    description: "主题小笔记的日常自然语言入口。主 Agent 只需提供 request；新建或改正文时附 content，可选 title/tags/visibility，查询/读取/移动时不需重传正文。临时规划子代理只有目录、搜索、精读三项只读工具，不持有写权限且不会收到正文；它返回计划后，由 Stone 受控执行器复核 threadId、目标、歧义、主题、路径和 revision，再通过正式 CLI 执行并返回透明收据。纸篓仅用于已有笔记的可逆软删除，不会物理删除。全新记忆体可以是 0 主题、0 笔记。",
+    inputSchema: {
+      type: "object",
+      required: ["request"],
+      properties: {
+        thread: { type: "string", description: "线程 ID；存在多个记忆体时必须提供" },
+        request: { type: "string", description: "自然语言意图，例如：把这段旅行心得放到合适的主题；找蒲苇灯塔；给某篇笔记追加一段。" },
+        content: { type: "string", description: "需要新建、追加或替换的正文；查询和读取时省略。正文不发送给规划子代理。" },
+        title: { type: "string", description: "可选标题；未提供时由笔记管家建议。" },
+        tags: { type: "array", items: { type: "string" }, maxItems: 20 },
+        visibility: { type: "string", enum: ["visible", "sealed"] },
+        updateMode: { type: "string", enum: ["append", "replace"], description: "更新笔记时必须明确追加或整体替换。" },
+        allowCreateTopic: { type: "boolean", description: "只有明确允许且子代理置信度不低于 0.9 时才可新建主题。" },
+      },
       additionalProperties: false,
     },
   },
@@ -739,6 +1068,38 @@ const SEARCH_TOOLS = [
   },
 ];
 
+const NOTEBOOK_STEWARD_TOOLS = [
+  {
+    name: "notebook_catalog",
+    description: "List the current memory body's notebook topics, default topic, counts, archive/seal state, and safe latest-note summaries. Always call this before planning placement.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "notebook_search",
+    description: "Search notebook title, tags, and body to locate an existing note. Use before read, update, move, restore, or trash; ambiguous matches require confirmation.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string" },
+        topicId: { type: "string" },
+        tags: { type: "array", items: { type: "string" }, maxItems: 20 },
+        limit: { type: "integer", minimum: 1, maximum: 20 },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "notebook_read",
+    description: "Read exactly one note by noteId to verify its title, topic, body, visibility, and current revision. This is read-only.",
+    inputSchema: {
+      type: "object",
+      required: ["noteId"],
+      properties: { noteId: { type: "string" } },
+      additionalProperties: false,
+    },
+  },
+];
+
 // ── MCP 协议（支持 Content-Length + newline JSON 双模式） ──
 
 let rpcMode = "content-length";
@@ -746,7 +1107,7 @@ let data = "";
 // Some launchers create the stdio pipe before they write the first MCP frame.
 // Keep the server alive during that short gap instead of exiting with code 0.
 const stdioKeepAlive = setInterval(() => {}, 60_000);
-if (!SEARCH_ONLY && process.env.STMEM_SKIP_PENDING_REBUILDS !== "1") runPendingRebuilds();
+if (!SEARCH_ONLY && !NOTEBOOK_STEWARD_MODE && process.env.STMEM_SKIP_PENDING_REBUILDS !== "1") runPendingRebuilds();
 process.stdin.setEncoding("utf8");
 process.stdin.resume();
 process.stdin.once("end", () => clearInterval(stdioKeepAlive));
@@ -785,13 +1146,21 @@ function handle(msg) {
   if (method === "initialize") {
     respond(id, { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "stmem-mcp", version: "2.0.0" } });
   } else if (method === "tools/list") {
-    respond(id, { tools: SEARCH_ONLY ? SEARCH_TOOLS : TOOLS });
+    respond(id, { tools: NOTEBOOK_STEWARD_MODE ? NOTEBOOK_STEWARD_TOOLS : SEARCH_ONLY ? SEARCH_TOOLS : TOOLS });
   } else if (method === "tools/call") {
     const { name, arguments: args = {} } = params || {};
     let text;
     let isError = false;
     try {
-      if (SEARCH_ONLY) {
+      if (NOTEBOOK_STEWARD_MODE) {
+        notebookStewardToolCalls++;
+        if (notebookStewardToolCalls > MAX_NOTEBOOK_STEWARD_TOOL_CALLS) {
+          text = "已达到本次笔记管家的 6 次工具调用上限，请根据现有信息返回操作计划。";
+        } else if (name === "notebook_catalog") text = toolInternalNotebookCatalog();
+        else if (name === "notebook_search") text = toolInternalNotebookSearch(args);
+        else if (name === "notebook_read") text = toolInternalNotebookRead(args);
+        else throw new Error(`笔记管家模式不提供工具: ${name}`);
+      } else if (SEARCH_ONLY) {
         deepSearchToolCalls++;
         if (deepSearchToolCalls > MAX_DEEP_SEARCH_TOOL_CALLS) {
           text = "已达到本次 Deep Search 的 5 次工具调用上限，请根据现有证据组织最终回答。";
@@ -805,6 +1174,12 @@ function handle(msg) {
       else if (name === "stmem_dream_latest") text = toolDreamLatest(args);
       else if (name === "stmem_dream_status") text = toolDreamStatus(args);
       else if (name === "stmem_dream_get") text = toolDreamGet(args);
+      else if (name === "stmem_notebook_status") text = toolNotebookStatus(args);
+      else if (name === "stmem_notebook_topic_manage") text = toolNotebookTopicManage(args);
+      else if (name === "stmem_notebook_write") text = toolNotebookWrite(args);
+      else if (name === "stmem_notebook_query") text = toolNotebookQuery(args);
+      else if (name === "stmem_notebook_read") text = toolNotebookRead(args);
+      else if (name === "stmem_notebook_delegate") text = toolNotebookDelegate(args);
       else if (name === "stmem_memory_search") text = toolMemorySearch(args);
       else if (name === "stmem_memory_deep_search") text = toolDeepSearch(args);
       else if (name === "stmem_memory_audit_list") text = toolAuditList(args);

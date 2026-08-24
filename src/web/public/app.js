@@ -95,8 +95,10 @@ function loadOptionalScript(src) {
 function loadDeveloperModules() {
   return Promise.all([
     loadOptionalScript("/review-lab/bootstrap.js"),
-    loadOptionalScript("/developer-kit/bootstrap.js"),
+    loadOptionalScript("/developer-modules/stone-memory-assistant/bootstrap.js"),
+    loadOptionalScript("/developer-kit/bootstrap.js?v=2"),
     loadOptionalScript("/dream-lab/bootstrap.js"),
+    loadOptionalScript("/notebook-lab/bootstrap.js"),
   ]).catch(error => showToast(error.message, "error"));
 }
 
@@ -298,7 +300,7 @@ function renderDeveloperMode(library) {
 function renderMemoryHub(library) {
   document.querySelectorAll(".side-nav button").forEach(button => button.classList.toggle("active", button.dataset.view === "archive"));
   const main=document.querySelector("#workspace-main");
-  main.innerHTML=`<div class="dashboard-head"><div><p class="eyebrow">可解释记忆</p><h1>记忆档案</h1><p class="lead">查看 AI 会读到的规则、摘要、特征和时间脉络。</p></div></div><section class="memory-entry-grid"><button data-section="rules"><strong>人设 / 规则</strong><span>导入、编辑并控制 rebuild 是否注入</span></button><button data-section="feelings"><strong>摘要</strong><span>查看完整、精简和隐藏记忆</span></button><button data-section="features"><strong>特征库</strong><span>按类别查看长期记忆特征</span></button><button data-section="conversations"><strong>全量对话</strong><span>搜索关键词，或按日期回看纯对话 archive</span></button><button data-section="timeline"><strong>时间轴</strong><span>查看词频、重要摘要与记忆生命周期</span></button></section>`;
+  main.innerHTML=`<div class="dashboard-head"><div><p class="eyebrow">可解释记忆</p><h1>记忆档案</h1><p class="lead">查看 AI 会读到的规则、摘要、素材和时间脉络。</p></div></div><section class="memory-entry-grid"><button data-section="rules"><strong>人设 / 规则</strong><span>导入、编辑并控制 rebuild 是否注入</span></button><button data-section="feelings"><strong>摘要</strong><span>查看完整、精简和隐藏记忆</span></button><button data-section="features"><strong>素材库</strong><span>用于收集相处事实的原始分类素材库，与对话无关</span></button><button data-section="conversations"><strong>全量对话</strong><span>搜索关键词，或按日期回看纯对话 archive</span></button><button data-section="timeline"><strong>时间轴</strong><span>查看词频、重要摘要与记忆生命周期</span></button></section>`;
   main.querySelectorAll("[data-section]").forEach(button=>button.onclick=()=>button.dataset.section==="conversations"?renderConversations(library):button.dataset.section==="timeline"?renderTimeline(library):renderMemorySection(library,button.dataset.section));
 }
 
@@ -336,7 +338,7 @@ function timelineInterpretation(data,row) {
   if(lifecycle){const confidence={high:"高",medium:"中",low:"低"}[lifecycle.confidence]||lifecycle.confidence||"—",signature=lifecycle.signature?.term?` · 主要共同签名：${lifecycle.signature.term}`:"";return `${relationLabels[lifecycle.state]||lifecycle.state} · ${shapeLabels[lifecycle.shape]||lifecycle.shape} · 置信度 ${confidence}${signature}`;}
   const workGroups=(data.work?.groups||[]).filter(group=>group.members?.some(member=>member.normalizedTerm===row.normalizedTerm||member.term===row.term));
   if(workGroups.length)return `进入 ${workGroups.length} 个项目证据节点 · ${workGroups.map(group=>group.state).filter(Boolean).join("、")||"局部项目证据"}`;
-  return row.categories.length?`当前按 ${row.categories.join(" / ")} 特征解释`:"尚未进入特征库，暂只展示真实命中";
+  return row.categories.length?`当前按 ${row.categories.join(" / ")} 特征解释`:"尚未进入素材库，暂只展示真实命中";
 }
 
 async function renderTimeline(library,{terms="",from="",to=""}={}) {
@@ -379,7 +381,7 @@ async function renderConversations(library,{search="",date="",focus="",page=1,ca
 }
 
 async function renderMemorySection(library, section, page=1, search="", category="", mode="", importance="", sort="desc", retainAnchor=false, eventAnchor=false, date="") {
-  const main=document.querySelector("#workspace-main"), titles={rules:"人设 / 规则",feelings:"摘要",features:"特征库"};
+  const main=document.querySelector("#workspace-main"), titles={rules:"人设 / 规则",feelings:"摘要",features:"素材库"};
   main.innerHTML=`<div class="dashboard-head"><div><p class="eyebrow">记忆</p><h1>${titles[section]}</h1>${section==="feelings"?'<p class="lead memory-anchor-guide">选择【原文锚点】，将在线程中注入该摘要对应原文；选择【事件锚点】，则该摘要不受衰减模型影响；选择【隐藏摘要】，线程重建时该摘要将不注入线程。</p>':""}</div><button class="ghost" id="back-memory">返回</button></div><section class="section-card" id="memory-content"><div class="empty">正在读取…</div></section>`;
   main.querySelector("#back-memory").onclick=()=>renderMemoryHub(library);
   const card=main.querySelector("#memory-content");
@@ -549,7 +551,7 @@ async function renderSettings(library) {
 }
 
 const rebuildState = { windowDays: 3, toolPairs: 30, watermark: false, summaryMode: "default", summaryLimit: 0, minImportance: 0, mcpDefault: false, page: 1, toolPage: 1, tab: "messages", excludedMessages: new Set(), excludedTools: new Set(), preview: null };
-const miningUi={threadId:null,selected:new Set(),page:1,reportPage:1,reportFilter:"all",monthPage:1,selectedDate:null,mode:null,apiProfile:"raw",timer:null,targetedSelected:new Set(),targetedLastIndex:null};
+const miningUi={threadId:null,selected:new Set(),page:1,reportPage:1,reportFilter:"all",monthPage:1,selectedDate:null,mode:null,apiProfile:"optimized",timer:null,targetedSelected:new Set(),targetedLastIndex:null};
 const compressionUi={mode:"subagent",afterDays:90};
 
 function renderMaintenance(library) {
@@ -638,7 +640,7 @@ function miningRecoveryText(chunk){
 }
 
 async function renderMining(library,page=1) {
-  if(miningUi.threadId!==library.threadId){miningUi.threadId=library.threadId;miningUi.selected.clear();miningUi.targetedSelected.clear();miningUi.targetedLastIndex=null;miningUi.page=1;miningUi.reportPage=1;miningUi.reportFilter="all";miningUi.monthPage=1;miningUi.selectedDate=null;miningUi.mode=null;miningUi.apiProfile="raw";}
+  if(miningUi.threadId!==library.threadId){miningUi.threadId=library.threadId;miningUi.selected.clear();miningUi.targetedSelected.clear();miningUi.targetedLastIndex=null;miningUi.page=1;miningUi.reportPage=1;miningUi.reportFilter="all";miningUi.monthPage=1;miningUi.selectedDate=null;miningUi.mode=null;miningUi.apiProfile="optimized";}
   clearTimeout(miningUi.timer);miningUi.page=page;
   document.querySelectorAll(".side-nav button").forEach(button=>button.classList.toggle("active",button.dataset.view==="maintenance"));
   const main=document.querySelector("#workspace-main");
@@ -659,7 +661,8 @@ async function renderMining(library,page=1) {
     const categories=[...new Set(detail.features.map(row=>row.category))].map(category=>`<span class="badge">${escapeHtml(category)} ${detail.features.filter(row=>row.category===category).length}</span>`).join("");
     const detailHtml=miningUi.selectedDate?`<section class="section-card mining-results"><div class="section-title-row"><div><p class="eyebrow">${formatChineseDate(miningUi.selectedDate)}</p><h2>当天挖出的摘要</h2></div><div class="mining-result-actions"><span>${categories}</span><button class="secondary" id="open-targeted" ${active?"disabled":""}>精准补挖</button></div></div><p class="memory-anchor-guide">选择【原文锚点】，将在线程中注入该摘要对应原文；选择【事件锚点】，则该摘要不受衰减模型影响；选择【隐藏摘要】，线程重建时该摘要将不注入线程。</p><div id="targeted-panel"></div>${detail.feelings.length?detail.feelings.map((row,index)=>feelingCard(row,index,"daySeq")).join(""):'<div class="empty">这一天尚未生成摘要，或本次挖掘没有需要记录的内容。</div>'}<div id="feeling-editor"></div></section>`:"";
     const content=main.querySelector("#mining-content");
-    content.innerHTML=`${jobHtml}<div id="mining-check-result"></div><section class="section-card mining-overview"><div class="mining-overview-grid">${calendarHtml}<div class="mining-report-list"><div class="section-title-row mining-report-title"><div><p class="eyebrow">按日管理</p><h2>每日挖掘状态</h2></div><div class="mining-status-filters">${[["all","全部"],["pending","待挖掘"],["completed","已完成"],["failed","失败"]].map(([value,label])=>`<button class="filter-chip ${miningUi.reportFilter===value?"active":""}" data-mining-filter="${value}">${label}</button>`).join("")}</div></div><div class="mining-report-actions"><select id="mining-mode" ${active?"disabled":""}><option value="subagent" ${miningUi.mode==="subagent"?"selected":""}>Subagent</option><option value="api" ${miningUi.mode==="api"?"selected":""}>API</option></select>${miningUi.mode==="api"?`<select id="mining-api-profile" ${active?"disabled":""}><option value="raw" ${miningUi.apiProfile==="raw"?"selected":""}>API（原始版）</option><option value="optimized" ${miningUi.apiProfile==="optimized"?"selected":""}>API（优化版）</option></select>`:""}<button class="ghost" id="check-mining" ${active||!miningUi.selectedDate?"disabled":""}>一键自检</button><button class="ghost" id="select-pending" ${active?"disabled":""}>全选未挖掘</button><button class="ghost" id="clear-dates" ${active?"disabled":""}>清空</button><span>已选 <strong id="selected-count">${miningUi.selected.size}</strong> 天</span><button class="primary" id="start-mining" ${active||!miningUi.selected.size?"disabled":""}>挖掘所选日期</button></div>${reportHtml}</div></div></section>${detailHtml}`;
+    content.innerHTML=`${jobHtml}<div id="mining-check-result"></div><section class="section-card mining-overview"><div class="mining-overview-grid">${calendarHtml}<div class="mining-report-list"><div class="section-title-row mining-report-title"><div><p class="eyebrow">按日管理</p><h2>每日挖掘状态</h2></div><div class="mining-status-filters">${[["all","全部"],["pending","待挖掘"],["completed","已完成"],["failed","失败"]].map(([value,label])=>`<button class="filter-chip ${miningUi.reportFilter===value?"active":""}" data-mining-filter="${value}">${label}</button>`).join("")}</div></div><div class="mining-report-actions"><select id="mining-mode" ${active?"disabled":""}><option value="subagent" ${miningUi.mode==="subagent"?"selected":""}>Subagent</option><option value="api" ${miningUi.mode==="api"?"selected":""}>API</option></select>${miningUi.mode==="api"?`<select id="mining-api-profile" ${active?"disabled":""}><option value="raw" ${miningUi.apiProfile==="raw"?"selected":""}>API（原始版）</option><option value="optimized" ${miningUi.apiProfile==="optimized"?"selected":""}>API（优化版）</option></select>`:""}<button class="ghost" id="check-mining" ${active||!miningUi.selectedDate?"disabled":""}>一键自检</button><button class="ghost" id="select-pending" ${active?"disabled":""}>全选未挖掘</button><button class="ghost" id="clear-dates" ${active?"disabled":""}>清空</button><span>已选 <strong id="selected-count">${miningUi.selected.size}</strong> 天</span><button class="primary" id="start-mining" ${active||!miningUi.selected.size?"disabled":""}>挖掘所选日期</button></div>${reportHtml}</div></div></section>${detailHtml}
+    <section class="section-card mining-prompts-section"><details class="mining-prompts-details"><summary class="mining-prompts-summary"><span><strong>调提示词 & 时间轴</strong><small>直接编辑摘要/特征提示词和关系时间轴，保存后下次挖掘生效</small></span><i>⌄</i></summary><div class="mining-prompts-body"><div id="mining-prompts-status" class="mining-prompts-status"></div><div class="field"><label for="mining-summary-prompt">摘要提示词（feelings）</label><textarea id="mining-summary-prompt" rows="12" class="mining-prompt-textarea" placeholder="加载中…"></textarea></div><div class="field"><label for="mining-feature-prompt">特征提示词（features）</label><textarea id="mining-feature-prompt" rows="12" class="mining-prompt-textarea" placeholder="加载中…"></textarea></div><div class="field"><label for="mining-timeline">关系时间轴（每行一条，格式：YYYY-MM-DD 事件描述）</label><textarea id="mining-timeline" rows="4" class="mining-prompt-textarea" placeholder="示例格式（每行一条）：&#10;2024-01-15 初次见面&#10;2024-06-01 关系进入稳定阶段"></textarea></div><div class="wizard-actions"><button class="ghost" id="mining-prompts-reset">恢复官方提示词</button><button class="primary" id="mining-prompts-save">保存提示词与时间轴</button></div></div></details></section>`;
     content.querySelector("#stop-mining")?.addEventListener("click",async event=>{event.currentTarget.disabled=true;event.currentTarget.textContent="正在停止…";try{await api(`/api/libraries/${encodeURIComponent(library.threadId)}/mining/stop`,{method:"POST"});showToast("已请求停止挖掘");renderMining(library,miningUi.page);}catch(error){showToast(error.message,"error");event.currentTarget.disabled=false;}});
     content.querySelectorAll("[data-mining-date],[data-report-date]").forEach(button=>button.onclick=()=>{miningUi.selectedDate=button.dataset.miningDate||button.dataset.reportDate;renderMining(library,miningUi.page);});
     content.querySelectorAll(".mining-chunk-report").forEach(details=>details.onclick=event=>event.stopPropagation());
@@ -667,6 +670,8 @@ async function renderMining(library,page=1) {
     content.querySelector("#mining-newer")?.addEventListener("click",()=>{miningUi.monthPage=calendar.page-1;renderMining(library,miningUi.page);});content.querySelector("#mining-older")?.addEventListener("click",()=>{miningUi.monthPage=calendar.page+1;renderMining(library,miningUi.page);});
     content.querySelector("#open-targeted")?.addEventListener("click",()=>renderTargetedMining(library,miningUi.selectedDate));
     if(miningUi.selectedDate)bindFeelingCards(content,library,detail.feelings,content.querySelector("#feeling-editor"),()=>renderMining(library,miningUi.page));
+    if(library.purpose==="accompany")loadMiningPrompts(content,library);
+    else content.querySelector(".mining-prompts-section")?.remove();
     const reportList=content.querySelector(".mining-report-list");
     const updateCount=()=>{reportList.querySelector("#selected-count").textContent=miningUi.selected.size;reportList.querySelector("#start-mining").disabled=active||!miningUi.selected.size;};
     reportList.querySelectorAll('.mining-report-check input').forEach(input=>input.onchange=()=>{input.checked?miningUi.selected.add(input.value):miningUi.selected.delete(input.value);updateCount();});
@@ -688,6 +693,40 @@ async function renderMining(library,page=1) {
     reportList.querySelector("#start-mining").onclick=async()=>{const button=reportList.querySelector("#start-mining"),dates=[...miningUi.selected],statusByDate=new Map(data.dates.map(row=>[row.date,row.status])),forceDates=dates.filter(date=>["completed","completed_empty"].includes(statusByDate.get(date)));if(forceDates.length&&!confirm(`${forceDates.length===1?formatChineseDate(forceDates[0]):`选中的 ${forceDates.length} 天`}已经挖掘过。是否重新挖掘？\\n\\n重挖成功后会覆盖对应日期原有的摘要与特征；包含锚点、手动编辑或压缩状态的日期不会被覆盖。`))return;button.disabled=true;try{await api(`/api/libraries/${encodeURIComponent(library.threadId)}/mining/start`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({mode:miningUi.mode,apiProfile:miningUi.apiProfile,dates,forceDates})});miningUi.selected.clear();showToast("记忆挖掘已开始");renderMining(library,1);}catch(error){showToast(error.message,"error");button.disabled=false;}};
     if(active)miningUi.timer=setTimeout(()=>{if(document.querySelector("#mining-content"))renderMining(library,miningUi.page);},5000);
   }catch(error){main.querySelector("#mining-content").innerHTML=`<section class="section-card"><div class="empty">${escapeHtml(error.message)}</div></section>`;}
+}
+
+async function loadMiningPrompts(container,library){
+  const status=container.querySelector("#mining-prompts-status");
+  const summaryTa=container.querySelector("#mining-summary-prompt");
+  const featureTa=container.querySelector("#mining-feature-prompt");
+  const timelineTa=container.querySelector("#mining-timeline");
+  try{
+    const data=await api(`/api/libraries/${encodeURIComponent(library.threadId)}/mining/prompts`);
+    summaryTa.value=data.summaryPrompt;
+    featureTa.value=data.featurePrompt;
+    timelineTa.value=(data.timeline||[]).join("\n");
+    summaryTa.dataset.default=data.defaultSummary;
+    featureTa.dataset.default=data.defaultFeature;
+  }catch(error){status.innerHTML=`<span class="integrity warning">加载提示词失败：${escapeHtml(error.message)}</span>`;return;}
+  container.querySelector("#mining-prompts-reset").onclick=()=>{
+    if(!confirm("确认恢复两份官方提示词？关系时间轴不会改变。"))return;
+    summaryTa.value=summaryTa.dataset.default;
+    featureTa.value=featureTa.dataset.default;
+    status.innerHTML='<span class="integrity">已恢复官方提示词（未保存）；关系时间轴保持不变</span>';
+  };
+  container.querySelector("#mining-prompts-save").onclick=async()=>{
+    const button=container.querySelector("#mining-prompts-save");
+    button.disabled=true;button.textContent="正在保存…";
+    try{
+      const timeline=timelineTa.value.trim().split("\n").filter(Boolean);
+      await api(`/api/libraries/${encodeURIComponent(library.threadId)}/mining/prompts`,{
+        method:"PUT",headers:{"content-type":"application/json"},
+        body:JSON.stringify({summaryPrompt:summaryTa.value,featurePrompt:featureTa.value,timeline})
+      });
+      status.innerHTML='<span class="integrity">提示词已保存，下次挖掘生效</span>';
+    }catch(error){status.innerHTML=`<span class="integrity warning">保存失败：${escapeHtml(error.message)}</span>`;}
+    button.disabled=false;button.textContent="保存提示词";
+  };
 }
 
 async function renderTargetedMining(library,date) {
@@ -810,9 +849,8 @@ async function previewIntegratedRebuild(library,options={}) {
   const button=document.querySelector(options.button||"#preview-rebuild"),target=document.querySelector(options.target||"#rebuild-dry-run");
   button.disabled=true;target.innerHTML='<div class="empty">正在生成线程重建预览…</div>';
   try {
-    const hasTrim=(options.excludedMessages?.length||options.excludedTools?.length),preview=hasTrim
-      ?await api(`/api/libraries/${encodeURIComponent(library.threadId)}/rebuild/dry-run`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({windowDays:rebuildState.windowDays,toolPairs:rebuildState.toolPairs,watermark:rebuildState.watermark,summaryLimit,minImportance,excludedMessages:options.excludedMessages||[],excludedTools:options.excludedTools||[]})})
-      :await api(`/api/libraries/${encodeURIComponent(library.threadId)}/rebuild/dry-run?windowDays=${rebuildState.windowDays}&toolPairs=${rebuildState.toolPairs}&watermark=${rebuildState.watermark}&summaryLimit=${summaryLimit}&minImportance=${minImportance}`),show=value=>value===null||value===undefined?"—":value;
+    const request={summary:{mode:rebuildState.summaryMode,limit:summaryLimit,minImportance},context:{mode:rebuildState.watermark?"watermark":"active_days",windowDays:rebuildState.windowDays,toolPairs:rebuildState.toolPairs},trim:{excludedMessages:options.excludedMessages||[],excludedTools:options.excludedTools||[]},trigger:"web"};
+    const preview=await api(`/api/libraries/${encodeURIComponent(library.threadId)}/rebuild/dry-run`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(request)}),show=value=>value===null||value===undefined?"—":value;
     const retentionLabel=preview.retentionMode==="watermark"?`水位线模式，自 ${escapeHtml(preview.watermarkCutoff||"—")} 起`:preview.watermarkFallback?`活跃日模式（水位线定位失败，已回退）`:`活跃日模式`;
     target.innerHTML=`<div class="rebuild-preview"><div class="section-title-row"><div><p class="eyebrow">正式 Dry-run</p><h3>确认线程重建结果</h3></div><span class="badge">${preview.runtime==="codex"?"Codex":"Claude"}</span></div><div class="rebuild-preview-groups"><section><h4>数据来源</h4><dl><div><dt>full 原始消息</dt><dd>${show(preview.fullMessages??preview.originalMessages)} 条</dd></div><div><dt>full 总体积</dt><dd>${formatBytes(preview.fullArchiveBytes)}</dd></div><div><dt>保留方式</dt><dd>${retentionLabel}</dd></div><div><dt>活跃日设置</dt><dd>${show(preview.windowDays)} 天（普通模式或水位线回退时使用）</dd></div></dl></section><section><h4>摘要去向</h4><dl><div><dt>摘要总数</dt><dd>${show(preview.injectableFeelings)} 条（hidden 已排除）</dd></div><div><dt>历史候选</dt><dd>${show(preview.summaryCandidates)} 条 → 本次选择 ${show(preview.selectedSummaries)} 条</dd></div><div><dt>锚点保护</dt><dd>${show(preview.protectedSummaries)} 条${preview.protectedOverflow?`，超过限制 ${preview.protectedOverflow} 条`:""}</dd></div><div><dt>近期窗口内</dt><dd>${show(preview.inWindowFeelings)} 条，由近期原文承载</dd></div><div><dt>原文锚点替代</dt><dd>${show(preview.retainAnchors)} 条，覆盖 ${show(preview.retainDates)} 个日期</dd></div><div><dt>注入记忆块</dt><dd>${show(preview.memoryFeelings)} 条摘要</dd></div><div><dt>人设 / 规则</dt><dd>${show(preview.injectedRules)} 份</dd></div><div><dt>记忆块</dt><dd>${show(preview.memoryBlocks)} 个</dd></div></dl></section><section><h4>近期上下文</h4><dl><div><dt>近期原文</dt><dd>${show(preview.windowMessages)} 条</dd></div><div><dt>工具链</dt><dd>${show(preview.toolPairs)} 组${preview.toolIds==null?"":`，${preview.toolIds} 个工具 ID`}</dd></div>${preview.functionCalls==null?"":`<div><dt>函数调用</dt><dd>${preview.functionCalls} 条</dd></div>`}<div><dt>移除系统记录</dt><dd>${show(preview.systemDropped)} 条</dd></div></dl></section><section class="rebuild-result-group"><h4>预计结果</h4><dl><div><dt>线程文件大小</dt><dd>${formatBytes(preview.estimatedOutputBytes)}</dd></div><div><dt>重建后行数</dt><dd>${show(preview.outputLines)} 行</dd></div><div><dt>预计压缩率</dt><dd class="rebuild-reduction">${preview.reductionPercent==null?"—":`${preview.reductionPercent}%`}</dd></div></dl></section></div><details class="rebuild-raw-output"><summary>查看原始 dry-run 输出</summary><pre>${escapeHtml(preview.raw)}</pre></details><div class="wizard-actions"><button class="ghost" id="cancel-rebuild-preview">取消</button><button class="primary" id="apply-previewed-rebuild">确认应用线程重建</button></div></div>`;
     target.querySelector("#cancel-rebuild-preview").onclick=()=>target.innerHTML="";
@@ -835,14 +873,15 @@ async function previewIntegratedRebuild(library,options={}) {
 }
 
 async function applyIntegratedRebuild(library,{excludedMessages=[],excludedTools=[]}={}) {
-  const button=document.querySelector("#apply-previewed-rebuild");button.disabled=true;button.textContent="正在排队线程重建…";
+  const button=document.querySelector("#apply-previewed-rebuild"),isCodex=library.runtime==="codex";button.disabled=true;button.textContent=isCodex?"正在应用线程重建…":"正在排队线程重建…";
   try{
     const summaryLimit=rebuildState.summaryMode==="limited"?rebuildState.summaryLimit:0,minImportance=rebuildState.summaryMode==="limited"?rebuildState.minImportance:0;
     await api(`/api/libraries/${encodeURIComponent(library.threadId)}/settings`,{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({mcpRebuildDefaultsEnabled:rebuildState.mcpDefault,mcpSummaryLimit:summaryLimit,mcpMinImportance:minImportance})});
-    const queued=await api(`/api/libraries/${encodeURIComponent(library.threadId)}/rebuild/queue`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({windowDays:rebuildState.windowDays,toolPairs:rebuildState.toolPairs,watermark:rebuildState.watermark,summaryLimit,minImportance,excludedMessages,excludedTools})});
+    const request={summary:{mode:rebuildState.summaryMode,limit:summaryLimit,minImportance},context:{mode:rebuildState.watermark?"watermark":"active_days",windowDays:rebuildState.windowDays,toolPairs:rebuildState.toolPairs},trim:{excludedMessages,excludedTools},trigger:"web"};
+    const result=await api(`/api/libraries/${encodeURIComponent(library.threadId)}/rebuild/${isCodex?"apply":"queue"}`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(request)});
     const trimmed=excludedMessages.length||excludedTools.length;
     await renderRebuild(library);
-    showRebuildCompletion(library,{trimmed,queued:queued.queued===true});
+    showRebuildCompletion(library,{trimmed,queued:result.queued===true});
   }catch(error){showToast(error.message,"error");button.disabled=false;button.textContent="确认应用线程重建";}
 }
 
@@ -854,15 +893,15 @@ function showRebuildCompletion(library,{trimmed=false,queued=false}={}) {
   overlay.className="editor-overlay rebuild-completion-overlay";
   const title=queued?(trimmed?"裁剪与线程重建已排队":"线程重建已排队"):(trimmed?"裁剪与线程重建已完成":"线程文件重建成功");
   const lead=queued
-    ?`任务已写入安全队列，当前活动线程没有被改写。${isCodex?"Codex 重启进程、重新载入 MCP 时会自动执行。":"Claude Code 重启进程，或切换线程后重新载入 MCP 时会自动执行。"}`
-    :`新的线程文件已经安全写入。还需要让 ${isCodex?"Codex":"Claude Code"} 重新载入它，新的上下文才会正式生效。`;
+    ?`任务已写入安全队列，当前活动线程没有被改写。Claude Code 重启进程，或切换线程后重新载入 MCP 时会自动执行。`
+    :`新的线程文件已经写入。${isCodex?"请不要继续发送消息，必须立刻完全重启 Codex/app-server，否则后续对话可能写入旧文件并丢失。":"还需要让 Claude Code 重新载入它，新的上下文才会正式生效。"}`;
   overlay.innerHTML=`<section class="editor-panel rebuild-completion-panel" role="dialog" aria-modal="true" aria-labelledby="rebuild-completion-title">
     <button class="editor-close ghost" type="button" aria-label="关闭">×</button>
     <div class="rebuild-completion-mark" aria-hidden="true">✓</div>
     <p class="eyebrow">${queued?"THREAD REBUILD QUEUED":"THREAD FILE REBUILT"}</p>
     <h2 id="rebuild-completion-title">${title}</h2>
     <p class="rebuild-completion-lead">${lead}</p>
-    ${queued?`<div class="rebuild-reload-card ${isCodex?"codex":"claude"}"><strong>任务将在重新载入 MCP 时执行</strong><p>${isCodex?"Codex 请完全退出当前进程，再使用原线程 ID Resume。":"Claude Code 可重启进程，或切换到其他线程后再切回。"}</p>${isCodex?`<code>codex resume ${escapeHtml(library.threadId)}</code>`:""}</div>`:isCodex?`<div class="rebuild-reload-card codex"><strong>Codex 用户必须重启进程</strong><p>请完全退出当前 Codex / app-server 进程，再使用原线程 ID 重新 Resume。只在当前 Codex 中切换线程再切回来，可能继续使用内存中的旧上下文。</p><code>codex resume ${escapeHtml(library.threadId)}</code></div>`:`<div class="rebuild-reload-card claude"><strong>Claude Code 用户请选择一种重新载入方式</strong><ol><li>完全退出并重新启动 Claude Code；或</li><li>切换到其他线程，再切回当前线程。</li></ol><p>重新进入后可检查上下文状态，确认重建结果已经生效。</p></div>`}
+    ${queued?`<div class="rebuild-reload-card claude"><strong>任务将在重新载入 MCP 时执行</strong><p>Claude Code 可重启进程，或切换到其他线程后再切回。</p></div>`:isCodex?`<div class="rebuild-reload-card codex"><strong>现在必须立即重启 Codex</strong><p>不要在当前会话继续发送消息。请完全退出 Codex / app-server，再使用原线程 ID 重新 Resume；否则后续内容可能写入旧文件描述符并丢失。</p><code>codex resume ${escapeHtml(library.threadId)}</code></div>`:`<div class="rebuild-reload-card claude"><strong>Claude Code 用户请选择一种重新载入方式</strong><ol><li>完全退出并重新启动 Claude Code；或</li><li>切换到其他线程，再切回当前线程。</li></ol><p>重新进入后可检查上下文状态，确认重建结果已经生效。</p></div>`}
     <div class="wizard-actions"><button class="primary rebuild-completion-close" type="button">我知道了</button></div>
   </section>`;
   const close=()=>overlay.remove();

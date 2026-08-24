@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="color-scheme" content="light">
+  <title>Stone Memory · 小助理</title>
+  <script src="/developer-kit/runtime.js?v=5"></script>
+  <link rel="stylesheet" href="/developer-modules/stone-memory-assistant/styles.css">
+</head>
+<body>
+  <stone-module-page eyebrow="STONE MEMORY ASSISTANT · DEVELOPER MODULE" title="Stone Memory 小助理" description="介绍项目、回答常见问题，并通过 Stone Memory 的正式接口协助维护当前记忆体。">
+    <section class="assistant-intro" aria-labelledby="assistant-memory-title">
+      <div>
+        <p class="assistant-kicker">CURRENT MEMORY</p>
+        <h2 id="assistant-memory-title" data-stone-library>等待连接记忆体…</h2>
+        <p id="assistant-status" class="assistant-status" role="status">正在验证当前记忆体并读取状态。</p>
+      </div>
+      <div class="assistant-tags" aria-label="模块能力"><span>项目答疑</span><span>待办诊断</span><span>一键维护</span></div>
+    </section>
+
+    <section id="assistant-dashboard" class="assistant-dashboard" aria-labelledby="dashboard-title">
+      <div class="section-heading">
+        <div><p class="assistant-kicker">CARE PLAN</p><h2 id="dashboard-title">现在有什么待处理</h2></div>
+      </div>
+      <div id="todo-list" class="todo-list"><div class="empty-state">正在检查当前记忆体的挖掘、重建和注意事项。</div></div>
+      <div class="dashboard-actions">
+        <button id="dashboard-refresh" class="secondary-button" type="button" disabled>刷新待办</button>
+        <button type="button" data-command="有什么待处理">检查当前状态</button>
+        <button type="button" data-command="整理昨天">整理昨天</button>
+        <button type="button" data-command="一键维护">一键维护</button>
+      </div>
+    </section>
+
+    <section id="assistant-guide" class="assistant-guide" aria-labelledby="guide-title">
+      <div class="section-heading"><div><p class="assistant-kicker">ASK & LEARN</p><h2 id="guide-title">了解 Stone Memory</h2></div></div>
+      <p>小助理内置了项目知识，可以解释记忆层、挖掘、重建、压缩、watcher、MCP 和安全规则。</p>
+      <div class="guide-grid">
+        <button type="button" data-command="介绍一下 Stone Memory"><strong>项目介绍</strong><span>Stone Memory 解决什么问题？</span></button>
+        <button type="button" data-command="摘要和特征有什么区别"><strong>记忆三层</strong><span>原文、摘要和特征如何分工？</span></button>
+        <button type="button" data-command="为什么需要线程重建"><strong>线程重建</strong><span>为什么要预览、确认和重启？</span></button>
+        <button type="button" data-command="什么是 watcher"><strong>自动化</strong><span>小助理和 watcher 各负责什么？</span></button>
+      </div>
+      <div class="guide-actions"><button id="assistant-revisit-guide" class="secondary-button" type="button" disabled>重新查看介绍</button></div>
+    </section>
+
+    <section id="assistant-unavailable" class="assistant-unavailable" hidden>
+      <h2>无法绑定当前记忆体</h2>
+      <p id="assistant-unavailable-message">请从一个记忆体的开发者模式进入本模块。</p>
+      <button type="button" id="assistant-return">返回开发者模式</button>
+    </section>
+
+    <aside id="assistant-widget" class="assistant-widget" aria-label="Stone Memory 小助理">
+      <div id="assistant-bubble" class="assistant-bubble" aria-live="polite" hidden></div>
+      <div id="assistant-backdrop" class="assistant-backdrop" aria-hidden="true" hidden></div>
+      <section id="assistant-panel" class="assistant-panel" role="dialog" tabindex="-1" aria-labelledby="assistant-panel-title" hidden>
+        <header>
+          <div><p>STONE MEMORY</p><h2 id="assistant-panel-title">Stone Memory 小助理</h2><span id="assistant-nickname" class="assistant-nickname">等待认领</span><span id="assistant-phase" class="phase-badge">待命</span></div>
+          <button id="assistant-close" class="icon-button" type="button" aria-label="关闭小助理面板">×</button>
+        </header>
+        <nav class="assistant-tabs" role="tablist" aria-label="小助理功能">
+          <button id="assistant-tab-chat" type="button" role="tab" aria-selected="true" aria-controls="assistant-view-chat" tabindex="0" data-assistant-tab="chat">和小助理说</button>
+          <button id="assistant-tab-log" type="button" role="tab" aria-selected="false" aria-controls="assistant-view-log" tabindex="-1" data-assistant-tab="log">工作日志</button>
+          <button id="assistant-tab-guide" type="button" role="tab" aria-selected="false" aria-controls="assistant-view-guide" tabindex="-1" data-assistant-tab="guide">了解 Stone Memory</button>
+        </nav>
+        <div class="assistant-panel-body">
+          <section id="assistant-view-chat" class="assistant-view assistant-view-chat" role="tabpanel" aria-labelledby="assistant-tab-chat" data-assistant-view="chat">
+            <div id="assistant-messages" class="assistant-messages" aria-live="polite"></div>
+            <div class="quick-actions" aria-label="快捷指令">
+              <button type="button" data-command="有什么待处理">待办</button>
+              <button type="button" data-command="整理昨天">整理昨天</button>
+              <button type="button" data-command="一键维护">一键维护</button>
+              <button type="button" data-command="介绍一下 Stone Memory">项目介绍</button>
+              <button type="button" data-command="最近 7 天摘要">近 7 天</button>
+            </div>
+            <form id="assistant-form" class="assistant-form">
+              <label class="sr-only" for="assistant-input">输入问题或操作指令</label>
+              <input id="assistant-input" autocomplete="off" maxlength="160" placeholder="例如：有什么待处理" disabled>
+              <button type="submit" aria-label="发送" disabled>发送</button>
+            </form>
+          </section>
+          <section id="assistant-view-log" class="assistant-view assistant-view-scroll" role="tabpanel" aria-labelledby="assistant-tab-log" data-assistant-view="log" hidden>
+            <div class="assistant-log-heading">
+              <div><strong>工作日志</strong><p>合并展示可验证的系统状态与本次小助理操作。</p></div>
+              <button id="assistant-log-refresh" type="button" disabled>刷新</button>
+            </div>
+            <div id="assistant-log-list" class="assistant-log-list" aria-live="polite"></div>
+          </section>
+          <section id="assistant-view-guide" class="assistant-view assistant-view-scroll" role="tabpanel" aria-labelledby="assistant-tab-guide" data-assistant-view="guide" hidden>
+            <div class="assistant-onboarding" aria-live="polite">
+              <p id="assistant-guide-progress" class="assistant-guide-progress">第 1 步，共 8 步</p>
+              <h3 id="assistant-guide-step-title">你好，我是 Stone Memory 小助理</h3>
+              <p id="assistant-guide-step-copy">我会陪你了解当前记忆体，并在你确认后协助完成常用维护操作。</p>
+              <div class="assistant-guide-controls">
+                <button id="assistant-guide-prev" type="button">上一步</button>
+                <button id="assistant-guide-next" class="primary" type="button">下一步</button>
+              </div>
+              <div class="assistant-guide-secondary">
+                <button id="assistant-guide-restart" type="button">重新开始</button>
+                <button id="assistant-guide-skip" type="button">跳过介绍</button>
+              </div>
+            </div>
+            <section class="assistant-manual-tasks" aria-labelledby="assistant-manual-title">
+              <p class="assistant-guide-progress">需要人工检查</p>
+              <h3 id="assistant-manual-title">我帮你找到正确入口</h3>
+              <p>下面这些任务需要查看原文或选择具体内容。我会说明真实路径，再带你返回当前记忆体工作台。</p>
+              <div class="assistant-manual-grid">
+                <button type="button" data-manual-task="trim"><strong>原文裁剪</strong><span>裁剪对话或工具链</span></button>
+                <button type="button" data-manual-task="import"><strong>对话导入</strong><span>导入外部对话</span></button>
+                <button type="button" data-manual-task="remine"><strong>精准补挖</strong><span>审查后重新挖掘</span></button>
+                <button type="button" data-manual-task="summary"><strong>摘要管理</strong><span>查看与管理摘要</span></button>
+              </div>
+            </section>
+          </section>
+        </div>
+      </section>
+      <button id="assistant-launcher" class="assistant-launcher" type="button" aria-expanded="false" aria-controls="assistant-panel" aria-label="打开 Stone Memory 小助理" disabled>
+        <canvas id="assistant-canvas" width="192" height="208" aria-hidden="true"></canvas>
+        <span id="assistant-launcher-label" class="assistant-launcher-label">小助理</span>
+      </button>
+    </aside>
+  </stone-module-page>
+  <script src="/developer-modules/stone-memory-assistant/knowledge.js"></script>
+  <script src="/developer-modules/stone-memory-assistant/logic.js"></script>
+  <script src="/developer-modules/stone-memory-assistant/app.js"></script>
+</body>
+</html>

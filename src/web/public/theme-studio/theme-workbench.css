@@ -1,99 +1,75 @@
-body.tidal-visual::before {
-  position: fixed;
-  z-index: -1;
-  inset: 0;
-  background:
-    radial-gradient(
-      circle at 14% 8%,
-      color-mix(in srgb, var(--stone-tide-surface) 88%, transparent),
-      transparent 32rem
-    ),
-    radial-gradient(
-      circle at 88% 18%,
-      color-mix(in srgb, var(--stone-tide-accent-soft) 54%, transparent),
-      transparent 36rem
-    ),
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--stone-tide-canvas) 22%, transparent),
-      color-mix(in srgb, var(--stone-tide-surface-soft) 42%, transparent)
-    );
-  content: "";
-  pointer-events: none;
+body.stone-theme-enabled .panel,
+body.stone-theme-enabled .dashboard-head,
+body.stone-theme-enabled .section-card,
+body.stone-theme-enabled .library-card,
+body.stone-theme-enabled .memory-entry-grid button,
+body.stone-theme-enabled .stat,
+body.stone-theme-enabled .import-card {
+  border-color: var(--stone-theme-line-soft);
+  background: var(--stone-theme-surface);
 }
 
-body.tidal-visual .panel,
-body.tidal-visual .dashboard-head,
-body.tidal-visual .section-card,
-body.tidal-visual .library-card,
-body.tidal-visual .memory-entry-grid button,
-body.tidal-visual .stat,
-body.tidal-visual .import-card {
-  border-color: var(--stone-tide-line-soft);
-  background: var(--stone-tide-surface);
-}
-
-body.tidal-visual .topbar {
-  border-radius: var(--stone-tide-radius-pill);
+body.stone-theme-enabled .topbar {
+  border-radius: var(--stone-theme-radius-pill);
   background: transparent;
   box-shadow: none;
 }
 
-body.tidal-visual .sidebar {
-  border-radius: var(--stone-tide-radius-lg);
+body.stone-theme-enabled .sidebar {
+  border-radius: var(--stone-theme-radius-lg);
   background: transparent;
   box-shadow: none;
 }
 
-body.tidal-visual .library-card,
-body.tidal-visual .maintenance-card,
-body.tidal-visual .memory-entry-grid button,
-body.tidal-visual .section-card,
-body.tidal-visual .dashboard-head {
+body.stone-theme-enabled .library-card,
+body.stone-theme-enabled .maintenance-card,
+body.stone-theme-enabled .memory-entry-grid button,
+body.stone-theme-enabled .section-card,
+body.stone-theme-enabled .dashboard-head {
   transition:
-    transform var(--stone-tide-motion-normal) var(--stone-tide-ease-soft),
-    box-shadow var(--stone-tide-motion-normal) var(--stone-tide-ease-soft),
-    border-color var(--stone-tide-motion-fast) ease;
+    transform var(--stone-theme-motion-normal) var(--stone-theme-ease-soft),
+    box-shadow var(--stone-theme-motion-normal) var(--stone-theme-ease-soft),
+    border-color var(--stone-theme-motion-fast) ease;
 }
 
-body.tidal-visual .library-card:hover,
-body.tidal-visual .maintenance-card:hover,
-body.tidal-visual .memory-entry-grid button:not(:disabled):hover {
+body.stone-theme-enabled .library-card:hover,
+body.stone-theme-enabled .maintenance-card:hover,
+body.stone-theme-enabled .memory-entry-grid button:not(:disabled):hover {
   transform: translateY(-3px);
-  border-color: color-mix(in srgb, var(--stone-tide-accent) 34%, transparent);
-  box-shadow: var(--stone-tide-shadow-panel);
+  border-color: color-mix(in srgb, var(--stone-theme-accent) 34%, transparent);
+  box-shadow: var(--stone-theme-shadow-panel);
 }
 
-body.tidal-visual .memory-entry-grid button {
-  border-radius: var(--stone-tide-radius-lg);
+body.stone-theme-enabled .memory-entry-grid button {
+  border-radius: var(--stone-theme-radius-lg);
 }
 
-body.tidal-visual .maintenance-card i {
-  color: var(--stone-tide-accent-strong);
-  border: 1px solid var(--stone-tide-line);
-  background: var(--stone-tide-accent-soft);
+body.stone-theme-enabled .maintenance-card i {
+  color: var(--stone-theme-accent-strong);
+  border: 1px solid var(--stone-theme-line);
+  background: var(--stone-theme-accent-soft);
 }
 
-body.tidal-visual .maintenance-card:hover i {
-  color: var(--stone-tide-canvas);
-  border-color: var(--stone-tide-accent-strong);
-  background: var(--stone-tide-accent);
+body.stone-theme-enabled .maintenance-card:hover i {
+  color: var(--stone-theme-canvas);
+  border-color: var(--stone-theme-accent-strong);
+  background: var(--stone-theme-accent);
 }
 
-body.tidal-visual input,
-body.tidal-visual select,
-body.tidal-visual textarea {
-  color: var(--stone-tide-ink);
-  border-color: var(--stone-tide-line);
-  background: color-mix(in srgb, var(--stone-tide-surface) 88%, transparent);
+body.stone-theme-enabled input,
+body.stone-theme-enabled select,
+body.stone-theme-enabled textarea {
+  color: var(--stone-theme-ink);
+  border-color: var(--stone-theme-line);
+  background: color-mix(in srgb, var(--stone-theme-surface) 88%, transparent);
 }
 
-body.tidal-visual button,
-body.tidal-visual .theme-upload {
+body.stone-theme-enabled button,
+body.stone-theme-enabled .theme-upload {
   transition:
-    transform var(--stone-tide-motion-fast) var(--stone-tide-ease-soft),
-    background var(--stone-tide-motion-fast) ease,
-    box-shadow var(--stone-tide-motion-normal) var(--stone-tide-ease-soft);
+    transform var(--stone-theme-motion-fast) var(--stone-theme-ease-soft),
+    background var(--stone-theme-motion-fast) ease,
+    box-shadow var(--stone-theme-motion-normal) var(--stone-theme-ease-soft);
 }
 
 .theme-workbench {
@@ -121,10 +97,10 @@ body.tidal-visual .theme-upload {
 .theme-file-badge {
   flex: none;
   padding: 6px 10px;
-  color: var(--stone-tide-accent-strong);
-  border: 1px solid var(--stone-tide-line);
-  border-radius: var(--stone-tide-radius-pill);
-  background: var(--stone-tide-accent-soft);
+  color: var(--stone-theme-accent-strong);
+  border: 1px solid var(--stone-theme-line);
+  border-radius: var(--stone-theme-radius-pill);
+  background: var(--stone-theme-accent-soft);
   font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
   font-size: 11px;
   letter-spacing: 0.06em;
@@ -138,11 +114,11 @@ body.tidal-visual .theme-upload {
 }
 
 .theme-token-group {
-  border-top: 1px solid var(--stone-tide-line-soft);
+  border-top: 1px solid var(--stone-theme-line-soft);
 }
 
 .theme-token-group:last-child {
-  border-bottom: 1px solid var(--stone-tide-line-soft);
+  border-bottom: 1px solid var(--stone-theme-line-soft);
 }
 
 .theme-token-group > summary {
@@ -172,10 +148,10 @@ body.tidal-visual .theme-upload {
 }
 
 .theme-token-group > summary i {
-  color: var(--stone-tide-accent);
+  color: var(--stone-theme-accent);
   font-size: 20px;
   font-style: normal;
-  transition: transform var(--stone-tide-motion-fast) var(--stone-tide-ease-soft);
+  transition: transform var(--stone-theme-motion-fast) var(--stone-theme-ease-soft);
 }
 
 .theme-token-group[open] > summary i {
@@ -204,19 +180,19 @@ body.tidal-visual .theme-upload {
   min-width: 0;
   min-height: 42px;
   padding: 0 12px;
-  border: 1px solid var(--stone-tide-line);
-  border-radius: var(--stone-tide-radius-sm);
+  border: 1px solid var(--stone-theme-line);
+  border-radius: var(--stone-theme-radius-sm);
   outline: none;
 }
 
 .theme-token-field input:focus {
-  border-color: var(--stone-tide-accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--stone-tide-accent) 14%, transparent);
+  border-color: var(--stone-theme-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--stone-theme-accent) 14%, transparent);
 }
 
 .theme-token-field input[aria-invalid="true"] {
-  border-color: var(--stone-tide-danger);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--stone-tide-danger) 14%, transparent);
+  border-color: var(--stone-theme-danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--stone-theme-danger) 14%, transparent);
 }
 
 .theme-token-control {
@@ -235,7 +211,7 @@ body.tidal-visual .theme-upload {
   left: 10px;
   width: 21px;
   height: 21px;
-  border: 1px solid var(--stone-tide-line);
+  border: 1px solid var(--stone-theme-line);
   border-radius: 7px;
   box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.35);
   pointer-events: none;
@@ -255,10 +231,10 @@ body.tidal-visual .theme-upload {
   justify-content: center;
   min-height: 48px;
   padding: 0 22px;
-  color: var(--stone-tide-accent-strong);
+  color: var(--stone-theme-accent-strong);
   border: 1px solid var(--moss-200);
-  border-radius: var(--stone-tide-radius-pill);
-  background: var(--stone-tide-accent-soft);
+  border-radius: var(--stone-theme-radius-pill);
+  background: var(--stone-theme-accent-soft);
   font-weight: 650;
   cursor: pointer;
 }

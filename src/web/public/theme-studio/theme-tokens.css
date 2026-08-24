@@ -1,0 +1,176 @@
+/*
+ * Stone Memory visual tokens
+ *
+ * Original Stone Memory theme vocabulary. This visual-only layer does not
+ * change application routes, state, API calls or persistence.
+ */
+
+:root {
+  --stone-theme-font-display: Georgia, "Noto Serif SC", serif;
+  --stone-theme-font-body: Inter, "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+
+  --stone-theme-canvas: #f5f8f1;
+  --stone-theme-canvas-warm: #fffef9;
+  --stone-theme-ink: #18372b;
+  --stone-theme-ink-soft: #69756d;
+  --stone-theme-ink-faint: #796d5d;
+  --stone-theme-accent: #397052;
+  --stone-theme-accent-strong: #295540;
+  --stone-theme-accent-soft: #eaf2e5;
+  --stone-theme-calendar-bloom: #d98794;
+  --stone-theme-surface: rgba(255, 254, 249, 0.94);
+  --stone-theme-surface-soft: #f2f3ef;
+  /* 原版页面使用产品最初的精确色值；开发者模块也直接复用这一份。 */
+  --stone-theme-page-background:
+    radial-gradient(circle at 10% 10%, rgba(214, 228, 204, 0.72), transparent 32rem),
+    #f5f8f1;
+  /* 自定义主题才从当前主题的背景色和强调色生成等深度光晕。 */
+  --stone-theme-page-glow-strong:
+    color-mix(in srgb, var(--stone-theme-accent) 16%, var(--stone-theme-canvas));
+  --stone-theme-custom-page-background:
+    radial-gradient(
+      circle at 10% 10%,
+      color-mix(in srgb, var(--stone-theme-page-glow-strong) 72%, transparent),
+      transparent 32rem
+    ),
+    var(--stone-theme-canvas);
+  --stone-theme-line: #dce6d7;
+  --stone-theme-line-soft: rgba(220, 230, 215, 0.9);
+  --stone-theme-status: #7ea36f;
+  --stone-theme-danger: #a3463e;
+  --stone-theme-warning: #8a6542;
+  --stone-theme-info: #5f7196;
+  --stone-theme-conflict: #a65d56;
+  --stone-theme-fusion: #765a96;
+
+  --stone-theme-radius-xs: 9px;
+  --stone-theme-radius-sm: 12px;
+  --stone-theme-radius-md: 18px;
+  --stone-theme-radius-lg: 28px;
+  --stone-theme-radius-pill: 999px;
+
+  --stone-theme-shadow-card: 0 18px 50px rgba(41, 85, 64, 0.1);
+  --stone-theme-shadow-panel: 0 18px 50px rgba(41, 85, 64, 0.1);
+  --stone-theme-shadow-floating: 0 24px 70px rgba(41, 85, 64, 0.16);
+  --stone-theme-shadow-button: 0 10px 24px rgba(57, 112, 82, 0.24);
+
+  --stone-theme-space-1: 6px;
+  --stone-theme-space-2: 10px;
+  --stone-theme-space-3: 14px;
+  --stone-theme-space-4: 18px;
+  --stone-theme-space-5: 24px;
+  --stone-theme-space-6: 32px;
+
+  --stone-theme-motion-fast: 180ms;
+  --stone-theme-motion-normal: 200ms;
+  --stone-theme-ease-soft: ease;
+}
+
+:root[data-stone-theme]:not([data-stone-theme="Stone Memory Original"]) {
+  --stone-theme-page-background: var(--stone-theme-custom-page-background);
+}
+
+/*
+ * Semantic bridge:
+ * existing Stone Memory components keep their selectors, while their
+ * palette, surfaces, radii and shadows inherit the Stone Memory theme system.
+ */
+body.stone-theme-enabled {
+  --pine-950: var(--stone-theme-ink);
+  --pine-800: var(--stone-theme-accent-strong);
+  --pine-700: var(--stone-theme-accent);
+  --moss-500: var(--stone-theme-accent);
+  --moss-300: color-mix(in srgb, var(--stone-theme-accent) 42%, var(--stone-theme-line));
+  --moss-200: color-mix(in srgb, var(--stone-theme-accent-soft) 68%, var(--stone-theme-line));
+  --moss-100: var(--stone-theme-accent-soft);
+  --leaf-50: var(--stone-theme-canvas);
+  --paper: var(--stone-theme-surface);
+  --earth: var(--stone-theme-ink-faint);
+  --muted: var(--stone-theme-ink-soft);
+  --line: var(--stone-theme-line);
+  --danger: var(--stone-theme-danger);
+  --shadow: var(--stone-theme-shadow-panel);
+  --radius-lg: var(--stone-theme-radius-lg);
+  --radius-md: var(--stone-theme-radius-md);
+  --radius-sm: var(--stone-theme-radius-sm);
+
+  color: var(--stone-theme-ink);
+  background: var(--stone-theme-page-background);
+  background-repeat: no-repeat;
+  background-size: 100% 100dvh;
+  font-family: var(--stone-theme-font-body);
+}
+
+body.stone-custom-logo .hero-stone,
+body.stone-custom-logo .brand-mark,
+body.stone-custom-logo .mini-stone {
+  background: var(--stone-theme-logo) center / contain no-repeat;
+}
+
+body.stone-custom-logo .hero-stone > *,
+body.stone-custom-logo .brand-mark > *,
+body.stone-custom-logo .mini-stone > * {
+  display: none;
+}
+
+body.stone-theme-enabled .brand,
+body.stone-theme-enabled .panel h1,
+body.stone-theme-enabled .page-title,
+body.stone-theme-enabled .welcome h1,
+body.stone-theme-enabled .lobby-head h1,
+body.stone-theme-enabled .side-title,
+body.stone-theme-enabled .dashboard-head h1,
+body.stone-theme-enabled .section-card h2,
+body.stone-theme-enabled .library-card h2,
+body.stone-theme-enabled .memory-entry-grid strong {
+  font-family: var(--stone-theme-font-display), var(--stone-theme-font-body);
+}
+
+body.stone-theme-enabled .panel,
+body.stone-theme-enabled .dashboard-head,
+body.stone-theme-enabled .section-card,
+body.stone-theme-enabled .library-card,
+body.stone-theme-enabled .maintenance-card,
+body.stone-theme-enabled .memory-entry-grid button,
+body.stone-theme-enabled .stat,
+body.stone-theme-enabled .import-card {
+  box-shadow: var(--stone-theme-shadow-card);
+  backdrop-filter: blur(18px) saturate(115%);
+  -webkit-backdrop-filter: blur(18px) saturate(115%);
+}
+
+body.stone-theme-enabled .primary {
+  border-color: color-mix(in srgb, var(--stone-theme-accent-strong) 70%, var(--stone-theme-accent));
+  background: linear-gradient(
+    135deg,
+    var(--stone-theme-accent-strong),
+    color-mix(in srgb, var(--stone-theme-accent) 72%, var(--stone-theme-accent-strong))
+  );
+  box-shadow: var(--stone-theme-shadow-button);
+}
+
+body.stone-theme-enabled .primary:hover {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--stone-theme-accent-strong) 82%, var(--stone-theme-accent)),
+    var(--stone-theme-accent)
+  );
+}
+
+body.stone-theme-enabled .secondary,
+body.stone-theme-enabled .side-nav button.active,
+body.stone-theme-enabled .side-nav button:hover {
+  color: var(--stone-theme-accent-strong);
+  background: var(--stone-theme-accent-soft);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.stone-theme-enabled *,
+  body.stone-theme-enabled *::before,
+  body.stone-theme-enabled *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

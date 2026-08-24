@@ -138,7 +138,7 @@ async function main() {
   }
 
   cfg.runtimes = {
-    claude: { command: "claude -p --bare", flags: { systemPrompt: "--system-prompt-file", mcpConfig: "--mcp-config", model: "--model" } },
+    claude: { command: "claude -p", flags: { systemPrompt: "--system-prompt-file", mcpConfig: "--mcp-config", model: "--model" } },
   };
 
   // Step 5: 初始化第一个线程（可选）
