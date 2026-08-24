@@ -147,6 +147,9 @@ function gateToolCall(name, args, state, limits) {
   if (READ_ONLY_TOOLS.has(name) && state.testCalls === 0 && state.patchCalls === 0 && state.readOnlyCalls >= initialReadBudget) {
     return '初始源码读取预算已用尽，请先运行测试获取失败证据';
   }
+  if (['read_file', 'search_code', 'git_show_file'].includes(name) && state.testCalls > 0 && state.lastTestPassed !== true && state.failureEvidenceDelivered) {
+    return '失败对应的 PR 源码证据已提供，请直接 apply_patch 或 needs_human';
+  }
   if (name === 'apply_patch') {
     if (state.readOnlyCalls < 1) return '必须先通过只读工具调查代码，再 apply_patch';
     if (state.patchCalls >= limits.maxPatchCalls) return '修改批次达到硬上限';
@@ -167,6 +170,9 @@ function availableDefinitions(definitions, state, limits) {
   const initialReadBudget = Math.max(1, limits.maxReadOnlyCalls - FAILURE_READ_RESERVE);
   if (state.testCalls === 0 && state.patchCalls === 0 && state.readOnlyCalls >= initialReadBudget) {
     return definitions.filter((tool) => ['apply_patch', 'run_tests', 'finish'].includes(tool?.function?.name));
+  }
+  if (state.testCalls > 0 && state.lastTestPassed !== true && state.failureEvidenceDelivered) {
+    return definitions.filter((tool) => ['git_diff', 'apply_patch', 'run_tests', 'finish'].includes(tool?.function?.name));
   }
   return definitions;
 }
@@ -229,6 +235,7 @@ export async function runRepairAgent({
     remainingUnresolved: [],
     lastTestPassed: false,
     failureReadCalls: 0,
+    failureEvidenceDelivered: false,
   };
   const messages = [
     { role: 'system', content: REPAIR_AGENT_SYSTEM_PROMPT },
@@ -310,7 +317,10 @@ export async function runRepairAgent({
           if (name === 'apply_patch' && Array.isArray(result?.remainingUnresolved)) {
             state.remainingUnresolved = result.remainingUnresolved;
           }
-          if (name === 'apply_patch') state.failureReadCalls = 0;
+          if (name === 'apply_patch') {
+            state.failureReadCalls = 0;
+            state.failureEvidenceDelivered = false;
+          }
           if (name === 'apply_patch' && result?.applied === true) {
             state.pendingVerification = state.remainingUnresolved.length === 0;
             appliedInTurn = true;
@@ -319,6 +329,12 @@ export async function runRepairAgent({
             state.lastTestPassed = result?.passed === true;
             state.pendingVerification = false;
             state.failureReadCalls = 0;
+            state.failureEvidenceDelivered = false;
+          }
+          if (['read_file', 'search_code', 'git_show_file'].includes(name)
+            && state.testCalls > 0 && state.lastTestPassed !== true
+            && Array.isArray(result?.repairTargets) && result.repairTargets.length > 0) {
+            state.failureEvidenceDelivered = true;
           }
         }
       }

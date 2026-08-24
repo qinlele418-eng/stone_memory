@@ -622,7 +622,14 @@ export function createAgentTools({
     const start = Math.max(1, Number(args.start_line || 1));
     const requestedEnd = Number(args.end_line || Math.min(lines.length, start + AGENT_TOOL_LIMITS.maxReadLines - 1));
     const end = Math.min(lines.length, Math.max(start, requestedEnd), start + AGENT_TOOL_LIMITS.maxReadLines - 1);
-    const result = { ok: true, path: normalized, startLine: start, endLine: end, content: clip(redactSensitiveText(lines.slice(start - 1, end).join('\n')), AGENT_TOOL_LIMITS.maxReadChars) };
+    const result = {
+      ok: true,
+      path: normalized,
+      startLine: start,
+      endLine: end,
+      content: clip(redactSensitiveText(lines.slice(start - 1, end).join('\n')), AGENT_TOOL_LIMITS.maxReadChars),
+      ...(failureStage && failurePaths.length > 0 ? { repairTargets: failurePaths.slice(0, 8) } : {}),
+    };
     if (state.testCalls > 0 && state.lastTestPassed !== true && state.lastFailureFiles.length > 0) {
       const references = {};
       for (const [label, revision] of [['main', revisions.main], ['pr', revisions.pr]]) {

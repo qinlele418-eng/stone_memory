@@ -115,7 +115,7 @@ test('failed tests get bundled source evidence while retaining a bounded repair 
       { type: 'function', function: { name: 'finish', parameters: { type: 'object' } } },
     ],
     async call(name) {
-      if (name === 'read_file') return { ok: true, path: 'src/theme.js', content: 'const prefix = "--stone-tide-";\n', relatedFiles: [{ path: 'src/theme.js', content: '...' }] };
+      if (name === 'read_file') return { ok: true, path: 'src/theme.js', repairTargets: ['src/theme.js'], content: 'const prefix = "--stone-tide-";\n', relatedFiles: [{ path: 'src/theme.js', content: '...' }] };
       if (name === 'apply_patch') return { ok: true, applied: true, changedFiles: ['src/theme.js'], remainingUnresolved: [] };
       if (name === 'run_tests') {
         testCalls += 1;
@@ -134,6 +134,9 @@ test('failed tests get bundled source evidence while retaining a bounded repair 
   const failureTools = client.calls[2].tools.map((tool) => tool.function.name);
   assert.ok(failureTools.includes('read_file'));
   assert.ok(failureTools.includes('apply_patch'));
+  const patchTools = client.calls[3].tools.map((tool) => tool.function.name);
+  assert.equal(patchTools.includes('read_file'), false);
+  assert.equal(patchTools.includes('search_code'), false);
 });
 
 test('agent finishes all unresolved conflict patches before running tests', async () => {
