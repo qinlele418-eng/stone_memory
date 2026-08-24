@@ -82,7 +82,110 @@ test('agent keeps one conversation and uses a bounded inspect-edit-test-finish l
   assert.equal(result.metrics.maxLogicalTurns, AGENT_LIMITS.maxLogicalTurns);
 });
 
-test('agent rejects a repair completion before a passing test without a tool-call cap', async () => {
+test('runtime seeds initial failure evidence before model exploration', async () => {
+  const calls = [];
+  let testCalls = 0;
+  const tools = {
+    definitions: [
+      { type: 'function', function: { name: 'get_status', parameters: { type: 'object' } } },
+      { type: 'function', function: { name: 'read_file', parameters: { type: 'object' } } },
+      { type: 'function', function: { name: 'apply_patch', parameters: { type: 'object' } } },
+      { type: 'function', function: { name: 'run_tests', parameters: { type: 'object' } } },
+      { type: 'function', function: { name: 'finish', parameters: { type: 'object' } } },
+    ],
+    async call(name, args) {
+      calls.push([name, args]);
+      if (name === 'get_status') return { ok: true, unresolved: [] };
+      if (name === 'run_tests') {
+        testCalls += 1;
+        return testCalls === 1
+          ? {
+            ok: true,
+            passed: false,
+            repairTargets: ['src/theme.js'],
+            repairSources: [{ path: 'src/theme.js', content: 'const preset = "legacy";' }],
+            result: { total: 1, passed: 0, failed: 1, failures: [{ file: 'test/theme.test.js', error: 'legacy' }] },
+          }
+          : { ok: true, passed: true, result: { total: 1, passed: 1, failed: 0, failures: [] } };
+      }
+      if (name === 'apply_patch') return { ok: true, applied: true, changedFiles: ['src/theme.js'], remainingUnresolved: [] };
+      if (name === 'finish') return { ok: true, status: args.decision, summary: args.summary };
+      return { ok: true, content: 'source' };
+    },
+    snapshot() { return {}; },
+  };
+  const client = scriptedClient([
+    { role: 'assistant', tool_calls: [toolCall('1', 'apply_patch', { patch: 'diff --git a/src/theme.js b/src/theme.js\n' })] },
+  ]);
+  const result = await runRepairAgent({ task: '修复 CI 失败', client, tools, requiresPatch: true });
+
+  assert.equal(result.status, 'repair_complete');
+  assert.deepEqual(calls.map(([name]) => name), ['get_status', 'run_tests', 'apply_patch', 'run_tests']);
+  assert.match(client.calls[0].messages.at(-1).content, /runtime 首轮相关测试验证/);
+  assert.equal(result.metrics.toolTrace[1].name, 'run_tests(initial)');
+  assert.equal(result.metrics.toolTrace[2].name, 'apply_patch');
+  assert.equal(result.metrics.successfulPatchCalls, 1);
+});
+
+test('runtime audit trace preserves tool arguments, search queries, and unchanged results', async () => {
+  const auditDirectory = await mkdtemp(join(tmpdir(), 'stone-memory-agent-audit-'));
+  const auditPath = join(auditDirectory, 'agent-audit.json');
+  const client = scriptedClient([
+    { role: 'assistant', tool_calls: [toolCall('search-1', 'search_code', { query: 'legacy-name', path: 'src' })] },
+    { role: 'assistant', tool_calls: [toolCall('search-2', 'search_code', { query: 'legacy-name', path: 'src' })] },
+    { role: 'assistant', tool_calls: [toolCall('finish-1', 'finish', { decision: 'needs_human', reason: '证据不足' })] },
+  ]);
+  const tools = {
+    definitions: [
+      { type: 'function', function: { name: 'search_code', parameters: { type: 'object' } } },
+      { type: 'function', function: { name: 'finish', parameters: { type: 'object' } } },
+    ],
+    async call(name, args) {
+      if (name === 'search_code') return { ok: true, query: args.query, path: args.path, matches: 'src/example.js:1:legacy-name' };
+      return { ok: true, status: args.decision, reason: args.reason };
+    },
+    snapshot() { return {}; },
+  };
+  const result = await runRepairAgent({ task: '审计重复搜索', client, tools, auditPath });
+
+  assert.equal(result.status, 'needs_human');
+  const [first, second, finish] = result.metrics.toolTrace;
+  assert.deepEqual(first.arguments, { query: 'legacy-name', path: 'src' });
+  assert.equal(first.query, 'legacy-name');
+  assert.equal(second.unchanged, true);
+  assert.equal(second.result.matches, 'src/example.js:1:legacy-name');
+  assert.equal(finish.callId, 'finish-1');
+  const audit = JSON.parse(await readFile(auditPath, 'utf8'));
+  assert.equal(audit.status, 'needs_human');
+  assert.equal(audit.metrics.auditSchemaVersion, 1);
+  assert.ok(audit.metrics.auditTrace.some((event) => event.type === 'model_response'));
+  await rm(auditDirectory, { recursive: true, force: true });
+});
+
+test('runtime forwards a complete tool result to the next model turn', async () => {
+  const client = scriptedClient([
+    { role: 'assistant', tool_calls: [toolCall('read-1', 'read_file', { path: 'src/example.js' })] },
+    { role: 'assistant', tool_calls: [toolCall('finish-1', 'finish', { decision: 'needs_human', reason: 'done' })] },
+  ]);
+  const fullContent = 'evidence-'.repeat(3_000);
+  const tools = {
+    definitions: [
+      { type: 'function', function: { name: 'read_file', parameters: { type: 'object' } } },
+      { type: 'function', function: { name: 'finish', parameters: { type: 'object' } } },
+    ],
+    async call(name) {
+      if (name === 'read_file') return { ok: true, path: 'src/example.js', content: fullContent };
+      return { ok: true, status: 'needs_human' };
+    },
+    snapshot() { return {}; },
+  };
+  await runRepairAgent({ task: '保留完整证据', client, tools });
+  const toolMessage = client.calls[1].messages.find((message) => message.role === 'tool');
+  assert.ok(toolMessage.content.length > 16_000);
+  assert.match(toolMessage.content, /evidence-evidence/);
+});
+
+test('agent records and accepts a model completion without a runtime call gate', async () => {
   const client = scriptedClient([
     { role: 'assistant', tool_calls: [toolCall('1', 'read_file', { path: 'src/example.js' })] },
     { role: 'assistant', tool_calls: [toolCall('2', 'finish', { decision: 'repair_complete', summary: '过早完成' })] },
@@ -93,10 +196,10 @@ test('agent rejects a repair completion before a passing test without a tool-cal
   ]);
   const result = await runRepairAgent({ task: '修复冲突', client, tools: fakeTools(), limits: { ...AGENT_LIMITS, maxLogicalTurns: 5 } });
 
-  assert.equal(result.status, 'ai_unavailable');
-  assert.match(result.reason, /scripted client ran out/);
-  assert.equal(result.metrics.logicalTurns, 7);
-  assert.ok(client.calls[2].tools.map((tool) => tool.function.name).includes('read_file'));
+  assert.equal(result.status, 'repair_complete');
+  assert.equal(result.metrics.logicalTurns, 2);
+  assert.equal(result.metrics.toolTrace[1].name, 'finish');
+  assert.equal(result.metrics.toolTrace[1].result.status, 'repair_complete');
 });
 
 test('failed tests get bundled source evidence while retaining a bounded repair loop', async () => {
@@ -235,7 +338,7 @@ test('agent never exposes an unrestricted shell tool', async () => {
   assert.equal(tools.definitions.some((tool) => tool.function.name === 'shell'), false);
 });
 
-test('Z.AI client hard-caps per-turn output, disables thinking, and retries overload once', async () => {
+test('Z.AI client preserves the requested per-turn output, disables thinking, and retries overload once', async () => {
   const requests = [];
   let calls = 0;
   const result = await callZaiChat({

@@ -2,7 +2,7 @@ import { redactErrorMessage, redactSensitiveText } from './contract.mjs';
 
 export const DEFAULT_ZAI_BASE_URL = 'https://api.z.ai/api/paas/v4';
 export const DEFAULT_ZAI_MODEL = 'glm-4.5-flash';
-export const DEFAULT_AGENT_MAX_TOKENS = 4_096;
+export const DEFAULT_AGENT_MAX_TOKENS = 16_000;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -50,7 +50,7 @@ export async function callZaiChat({
   if (!apiKey) throw new ZaiClientError('缺少 ZAI_API_KEY', { code: 'missing_key' });
   if (!Array.isArray(messages) || messages.length === 0) throw new ZaiClientError('Z.AI 请求缺少 conversation messages', { code: 'invalid_request' });
   if (typeof fetchImpl !== 'function') throw new ZaiClientError('当前 Node 环境没有 fetch', { code: 'no_fetch' });
-  const boundedTokens = Math.min(Math.max(1, Number(maxTokens) || DEFAULT_AGENT_MAX_TOKENS), DEFAULT_AGENT_MAX_TOKENS);
+  const requestedTokens = Math.max(1, Number(maxTokens) || DEFAULT_AGENT_MAX_TOKENS);
   let retries = 0;
   let attempts = 0;
 
@@ -71,7 +71,7 @@ export async function callZaiChat({
           tools,
           tool_choice: 'auto',
           temperature: 0,
-          max_tokens: boundedTokens,
+          max_tokens: requestedTokens,
           stream: false,
           // GLM-4.5-Flash otherwise spends the small per-turn budget on hidden reasoning.
           thinking: { type: 'disabled' },

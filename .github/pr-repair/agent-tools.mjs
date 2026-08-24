@@ -14,12 +14,16 @@ import {
 } from './contract.mjs';
 
 export const AGENT_TOOL_LIMITS = Object.freeze({
-  maxReadChars: 12_000,
-  maxSearchChars: 8_000,
-  maxDiffChars: 16_000,
-  maxTestChars: 12_000,
-  maxPatchChars: 10_000,
-  maxReadLines: 240,
+  // These are serialization ceilings rather than model exploration budgets.
+  // The agent must be able to inspect the complete failing file/report while
+  // we are diagnosing its behaviour; the outer job remains the lifecycle
+  // boundary. Path validation and secret redaction still apply.
+  maxReadChars: 1_000_000,
+  maxSearchChars: 1_000_000,
+  maxDiffChars: 1_000_000,
+  maxTestChars: 1_000_000,
+  maxPatchChars: 1_000_000,
+  maxReadLines: 100_000,
 });
 
 export async function runSandboxedTests({ cwd, runCommandImpl = runCommand, timeoutMs = 8 * 60 * 1_000 } = {}) {
@@ -121,7 +125,7 @@ const TOOL_DEFINITIONS = Object.freeze([
     type: 'function',
     function: {
       name: 'read_file',
-      description: '按行范围读取仓库内文件；不要一次读取大文件全文。',
+      description: '读取仓库内文件；可按需读取完整文件或指定行范围。',
       parameters: {
         type: 'object',
         properties: {
@@ -138,7 +142,7 @@ const TOOL_DEFINITIONS = Object.freeze([
     type: 'function',
     function: {
       name: 'search_code',
-      description: '在仓库内搜索符号、调用者、API 或测试引用；只返回有限匹配。',
+      description: '在仓库内搜索符号、调用者、API 或测试引用；返回全部匹配。',
       parameters: {
         type: 'object',
         properties: {
@@ -198,7 +202,7 @@ const TOOL_DEFINITIONS = Object.freeze([
     type: 'function',
     function: {
       name: 'run_tests',
-      description: '运行受信任的相关/完整测试并返回脱敏后的有限结果。',
+      description: '运行受信任的相关/完整测试并返回脱敏后的完整结果。',
       parameters: {
         type: 'object',
         properties: {
@@ -432,7 +436,7 @@ function failureSummary(report) {
       total: result.total,
       passed: result.passed,
       failed: result.failed,
-      failures: Array.isArray(result.failures) ? result.failures.slice(0, 8) : [],
+      failures: Array.isArray(result.failures) ? result.failures : [],
     },
     stderr: clip(redactSensitiveText(report?.stderr || ''), AGENT_TOOL_LIMITS.maxTestChars),
   };
@@ -474,10 +478,10 @@ function conflictBlocks(content, path) {
     conflicts.push({
       startLine: start + 1,
       endLine: end + 1,
-      ours: clip(redactSensitiveText(lines.slice(start + 1, divider).join('\n')), 8_000),
-      theirs: clip(redactSensitiveText(lines.slice(divider + 1, end).join('\n')), 8_000),
-      before: clip(redactSensitiveText(lines.slice(Math.max(0, start - 3), start).join('\n')), 1_000),
-      after: clip(redactSensitiveText(lines.slice(end + 1, Math.min(lines.length, end + 4)).join('\n')), 1_000),
+      ours: redactSensitiveText(lines.slice(start + 1, divider).join('\n')),
+      theirs: redactSensitiveText(lines.slice(divider + 1, end).join('\n')),
+      before: redactSensitiveText(lines.slice(Math.max(0, start - 3), start).join('\n')),
+      after: redactSensitiveText(lines.slice(end + 1, Math.min(lines.length, end + 4)).join('\n')),
     });
   }
   return { path, conflicts };
@@ -556,7 +560,7 @@ export function createAgentTools({
     // routing generic: the runtime never needs to know a project's vocabulary.
     const evidenceTokens = [...new Set(
       state.lastFailureEvidence.join('\n').match(/[A-Za-z][A-Za-z0-9]*(?:[-_][A-Za-z0-9]+)+/g) || [],
-    )].slice(0, 12);
+    )];
     if (evidenceTokens.length > 0) {
       for (const file of allowed) {
         if (isTestPath(file)) continue;
@@ -584,12 +588,12 @@ export function createAgentTools({
 
   async function failureSourceEvidence() {
     const sources = [];
-    for (const normalized of (await failureFallbackPaths()).slice(0, 8)) {
+    for (const normalized of await failureFallbackPaths()) {
       try {
         const { absolute } = safeReadPath(cwd, normalized);
         sources.push({
           path: normalized,
-          content: clip(redactSensitiveText(await readFile(absolute, 'utf8')), 2_000),
+          content: redactSensitiveText(await readFile(absolute, 'utf8')),
         });
       } catch {
         // Keep the evidence that is available; a concurrent file removal is
@@ -601,7 +605,7 @@ export function createAgentTools({
 
   async function failureTestEvidence() {
     const sources = [];
-    for (const normalized of state.lastFailureFiles.slice(0, 8)) {
+    for (const normalized of state.lastFailureFiles) {
       if (!/(?:^|\/)(?:test|tests|__tests__)(?:\/|$)/i.test(normalized)
         && !/\.(?:test|spec)\.[^/]+$/i.test(normalized)) continue;
       if (!allowed.includes(normalized)) continue;
@@ -609,7 +613,7 @@ export function createAgentTools({
         const { absolute } = safeReadPath(cwd, normalized);
         sources.push({
           path: normalized,
-          content: clip(redactSensitiveText(await readFile(absolute, 'utf8')), 2_000),
+          content: redactSensitiveText(await readFile(absolute, 'utf8')),
           role: 'failing-test-evidence',
         });
       } catch {
@@ -637,7 +641,7 @@ export function createAgentTools({
     ]);
     const unresolvedPaths = await unresolvedFiles();
     const conflictDetails = [];
-    for (const file of unresolvedPaths.slice(0, 12)) {
+    for (const file of unresolvedPaths) {
       try {
         const { absolute } = safeReadPath(cwd, file);
         conflictDetails.push(conflictBlocks(await readFile(absolute, 'utf8'), file));
@@ -685,7 +689,7 @@ export function createAgentTools({
         cached: true,
         note: '该路径已在本回合读取；内容未变化。请停止重复读取，直接运行测试或根据失败证据 apply_patch。',
       } : {}),
-      ...(failureStage && failurePaths.length > 0 ? { repairTargets: failurePaths.slice(0, 8) } : {}),
+      ...(failureStage && failurePaths.length > 0 ? { repairTargets: failurePaths } : {}),
     };
     if (state.testCalls > 0 && state.lastTestPassed !== true && state.lastFailureFiles.length > 0) {
       const references = {};
@@ -703,12 +707,12 @@ export function createAgentTools({
       }
       if (failurePaths.length > 1) {
         result.relatedFiles = [];
-        for (const relatedPath of failurePaths.slice(0, 8)) {
+        for (const relatedPath of failurePaths) {
           try {
             const related = await safeReadPath(cwd, relatedPath);
             result.relatedFiles.push({
               path: relatedPath,
-              content: clip(redactSensitiveText(await readFile(related.absolute, 'utf8')), 2_000),
+              content: redactSensitiveText(await readFile(related.absolute, 'utf8')),
             });
           } catch {
             // Keep the primary source content even if a secondary candidate vanished.
@@ -723,7 +727,7 @@ export function createAgentTools({
     const query = String(args.query || '').trim();
     const failureStage = state.testCalls > 0 && state.lastTestPassed !== true;
     if (!query && failureStage) {
-      const repairTargets = (await failureFallbackPaths()).slice(0, 8);
+      const repairTargets = await failureFallbackPaths();
       return {
         ok: true,
         query: '',
@@ -735,7 +739,7 @@ export function createAgentTools({
     }
     if (!query) throw new Error('search_code 缺少 query');
     const target = safeSearchPath(cwd, args.path || '.');
-    const result = await runCommandImpl('rg', ['--no-heading', '--line-number', '--fixed-strings', '--max-count', '40', query, target.normalized], { cwd, timeoutMs: 30_000 });
+    const result = await runCommandImpl('rg', ['--no-heading', '--line-number', '--fixed-strings', query, target.normalized], { cwd, timeoutMs: 30_000 });
     if (result.code !== 0 && result.code !== 1) throw new Error(redactErrorMessage(result.stderr || result.stdout || 'rg 搜索失败'));
     return {
       ok: true,
@@ -744,7 +748,7 @@ export function createAgentTools({
       matches: clip(redactSensitiveText(result.stdout), AGENT_TOOL_LIMITS.maxSearchChars),
       truncated: result.stdout.length > AGENT_TOOL_LIMITS.maxSearchChars,
       ...(failureStage ? {
-        repairTargets: (await failureFallbackPaths()).slice(0, 8),
+        repairTargets: await failureFallbackPaths(),
         repairSources: await failureSourceEvidence(),
       } : {}),
     };
@@ -1014,7 +1018,7 @@ export function createAgentTools({
       ];
     }
     state.failureReadIndex = 0;
-    const repairTargets = state.lastTestPassed ? [] : (await failureFallbackPaths()).slice(0, 8);
+    const repairTargets = state.lastTestPassed ? [] : await failureFallbackPaths();
     const repairSources = state.lastTestPassed
       ? []
       : [...await failureSourceEvidence(), ...await failureTestEvidence()];
