@@ -5,8 +5,8 @@ import { callZaiChat, DEFAULT_ZAI_MODEL } from './zai-client.mjs';
 import { redactErrorMessage, redactModelValue } from './contract.mjs';
 
 export const AGENT_LIMITS = Object.freeze({
-  maxLogicalTurns: 20,
-  maxApiAttempts: 21,
+  maxLogicalTurns: 26,
+  maxApiAttempts: 27,
   maxTokensPerTurn: 4_096,
   maxCompletionTokens: 24_576,
   maxHistoryChars: 48_000,
@@ -174,6 +174,9 @@ function availableDefinitions(definitions, state, limits) {
   if (state.testCalls > 0 && state.lastTestPassed !== true && state.failureEvidenceDelivered) {
     return definitions.filter((tool) => ['git_diff', 'apply_patch', 'run_tests', 'finish'].includes(tool?.function?.name));
   }
+  if (state.patchRetryRequired && state.lastTestPassed !== true) {
+    return definitions.filter((tool) => ['read_file', 'git_diff', 'apply_patch', 'finish'].includes(tool?.function?.name));
+  }
   return definitions;
 }
 
@@ -236,6 +239,7 @@ export async function runRepairAgent({
     lastTestPassed: false,
     failureReadCalls: 0,
     failureEvidenceDelivered: false,
+    patchRetryRequired: false,
   };
   const messages = [
     { role: 'system', content: REPAIR_AGENT_SYSTEM_PROMPT },
@@ -320,6 +324,7 @@ export async function runRepairAgent({
           if (name === 'apply_patch') {
             state.failureReadCalls = 0;
             state.failureEvidenceDelivered = false;
+            state.patchRetryRequired = result?.applied !== true;
           }
           if (name === 'apply_patch' && result?.applied === true) {
             state.pendingVerification = state.remainingUnresolved.length === 0;
@@ -330,6 +335,7 @@ export async function runRepairAgent({
             state.pendingVerification = false;
             state.failureReadCalls = 0;
             state.failureEvidenceDelivered = false;
+            state.patchRetryRequired = false;
           }
           if (['read_file', 'search_code', 'git_show_file'].includes(name)
             && state.testCalls > 0 && state.lastTestPassed !== true
