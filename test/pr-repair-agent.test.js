@@ -129,6 +129,51 @@ test('runtime seeds initial failure evidence before model exploration', async ()
   assert.equal(result.metrics.successfulPatchCalls, 1);
 });
 
+test('transient Z.AI timeout resumes the repair loop with preserved evidence', async () => {
+  const calls = [];
+  let modelCalls = 0;
+  let testCalls = 0;
+  const tools = {
+    definitions: [
+      { type: 'function', function: { name: 'get_status', parameters: { type: 'object' } } },
+      { type: 'function', function: { name: 'run_tests', parameters: { type: 'object' } } },
+      { type: 'function', function: { name: 'apply_patch', parameters: { type: 'object' } } },
+    ],
+    async call(name, args) {
+      calls.push([name, args]);
+      if (name === 'get_status') return { ok: true, unresolved: [] };
+      if (name === 'run_tests') {
+        testCalls += 1;
+        return testCalls === 1
+          ? { ok: true, passed: false, repairTargets: ['src/theme.js'], repairSources: [{ path: 'src/theme.js', content: 'legacy' }], result: { total: 1, passed: 0, failed: 1, failures: [{ file: 'test/theme.test.js', error: 'legacy' }] } }
+          : { ok: true, passed: true, result: { total: 1, passed: 1, failed: 0, failures: [] } };
+      }
+      if (name === 'apply_patch') return { ok: true, applied: true, changedFiles: ['src/theme.js'], remainingUnresolved: [] };
+      throw new Error(`unknown tool ${name}`);
+    },
+    snapshot() { return {}; },
+  };
+  const client = {
+    calls: [],
+    async complete(input) {
+      this.calls.push(input);
+      modelCalls += 1;
+      if (modelCalls === 1) {
+        const error = new Error('temporary timeout');
+        error.code = 'timeout';
+        throw error;
+      }
+      return { message: { role: 'assistant', tool_calls: [toolCall('patch-after-timeout', 'apply_patch', { patch: '*** Update File: src/theme.js\nfixed\n' })] }, usage: { completion_tokens: 20 }, attempts: 1 };
+    },
+  };
+  const result = await runRepairAgent({ task: '修复 CI 失败', client, tools, requiresPatch: true });
+
+  assert.equal(result.status, 'repair_complete');
+  assert.equal(result.metrics.transientApiRecoveries, 1);
+  assert.deepEqual(calls.map(([name]) => name), ['get_status', 'run_tests', 'apply_patch', 'run_tests']);
+  assert.ok(result.metrics.auditTrace.some((event) => event.type === 'api_recovery'));
+});
+
 test('runtime audit trace preserves tool arguments, search queries, and unchanged results', async () => {
   const auditDirectory = await mkdtemp(join(tmpdir(), 'stone-memory-agent-audit-'));
   const auditPath = join(auditDirectory, 'agent-audit.json');

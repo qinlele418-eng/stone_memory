@@ -119,6 +119,7 @@ function metrics(state, limits, startedAt, clock = nowMs) {
     logicalTurns: state.logicalTurns,
     apiAttempts: state.apiAttempts,
     completionTokens: state.completionTokens,
+    transientApiRecoveries: state.transientApiRecoveries,
     readOnlyCalls: state.readOnlyCalls,
     patchCalls: state.patchCalls,
     successfulPatchCalls: state.successfulPatchCalls,
@@ -154,6 +155,12 @@ function exceeded() {
   // The GitHub job is the outer lifecycle boundary. The coding runtime must
   // not terminate exploration early and hide the model's actual behaviour.
   return null;
+}
+
+function isRecoverableApiError(error) {
+  return error?.code === 'timeout'
+    || error?.retryable === true
+    || [408, 429, 500, 502, 503, 504].includes(Number(error?.status));
 }
 
 function gateToolCall(name, args, state, limits) {
@@ -230,6 +237,7 @@ export async function runRepairAgent({
     logicalTurns: 0,
     apiAttempts: 0,
     completionTokens: 0,
+    transientApiRecoveries: 0,
     readOnlyCalls: 0,
     patchCalls: 0,
     successfulPatchCalls: 0,
@@ -392,6 +400,22 @@ export async function runRepairAgent({
         messages.splice(2, messages.length - 2, {
           role: 'system',
           content: '上一次响应达到 token 上限。请立即缩小操作：只调用一个必要工具，或调用 finish(decision="needs_human")。',
+        });
+        continue;
+      }
+      if (isRecoverableApiError(error)) {
+        state.transientApiRecoveries += 1;
+        const nextAction = state.failureEvidenceDelivered && state.patchCalls === 0
+          ? '失败证据已经完整提供；下一次响应直接调用 apply_patch，读取工具仍可用。'
+          : '保留已有上下文，继续执行尚未完成的工具调用；不要重复已经成功读取的内容。';
+        state.flushAudit('api_recovery', {
+          turn: state.logicalTurns,
+          recovery: state.transientApiRecoveries,
+          nextAction,
+        });
+        messages.push({
+          role: 'system',
+          content: `上一轮 Z.AI 请求暂时没有返回（${errorMessage}）。运行时保留了全部上下文，请继续当前维修，不要把通信失败当成人工结论。${nextAction}`,
         });
         continue;
       }
