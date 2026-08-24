@@ -103,8 +103,7 @@ test('failed tests get bundled source evidence while retaining a bounded repair 
   const client = scriptedClient([
     { role: 'assistant', tool_calls: [toolCall('1', 'read_file', { path: 'test/theme.test.js' })] },
     { role: 'assistant', tool_calls: [toolCall('2', 'run_tests', { mode: 'related' })] },
-    { role: 'assistant', tool_calls: [toolCall('3', 'read_file', { path: 'test/theme.test.js' })] },
-    { role: 'assistant', tool_calls: [toolCall('4', 'apply_patch', { patch: 'diff --git a/src/theme.js b/src/theme.js\n' })] },
+    { role: 'assistant', tool_calls: [toolCall('3', 'apply_patch', { patch: 'diff --git a/src/theme.js b/src/theme.js\n' })] },
   ]);
   let testCalls = 0;
   const tools = {
@@ -130,13 +129,53 @@ test('failed tests get bundled source evidence while retaining a bounded repair 
   const result = await runRepairAgent({ task: '修复 CI 失败', client, tools, limits: { ...AGENT_LIMITS, maxExploreTurns: 2 } });
 
   assert.equal(result.status, 'repair_complete');
-  assert.deepEqual(result.metrics.toolSequence, ['read_file', 'run_tests', 'read_file', 'apply_patch', 'run_tests(auto)']);
+  assert.deepEqual(result.metrics.toolSequence, ['read_file', 'run_tests', 'apply_patch', 'run_tests(auto)']);
   const failureTools = client.calls[2].tools.map((tool) => tool.function.name);
-  assert.ok(failureTools.includes('read_file'));
-  assert.ok(failureTools.includes('apply_patch'));
-  const patchTools = client.calls[3].tools.map((tool) => tool.function.name);
-  assert.equal(patchTools.includes('read_file'), false);
-  assert.equal(patchTools.includes('search_code'), false);
+  assert.equal(failureTools.includes('read_file'), false);
+  assert.equal(failureTools.includes('apply_patch'), true);
+});
+
+test('automatic failed verification locks the next turn onto the new repair evidence', async () => {
+  const client = scriptedClient([
+    { role: 'assistant', tool_calls: [toolCall('1', 'read_file', { path: 'src/theme.js' })] },
+    { role: 'assistant', tool_calls: [toolCall('2', 'apply_patch', { patch: 'diff --git a/src/theme.js b/src/theme.js\n' })] },
+    { role: 'assistant', tool_calls: [toolCall('3', 'apply_patch', { patch: 'diff --git a/test/theme.test.js b/test/theme.test.js\n' })] },
+  ]);
+  let testCalls = 0;
+  const tools = {
+    definitions: [
+      { type: 'function', function: { name: 'read_file', parameters: { type: 'object' } } },
+      { type: 'function', function: { name: 'apply_patch', parameters: { type: 'object' } } },
+      { type: 'function', function: { name: 'run_tests', parameters: { type: 'object' } } },
+      { type: 'function', function: { name: 'finish', parameters: { type: 'object' } } },
+    ],
+    async call(name) {
+      if (name === 'read_file') return { ok: true, path: 'src/theme.js', repairTargets: ['src/theme.js'], content: 'const prefix = "--stone-theme-";\n' };
+      if (name === 'apply_patch') {
+        return { ok: true, applied: true, changedFiles: ['src/theme.js'], remainingUnresolved: [] };
+      }
+      if (name === 'run_tests') {
+        testCalls += 1;
+        return testCalls === 1
+          ? {
+            ok: true,
+            passed: false,
+            repairTargets: [],
+            repairSources: [{ path: 'test/theme.test.js', content: 'stone-tide', role: 'failing-test-evidence' }],
+            result: { total: 2, passed: 1, failed: 1, failures: [{ file: 'test/theme.test.js', error: 'stone-tide' }] },
+          }
+          : { ok: true, passed: true, result: { total: 2, passed: 2, failed: 0, failures: [] } };
+      }
+      return { ok: true, status: 'needs_human' };
+    },
+    snapshot() { return {}; },
+  };
+  const result = await runRepairAgent({ task: '修复 CI 失败', client, tools });
+
+  assert.equal(result.status, 'repair_complete');
+  assert.deepEqual(result.metrics.toolSequence, ['read_file', 'apply_patch', 'run_tests(auto)', 'apply_patch', 'run_tests(auto)']);
+  assert.equal(client.calls[2].tools.some((tool) => tool.function.name === 'read_file'), false);
+  assert.equal(client.calls[2].tools.some((tool) => tool.function.name === 'apply_patch'), true);
 });
 
 test('agent finishes all unresolved conflict patches before running tests', async () => {

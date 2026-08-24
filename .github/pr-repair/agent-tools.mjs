@@ -409,7 +409,7 @@ function repairGuidance(report, allowed) {
   if (/stone-tide|tidal-visual|tidal-tokens|Tidal_Echo|Pearl Tide/i.test(evidence)) {
     hints.push({
       file: 'PR changed frontend source files',
-      instruction: '这是 current main 已迁移命名但 PR 仍带旧兼容命名的失败。run_tests 已附带允许 PR 源码 repairSources 和 main/pr 参考；不要再次 search_code 或 git_diff，直接只修改 PR changedFiles 中命中的源码，把 stone-tide、tidal-visual、tidal-tokens、Tidal_Echo、Pearl Tide 等旧命名迁移到 current main 的 --stone-theme-*、stone-theme-* 契约，不修改测试或 workflow。',
+      instruction: '这是 current main 已迁移命名但 PR 仍带旧兼容命名的失败。run_tests 已附带允许 PR 文件 repairSources 和 main/pr 参考；不要再次 search_code 或 git_diff，直接只修改 PR changedFiles 中命中的源码或仍断言旧命名的测试，把 stone-tide、tidal-visual、tidal-tokens、Tidal_Echo、Pearl Tide 等旧命名迁移到 current main 的 --stone-theme-*、stone-theme-* 契约；不得削弱、删除或绕过测试。',
     });
   }
   return hints;
@@ -565,6 +565,26 @@ export function createAgentTools({
       } catch {
         // Keep the evidence that is available; a concurrent file removal is
         // reported by the normal read path instead of guessed around.
+      }
+    }
+    return sources;
+  }
+
+  async function failureTestEvidence() {
+    const sources = [];
+    for (const normalized of state.lastFailureFiles.slice(0, 8)) {
+      if (!/(?:^|\/)(?:test|tests|__tests__)(?:\/|$)/i.test(normalized)
+        && !/\.(?:test|spec)\.[^/]+$/i.test(normalized)) continue;
+      if (!allowed.includes(normalized)) continue;
+      try {
+        const { absolute } = safeReadPath(cwd, normalized);
+        sources.push({
+          path: normalized,
+          content: clip(redactSensitiveText(await readFile(absolute, 'utf8')), 2_000),
+          role: 'failing-test-evidence',
+        });
+      } catch {
+        // The failure report remains available even if the test file vanished.
       }
     }
     return sources;
@@ -1058,6 +1078,9 @@ export function createAgentTools({
     }
     state.failureReadIndex = 0;
     const repairTargets = state.lastTestPassed ? [] : (await failureFallbackPaths()).slice(0, 8);
+    const repairSources = state.lastTestPassed
+      ? []
+      : [...await failureSourceEvidence(), ...await failureTestEvidence()];
     return {
       ok: true,
       mode: 'full',
@@ -1066,7 +1089,7 @@ export function createAgentTools({
       ...(state.lastTestPassed ? {} : {
         repairTargets,
         repairGuidance: repairGuidance(report, allowed),
-        repairSources: await failureSourceEvidence(),
+        repairSources,
       }),
     };
   }

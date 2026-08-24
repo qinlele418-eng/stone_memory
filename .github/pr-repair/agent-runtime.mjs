@@ -33,7 +33,7 @@ export const REPAIR_AGENT_SYSTEM_PROMPT = [
   '必须保留 PR 的原始功能意图，只处理 current main 导致的冲突或明确的相关测试失败。',
   '冲突任务优先调用一次 get_status；其 conflictDetails 已集中给出所有未解决冲突块，ours 是 PR 侧、theirs 是 current main 侧，并带有前后文。不要逐个调用 git_show_file 来重新扫描这些冲突；读取集中结果后直接 apply_patch。每次 apply_patch 的结果会列出 remainingUnresolved；必须继续处理这些文件，直到列表为空。未解决冲突清空前不要调用 run_tests，先完成所有冲突文件；只有列表为空后才验证。每次读取若省略 path，runtime 会优先给出仍未解决的文件。CI 失败任务只做少量初始取证，runtime 随后会强制 run_tests；不要重复读取同一个测试文件或反复猜搜索词。测试失败时，runtime 会依据失败证据优先路由到允许的相关源码，并附带 main/pr 参考、repairGuidance 和相关候选文件；按需读取、修改并验证。若 notebook MCP/web 报 JSON 解析错误，读取并修复受限的 scripts/stmem-notebook.js（CLI 必须输出单行 JSON），不要只反复改 bin/stmem。冲突清空后每次成功 apply_patch 后 runtime 会自动运行一次相关测试，再根据结果继续。git_show_file 必须带 revision（base、pr 或 main），否则用 read_file。',
   'apply_patch 的 patch 参数不要用 Markdown 围栏；可用标准 unified diff，或严格使用 *** Begin Patch、*** Update File: 路径、@@、带 +/- 前缀的行、*** End Patch 格式。',
-  '不要输出计划来代替修改，不要输出完整文件，不要修改测试、依赖入口、workflow、权限或凭据。',
+  '不要输出计划来代替修改，不要输出完整文件，不要为了让测试变绿而削弱或删除测试；如果可信 CI 直接证明 PR 自带测试仍断言已弃用命名规则，可以只做等价的机械命名迁移。不要修改依赖入口、workflow、权限或凭据。',
   '不要 commit、push、approve、merge、close PR；这些动作由外层机械层完成。',
   '如果证据不足、需要产品决策、预算耗尽或无法保守完成，调用 finish(decision="needs_human")。',
   '只有相关测试通过且冲突已经解决时，才能调用 finish(decision="repair_complete")。',
@@ -351,8 +351,9 @@ export async function runRepairAgent({
             // another copy of the same file.  A failed patch resets this flag
             // and opens one bounded read/diff retry cycle below.
             state.failureEvidenceDelivered = state.lastTestPassed !== true
-              && Array.isArray(result?.repairTargets)
-              && result.repairTargets.length > 0;
+              && ((Array.isArray(result?.repairTargets) && result.repairTargets.length > 0)
+                || (Array.isArray(result?.repairSources) && result.repairSources.length > 0)
+                || (result?.result?.failures?.length > 0));
             state.patchRetryRequired = false;
           }
           if (['read_file', 'search_code', 'git_show_file'].includes(name)
@@ -389,6 +390,18 @@ export async function runRepairAgent({
       }
       state.lastTestPassed = automaticTest?.passed === true;
       state.pendingVerification = false;
+      state.failureReadCalls = 0;
+      // An automatic verification is still a real verification.  When it
+      // exposes a new failure, carry its bounded repair evidence into the
+      // next model turn just like an explicit run_tests call.  Without this
+      // transition the model regained the full read/search surface after a
+      // successful patch, reread the same files, and could spend the rest of
+      // the Z.AI request budget exploring instead of fixing the new failure.
+      state.failureEvidenceDelivered = state.lastTestPassed !== true
+        && ((Array.isArray(automaticTest?.repairTargets) && automaticTest.repairTargets.length > 0)
+          || (Array.isArray(automaticTest?.repairSources) && automaticTest.repairSources.length > 0)
+          || (automaticTest?.result?.failures?.length > 0));
+      state.patchRetryRequired = false;
       state.toolTrace.push({
         name: 'run_tests(auto)',
         ok: automaticTest?.ok === true,
