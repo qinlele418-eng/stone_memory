@@ -1,18 +1,12 @@
 {
   "id": "memory-scratch",
   "title": "刮刮乐",
+  "contributor": "SM帝国左丞相可",
   "version": "1.0.0",
   "sdkVersion": 1,
   "scope": "memory",
   "permissions": ["core:read", "generation:use"],
-  "entry": { "frontend": "index.html", "commands": { "scratch": "backend/commands/scratch.js" } },
+  "entry": { "frontend": "frontend/index.html", "commands": { "migrate": "migrations/migrate.js" } },
   "storage": { "files": ["settings.json", "history.jsonl"], "browser": ["session-state"] },
-  "legacy": {
-    "frontend": "src/web/public/developer-modules/my-module",
-    "commands": { "scratch": "scripts/stmem-scratch.js" },
-    "storage": [
-      { "path": "<thread-dir>/memory/developer-modules/my-module.json", "mode": "奖励设置" },
-      { "path": "浏览器 sessionStorage", "mode": "单次刮卡状态" }
-    ]
-  }
+  "migration": { "mode": "explicit", "receipt": "migration-receipt.json" }
 }

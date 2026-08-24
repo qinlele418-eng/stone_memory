@@ -5,16 +5,8 @@
   "sdkVersion": 1,
   "scope": "memory",
   "permissions": ["core:read", "generation:use", "watcher:plugin"],
-  "entry": { "frontend": "index.html", "commands": { "dream": "backend/commands/dream.js" } },
-  "storage": { "files": ["preferences.json", "dreams"] },
+  "entry": { "frontend": "frontend/index.html", "commands": { "migrate": "migrations/migrate.js" } },
+  "storage": { "files": ["preferences.json", "dreams", "prompts", "operations"] },
   "watcher": { "plugin": "dev-dream" },
-  "legacy": {
-    "frontend": "src/web/public/dream-lab",
-    "commands": { "dream": "scripts/stmem-dream.js" },
-    "storage": [
-      { "path": "~/.stone_memory/dream/<thread-id>/<date>.md", "mode": "梦境正文" },
-      { "path": "<thread-dir>/dream/", "mode": "偏好与 Prompt 覆盖" },
-      { "path": "<thread-dir>/tmp/", "mode": "生成临时文件" }
-    ]
-  }
+  "migration": { "mode": "explicit", "receipt": "migration-receipt.json" }
 }

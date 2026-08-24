@@ -138,12 +138,8 @@ switch (cmd) {
     }
     break;
   case "module":
-    try {
-      require(path.join(SCRIPTS, "stmem-module")).runModuleCommand(process.argv.slice(3));
-    } catch (error) {
-      console.error(`[module] error: ${error.message}`);
-      process.exit(1);
-    }
+    Promise.resolve(require(path.join(SCRIPTS, "stmem-module")).runModuleCommand(process.argv.slice(3)))
+      .catch(error => { console.error(`[module] error: ${error.message}`); process.exitCode = 1; });
     break;
   case "rebuild":
     require(path.join(SCRIPTS, "stmem-rebuild"));

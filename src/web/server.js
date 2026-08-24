@@ -26,6 +26,7 @@ const { normalizeMiningApiProfile } = require("../services/mining-api-profile");
 const { configuredRuntimeIds, MiningReviewBatchStore } = require("../services/mining-review-batch");
 const { buildFeelingPrompt, buildFeaturePrompt } = require("../services/memory-miner");
 const { normalizeRebuildRequest, rebuildRequestCliArgs } = require("../services/rebuild-request");
+const { MODULE_ROOT, loadModules, resolveInside } = require("../services/developer-module-contract");
 
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MAX_UPLOAD = 512 * 1024 * 1024;
@@ -554,18 +555,13 @@ function listLibraries() {
   });
 }
 
-function listDeveloperModules(publicDir = PUBLIC_DIR) {
-  const root = path.join(publicDir, "developer-modules");
-  if (!fs.existsSync(root)) return [];
-  return fs.readdirSync(root, { withFileTypes: true })
-    .filter(entry => entry.isDirectory())
-    .flatMap(entry => {
-      try {
-        const manifest = JSON.parse(fs.readFileSync(path.join(root, entry.name, "module.json"), "utf8"));
-        const id = String(manifest.id || "").trim();
-        const expectedEntry = `/developer-modules/${id}/`;
-        if (!/^[a-z0-9][a-z0-9-]*$/u.test(id) || id !== entry.name || manifest.entry !== expectedEntry) return [];
-        return [{
+function listDeveloperModules() {
+  return loadModules(MODULE_ROOT)
+    .filter(module => !module.errors.length)
+    .map(module => {
+      const manifest = module.manifest;
+      const id = module.id;
+      return {
           id,
           title: String(manifest.title || id),
           summary: String(manifest.summary || ""),
@@ -576,11 +572,8 @@ function listDeveloperModules(publicDir = PUBLIC_DIR) {
           metaLabel: String(manifest.metaLabel || "Module"),
           features: Array.isArray(manifest.features) ? manifest.features.map(String).slice(0, 6) : [],
           order: Number.isFinite(Number(manifest.order)) ? Number(manifest.order) : 100,
-          entry: expectedEntry,
-        }];
-      } catch {
-        return [];
-      }
+          entry: `/developer-modules/${id}/`,
+      };
     })
     .sort((left, right) => left.order - right.order || left.id.localeCompare(right.id));
 }
@@ -604,9 +597,10 @@ function overview(threadId) {
 }
 
 function serveStatic(req, res, pathname) {
+  const moduleFile = resolveDeveloperModuleAsset(pathname);
   const requested = pathname === "/" ? "index.html" : pathname.endsWith("/") ? `${pathname.slice(1)}index.html` : pathname.slice(1);
-  const file = path.resolve(PUBLIC_DIR, requested);
-  if (!file.startsWith(PUBLIC_DIR) || !fs.existsSync(file)) return false;
+  const file = moduleFile || path.resolve(PUBLIC_DIR, requested);
+  if ((!file.startsWith(PUBLIC_DIR) && !file.startsWith(MODULE_ROOT)) || !fs.existsSync(file)) return false;
   const stat = fs.statSync(file);
   if (stat.isDirectory()) return false;
   const types = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".json": "application/json; charset=utf-8", ".svg": "image/svg+xml" };
@@ -635,6 +629,36 @@ function serveStatic(req, res, pathname) {
     fs.createReadStream(file).pipe(res);
   }
   return true;
+}
+
+// Module code is not copied into public/.  The host exposes manifest-owned
+// frontend assets through one generic, traversal-safe resolver.
+function resolveDeveloperModuleAsset(pathname) {
+  const aliases = new Map([
+    ["/dream-lab", "dream-lab"],
+    ["/notebook-lab", "notebook-lab"],
+    ["/review-lab", "review-lab"],
+    ["/theme-studio", "theme-studio"],
+    ["/developer-modules/extended-mining-workbench", "extended-mining-workbench"],
+    ["/developer-modules/my-module", "memory-scratch"],
+    ["/developer-modules/stone-memory-assistant", "stone-memory-assistant"],
+  ]);
+  const canonical = pathname.match(/^\/developer-modules\/([a-z0-9-]+)(?:\/(.*))?$/u);
+  if (canonical) {
+    try {
+      const module = loadModules(MODULE_ROOT).find(item => item.id === canonical[1]);
+      if (module) return resolveInside(path.join(module.moduleDir, "frontend"), canonical[2] || "index.html", "module frontend asset");
+    } catch { return null; }
+  }
+  const match = [...aliases.entries()].find(([prefix]) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+  if (!match) return null;
+  const [prefix, id] = match;
+  let module;
+  try { module = loadModules(MODULE_ROOT).find(item => item.id === id); } catch { return null; }
+  if (!module) return null;
+  const relative = pathname.slice(prefix.length).replace(/^\/+/, "") || "index.html";
+  try { return resolveInside(path.join(module.moduleDir, "frontend"), relative, "module frontend asset"); }
+  catch { return null; }
 }
 
 async function handleDreamSettings(req, url, threadId, resource) {

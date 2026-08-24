@@ -92,7 +92,9 @@ function auditDeveloperModules({ root = MODULE_ROOT } = {}) {
   const findings = listModuleDirectories(root).flatMap(auditModule);
   const errors = findings.filter(item => item.severity === "error").length;
   const warnings = findings.filter(item => item.severity === "warning").length;
-  return { ok: errors === 0, root, modules: listModuleDirectories(root).length, errors, warnings, findings };
+  // The migration programme is complete only when the report is clean.  A
+  // warning is therefore a CI failure, not a merge-time reminder.
+  return { ok: errors === 0 && warnings === 0, root, modules: listModuleDirectories(root).length, errors, warnings, findings };
 }
 
 module.exports = { auditDeveloperModules };

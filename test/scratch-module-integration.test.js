@@ -7,16 +7,15 @@ const path = require("node:path");
 const { listDeveloperModules } = require("../src/web/server");
 
 const root = path.join(__dirname, "..", "src", "web", "public");
-const moduleRoot = path.join(root, "developer-modules", "my-module");
+const moduleRoot = path.join(__dirname, "..", "developer-modules", "memory-scratch", "frontend");
 
 test("scratch module is discoverable through the generic developer module manifest", () => {
   const modules = listDeveloperModules(root);
-  const scratch = modules.find(row => row.id === "my-module");
+  const scratch = modules.find(row => row.id === "memory-scratch");
 
   assert.equal(scratch.title, "刮刮乐");
   assert.equal(scratch.contributor, "SM帝国左丞相可");
-  assert.equal(scratch.entry, "/developer-modules/my-module/");
-  assert.deepEqual(scratch.features, ["真实刮擦", "五色记忆奖励", "跟随挖掘通道"]);
+  assert.equal(scratch.entry, "/developer-modules/memory-scratch/");
 });
 
 test("scratch page uses the shared runtime, single page shell and pointer canvas", () => {

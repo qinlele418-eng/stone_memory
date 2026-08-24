@@ -1,6 +1,8 @@
 const path = require("path");
 const { loadModules, findModule, moduleDataDir } = require("../src/services/developer-module-contract");
 const { auditDeveloperModules } = require("../src/services/developer-module-audit");
+const { runModuleAction } = require("../src/services/developer-module-runtime");
+const fs = require("node:fs");
 
 function valueAfter(args, flag) {
   const index = args.indexOf(flag);
@@ -41,7 +43,15 @@ function runModuleCommand(args = process.argv.slice(3)) {
     if (args.includes("--strict") && !report.ok) process.exitCode = 1;
     return;
   }
-  throw new Error(`unknown module action: ${action}`);
+  const moduleId = action;
+  const command = args[1];
+  const threadId = valueAfter(args, "--thread");
+  if (!command) throw new Error("module command requires: stmem module <module-id> <action>");
+  if (!threadId && findModule(moduleId).manifest.scope === "memory") throw new Error("module command requires --thread <id>");
+  const batchFile = valueAfter(args, "--batch-file");
+  const input = batchFile ? JSON.parse(fs.readFileSync(batchFile, "utf8")) : {};
+  return Promise.resolve(runModuleAction({ moduleId, action: command, threadId, input }))
+    .then(result => console.log(JSON.stringify(result, null, 2)));
 }
 
 if (require.main === module) {
