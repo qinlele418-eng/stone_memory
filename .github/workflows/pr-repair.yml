@@ -946,14 +946,37 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+  publish_gate:
+    name: Evaluate verified repair publish gate
+    needs: apply_and_verify
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      allowed: ${{ steps.gate.outputs.allowed }}
+    steps:
+      - name: Check out trusted repair tools from main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+          path: tools
+
+      - name: Evaluate manual publish permission
+        id: gate
+        env:
+          PUSH_REPAIR_INPUT: ${{ github.event.inputs.push_repair || '' }}
+          APPLY_JOB_RESULT: ${{ needs.apply_and_verify.result }}
+          APPLY_REPAIR_STATUS: ${{ needs.apply_and_verify.outputs.status }}
+        run: node tools/.github/pr-repair/publish-gate.mjs
+
   publish:
     name: Optionally push verified append-only repair
-    needs: apply_and_verify
-    if: >-
-      github.event_name == 'workflow_dispatch' &&
-      github.event.inputs.push_repair == 'true' &&
-      needs.apply_and_verify.result == 'success' &&
-      needs.apply_and_verify.outputs.status == 'repair_success'
+    needs: [apply_and_verify, publish_gate]
+    if: needs.publish_gate.outputs.allowed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

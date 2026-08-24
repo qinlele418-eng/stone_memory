@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { publishGate } from '../.github/pr-repair/publish-gate.mjs';
 
 const workflow = readFileSync(new URL('../.github/workflows/pr-repair.yml', import.meta.url), 'utf8');
 
@@ -71,20 +72,18 @@ test('publish is gated by the post-validation final status', () => {
 });
 
 test('publish accepts only an explicit true manual-dispatch input after repair success', () => {
-  const canPublish = ({ eventName, pushRepair, applyResult, applyStatus }) => (
-    eventName === 'workflow_dispatch'
-    && pushRepair === 'true'
-    && applyResult === 'success'
-    && applyStatus === 'repair_success'
-  );
-  assert.equal(canPublish({ eventName: 'workflow_dispatch', pushRepair: 'true', applyResult: 'success', applyStatus: 'repair_success' }), true);
-  assert.equal(canPublish({ eventName: 'workflow_dispatch', pushRepair: 'false', applyResult: 'success', applyStatus: 'repair_success' }), false);
-  assert.equal(canPublish({ eventName: 'pull_request', pushRepair: 'true', applyResult: 'success', applyStatus: 'repair_success' }), false);
+  assert.equal(publishGate({ eventName: 'workflow_dispatch', pushRepair: 'true', applyResult: 'success', applyStatus: 'repair_success' }).allowed, true);
+  assert.equal(publishGate({ eventName: 'workflow_dispatch', pushRepair: true, applyResult: 'success', applyStatus: 'repair_success' }).allowed, true);
+  assert.equal(publishGate({ eventName: 'workflow_dispatch', pushRepair: 'false', applyResult: 'success', applyStatus: 'repair_success' }).allowed, false);
+  assert.equal(publishGate({ eventName: 'pull_request', pushRepair: 'true', applyResult: 'success', applyStatus: 'repair_success' }).allowed, false);
+  assert.equal(publishGate({ eventName: 'workflow_dispatch', pushRepair: 'true', applyResult: 'failure', applyStatus: 'repair_success' }).allowed, false);
+  const gateJob = workflow.slice(workflow.indexOf('  publish_gate:'), workflow.indexOf('  publish:'));
   const publishJob = workflow.slice(workflow.indexOf('  publish:'), workflow.indexOf('  post_push:'));
-  assert.match(publishJob, /github\.event_name == 'workflow_dispatch'/);
-  assert.match(publishJob, /github\.event\.inputs\.push_repair == 'true'/);
-  assert.match(publishJob, /needs\.apply_and_verify\.result == 'success'/);
-  assert.match(publishJob, /needs\.apply_and_verify\.outputs\.status == 'repair_success'/);
+  assert.match(gateJob, /if: always\(\)/);
+  assert.match(gateJob, /PUSH_REPAIR_INPUT: \$\{\{ github\.event\.inputs\.push_repair \|\| '' \}\}/);
+  assert.match(gateJob, /APPLY_JOB_RESULT: \$\{\{ needs\.apply_and_verify\.result \}\}/);
+  assert.match(gateJob, /APPLY_REPAIR_STATUS: \$\{\{ needs\.apply_and_verify\.outputs\.status \}\}/);
+  assert.match(publishJob, /needs\.publish_gate\.outputs\.allowed == 'true'/);
 });
 
 test('final validation stages every trusted test-runner dependency and restores artifact files by name', () => {
