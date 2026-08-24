@@ -9,6 +9,7 @@ const { isSystemInjection } = require("../lib/thread-message-filter");
 const { dateKeyFromTs } = require("./memory-archive");
 const { buildCodexSessionMeta } = require("./codex-session-meta");
 const { messageIdentity } = require("../lib/message-identity");
+const { replaceThreadFile } = require("../lib/thread-file-replacement");
 
 function itemKey(timestamp, role, text) {
   return messageIdentity(timestamp, role, text);
@@ -225,9 +226,7 @@ function repairIntegrityFile(file,runtime,threadId=path.basename(file)) {
     });
     output=[buildCodexSessionMeta(recovered,{threadId:sessionId}),...body];
   }
-  const temp = `${file}.repair-${process.pid}`;
-  fs.writeFileSync(temp, output.map(JSON.stringify).join("\n") + "\n", "utf8");
-  fs.renameSync(temp, file);
+  replaceThreadFile(file, output.map(JSON.stringify).join("\n") + "\n");
   const after = checkIntegrityFile(file,runtime,threadId);
   return { repaired: true, backup, before, after, message: after.healthy ? "已修复并通过复查" : "已完成安全修复；仍有无法自动恢复的问题" };
 }
@@ -292,6 +291,10 @@ function writeJsonlAtomic(file, rows) {
   fs.renameSync(temp, file);
 }
 
+function writeActiveThreadJsonl(file, rows) {
+  replaceThreadFile(file, rows.map(JSON.stringify).join("\n") + "\n");
+}
+
 function permanentlyTrimThread(threadId, { excludedMessages = [], excludedTools = [] } = {}) {
   const messageSet = new Set(excludedMessages), toolSet = new Set(excludedTools);
   if (!messageSet.size && !toolSet.size) return { removedMessages: 0, removedTools: 0, archiveMessages: 0, fullRecords: 0 };
@@ -300,7 +303,7 @@ function permanentlyTrimThread(threadId, { excludedMessages = [], excludedTools 
   const current = readJsonl(file);
   if (current.malformed) throw new Error("活动线程包含损坏 JSON，永久裁剪前请先检查并修复");
   const trimmed = trimRows(current.rows, runtime, messageSet, toolSet);
-  writeJsonlAtomic(file, trimmed.rows);
+  writeActiveThreadJsonl(file, trimmed.rows);
 
   // full 是重建源之一；若之前重建曾备份过同一条近期消息，必须同步清除，
   // 否则它会在下一次 rebuild 中重新出现。这里不生成可恢复副本。

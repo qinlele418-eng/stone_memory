@@ -27,6 +27,7 @@ const { readFeelings: readDatabaseFeelings, readMessages } = require("../src/sto
 const { itemKey, conversationWindow, loadRebuildPlan } = require("../src/services/rebuild-workbench");
 const { isSystemInjection } = require("../src/lib/thread-message-filter");
 const { previewRebuildArchiveCatchup, applyRebuildArchiveCatchup } = require("../src/services/rebuild-archive-catchup");
+const { replaceThreadFile } = require("../src/lib/thread-file-replacement");
 
 let THREAD_BASE = null;
 let FULL_ARCHIVE = null;
@@ -608,14 +609,17 @@ function rebuildThread(inputPath, outputPath, dryRun, windowDays, toolPairsOverr
     console.log(`  Catch-up (apply):  full/ +${catchup.pendingFullRows.length}, SQLite ≤${catchup.ingestPreview.candidates}`);
     console.log("==============================");
   } else {
+    // Keep the existing staged result for manual recovery if replacement fails.
     fs.writeFileSync(outputPath, outputText, "utf8");
-    const outputSize = fs.statSync(outputPath).size;
-    // 备份原文件
-    const bakPath = inputPath + ".bak." + new Date().toISOString().replace(/[:.]/g, "").slice(0, 15);
-    fs.copyFileSync(inputPath, bakPath);
-    console.log(`[rebuild]   backup: ${path.basename(bakPath)}`);
-    // 原子替换 — 不依赖外部 mv
-    fs.renameSync(outputPath, inputPath);
+    let bakPath;
+    replaceThreadFile(inputPath, outputText, { beforeRename: () => {
+      // 备份原文件
+      bakPath = inputPath + ".bak." + new Date().toISOString().replace(/[:.]/g, "").slice(0, 15);
+      fs.copyFileSync(inputPath, bakPath);
+      console.log(`[rebuild]   backup: ${path.basename(bakPath)}`);
+    } });
+    try { fs.unlinkSync(outputPath); } catch {}
+    const outputSize = fs.statSync(inputPath).size;
     const triggerIdx=process.argv.indexOf("--trigger"),trigger=triggerIdx>=0?process.argv[triggerIdx+1]:"cli";
     require("../src/services/rebuild-log").appendRebuildLog(currentThreadId,{status:"completed",runtime:"claude",trigger,threadFile:inputPath,windowDays,recentMessages:Math.max(0,stats.windowMsg-retainedMessages),retainAnchors:retainFeelings.length,retainedMessages,injectedFeelings:memoryFeelings.length,injectedRules:ruleCount,injectedRuleNames,preservedToolPairs:pairCount,originalBytes:fullArchiveSize,contextBytes:outputSize,outputLines:totalOutput});
     console.log(`\n[rebuild] ${(fullArchiveSize / 1024 / 1024).toFixed(2)} MB full → ` +
