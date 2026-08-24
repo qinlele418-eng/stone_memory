@@ -339,7 +339,14 @@ export async function runRepairAgent({
             state.lastTestPassed = result?.passed === true;
             state.pendingVerification = false;
             state.failureReadCalls = 0;
-            state.failureEvidenceDelivered = false;
+            // run_tests already returns the bounded failure report, repair
+            // targets, and source snippets.  Mark that evidence as delivered
+            // immediately so the next model turn edits instead of asking for
+            // another copy of the same file.  A failed patch resets this flag
+            // and opens one bounded read/diff retry cycle below.
+            state.failureEvidenceDelivered = state.lastTestPassed !== true
+              && Array.isArray(result?.repairTargets)
+              && result.repairTargets.length > 0;
             state.patchRetryRequired = false;
           }
           if (['read_file', 'search_code', 'git_show_file'].includes(name)
