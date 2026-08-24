@@ -409,7 +409,7 @@ function repairGuidance(report, allowed) {
   if (/stone-tide|tidal-visual|tidal-tokens|Tidal_Echo|Pearl Tide/i.test(evidence)) {
     hints.push({
       file: 'PR changed frontend source files',
-      instruction: '这是 current main 已迁移命名但 PR 仍带旧兼容命名的失败。先用 search_code 搜索 stone-tide、tidal-visual、tidal-tokens，再只修改 PR changedFiles 中命中的源码；参照 current main 的 --stone-theme-*、stone-theme-* 命名契约，不修改测试或 workflow。',
+      instruction: '这是 current main 已迁移命名但 PR 仍带旧兼容命名的失败。run_tests 已附带允许 PR 源码 repairSources 和 main/pr 参考；不要再次 search_code 或 git_diff，直接只修改 PR changedFiles 中命中的源码，把 stone-tide、tidal-visual、tidal-tokens、Tidal_Echo、Pearl Tide 等旧命名迁移到 current main 的 --stone-theme-*、stone-theme-* 契约，不修改测试或 workflow。',
     });
   }
   return hints;

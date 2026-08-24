@@ -152,7 +152,7 @@ function gateToolCall(name, args, state, limits) {
   if (READ_ONLY_TOOLS.has(name) && state.testCalls === 0 && state.patchCalls === 0 && state.readOnlyCalls >= initialReadBudget) {
     return '初始源码读取预算已用尽，请先运行测试获取失败证据';
   }
-  if (['read_file', 'search_code', 'git_show_file'].includes(name) && state.testCalls > 0 && state.lastTestPassed !== true && state.failureEvidenceDelivered) {
+  if (['read_file', 'search_code', 'git_show_file', 'git_diff'].includes(name) && state.testCalls > 0 && state.lastTestPassed !== true && state.failureEvidenceDelivered && !state.patchRetryRequired) {
     return '失败对应的 PR 源码证据已提供，请直接 apply_patch 或 needs_human';
   }
   if (name === 'apply_patch') {
@@ -177,7 +177,7 @@ function availableDefinitions(definitions, state, limits) {
     return definitions.filter((tool) => ['apply_patch', 'run_tests', 'finish'].includes(tool?.function?.name));
   }
   if (state.testCalls > 0 && state.lastTestPassed !== true && state.failureEvidenceDelivered) {
-    return definitions.filter((tool) => ['git_diff', 'apply_patch', 'run_tests', 'finish'].includes(tool?.function?.name));
+    return definitions.filter((tool) => ['apply_patch', 'run_tests', 'finish'].includes(tool?.function?.name));
   }
   if (state.patchRetryRequired && state.lastTestPassed !== true) {
     return definitions.filter((tool) => ['read_file', 'git_diff', 'apply_patch', 'finish'].includes(tool?.function?.name));
