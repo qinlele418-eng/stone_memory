@@ -33,6 +33,7 @@ const miningJobs = new Map();
 const compressionJobs = new Set();
 const reviewJobs = new Map();
 const dreamJobs = new Map();
+const scratchJobs = new Map();
 const PROJECT_ROOT = path.join(__dirname, "..", "..");
 const STMEM_BIN = path.join(PROJECT_ROOT, "bin", "stmem");
 
@@ -81,6 +82,29 @@ function runStmemAsync(args, { maxOutput = 8000 } = {}) {
     child.once("error",reject);
     child.once("close",code=>code===0?resolve(stdout.trim()):reject(new Error(safeStmemFailure(stderr,args[0],code))));
   });
+}
+
+function startScratchJob({ threadId, payload }) {
+  const id = crypto.randomUUID();
+  const createdAt = new Date().toISOString();
+  const job = { id, threadId, status: "running", createdAt, completedAt: null, result: null, error: null };
+  const batch = writePrivateBatch(payload);
+  scratchJobs.set(id, job);
+  runStmemAsync(["scratch", "generate", "--thread", threadId, "--batch-file", batch.file], {
+    maxOutput: 512 * 1024,
+  })
+    .then(output => {
+      job.status = "completed";
+      job.result = JSON.parse(output);
+      job.completedAt = new Date().toISOString();
+    })
+    .catch(error => {
+      job.status = "failed";
+      job.error = String(error.message || error).slice(0, 1000);
+      job.completedAt = new Date().toISOString();
+    })
+    .finally(batch.cleanup);
+  return job;
 }
 
 function miningDatesFromStore(store,threadId) {
@@ -463,6 +487,37 @@ function listLibraries() {
   });
 }
 
+function listDeveloperModules(publicDir = PUBLIC_DIR) {
+  const root = path.join(publicDir, "developer-modules");
+  if (!fs.existsSync(root)) return [];
+  return fs.readdirSync(root, { withFileTypes: true })
+    .filter(entry => entry.isDirectory())
+    .flatMap(entry => {
+      try {
+        const manifest = JSON.parse(fs.readFileSync(path.join(root, entry.name, "module.json"), "utf8"));
+        const id = String(manifest.id || "").trim();
+        const expectedEntry = `/developer-modules/${id}/`;
+        if (!/^[a-z0-9][a-z0-9-]*$/u.test(id) || id !== entry.name || manifest.entry !== expectedEntry) return [];
+        return [{
+          id,
+          title: String(manifest.title || id),
+          summary: String(manifest.summary || ""),
+          contributor: String(manifest.contributor || ""),
+          status: String(manifest.status || "社区实验"),
+          eyebrow: String(manifest.eyebrow || "COMMUNITY MODULE"),
+          actionLabel: String(manifest.actionLabel || "打开 →"),
+          metaLabel: String(manifest.metaLabel || "Module"),
+          features: Array.isArray(manifest.features) ? manifest.features.map(String).slice(0, 6) : [],
+          order: Number.isFinite(Number(manifest.order)) ? Number(manifest.order) : 100,
+          entry: expectedEntry,
+        }];
+      } catch {
+        return [];
+      }
+    })
+    .sort((left, right) => left.order - right.order || left.id.localeCompare(right.id));
+}
+
 function overview(threadId) {
   const library = listLibraries().find(item => item.threadId === threadId);
   if (!library) return null;
@@ -561,6 +616,41 @@ async function handleDreamSettings(req, url, threadId, resource) {
 }
 
 async function handleApi(req, res, url) {
+  if (req.method === "GET" && url.pathname === "/api/developer-modules") {
+    return json(res, 200, { modules: listDeveloperModules() });
+  }
+
+  const scratchJobMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/scratch\/jobs\/([^/]+)$/);
+  if (req.method === "GET" && scratchJobMatch) {
+    const threadId = decodeURIComponent(scratchJobMatch[1]);
+    publicThreadSettings(threadId);
+    const job = scratchJobs.get(decodeURIComponent(scratchJobMatch[2]));
+    if (!job || job.threadId !== threadId) return error(res, 404, "刮刮乐任务不存在或已经过期");
+    return json(res, 200, { job });
+  }
+
+  const scratchMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/scratch(?:\/(settings|generate))?$/);
+  if (scratchMatch) {
+    const threadId = decodeURIComponent(scratchMatch[1]);
+    const action = scratchMatch[2] || "inspect";
+    publicThreadSettings(threadId);
+    if (req.method === "GET" && action === "inspect") {
+      return json(res, 200, JSON.parse(runStmem(["scratch", "inspect", "--thread", threadId])));
+    }
+    if (req.method === "PATCH" && action === "settings") {
+      const batch = writePrivateBatch(await readJson(req));
+      try {
+        return json(res, 200, JSON.parse(runStmem(["scratch", "settings", "--thread", threadId, "--batch-file", batch.file])));
+      } finally {
+        batch.cleanup();
+      }
+    }
+    if (req.method === "POST" && action === "generate") {
+      const job = startScratchJob({ threadId, payload: await readJson(req) });
+      return json(res, 202, { job: { id: job.id, status: job.status } });
+    }
+  }
+
   if (req.method === "GET" && url.pathname === "/review-lab/api/libraries") {
     const threadId = String(url.searchParams.get("threadId") || "");
     if (!threadId) throw new Error("缺少当前记忆体标识，请从开发者模式进入记忆审阅实验室");
@@ -1269,6 +1359,10 @@ function cleanupPreviews() {
     const timestamp = Date.parse(job.completedAt || job.createdAt || "");
     if (Number.isFinite(timestamp) && timestamp < cutoff) reviewJobs.delete(id);
   }
+  for (const [id, job] of scratchJobs) {
+    const timestamp = Date.parse(job.completedAt || job.createdAt || "");
+    if (job.status !== "running" && Number.isFinite(timestamp) && timestamp < cutoff) scratchJobs.delete(id);
+  }
 }
 
 function startWebServer({ host = "127.0.0.1", port = 4173 } = {}) {
@@ -1292,6 +1386,7 @@ function startWebServer({ host = "127.0.0.1", port = 4173 } = {}) {
 
 module.exports = {
   startWebServer, listLibraries, overview, previewRows, paginate, buildConversationCalendar,
+  listDeveloperModules,
   miningDatesFromStore, miningCommandArgs, miningCheckCommandArgs, targetedMiningCommandArgs,
   timelineCommandArgs, compactTimelineReport, compressionCommandArgs, safeStmemFailure, runStmem,
   reviewCandidateForWeb, reviewProfileFromInput,

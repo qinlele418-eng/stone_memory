@@ -116,6 +116,7 @@ function loadFeelings(_feelingsFile, memoryDir, threadId) {
       content: r.content,
       date,
       utcTime: r.eventTime || (time ? toUtc(date, time.hour, time.minute) : null),
+      importance: Number(r.importance) || 0,
     });
   }
   _feelingsCache = feelings;
@@ -132,7 +133,10 @@ function readArchive(memoryDir, threadId, dateStr) {
 
 function searchByKeyword(query, { maxResults = 1, threadId } = {}) {
   const keywords = extractKeywords(query);
-  if (keywords.length === 0) return { hits: [], text: "No searchable keywords found." };
+  if (keywords.length === 0) return {
+    hits: [], matchCount: 0, firstSeen: null, lastSeen: null,
+    text: "No searchable keywords found.",
+  };
 
   const p = resolvePaths(threadId);
   const feelings = loadFeelings(p.feelingsFile, p.memoryDir, p.threadId);
@@ -150,7 +154,10 @@ function searchByKeyword(query, { maxResults = 1, threadId } = {}) {
   scored.sort((a, b) => b.score - a.score);
   const top = scored.slice(0, maxResults);
 
-  if (top.length === 0) return { hits: [], text: "No matching memories found." };
+  if (top.length === 0) return {
+    hits: [], matchCount: 0, firstSeen: null, lastSeen: null,
+    text: "No matching memories found.",
+  };
 
   const results = [];
   for (const hit of top) {
@@ -206,7 +213,11 @@ function searchByKeyword(query, { maxResults = 1, threadId } = {}) {
       score: t.score,
       date: t.date,
       utcTime: t.utcTime,
+      importance: t.importance,
     })),
+    matchCount: scored.length,
+    firstSeen: scored.map(row => row.date).filter(Boolean).sort()[0] || null,
+    lastSeen: scored.map(row => row.date).filter(Boolean).sort().at(-1) || null,
     text: results.map(r => r.text).join("\n\n---\n\n"),
   };
 }

@@ -39,6 +39,7 @@ if (!cmd || cmd === "--help" || cmd === "-h") {
   stmem mine --thread <id> --stop                  停止该记忆体当前挖掘任务
   stmem mine [--thread <id>] --targeted --batch-file <json>  对选中的对话精准补挖并追加摘要
   stmem mine-review preview|list|mix|apply|discard            可审阅候选与按日替换
+  stmem scratch inspect|settings|generate --thread <id>      刮刮乐奖励读取、设置与生成
   stmem dream --thread <id> --date <YYYY-MM-DD>     织梦：为已挖掘完成的日期生成一场梦
   stmem dream preferences --thread <id>            查看织梦策略与秘典状态
   stmem dream pin --thread <id> --type <type>      梦向牵引：指定下一场梦类型
@@ -110,6 +111,13 @@ switch (cmd) {
     break;
   case "mine-review":
     require(path.join(SCRIPTS, "stmem-mine-review"));
+    break;
+  case "scratch":
+    Promise.resolve(require(path.join(SCRIPTS, "stmem-scratch")).runScratchCommand(process.argv.slice(3)))
+      .catch(error => {
+        console.error(`[scratch] error: ${error.message}`);
+        process.exitCode = 1;
+      });
     break;
   case "dream":
     try {

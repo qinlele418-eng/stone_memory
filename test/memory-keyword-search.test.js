@@ -70,7 +70,11 @@ test("deep-search hits retain time metadata and archive lookup uses the configur
     score: 1,
     date: "2026-06-17",
     utcTime: "2026-06-17T12:00:00.000Z",
+    importance: 3,
   }]);
+  assert.equal(keyword.matchCount, 1);
+  assert.equal(keyword.firstSeen, "2026-06-17");
+  assert.equal(keyword.lastSeen, "2026-06-17");
 
   const archive = searchArchiveContext("2026-06-17", ["归栖"], {
     maxDays: 1,
