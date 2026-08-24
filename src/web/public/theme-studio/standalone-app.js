@@ -17,8 +17,30 @@
   const MAX_FILE_SIZE = 320 * 1024;
   const MAX_LOGO_FILE_SIZE = 200 * 1024;
   const LOGO_TYPES = new Set(["image/png", "image/webp"]);
-  const CONTRACT_URL = "./contract.json?v=3";
+  const CONTRACT_URL = "./contract.json?v=5";
   const state = { contract: null, theme: null, customThemes: [] };
+  const RETIRED_THEME_FINGERPRINTS = new Set(["362qx4", "scef1"]);
+  const BUILTIN_PRESETS = {
+    pineInk: {
+      name: "松烟青",
+      colors: {
+        canvas: "#edf1f4", canvasWarm: "#f7f5ef", ink: "#18252b", inkSoft: "#53636a", inkFaint: "#7f8b90",
+        accent: "#2f6874", accentStrong: "#174752", accentSoft: "#d8e9ea", calendarBloom: "#ba6673",
+        surface: "rgba(250, 250, 247, 0.96)", surfaceSoft: "#e4ebec",
+        line: "#c5d2d3", lineSoft: "rgba(117, 139, 142, 0.22)",
+        status: "#477b61", danger: "#ad4f45", warning: "#9a6a30", info: "#486f9b",
+        conflict: "#985852", fusion: "#745991",
+      },
+      radii: { extraSmall: "7px", small: "11px", medium: "17px", large: "26px", pill: "9999px" },
+      shadows: {
+        card: "0 7px 22px rgba(24, 55, 62, 0.08)",
+        panel: "0 18px 52px rgba(19, 52, 59, 0.12)",
+        floating: "0 28px 82px rgba(13, 36, 41, 0.18)",
+        button: "0 9px 20px rgba(47, 104, 116, 0.24)",
+      },
+      motion: { fast: "135ms", normal: "225ms", easing: "cubic-bezier(0.16, 0.84, 0.32, 1)" },
+    },
+  };
   const COMMUNITY_THEMES = {
     garden: {
       name: "苔粉花园",
@@ -26,7 +48,7 @@
       contributor: "@小绒太尉",
       colors: {
         canvas: "#f5f0eb", ink: "#3d3d3d", inkSoft: "#78769c", inkFaint: "#8d8799",
-        accent: "#db9ed3", accentStrong: "#a965a0", accentSoft: "rgba(237, 204, 224, 0.34)",
+        accent: "#db9ed3", accentStrong: "#a965a0", accentSoft: "rgba(237, 204, 224, 0.34)", calendarBloom: "#d98794",
         surface: "#fdfaf6", surfaceSoft: "rgba(253, 250, 246, 0.72)",
         line: "rgba(219, 158, 211, 0.30)", lineSoft: "rgba(219, 158, 211, 0.18)",
         status: "#91b078", danger: "#a7564f", warning: "#9a6b43", info: "#6d76a8",
@@ -45,7 +67,7 @@
       contributor: "@小绒太尉",
       colors: {
         canvas: "#f4f3f7", ink: "#1a1922", inkSoft: "#6d6a7c", inkFaint: "#8d8998",
-        accent: "#6e4f9a", accentStrong: "#523c78", accentSoft: "rgba(110, 79, 154, 0.10)",
+        accent: "#6e4f9a", accentStrong: "#523c78", accentSoft: "rgba(110, 79, 154, 0.10)", calendarBloom: "#8265b3",
         surface: "rgba(255, 255, 255, 0.94)", surfaceSoft: "#f8f7fb",
         line: "rgba(26, 25, 34, 0.10)", lineSoft: "rgba(26, 25, 34, 0.06)",
         status: "#8265b3", danger: "#a7564f", warning: "#9a6b43", info: "#6574a8",
@@ -64,7 +86,7 @@
       contributor: "@钦天监秋",
       colors: {
         canvas: "#16131F", canvasWarm: "#1D1823", ink: "#F0D9E4", inkSoft: "#C1A0AC", inkFaint: "#806C79",
-        accent: "#F0D9E4", accentStrong: "#C1A0AC", accentSoft: "rgba(240, 217, 228, 0.14)",
+        accent: "#F0D9E4", accentStrong: "#C1A0AC", accentSoft: "rgba(240, 217, 228, 0.14)", calendarBloom: "#D48DA6",
         surface: "rgba(29, 24, 35, 0.94)", surfaceSoft: "#2B2432",
         line: "#4A3F4B", lineSoft: "rgba(128, 108, 121, 0.38)",
         status: "#C1A0AC", danger: "#D48DA6", warning: "#D7A86E", info: "#9DA9D8",
@@ -92,7 +114,7 @@
   const FIELD_GROUPS = [
     { key: "text", title: "文字", description: "正文、标题与辅助信息", paths: ["tokens.colors.ink", "tokens.colors.inkSoft", "tokens.colors.inkFaint"] },
     { key: "background", title: "背景", description: "页面、卡片与柔和表面", paths: ["tokens.colors.canvas", "tokens.colors.surface", "tokens.colors.surfaceSoft", "tokens.colors.accentSoft"] },
-    { key: "interface", title: "界面色", description: "强调、主要操作与边框", paths: ["tokens.colors.accent", "tokens.colors.accentStrong", "tokens.colors.line", "tokens.colors.lineSoft"] },
+    { key: "interface", title: "界面色", description: "强调、记忆花色、主要操作与边框", paths: ["tokens.colors.accent", "tokens.colors.accentStrong", "tokens.colors.calendarBloom", "tokens.colors.line", "tokens.colors.lineSoft"] },
     { key: "semantic", title: "状态色", description: "正常、危险、警告、信息、冲突与融合", paths: ["tokens.colors.status", "tokens.colors.danger", "tokens.colors.warning", "tokens.colors.info", "tokens.colors.conflict", "tokens.colors.fusion"] },
     { key: "radius", title: "圆角", description: "控件、卡片与大面板轮廓", paths: ["tokens.radii.small", "tokens.radii.medium", "tokens.radii.large"] },
     { key: "shadow", title: "阴影", description: "卡片与浮层的空间层级", paths: ["tokens.shadows.card", "tokens.shadows.panel"] },
@@ -101,14 +123,14 @@
   const colorLabels = {
     canvas: "页面背景", surface: "卡片背景", surfaceSoft: "柔和表面",
     ink: "主要文字", inkSoft: "次级文字", inkFaint: "弱化文字",
-    accent: "强调色", accentStrong: "主要操作色", accentSoft: "浅色选中态",
+    accent: "强调色", accentStrong: "主要操作色", accentSoft: "浅色选中态", calendarBloom: "记忆花色",
     line: "边框", lineSoft: "弱边框", status: "正常状态", danger: "危险操作",
     warning: "警告提示", info: "信息提示", conflict: "冲突标记", fusion: "融合操作",
   };
   const colorCssNames = {
     canvas: "canvas", canvasWarm: "canvas-warm", ink: "ink", inkSoft: "ink-soft",
     inkFaint: "ink-faint", accent: "accent", accentStrong: "accent-strong",
-    accentSoft: "accent-soft", surface: "surface", surfaceSoft: "surface-soft",
+    accentSoft: "accent-soft", calendarBloom: "calendar-bloom", surface: "surface", surfaceSoft: "surface-soft",
     line: "line", lineSoft: "line-soft", status: "status", danger: "danger",
     warning: "warning", info: "info", conflict: "conflict", fusion: "fusion",
   };
@@ -137,6 +159,37 @@
       else result[key] = value;
     }
     return result;
+  }
+
+  function themeFingerprint(theme) {
+    const colors = theme?.tokens?.colors || {};
+    const signature = [colors.canvas, colors.ink, colors.accent, colors.accentStrong, colors.accentSoft]
+      .map(value => String(value || "").trim().toLowerCase())
+      .join("|");
+    let hash = 2166136261;
+    for (const character of signature) {
+      hash ^= character.charCodeAt(0);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(36);
+  }
+
+  function isRetiredBuiltinTheme(theme) {
+    return RETIRED_THEME_FINGERPRINTS.has(themeFingerprint(theme));
+  }
+
+  function buildBuiltinTheme(id) {
+    const preset = BUILTIN_PRESETS[id];
+    if (!preset) return null;
+    return normalize(merge(state.contract.defaults, {
+      name: preset.name,
+      tokens: {
+        colors: preset.colors,
+        radii: preset.radii,
+        shadows: preset.shadows,
+        motion: preset.motion,
+      },
+    }));
   }
 
   function cssSupports(property, value) {
@@ -196,7 +249,7 @@
   function fieldDefinitions() {
     const editable = state.contract.editable;
     const definitions = [];
-    const prefix = state.contract.coreTokenPrefix || "--stone-tide-";
+    const prefix = state.contract.coreTokenPrefix || "--stone-theme-";
     for (const name of editable.colors) definitions.push({ name, path: `tokens.colors.${name}`, css: `${prefix}${colorCssNames[name] || name}`, kind: "color", label: colorLabels[name] || name });
     for (const name of editable.radii) definitions.push({ name, path: `tokens.radii.${name}`, css: `${prefix}radius-${radiusCssNames[name] || name}`, kind: "dimension", label: radiusLabels[name] || name });
     for (const name of editable.shadows) definitions.push({ name, path: `tokens.shadows.${name}`, css: `${prefix}shadow-${name}`, kind: "shadow", label: shadowLabels[name] || name });
@@ -297,7 +350,7 @@
   }
 
   function applyTheme() {
-    const prefix = state.contract.coreTokenPrefix || "--stone-tide-";
+    const prefix = state.contract.coreTokenPrefix || "--stone-theme-";
     const properties = {};
     for (const [group, values] of Object.entries(state.theme.tokens)) {
       if (group === "typography") continue;
@@ -333,9 +386,14 @@
 
   function normalize(input) {
     const defaults = state.contract.defaults;
+    if (isRetiredBuiltinTheme(input)) throw new Error("该历史内置主题已停止支持，请选择新的磐石主题");
     const inputVersion = Number(input?.version || 1);
     if (![1, 2, 3].includes(inputVersion)) throw new Error(`不支持 version: ${inputVersion} 的主题文件`);
+    const hasCalendarBloom = typeof input?.tokens?.colors?.calendarBloom === "string";
     const merged = merge(defaults, input);
+    if (!hasCalendarBloom && String(merged.name || "") !== defaults.name) {
+      merged.tokens.colors.calendarBloom = merged.tokens.colors.accent;
+    }
     const theme = {
       $schema: state.contract.$schema,
       version: state.contract.version,
@@ -431,7 +489,17 @@
     try {
       const raw = localStorage.getItem(CUSTOM_THEMES_KEY);
       const list = raw ? JSON.parse(raw) : [];
-      return Array.isArray(list) ? list.map(item => ({ name: String(item?.name || item?.theme?.name || "未命名主题"), theme: normalize(item?.theme || item) })).filter(item => item.theme?.name) : [];
+      if (!Array.isArray(list)) return [];
+      const themes = [];
+      for (const item of list) {
+        const source = item?.theme || item;
+        if (isRetiredBuiltinTheme(source)) continue;
+        try {
+          const theme = normalize(source);
+          if (theme.name) themes.push({ name: String(item?.name || theme.name || "未命名主题"), theme });
+        } catch {}
+      }
+      return themes;
     } catch {
       return [];
     }
@@ -485,8 +553,9 @@
 
   function activePresetName() {
     if (state.theme.name === state.contract.defaults.name) return "original";
-    if (state.theme.name === "Pearl Tide") return "pearl";
-    if (state.theme.name === "Harbor") return "harbor";
+    for (const [id, preset] of Object.entries(BUILTIN_PRESETS)) {
+      if (state.theme.name === preset.name) return id;
+    }
     return "";
   }
 
@@ -503,8 +572,7 @@
     if (!target) return;
     const builtIns = [
       { id: "original", label: "磐石原版", theme: state.contract.defaults },
-      { id: "pearl", label: "Pearl Tide", theme: merge(state.contract.defaults, { tokens: { colors: { canvas: "#f7fafc", ink: "#253447", accent: "#4c6378" } } }) },
-      { id: "harbor", label: "Harbor", theme: merge(state.contract.defaults, { tokens: { colors: { canvas: "#f4f2ef", ink: "#36404b", accent: "#4a5d6c" } } }) }
+      ...Object.entries(BUILTIN_PRESETS).map(([id, preset]) => ({ id, label: preset.name, theme: buildBuiltinTheme(id) })),
     ];
     target.innerHTML = builtIns.map(paletteCard).join("") + state.customThemes.map((item, index) => paletteCard({ id: item.name, label: item.theme.name, theme: item.theme, customIndex: index })).join("") + `<button class="theme-swatch theme-swatch-add" id="add-theme" type="button" title="添加自定义主题"><span class="theme-swatch-color theme-swatch-add-color"><i>+</i></span><span class="theme-swatch-name">添加主题</span></button><button class="theme-swatch theme-swatch-more" id="more-themes" type="button" title="浏览社区主题"><span class="theme-swatch-color theme-swatch-add-color"><i class="theme-more-dots" aria-hidden="true"><b></b><b></b><b></b></i></span><span class="theme-swatch-name">更多主题</span></button>`;
   }
@@ -629,51 +697,8 @@
     }
   }
   function choosePreset(name) {
-    const original = state.contract.defaults;
-    if (name === "original") state.theme = normalize(original);
-    const preset = {
-      pearl: {
-        name: "Pearl Tide",
-        description: "来自 Tidal_Echo 默认 Light 外观的清透蓝灰主题。",
-        colors: {
-          canvas: "#f7fafc", canvasWarm: "#f7fafc", ink: "#253447", inkSoft: "#5e7080", inkFaint: "#8a99a8",
-          accent: "#4c6378", accentStrong: "#2c4056", accentSoft: "#eef4fa",
-          surface: "rgba(247, 250, 252, 0.92)", surfaceSoft: "rgba(244, 248, 250, 0.42)",
-          line: "rgba(120, 142, 165, 0.24)", lineSoft: "rgba(151, 169, 181, 0.18)",
-          status: "#5fbf8f", danger: "#cf8d92", warning: "#8a6542", info: "#5f7196",
-          conflict: "#a65d56", fusion: "#765a96",
-        },
-      },
-      harbor: {
-        name: "Harbor",
-        description: "来自 Tidal_Echo Harbor 外观的暖灰港湾主题。",
-        colors: {
-          canvas: "#f4f2ef", canvasWarm: "#f4f2ef", ink: "#36404b", inkSoft: "#5e6b78", inkFaint: "#9197a0",
-          accent: "#4a5d6c", accentStrong: "#4a5d6c", accentSoft: "#efebe8",
-          surface: "rgba(244, 242, 239, 0.92)", surfaceSoft: "rgba(234, 230, 228, 0.62)",
-          line: "rgba(74, 93, 108, 0.20)", lineSoft: "rgba(151, 169, 181, 0.18)",
-          status: "#6fa98c", danger: "#cf8d92", warning: "#8a6542", info: "#5f7196",
-          conflict: "#a65d56", fusion: "#765a96",
-        },
-      },
-    }[name];
-    if (preset) {
-      state.theme = normalize(merge(original, {
-        name: preset.name,
-        description: preset.description,
-        tokens: {
-          colors: preset.colors,
-          radii: { extraSmall: "9px", small: "12px", medium: "18px", large: "20px", pill: "999px" },
-          shadows: {
-            card: "0 10px 28px rgba(70, 92, 108, 0.05)",
-            panel: "0 18px 46px rgba(74, 93, 108, 0.10)",
-            floating: "0 18px 50px rgba(30, 45, 62, 0.18)",
-            button: "0 16px 32px rgba(41, 60, 78, 0.22)",
-          },
-          motion: { fast: "150ms", normal: "260ms", easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
-        },
-      }));
-    }
+    state.theme = name === "original" ? normalize(state.contract.defaults) : buildBuiltinTheme(name);
+    if (!state.theme) return;
     applyTheme();
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state.theme));
     renderFields();
@@ -682,8 +707,13 @@
 
   function render() {
     $("#theme-studio-mount").innerHTML = `<section class="theme-card"><div class="theme-card-head"><p class="eyebrow">THEME STRUCTURE</p><h2>按视觉职责调整</h2><p class="theme-card-intro">每一排只处理一种视觉职责。颜色项可点左侧色块打开色盘，也可以直接输入 HEX、RGB 或 HSL。</p><div class="theme-card-meta"><small class="theme-credit">工作台贡献人：@钦天监秋</small><span class="theme-file-badge">TOKEN v${state.contract.version}</span></div></div><div class="theme-topbar"><div class="theme-name-row"><label class="theme-field theme-name-field"><span>主题名称</span><input id="theme-name" maxlength="60"></label><div class="theme-inline-actions"><button class="primary" id="save-theme" type="button">保存自定义主题</button><button class="secondary" id="export-theme" type="button">导出目前主题</button><label class="secondary theme-inline-upload" for="import-theme">导入主题 JSON</label><input id="import-theme" type="file" accept="application/json,.json" hidden></div></div><div class="theme-palette-row"><span class="theme-palette-label">主题</span><div id="theme-palette" class="theme-palette"></div></div><div id="community-theme-panel" class="community-assets" hidden><button type="button" data-community-theme="garden"><i style="--community-a:#f5f0eb;--community-b:#db9ed3;--community-c:#a965a0"></i><span><strong>苔粉花园</strong><small>贡献人：@小绒太尉</small></span></button><button type="button" data-community-theme="purpleGray"><i style="--community-a:#f4f3f7;--community-b:#6e4f9a;--community-c:#523c78"></i><span><strong>紫灰仪表盘</strong><small>贡献人：@小绒太尉</small></span></button><button type="button" data-community-theme="sakuraNight"><i style="--community-a:#16131F;--community-b:#F0D9E4;--community-c:#C1A0AC"></i><span><strong>樱夜黑粉</strong><small>贡献人：@钦天监秋</small></span></button></div><section class="theme-logo-row"><div><span class="theme-palette-label">品牌图标</span><p id="theme-logo-meta">推荐透明背景；参考规格 1079×507、约 140KB</p></div><div class="theme-logo-controls"><div id="theme-logo-preview" class="theme-logo-preview empty"><span>使用磐石原版石头小花</span></div><div class="theme-logo-buttons"><label class="secondary theme-inline-upload" for="import-theme-logo">选择图片</label><input id="import-theme-logo" type="file" accept="image/png,image/webp,.png,.webp" hidden><button class="secondary" id="more-theme-images" type="button">更多图片</button><button class="ghost" id="remove-theme-logo" type="button" hidden>恢复原图</button></div></div></section><div id="community-logo-panel" class="community-assets community-logo-assets" hidden><button type="button" id="use-community-logo"><img src="/stone-memory-logo.png" alt=""><span><strong>花体藤蔓 Stone Memory</strong><small>1079×507 · 139.7KB · 贡献人：@小绒太尉</small></span></button></div><div id="theme-fields" class="theme-groups"></div><section class="theme-state-preview" aria-label="主题状态预览"><div><span class="theme-palette-label">月历强度</span><div class="theme-calendar-preview"><i class="level-0" title="无活动"></i><i class="level-1" title="低活动"></i><i class="level-2" title="中活动"></i><i class="level-3" title="高活动"></i></div></div><div><span class="theme-palette-label">业务状态</span><div class="theme-status-preview"><i class="status">正常</i><i class="warning">警告</i><i class="info">信息</i><i class="conflict">冲突</i><i class="fusion">融合</i><i class="danger">危险</i></div></div></section><details class="advanced-json"><summary><span><strong>高级 JSON 与兼容性</strong><small>完整令牌、版本契约与跨版本适配</small></span><i>⌄</i></summary><div class="advanced-copy"><p>导出的 JSON 使用 version 3 契约，包含完整的业务状态色与品牌图标。</p><p>已有 version 1 和 version 2 主题仍可导入，并会自动补齐缺少字段后迁移到 version 3；未知字段不会写入 CSS。</p><p>Logo 随主题 JSON 一同导出；支持 PNG/WebP，最大 200KB，宽 320–1600px、高 160–1000px。</p></div></details><div class="theme-actions"><button class="ghost" id="reset-theme" type="button">恢复磐石记忆原版</button><span id="theme-status" role="status" aria-live="polite"></span></div></section>`;
+    const calendarPreview = $(".theme-calendar-preview");
+    calendarPreview.parentElement.querySelector(".theme-palette-label").textContent = "记忆月历";
+    calendarPreview.innerHTML = `<span><i class="mining-none"></i><small>无对话</small></span><span><i class="mining-pending selected"></i><small>未挖掘</small></span><span><i class="mining-light"></i><small>&lt;10 摘要</small></span><span><i class="mining-deep"></i><small>≥10 摘要</small></span>`;
+    const advancedParagraphs = $(".advanced-copy").querySelectorAll("p");
+    advancedParagraphs[0].textContent = "导出的 JSON 使用 version 3 契约，包含完整的界面、月历与业务状态令牌。";
     $("#theme-logo-preview").insertAdjacentHTML("afterend", `<small id="theme-logo-status" class="theme-logo-status" role="status" aria-live="polite"></small>`);
-    $(".theme-calendar-preview").insertAdjacentHTML("beforebegin", `<small class="theme-preview-hint">活动强度复用“界面色 → 强调色”，按 18% / 44% / 100% 逐级加深。</small>`);
+    $(".theme-calendar-preview").insertAdjacentHTML("beforebegin", `<small class="theme-preview-hint">浅、深花色跟随“界面色 → 记忆花色”；灰色表示尚未挖掘，选中外圈继续跟随强调色。</small>`);
     $(".theme-status-preview").insertAdjacentHTML("beforebegin", `<small class="theme-preview-hint">分别跟随“状态色”中的正常、警告、信息、冲突、融合与危险颜色。</small>`);
     renderFields();
     promoteUtilityGroups();
@@ -693,13 +723,18 @@
     try {
       state.contract = await fetch(CONTRACT_URL).then(response => { if (!response.ok) throw new Error(`主题契约加载失败 (${response.status})`); return response.json(); });
       state.customThemes = readCustomThemes();
-      const saved = localStorage.getItem(STORAGE_KEY);
-      const parsedSaved = saved ? JSON.parse(saved) : state.contract.defaults;
+      let saved = localStorage.getItem(STORAGE_KEY);
+      let parsedSaved = saved ? JSON.parse(saved) : state.contract.defaults;
+      if (isRetiredBuiltinTheme(parsedSaved)) {
+        localStorage.removeItem(STORAGE_KEY);
+        saved = null;
+        parsedSaved = state.contract.defaults;
+      }
       state.theme = normalize(parsedSaved);
       if (saved && Number(parsedSaved.version || 1) !== state.contract.version) {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(state.theme));
       }
-      if (state.customThemes.length) writeCustomThemes();
+      writeCustomThemes();
       applyTheme();
       render();
 
@@ -823,7 +858,13 @@
     }
     if (event.key !== STORAGE_KEY) return;
     try {
-      state.theme = normalize(event.newValue ? JSON.parse(event.newValue) : state.contract.defaults);
+      const incoming = event.newValue ? JSON.parse(event.newValue) : state.contract.defaults;
+      if (isRetiredBuiltinTheme(incoming)) {
+        localStorage.removeItem(STORAGE_KEY);
+        state.theme = normalize(state.contract.defaults);
+      } else {
+        state.theme = normalize(incoming);
+      }
       applyTheme();
       if ($("#theme-fields")) renderFields();
       status(event.newValue ? "已从其他标签同步主题" : "已从其他标签恢复磐石原版");

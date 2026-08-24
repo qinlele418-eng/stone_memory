@@ -95,8 +95,10 @@ function loadOptionalScript(src) {
 function loadDeveloperModules() {
   return Promise.all([
     loadOptionalScript("/review-lab/bootstrap.js"),
+    loadOptionalScript("/developer-modules/stone-memory-assistant/bootstrap.js"),
     loadOptionalScript("/developer-kit/bootstrap.js"),
     loadOptionalScript("/dream-lab/bootstrap.js"),
+    loadOptionalScript("/notebook-lab/bootstrap.js"),
   ]).catch(error => showToast(error.message, "error"));
 }
 
@@ -298,7 +300,7 @@ function renderDeveloperMode(library) {
 function renderMemoryHub(library) {
   document.querySelectorAll(".side-nav button").forEach(button => button.classList.toggle("active", button.dataset.view === "archive"));
   const main=document.querySelector("#workspace-main");
-  main.innerHTML=`<div class="dashboard-head"><div><p class="eyebrow">可解释记忆</p><h1>记忆档案</h1><p class="lead">查看 AI 会读到的规则、摘要、特征和时间脉络。</p></div></div><section class="memory-entry-grid"><button data-section="rules"><strong>人设 / 规则</strong><span>导入、编辑并控制 rebuild 是否注入</span></button><button data-section="feelings"><strong>摘要</strong><span>查看完整、精简和隐藏记忆</span></button><button data-section="features"><strong>特征库</strong><span>按类别查看长期记忆特征</span></button><button data-section="conversations"><strong>全量对话</strong><span>搜索关键词，或按日期回看纯对话 archive</span></button><button data-section="timeline"><strong>时间轴</strong><span>查看词频、重要摘要与记忆生命周期</span></button></section>`;
+  main.innerHTML=`<div class="dashboard-head"><div><p class="eyebrow">可解释记忆</p><h1>记忆档案</h1><p class="lead">查看 AI 会读到的规则、摘要、素材和时间脉络。</p></div></div><section class="memory-entry-grid"><button data-section="rules"><strong>人设 / 规则</strong><span>导入、编辑并控制 rebuild 是否注入</span></button><button data-section="feelings"><strong>摘要</strong><span>查看完整、精简和隐藏记忆</span></button><button data-section="features"><strong>素材库</strong><span>用于收集相处事实的原始分类素材库，与对话无关</span></button><button data-section="conversations"><strong>全量对话</strong><span>搜索关键词，或按日期回看纯对话 archive</span></button><button data-section="timeline"><strong>时间轴</strong><span>查看词频、重要摘要与记忆生命周期</span></button></section>`;
   main.querySelectorAll("[data-section]").forEach(button=>button.onclick=()=>button.dataset.section==="conversations"?renderConversations(library):button.dataset.section==="timeline"?renderTimeline(library):renderMemorySection(library,button.dataset.section));
 }
 
@@ -336,7 +338,7 @@ function timelineInterpretation(data,row) {
   if(lifecycle){const confidence={high:"高",medium:"中",low:"低"}[lifecycle.confidence]||lifecycle.confidence||"—",signature=lifecycle.signature?.term?` · 主要共同签名：${lifecycle.signature.term}`:"";return `${relationLabels[lifecycle.state]||lifecycle.state} · ${shapeLabels[lifecycle.shape]||lifecycle.shape} · 置信度 ${confidence}${signature}`;}
   const workGroups=(data.work?.groups||[]).filter(group=>group.members?.some(member=>member.normalizedTerm===row.normalizedTerm||member.term===row.term));
   if(workGroups.length)return `进入 ${workGroups.length} 个项目证据节点 · ${workGroups.map(group=>group.state).filter(Boolean).join("、")||"局部项目证据"}`;
-  return row.categories.length?`当前按 ${row.categories.join(" / ")} 特征解释`:"尚未进入特征库，暂只展示真实命中";
+  return row.categories.length?`当前按 ${row.categories.join(" / ")} 特征解释`:"尚未进入素材库，暂只展示真实命中";
 }
 
 async function renderTimeline(library,{terms="",from="",to=""}={}) {
@@ -379,7 +381,7 @@ async function renderConversations(library,{search="",date="",focus="",page=1,ca
 }
 
 async function renderMemorySection(library, section, page=1, search="", category="", mode="", importance="", sort="desc", retainAnchor=false, eventAnchor=false, date="") {
-  const main=document.querySelector("#workspace-main"), titles={rules:"人设 / 规则",feelings:"摘要",features:"特征库"};
+  const main=document.querySelector("#workspace-main"), titles={rules:"人设 / 规则",feelings:"摘要",features:"素材库"};
   main.innerHTML=`<div class="dashboard-head"><div><p class="eyebrow">记忆</p><h1>${titles[section]}</h1>${section==="feelings"?'<p class="lead memory-anchor-guide">选择【原文锚点】，将在线程中注入该摘要对应原文；选择【事件锚点】，则该摘要不受衰减模型影响；选择【隐藏摘要】，线程重建时该摘要将不注入线程。</p>':""}</div><button class="ghost" id="back-memory">返回</button></div><section class="section-card" id="memory-content"><div class="empty">正在读取…</div></section>`;
   main.querySelector("#back-memory").onclick=()=>renderMemoryHub(library);
   const card=main.querySelector("#memory-content");

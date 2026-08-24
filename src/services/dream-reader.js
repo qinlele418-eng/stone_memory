@@ -29,6 +29,10 @@ class DreamReader {
     return this.dreamStore.listDates(threadId);
   }
 
+  list(threadId) {
+    return this.dreamStore.list(threadId);
+  }
+
   eligibleDates(threadId) {
     const memoryStore = this.memoryStoreFactory(threadId);
     let states;

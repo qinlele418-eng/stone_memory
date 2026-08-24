@@ -1,7 +1,7 @@
 {
   "$schema": "https://stone-memory.local/schemas/ui-theme-v3.json",
   "version": 3,
-  "coreTokenPrefix": "--stone-tide-",
+  "coreTokenPrefix": "--stone-theme-",
   "defaults": {
     "name": "Stone Memory Original",
     "assets": {
@@ -17,6 +17,7 @@
         "accent": "#397052",
         "accentStrong": "#295540",
         "accentSoft": "#eaf2e5",
+        "calendarBloom": "#d98794",
         "surface": "rgba(255, 254, 249, 0.94)",
         "surfaceSoft": "#f2f3ef",
         "line": "#dce6d7",
@@ -61,7 +62,7 @@
     }
   },
   "editable": {
-    "colors": ["canvas", "surface", "surfaceSoft", "ink", "inkSoft", "inkFaint", "accent", "accentStrong", "accentSoft", "line", "lineSoft", "status", "danger", "warning", "info", "conflict", "fusion"],
+    "colors": ["canvas", "surface", "surfaceSoft", "ink", "inkSoft", "inkFaint", "accent", "accentStrong", "accentSoft", "calendarBloom", "line", "lineSoft", "status", "danger", "warning", "info", "conflict", "fusion"],
     "radii": ["small", "medium", "large"],
     "shadows": ["card", "panel"]
   }

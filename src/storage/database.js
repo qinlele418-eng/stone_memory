@@ -4,7 +4,7 @@ const Database = require("better-sqlite3");
 const { resolveDatabasePath } = require("./database-location");
 const { messageIdentity } = require("../lib/message-identity");
 
-const SCHEMA_VERSION = 11;
+const SCHEMA_VERSION = 13;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -120,6 +120,34 @@ CREATE TABLE IF NOT EXISTS term_daily_stats (
   occurrence_count INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY(thread_id, normalized_term, source_date)
 );
+CREATE TABLE IF NOT EXISTS notebook_topics (
+  id TEXT PRIMARY KEY,
+  thread_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  slug TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  cover_path TEXT,
+  visibility TEXT NOT NULL DEFAULT 'visible' CHECK(visibility IN ('visible','sealed')),
+  is_archived INTEGER NOT NULL DEFAULT 0 CHECK(is_archived IN (0,1)),
+  is_default INTEGER NOT NULL DEFAULT 0 CHECK(is_default IN (0,1)),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(thread_id, slug)
+);
+CREATE TABLE IF NOT EXISTS notebook_entries (
+  id TEXT PRIMARY KEY,
+  thread_id TEXT NOT NULL,
+  topic_id TEXT NOT NULL REFERENCES notebook_topics(id),
+  title TEXT NOT NULL,
+  relative_path TEXT NOT NULL,
+  visibility TEXT NOT NULL DEFAULT 'visible' CHECK(visibility IN ('visible','sealed')),
+  tags_json TEXT NOT NULL DEFAULT '[]',
+  body_text TEXT NOT NULL,
+  revision INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(thread_id, relative_path)
+);
 CREATE INDEX IF NOT EXISTS idx_feelings_thread_timeline
   ON feelings(thread_id, source_date, event_time, order_key);
 CREATE INDEX IF NOT EXISTS idx_features_thread_date
@@ -132,6 +160,10 @@ CREATE INDEX IF NOT EXISTS idx_notifications_thread_read
   ON notifications(thread_id, is_read, created_at);
 CREATE INDEX IF NOT EXISTS idx_term_daily_stats_thread_date
   ON term_daily_stats(thread_id, source_date);
+CREATE INDEX IF NOT EXISTS idx_notebook_topics_thread
+  ON notebook_topics(thread_id, is_archived, updated_at);
+CREATE INDEX IF NOT EXISTS idx_notebook_entries_thread_topic
+  ON notebook_entries(thread_id, topic_id, updated_at);
 `;
 
 function openDatabase(memoryDir) {
@@ -233,6 +265,9 @@ function migrateColumns(db) {
   if (!threadColumns.has("memories_flow_to_parent")) db.exec("ALTER TABLE threads ADD COLUMN memories_flow_to_parent INTEGER NOT NULL DEFAULT 1 CHECK(memories_flow_to_parent IN (0,1))");
   const miningColumns = new Set(db.pragma("table_info(mining_day_state)").map(column => column.name));
   if (!miningColumns.has("chunk_report")) db.exec("ALTER TABLE mining_day_state ADD COLUMN chunk_report TEXT");
+  const notebookTopicColumns = new Set(db.pragma("table_info(notebook_topics)").map(column => column.name));
+  if (!notebookTopicColumns.has("is_default")) db.exec("ALTER TABLE notebook_topics ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0 CHECK(is_default IN (0,1))");
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_notebook_topics_one_default ON notebook_topics(thread_id) WHERE is_default=1");
 }
 
 module.exports = { openDatabase, SCHEMA_VERSION };

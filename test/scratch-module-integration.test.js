@@ -35,16 +35,16 @@ test("scratch page uses the shared runtime, single page shell and pointer canvas
   assert.doesNotMatch(app, /localhost|127\.0\.0\.1|apiProvider|modelProvider/);
 });
 
-test("scratch styles use only Stone Tide colors, fonts, radii and shadows", () => {
+test("scratch styles use only Stone Memory theme colors, fonts, radii and shadows", () => {
   const styles = fs.readFileSync(path.join(moduleRoot, "styles.css"), "utf8");
 
   assert.doesNotMatch(styles, /#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(/i);
-  assert.doesNotMatch(styles, /font-family:(?!var\(--stone-tide-)/);
-  assert.doesNotMatch(styles, /box-shadow:(?!var\(--stone-tide-)/);
-  assert.doesNotMatch(styles, /border-radius:(?!var\(--stone-tide-)/);
-  assert.match(styles, /--stone-tide-info/);
-  assert.match(styles, /--stone-tide-conflict/);
-  assert.match(styles, /--stone-tide-warning/);
+  assert.doesNotMatch(styles, /font-family:(?!var\(--stone-theme-)/);
+  assert.doesNotMatch(styles, /box-shadow:(?!var\(--stone-theme-)/);
+  assert.doesNotMatch(styles, /border-radius:(?!var\(--stone-theme-)/);
+  assert.match(styles, /--stone-theme-info/);
+  assert.match(styles, /--stone-theme-conflict/);
+  assert.match(styles, /--stone-theme-warning/);
 });
 
 test("scratch backend is dispatched through stmem and the shared Web adapter", () => {

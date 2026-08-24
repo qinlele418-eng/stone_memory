@@ -20,6 +20,7 @@ const { MiningReviewStore } = require("../services/mining-review");
 const { editFusionCandidate } = require("../services/review-fusion");
 const { isArchiveConversation } = require("../services/thread-ingest");
 const { DreamReader } = require("../services/dream-reader");
+const { NotebookService } = require("../services/notebook-service");
 const { watcherActions, watcherEnabled } = require("../services/watcher-runtime");
 const { normalizeMiningApiProfile } = require("../services/mining-api-profile");
 const { buildFeelingPrompt, buildFeaturePrompt } = require("../services/memory-miner");
@@ -62,6 +63,14 @@ function runStmem(args, { timeout = 10 * 60 * 1000, maxBuffer = 32 * 1024 * 1024
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(safeStmemFailure(result.stderr, args[0], result.status));
   return (result.stdout || "").trim();
+}
+
+function runStmemBatch(args, payload) {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-web-batch-"));
+  const file = path.join(directory, "input.json");
+  fs.writeFileSync(file, JSON.stringify(payload || {}), { encoding: "utf8", mode: 0o600 });
+  try { return JSON.parse(runStmem([...args, "--batch-file", file])); }
+  finally { fs.rmSync(directory, { recursive: true, force: true }); }
 }
 
 function runStmemAsync(args, { maxOutput = 8000 } = {}) {
@@ -561,6 +570,51 @@ function serveStatic(req, res, pathname) {
   return true;
 }
 
+async function handleDreamSettings(req, url, threadId, resource) {
+  if (resource === "preferences") {
+    return JSON.parse(runStmem(["dream", "preferences", "--thread", threadId]));
+  }
+  if (resource === "pin") {
+    if (req.method === "PUT") {
+      const body = await readJson(req);
+      return JSON.parse(runStmem(["dream", "pin", "--thread", threadId, "--type", String(body.dreamType || "").trim()]));
+    }
+    if (req.method === "DELETE") {
+      return JSON.parse(runStmem(["dream", "unpin", "--thread", threadId]));
+    }
+  }
+  if (resource === "guard" && req.method === "PUT") {
+    const body = await readJson(req);
+    return JSON.parse(runStmem(["dream", "guard", "--thread", threadId, body.enabled ? "on" : "off"]));
+  }
+  if (resource === "multiplier" && req.method === "PUT") {
+    const body = await readJson(req);
+    const args = ["dream", "multiplier", "--thread", threadId];
+    for (const [type, value] of Object.entries(body.multipliers || {})) args.push(`--${type}`, String(value));
+    return JSON.parse(runStmem(args));
+  }
+  if (resource === "prompt") {
+    if (req.method === "GET") {
+      return JSON.parse(runStmem(["dream", "prompt", "--thread", threadId, "--type", String(url.searchParams.get("type") || "")]));
+    }
+    if (req.method === "DELETE") {
+      return JSON.parse(runStmem(["dream", "prompt", "--thread", threadId, "--type", String(url.searchParams.get("type") || ""), "--reset"]));
+    }
+    if (req.method === "PUT") {
+      const body = await readJson(req);
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-dream-prompt-"));
+      try {
+        const file = path.join(dir, "override.md");
+        fs.writeFileSync(file, String(body.content ?? ""), "utf8");
+        return JSON.parse(runStmem(["dream", "prompt", "--thread", threadId, "--type", String(body.type || "").trim(), "--set", file]));
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  }
+  throw new Error("不支持的织梦设置请求");
+}
+
 async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/developer-modules") {
     return json(res, 200, { modules: listDeveloperModules() });
@@ -802,6 +856,7 @@ async function handleApi(req, res, url) {
           ? selectedDate
           : dreamDates.at(-1) || null,
         dreamDates,
+        entries: reader.list(threadId),
         coverage: reader.coverage(threadId),
         eligibleDates: reader.eligibleDates(threadId),
         job: dreamJobs.get(threadId) || null,
@@ -832,6 +887,75 @@ async function handleApi(req, res, url) {
         });
       return json(res, 202, { success: true, job });
     }
+  }
+
+  const dreamSettingsMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/dreams\/(preferences|pin|guard|multiplier|prompt)$/);
+  if (dreamSettingsMatch) {
+    const threadId = decodeURIComponent(dreamSettingsMatch[1]);
+    return json(res, 200, await handleDreamSettings(req, url, threadId, dreamSettingsMatch[2]));
+  }
+
+  const notebookMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/notebooks(?:\/(.*))?$/);
+  if (notebookMatch) {
+    const threadId = decodeURIComponent(notebookMatch[1]);
+    publicThreadSettings(threadId);
+    const parts = String(notebookMatch[2] || "").split("/").filter(Boolean).map(decodeURIComponent);
+    const service = new NotebookService();
+    if (req.method === "GET" && parts.length === 0) {
+      return json(res, 200, service.status({ threadId }));
+    }
+    if (req.method === "POST" && parts[0] === "topics" && parts.length === 1) {
+      const body = await readJson(req);
+      return json(res, 201, runStmemBatch(["notebook", "topic-create", "--thread", threadId], body));
+    }
+    if (req.method === "PATCH" && parts[0] === "topics" && parts[1]) {
+      const body = await readJson(req);
+      return json(res, 200, runStmemBatch(["notebook", "topic-update", "--thread", threadId], {
+        ...body, topicId: parts[1],
+      }));
+    }
+    if (req.method === "GET" && parts[0] === "topics" && parts[1] && parts[2] === "entries") {
+      return json(res, 200, service.list({ threadId, topicId: parts[1], includeBody: false }));
+    }
+    if (req.method === "POST" && parts[0] === "entries" && parts.length === 1) {
+      const body = await readJson(req);
+      return json(res, 201, runStmemBatch(["notebook", "write", "--thread", threadId], body));
+    }
+    if (req.method === "GET" && parts[0] === "entries" && parts[1]) {
+      const note = service.read({ threadId, noteId: parts[1] });
+      return json(res, note ? 200 : 404, note || { found: false, noteId: parts[1] });
+    }
+    if (req.method === "PATCH" && parts[0] === "entries" && parts[1] && parts[2] === "visibility") {
+      const body = await readJson(req);
+      const visibility = body.visibility === "sealed" ? "sealed" : body.visibility === "visible" ? "visible" : null;
+      if (!visibility) throw new Error("笔记展示状态必须是 visible 或 sealed");
+      const current = service.read({ threadId, noteId: parts[1] });
+      if (!current) return json(res, 404, { found: false, noteId: parts[1] });
+      return json(res, 200, runStmemBatch(["notebook", "write", "--thread", threadId], {
+        topicId: current.topicId,
+        noteId: current.id,
+        title: current.title,
+        body: current.body,
+        tags: current.tags,
+        visibility,
+        expectedRevision: current.revision,
+      }));
+    }
+    if (req.method === "PATCH" && parts[0] === "entries" && parts[1]) {
+      const body = await readJson(req);
+      return json(res, 200, runStmemBatch(["notebook", "write", "--thread", threadId], {
+        ...body, noteId: parts[1],
+      }));
+    }
+    if (req.method === "GET" && parts[0] === "search") {
+      return json(res, 200, service.query({
+        threadId,
+        query: String(url.searchParams.get("q") || ""),
+        topicId: url.searchParams.get("topicId") || null,
+        tags: String(url.searchParams.get("tags") || "").split(/[，,]/).map(value => value.trim()).filter(Boolean),
+        limit: Number(url.searchParams.get("limit") || 20),
+      }));
+     }
   }
 
   const libraryMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)$/);

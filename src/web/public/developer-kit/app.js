@@ -25,7 +25,7 @@
 3. 从 window.StoneDeveloperModule.threadId 获取当前记忆体，不得硬编码。
 4. 写入动作必须复用 Stone Memory 正式 API、CLI 或服务层，不得自建第二条写入链。
 5. 不得硬编码 HOME、端口、用户名、AI 名、模型名或 Provider。
-6. 颜色、字体、圆角、阴影全部使用 --stone-tide-* 主题变量。
+6. 颜色、字体、圆角、阴影全部使用 --stone-theme-* 主题变量。
 7. 不得自行绘制页头、返回按钮或页面宽度；这些全部由 stone-module-page 提供。
 8. 提交前运行相关测试，并说明改动范围、失败状态与回滚方式。
 

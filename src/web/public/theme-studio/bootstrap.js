@@ -3,13 +3,13 @@
 
   const STORAGE_KEY = "stone-memory-ui-theme-v1";
   const MODULE_THEME_BRIDGE_KEY = "stone-memory-developer-semantic-theme-v1";
-  const CONTRACT_URL = "/theme-studio/contract.json?v=3";
+  const CONTRACT_URL = "/theme-studio/contract.json?v=5";
   const ORIGINAL_THEME_NAME = "Stone Memory Original";
   const MODULE_ID = "theme-studio";
   const MODULE_ORDER = 20;
-  const THEME_STYLE_VERSION = "10";
+  const THEME_STYLE_VERSION = "11";
   const THEME_STYLE_FILES = [
-    "tidal-tokens.css",
+    "theme-tokens.css",
     "theme-coverage.css",
     "theme-workbench.css",
     "developer-theme.css",
@@ -18,50 +18,51 @@
   ];
   const TOKEN_PROPERTIES = {
     colors: {
-      canvas: "--stone-tide-canvas",
-      canvasWarm: "--stone-tide-canvas-warm",
-      ink: "--stone-tide-ink",
-      inkSoft: "--stone-tide-ink-soft",
-      inkFaint: "--stone-tide-ink-faint",
-      accent: "--stone-tide-accent",
-      accentStrong: "--stone-tide-accent-strong",
-      accentSoft: "--stone-tide-accent-soft",
-      surface: "--stone-tide-surface",
-      surfaceSoft: "--stone-tide-surface-soft",
-      line: "--stone-tide-line",
-      lineSoft: "--stone-tide-line-soft",
-      status: "--stone-tide-status",
-      danger: "--stone-tide-danger",
-      warning: "--stone-tide-warning",
-      info: "--stone-tide-info",
-      conflict: "--stone-tide-conflict",
-      fusion: "--stone-tide-fusion",
+      canvas: "--stone-theme-canvas",
+      canvasWarm: "--stone-theme-canvas-warm",
+      ink: "--stone-theme-ink",
+      inkSoft: "--stone-theme-ink-soft",
+      inkFaint: "--stone-theme-ink-faint",
+      accent: "--stone-theme-accent",
+      accentStrong: "--stone-theme-accent-strong",
+      accentSoft: "--stone-theme-accent-soft",
+      calendarBloom: "--stone-theme-calendar-bloom",
+      surface: "--stone-theme-surface",
+      surfaceSoft: "--stone-theme-surface-soft",
+      line: "--stone-theme-line",
+      lineSoft: "--stone-theme-line-soft",
+      status: "--stone-theme-status",
+      danger: "--stone-theme-danger",
+      warning: "--stone-theme-warning",
+      info: "--stone-theme-info",
+      conflict: "--stone-theme-conflict",
+      fusion: "--stone-theme-fusion",
     },
     radii: {
-      extraSmall: "--stone-tide-radius-xs",
-      small: "--stone-tide-radius-sm",
-      medium: "--stone-tide-radius-md",
-      large: "--stone-tide-radius-lg",
-      pill: "--stone-tide-radius-pill",
+      extraSmall: "--stone-theme-radius-xs",
+      small: "--stone-theme-radius-sm",
+      medium: "--stone-theme-radius-md",
+      large: "--stone-theme-radius-lg",
+      pill: "--stone-theme-radius-pill",
     },
     shadows: {
-      card: "--stone-tide-shadow-card",
-      panel: "--stone-tide-shadow-panel",
-      floating: "--stone-tide-shadow-floating",
-      button: "--stone-tide-shadow-button",
+      card: "--stone-theme-shadow-card",
+      panel: "--stone-theme-shadow-panel",
+      floating: "--stone-theme-shadow-floating",
+      button: "--stone-theme-shadow-button",
     },
     spacing: {
-      one: "--stone-tide-space-1",
-      two: "--stone-tide-space-2",
-      three: "--stone-tide-space-3",
-      four: "--stone-tide-space-4",
-      five: "--stone-tide-space-5",
-      six: "--stone-tide-space-6",
+      one: "--stone-theme-space-1",
+      two: "--stone-theme-space-2",
+      three: "--stone-theme-space-3",
+      four: "--stone-theme-space-4",
+      five: "--stone-theme-space-5",
+      six: "--stone-theme-space-6",
     },
     motion: {
-      fast: "--stone-tide-motion-fast",
-      normal: "--stone-tide-motion-normal",
-      easing: "--stone-tide-ease-soft",
+      fast: "--stone-theme-motion-fast",
+      normal: "--stone-theme-motion-normal",
+      easing: "--stone-theme-ease-soft",
     },
   };
 
@@ -69,12 +70,33 @@
   let currentTheme = null;
   let themeEnabled = false;
 
+  // Reset the two retired built-in schemes without keeping their former
+  // names or visual values in the current source tree.
+  const RETIRED_THEME_FINGERPRINTS = new Set(["362qx4", "scef1"]);
+
   const clone = value => JSON.parse(JSON.stringify(value));
   const isPlainObject = value => Boolean(value) && typeof value === "object" && !Array.isArray(value);
   const cleanCssValue = value => {
     const text = String(value || "").trim();
     return text && text.length <= 180 && !/[;{}<>]|url\s*\(|expression\s*\(|@import/i.test(text) ? text : "";
   };
+
+  function themeFingerprint(theme) {
+    const colors = theme?.tokens?.colors || {};
+    const signature = [colors.canvas, colors.ink, colors.accent, colors.accentStrong, colors.accentSoft]
+      .map(value => String(value || "").trim().toLowerCase())
+      .join("|");
+    let hash = 2166136261;
+    for (const character of signature) {
+      hash ^= character.charCodeAt(0);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(36);
+  }
+
+  function isRetiredBuiltinTheme(theme) {
+    return RETIRED_THEME_FINGERPRINTS.has(themeFingerprint(theme));
+  }
 
   function merge(base, override) {
     if (!isPlainObject(override)) return clone(base);
@@ -136,7 +158,7 @@
     const properties = applyTokenValues(theme);
     publishDeveloperTheme(theme, properties);
     document.documentElement.dataset.stoneTheme = theme.name;
-    document.body?.classList.toggle("tidal-visual", enabled);
+    document.body?.classList.toggle("stone-theme-enabled", enabled);
     applyLogo(theme.assets?.logo);
   }
 
@@ -144,11 +166,20 @@
     try {
       const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
       if (!isPlainObject(saved?.tokens)) return;
-      const properties = applyTokenValues(saved);
-      publishDeveloperTheme(saved, properties);
+      if (isRetiredBuiltinTheme(saved)) {
+        localStorage.removeItem(STORAGE_KEY);
+        return;
+      }
+      const firstFrameTheme = clone(saved);
+      if (!isPlainObject(firstFrameTheme.tokens.colors)) firstFrameTheme.tokens.colors = {};
+      if (!cleanCssValue(firstFrameTheme.tokens.colors.calendarBloom)) {
+        firstFrameTheme.tokens.colors.calendarBloom = firstFrameTheme.tokens.colors.accent;
+      }
+      const properties = applyTokenValues(firstFrameTheme);
+      publishDeveloperTheme(firstFrameTheme, properties);
       themeEnabled = saved.name !== ORIGINAL_THEME_NAME;
       document.documentElement.dataset.stoneTheme = String(saved.name || "Custom").slice(0, 60);
-      document.body?.classList.toggle("tidal-visual", themeEnabled);
+      document.body?.classList.toggle("stone-theme-enabled", themeEnabled);
       applyLogo(saved.assets?.logo);
     } catch {}
   }
@@ -204,9 +235,14 @@
   function normalizeTheme(input) {
     if (!contract) throw new Error("主题契约尚未加载");
     if (!isPlainObject(input)) throw new Error("主题文件必须是 JSON 对象");
+    if (isRetiredBuiltinTheme(input)) throw new Error("该历史内置主题已停止支持，请选择新的磐石主题");
     const inputVersion = Number(input.version || 1);
     if (![1, 2, 3].includes(inputVersion)) throw new Error(`不支持 version: ${inputVersion} 的主题文件`);
+    const hasCalendarBloom = typeof input.tokens?.colors?.calendarBloom === "string";
     const merged = merge(contract.defaults, input);
+    if (!hasCalendarBloom && String(merged.name || "") !== ORIGINAL_THEME_NAME) {
+      merged.tokens.colors.calendarBloom = merged.tokens.colors.accent;
+    }
     const normalized = {
       $schema: contract.$schema,
       version: contract.version,
@@ -230,8 +266,13 @@
 
   function readSavedTheme() {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      const parsed = raw ? JSON.parse(raw) : contract.defaults;
+      let raw = localStorage.getItem(STORAGE_KEY);
+      let parsed = raw ? JSON.parse(raw) : contract.defaults;
+      if (isRetiredBuiltinTheme(parsed)) {
+        localStorage.removeItem(STORAGE_KEY);
+        raw = null;
+        parsed = contract.defaults;
+      }
       const theme = normalizeTheme(parsed);
       themeEnabled = Boolean(raw) && theme.name !== ORIGINAL_THEME_NAME;
       if (raw && Number(parsed.version || 1) !== contract.version) {
@@ -248,7 +289,15 @@
   function handleStorage(event) {
     if (event.key !== STORAGE_KEY || !contract) return;
     try {
-      currentTheme = normalizeTheme(event.newValue ? JSON.parse(event.newValue) : contract.defaults);
+      const incoming = event.newValue ? JSON.parse(event.newValue) : contract.defaults;
+      if (isRetiredBuiltinTheme(incoming)) {
+        localStorage.removeItem(STORAGE_KEY);
+        currentTheme = normalizeTheme(contract.defaults);
+        themeEnabled = false;
+        applyTheme(currentTheme, false);
+        return;
+      }
+      currentTheme = normalizeTheme(incoming);
       themeEnabled = Boolean(event.newValue) && currentTheme.name !== ORIGINAL_THEME_NAME;
       applyTheme(currentTheme, themeEnabled);
     } catch (error) {
@@ -317,7 +366,7 @@
       applyTheme(currentTheme, themeEnabled);
       window.addEventListener("storage", handleStorage);
     } catch (error) {
-      document.body?.classList.remove("tidal-visual");
+      document.body?.classList.remove("stone-theme-enabled");
       console.warn("Stone Memory theme studio stayed detached:", error);
     }
   }

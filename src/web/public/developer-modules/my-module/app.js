@@ -281,11 +281,11 @@
     context.globalCompositeOperation = "source-over";
     context.globalAlpha = 1;
     const foil = context.createLinearGradient(0, 0, rectangle.width, rectangle.height);
-    foil.addColorStop(0, theme.getPropertyValue("--stone-tide-accent-strong").trim());
-    foil.addColorStop(1, theme.getPropertyValue("--stone-tide-ink").trim());
+    foil.addColorStop(0, theme.getPropertyValue("--stone-theme-accent-strong").trim());
+    foil.addColorStop(1, theme.getPropertyValue("--stone-theme-ink").trim());
     context.fillStyle = foil;
     context.fillRect(0, 0, rectangle.width, rectangle.height);
-    context.strokeStyle = theme.getPropertyValue("--stone-tide-accent").trim();
+    context.strokeStyle = theme.getPropertyValue("--stone-theme-accent").trim();
     context.lineWidth = 1;
     context.globalAlpha = .72;
     for (let offset = -rectangle.height; offset < rectangle.width; offset += 22) {
@@ -295,8 +295,8 @@
       context.stroke();
     }
     context.globalAlpha = 1;
-    context.fillStyle = theme.getPropertyValue("--stone-tide-canvas-warm").trim();
-    const font = theme.getPropertyValue("--stone-tide-font-body").trim();
+    context.fillStyle = theme.getPropertyValue("--stone-theme-canvas-warm").trim();
+    const font = theme.getPropertyValue("--stone-theme-font-body").trim();
     context.font = `800 14px ${font}`;
     context.textAlign = "center";
     context.textBaseline = "middle";

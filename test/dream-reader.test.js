@@ -42,6 +42,10 @@ test("dream reader returns exact, latest, and eligible-date coverage for one thr
 
   assert.equal(reader.get("thread-test", "2026-07-27").body, "first body");
   assert.equal(reader.latest("thread-test").date, "2026-07-29");
+  assert.deepEqual(reader.list("thread-test"), [
+    { date: "2026-07-27", dreamType: "beautiful", title: "first" },
+    { date: "2026-07-29", dreamType: "nightmare", title: "latest" },
+  ]);
   assert.deepEqual(reader.coverage("thread-test"), {
     threadId: "thread-test",
     from: "2026-07-27",

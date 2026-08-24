@@ -37,7 +37,7 @@
 - 不直接读取全量 messages，不新增 SQL、索引、扫描器或第二套搜索逻辑。
 - 生成方式跟随当前记忆体的挖掘配置：API 继续复用现有 API 设置，Subagent 继续复用现有 Subagent。
 - 页面使用 `/developer-kit/runtime.js` 和唯一的 `<stone-module-page>`；线程 ID 只来自 runtime。
-- 样式只使用 `--stone-tide-*` 主题变量。
+- 样式只使用 `--stone-theme-*` 主题变量。
 
 ## 包内容
 
