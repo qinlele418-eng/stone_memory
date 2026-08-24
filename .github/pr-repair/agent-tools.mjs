@@ -695,6 +695,16 @@ export function createAgentTools({
       } : {}),
       ...(failureStage && failurePaths.length > 0 ? { repairTargets: failurePaths } : {}),
     };
+    if (failureStage && failurePaths.length > 0) {
+      result.failureEvidence = {
+        targets: failurePaths,
+        sources: await failureSourceEvidence(),
+        tests: await failureTestEvidence(),
+      };
+      result.note = normalized === failurePaths[0]
+        ? '这是当前首个失败源码目标；可直接基于 failureEvidence 修改。'
+        : '当前读取路径不是首个失败源码目标；failureEvidence 已附上可修改源码和失败测试，避免重复读取。';
+    }
     if (state.testCalls > 0 && state.lastTestPassed !== true && state.lastFailureFiles.length > 0) {
       const references = {};
       for (const [label, revision] of [['main', revisions.main], ['pr', revisions.pr]]) {
@@ -754,6 +764,9 @@ export function createAgentTools({
       ...(failureStage ? {
         repairTargets: await failureFallbackPaths(),
         repairSources: await failureSourceEvidence(),
+        note: result.stdout
+          ? 'failureStage 的 repairSources 是失败相关的可修改源码，不是当前 path 的搜索匹配。'
+          : '当前 path 没有匹配；failureStage 的 repairSources 是失败相关的可修改源码，请直接据此修改。',
       } : {}),
     };
   }

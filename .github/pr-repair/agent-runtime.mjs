@@ -330,11 +330,19 @@ export async function runRepairAgent({
         test: testTrace(initialTest),
       });
       state.flushAudit('tool_result', { tool: 'run_tests', phase: 'initial', result: initialTest });
+      const initialFailureBundle = initialTest?.passed === true ? null : {
+        failures: initialTest?.result?.failures || [],
+        repairTargets: initialTest?.repairTargets || [],
+        repairSources: initialTest?.repairSources || [],
+      };
       messages.push({
         role: 'system',
         content: [
           'runtime 首轮相关测试验证已完成。以下是可信证据，请直接据此调查并修改；不要把搜索本身当作进展。',
-          safeJson({ status: initialStatus, test: initialTest }),
+          safeJson({ status: initialStatus, test: initialTest, failureBundle: initialFailureBundle }),
+          initialFailureBundle
+            ? 'failureBundle.repairSources 已包含失败测试和允许修改的完整源码。优先基于这份源码直接调用 apply_patch；只有证据缺失时才重新读取。'
+            : '',
           initialTest?.passed !== true
             ? '测试未通过；失败测试和相关源码已在结果中提供，下一步优先 apply_patch，随后 run_tests 验证。'
             : state.requirePatch

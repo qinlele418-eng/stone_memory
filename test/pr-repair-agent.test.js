@@ -122,6 +122,8 @@ test('runtime seeds initial failure evidence before model exploration', async ()
   assert.equal(result.status, 'repair_complete');
   assert.deepEqual(calls.map(([name]) => name), ['get_status', 'run_tests', 'apply_patch', 'run_tests']);
   assert.match(client.calls[0].messages.at(-1).content, /runtime 首轮相关测试验证/);
+  assert.match(client.calls[0].messages.at(-1).content, /failureBundle/);
+  assert.match(client.calls[0].messages.at(-1).content, /src\/theme\.js/);
   assert.equal(result.metrics.toolTrace[1].name, 'run_tests(initial)');
   assert.equal(result.metrics.toolTrace[2].name, 'apply_patch');
   assert.equal(result.metrics.successfulPatchCalls, 1);
@@ -468,6 +470,9 @@ test('failed evidence returns matching allowed source files on the first follow-
     const read = await tools.call('read_file', {});
     assert.equal(read.path, 'src/theme.js');
     assert.match(read.content, /legacy-contract/);
+    assert.ok(read.failureEvidence.sources.some((source) => source.path === 'src/theme.js'));
+    assert.ok(read.failureEvidence.tests.some((source) => source.path === 'test/theme.test.js'));
+    assert.match(read.note, /首个失败源码目标/);
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
