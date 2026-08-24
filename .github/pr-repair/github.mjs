@@ -12,21 +12,27 @@ export async function githubRequest(path, {
   token,
   apiUrl = process.env.GITHUB_API_URL || 'https://api.github.com',
   fetchImpl = globalThis.fetch,
+  method = 'GET',
+  body,
 } = {}) {
   if (typeof fetchImpl !== 'function') throw new Error('当前 Node 环境没有 fetch');
   if (!token) throw new Error('缺少 GitHub API token');
   const response = await fetchImpl(`${apiBase(apiUrl)}/${String(path).replace(/^\//, '')}`, {
+    method,
     headers: {
       accept: 'application/vnd.github+json',
       'x-github-api-version': API_VERSION,
       authorization: `Bearer ${token}`,
       'user-agent': 'stone-memory-pr-repair',
+      ...(body === undefined ? {} : { 'content-type': 'application/json' }),
     },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
-  const body = await response.text();
+  const responseBody = await response.text();
   if (!response.ok) throw new Error(`GitHub API 请求失败 (${response.status})`);
+  if (!responseBody) return null;
   try {
-    return JSON.parse(body);
+    return JSON.parse(responseBody);
   } catch {
     throw new Error('GitHub API 返回了无法解析的 JSON');
   }
@@ -137,4 +143,38 @@ export async function getCurrentMainSha(repository, options = {}) {
 
 export async function getBranch(repository, branch, options = {}) {
   return githubRequest(`repos/${repository}/branches/${encodeURIComponent(branch)}`, options);
+}
+
+export async function dispatchWorkflow(repository, workflow, { ref, inputs } = {}, options = {}) {
+  const workflowId = String(workflow).replace(/^\.github\/workflows\//, '');
+  return githubRequest(`repos/${repository}/actions/workflows/${encodeURIComponent(workflowId)}/dispatches`, {
+    ...options,
+    method: 'POST',
+    body: { ref, inputs },
+  });
+}
+
+export async function getWorkflowRuns(repository, workflow, options = {}) {
+  const workflowId = String(workflow).replace(/^\.github\/workflows\//, '');
+  const runs = [];
+  for (let page = 1; ; page += 1) {
+    const raw = await githubRequest(`repos/${repository}/actions/workflows/${encodeURIComponent(workflowId)}/runs?event=workflow_dispatch&per_page=100&page=${page}`, options);
+    const batch = Array.isArray(raw?.workflow_runs) ? raw.workflow_runs : [];
+    runs.push(...batch);
+    if (batch.length < 100) return runs;
+  }
+}
+
+export async function getWorkflowRun(repository, runId, options = {}) {
+  return githubRequest(`repos/${repository}/actions/runs/${encodeURIComponent(runId)}`, options);
+}
+
+export async function getWorkflowRunJobs(repository, runId, options = {}) {
+  const jobs = [];
+  for (let page = 1; ; page += 1) {
+    const raw = await githubRequest(`repos/${repository}/actions/runs/${encodeURIComponent(runId)}/jobs?filter=latest&per_page=100&page=${page}`, options);
+    const batch = Array.isArray(raw?.jobs) ? raw.jobs : [];
+    jobs.push(...batch);
+    if (batch.length < 100) return jobs;
+  }
 }

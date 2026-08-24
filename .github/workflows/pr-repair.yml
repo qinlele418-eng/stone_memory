@@ -1043,19 +1043,20 @@ jobs:
           retention-days: 7
 
   post_push:
-    name: Poll official CI after repair push
+    name: Dispatch and poll official CI after repair push
     needs: publish
     if: >-
       always() &&
       needs.publish.result == 'success' &&
       needs.publish.outputs.status == 'repair_success'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
     permissions:
       contents: read
       pull-requests: read
       checks: read
       statuses: read
+      actions: write
     steps:
       - name: Check out trusted repair tools from main
         uses: actions/checkout@v4
@@ -1071,14 +1072,14 @@ jobs:
           name: pr-repair-push-${{ env.PR_NUMBER }}
           path: evidence
 
-      - name: Poll official checks
+      - name: Dispatch and poll official CI
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ env.PR_NUMBER }}
           REPAIR_COMMIT_SHA: ${{ needs.publish.outputs.commit_sha }}
           POLL_RESULT_PATH: ${{ github.workspace }}/pr-repair-ci.json
-          CI_POLL_TIMEOUT_MS: 600000
+          CI_POLL_TIMEOUT_MS: 2400000
         run: node tools/.github/pr-repair/poll.mjs
 
       - name: Upload official CI result

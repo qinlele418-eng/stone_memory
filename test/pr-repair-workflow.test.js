@@ -49,7 +49,7 @@ test('automation scripts come from trusted main checkouts, never from PR source'
   assert.match(workflow, /pr_related_failure/);
   assert.match(workflow, /run: node tools\/\.github\/pr-repair\/deterministic\.mjs/);
   assert.match(workflow, /pr-repair-validation/);
-  assert.match(workflow, /Poll official checks/);
+  assert.match(workflow, /Dispatch and poll official CI/);
   assert.match(workflow, /Call Z\.AI GLM-4\.7-Flash round 3/);
   assert.match(workflow, /Record repair feedback round 1/);
   assert.match(workflow, /Verify candidate repair round 3 without secrets/);
@@ -107,6 +107,13 @@ test('post-push explicitly requires a successful verified repair publish', () =>
   assert.equal(postPushMayRun({ publishResult: 'skipped', publishStatus: 'repair_success' }), false);
   assert.equal(postPushMayRun({ publishResult: 'success', publishStatus: 'push_not_requested' }), false);
   assert.doesNotMatch(postPushJob, /contents: write/);
+  assert.match(postPushJob, /permissions:\n\s+contents: read\n\s+pull-requests: read\n\s+checks: read\n\s+statuses: read\n\s+actions: write/);
+  assert.doesNotMatch(postPushJob, /actions: (?:admin|read)/);
+  assert.match(postPushJob, /name: Dispatch and poll official CI/);
+  assert.match(postPushJob, /run: node tools\/\.github\/pr-repair\/poll\.mjs/);
+  assert.match(postPushJob, /CI_POLL_TIMEOUT_MS: 2400000/);
+  assert.match(postPushJob, /timeout-minutes: 45/);
+  assert.doesNotMatch(postPushJob, /(?:PR|pr)[ _-]?#?130/);
 });
 
 test('final validation stages every trusted test-runner dependency and restores artifact files by name', () => {
