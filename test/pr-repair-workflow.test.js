@@ -83,7 +83,30 @@ test('publish accepts only an explicit true manual-dispatch input after repair s
   assert.match(gateJob, /PUSH_REPAIR_INPUT: \$\{\{ github\.event\.inputs\.push_repair \|\| '' \}\}/);
   assert.match(gateJob, /APPLY_JOB_RESULT: \$\{\{ needs\.apply_and_verify\.result \}\}/);
   assert.match(gateJob, /APPLY_REPAIR_STATUS: \$\{\{ needs\.apply_and_verify\.outputs\.status \}\}/);
-  assert.match(publishJob, /needs\.publish_gate\.outputs\.allowed == 'true'/);
+  assert.match(publishJob, /if: >-\n\s+always\(\) &&\n\s+needs\.apply_and_verify\.result == 'success' &&\n\s+needs\.publish_gate\.result == 'success' &&\n\s+needs\.publish_gate\.outputs\.allowed == 'true'/);
+  assert.doesNotMatch(publishJob, /if: needs\.publish_gate\.outputs\.allowed == 'true'/);
+  assert.match(publishJob, /permissions:\n\s+contents: write\n\s+pull-requests: read\n\s+outputs:/);
+
+  const publishMayRun = ({ applyResult, gateResult, allowed }) =>
+    applyResult === 'success' && gateResult === 'success' && allowed === 'true';
+  assert.equal(publishMayRun({ applyResult: 'success', gateResult: 'success', allowed: 'true' }), true);
+  assert.equal(publishMayRun({ applyResult: 'success', gateResult: 'success', allowed: 'false' }), false);
+  assert.equal(publishMayRun({ applyResult: 'failure', gateResult: 'success', allowed: 'true' }), false);
+  assert.equal(publishMayRun({ applyResult: 'success', gateResult: 'failure', allowed: 'true' }), false);
+});
+
+test('post-push explicitly requires a successful verified repair publish', () => {
+  const postPushJob = workflow.slice(workflow.indexOf('  post_push:'));
+  assert.match(postPushJob, /if: >-\n\s+always\(\) &&\n\s+needs\.publish\.result == 'success' &&\n\s+needs\.publish\.outputs\.status == 'repair_success'/);
+  assert.doesNotMatch(postPushJob, /if: needs\.publish\.result == 'success'/);
+
+  const postPushMayRun = ({ publishResult, publishStatus }) =>
+    publishResult === 'success' && publishStatus === 'repair_success';
+  assert.equal(postPushMayRun({ publishResult: 'success', publishStatus: 'repair_success' }), true);
+  assert.equal(postPushMayRun({ publishResult: 'failure', publishStatus: 'repair_success' }), false);
+  assert.equal(postPushMayRun({ publishResult: 'skipped', publishStatus: 'repair_success' }), false);
+  assert.equal(postPushMayRun({ publishResult: 'success', publishStatus: 'push_not_requested' }), false);
+  assert.doesNotMatch(postPushJob, /contents: write/);
 });
 
 test('final validation stages every trusted test-runner dependency and restores artifact files by name', () => {

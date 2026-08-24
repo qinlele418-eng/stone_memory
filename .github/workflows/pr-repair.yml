@@ -976,7 +976,11 @@ jobs:
   publish:
     name: Optionally push verified append-only repair
     needs: [apply_and_verify, publish_gate]
-    if: needs.publish_gate.outputs.allowed == 'true'
+    if: >-
+      always() &&
+      needs.apply_and_verify.result == 'success' &&
+      needs.publish_gate.result == 'success' &&
+      needs.publish_gate.outputs.allowed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -1041,7 +1045,10 @@ jobs:
   post_push:
     name: Poll official CI after repair push
     needs: publish
-    if: needs.publish.result == 'success'
+    if: >-
+      always() &&
+      needs.publish.result == 'success' &&
+      needs.publish.outputs.status == 'repair_success'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
