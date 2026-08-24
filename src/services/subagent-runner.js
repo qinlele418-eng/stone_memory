@@ -26,6 +26,13 @@ const { execFileSync } = require("child_process");
 const { loadConfig, getCfg, getThreadDir } = require("../config");
 const { commandInvocation, appendOption, resolveExecutableInvocation } = require("../lib/command-invocation");
 
+const CODEX_AUTO_APPROVED_MCP_TOOLS = Object.freeze({
+  stone_memory_search: Object.freeze([
+    "memory_keyword_search",
+    "memory_archive_context",
+  ]),
+});
+
 const BUILTIN_RUNTIMES = {
   claude: {
     command: "claude -p",
@@ -226,6 +233,10 @@ function appendCodexMcpConfig(args, configPath) {
     }
     appendOption(args, "-c", `mcp_servers.${name}.required=true`);
     appendOption(args, "-c", `mcp_servers.${name}.default_tools_approval_mode="auto"`);
+    for (const toolName of CODEX_AUTO_APPROVED_MCP_TOOLS[name] || []) {
+      if (!/^[A-Za-z0-9_-]+$/.test(toolName)) continue;
+      appendOption(args, "-c", `mcp_servers.${name}.tools.${toolName}.approval_mode="approve"`);
+    }
   }
 }
 
@@ -367,6 +378,7 @@ module.exports = {
   buildStdinCmd,
   buildStdinInvocation,
   appendCodexMcpConfig,
+  CODEX_AUTO_APPROVED_MCP_TOOLS,
   appendCodexProviderConfig,
   codexProviderFromConfig,
   normalizeCodexProviderBaseUrl,

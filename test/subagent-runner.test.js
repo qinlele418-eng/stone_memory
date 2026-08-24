@@ -99,6 +99,9 @@ test("Codex receives a temporary MCP config without changing user config", t => 
         cwd: "/tmp",
         env: { STMEM_SEARCH_ONLY: "1", STMEM_THREAD_ID: "thread-test" },
       },
+      other_server: {
+        command: "/usr/bin/other-mcp-server",
+      },
     },
   }));
   const args = [];
@@ -108,6 +111,12 @@ test("Codex receives a temporary MCP config without changing user config", t => 
   assert.match(joined, /STMEM_SEARCH_ONLY/);
   assert.match(joined, /STMEM_THREAD_ID/);
   assert.match(joined, /default_tools_approval_mode/);
+  const approvedToolConfigs = args.filter(arg => /\.tools\.[^.]+\.approval_mode="approve"$/.test(arg));
+  assert.deepEqual(approvedToolConfigs, [
+    'mcp_servers.stone_memory_search.tools.memory_keyword_search.approval_mode="approve"',
+    'mcp_servers.stone_memory_search.tools.memory_archive_context.approval_mode="approve"',
+  ]);
+  assert.doesNotMatch(joined, /mcp_servers\.other_server\.tools\..*\.approval_mode="approve"/);
 });
 
 test("Codex reuses an existing OpenAI API provider without exposing its key in argv", () => {

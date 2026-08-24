@@ -1042,6 +1042,12 @@ const SEARCH_TOOLS = [
   {
     name: "memory_keyword_search",
     description: "Search feelings by keyword and return the narrative backbone with its event-window conversation. Use this first.",
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
     inputSchema: {
       type: "object", required: ["query"],
       properties: {
@@ -1054,6 +1060,12 @@ const SEARCH_TOOLS = [
   {
     name: "memory_archive_context",
     description: "Search archive context across dates using keywords from the feeling result.",
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
     inputSchema: {
       type: "object", required: ["feelingDate", "keywords"],
       properties: {
