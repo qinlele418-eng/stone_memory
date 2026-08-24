@@ -482,6 +482,7 @@ export function createAgentTools({
     lastFailureEvidence: [],
     failureReadIndex: 0,
     lastRepairGuidance: [],
+    readPaths: new Set(),
   };
 
   async function unresolvedFiles() {
@@ -618,6 +619,8 @@ export function createAgentTools({
     const requestedPath = unresolved.length > 0 ? (args.path || fallbackPath) : (firstFailurePath || args.path || fallbackPath);
     const { normalized, absolute } = safeReadPath(cwd, requestedPath);
     const content = await readFile(absolute, 'utf8');
+    const repeatedRead = state.readPaths.has(normalized);
+    state.readPaths.add(normalized);
     const lines = content.split(/\r?\n/);
     const start = Math.max(1, Number(args.start_line || 1));
     const requestedEnd = Number(args.end_line || Math.min(lines.length, start + AGENT_TOOL_LIMITS.maxReadLines - 1));
@@ -628,6 +631,10 @@ export function createAgentTools({
       startLine: start,
       endLine: end,
       content: clip(redactSensitiveText(lines.slice(start - 1, end).join('\n')), AGENT_TOOL_LIMITS.maxReadChars),
+      ...(repeatedRead ? {
+        cached: true,
+        note: '该路径已在本回合读取；内容未变化。请停止重复读取，直接运行测试或根据失败证据 apply_patch。',
+      } : {}),
       ...(failureStage && failurePaths.length > 0 ? { repairTargets: failurePaths.slice(0, 8) } : {}),
     };
     if (state.testCalls > 0 && state.lastTestPassed !== true && state.lastFailureFiles.length > 0) {
