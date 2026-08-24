@@ -40,7 +40,7 @@ export const REPAIR_AGENT_SYSTEM_PROMPT = [
   '不要输出计划来代替修改，不要输出完整文件，不要为了让测试变绿而削弱或删除测试；如果失败测试本身属于允许的 PR 变更且明确断言了与 current main 合约不一致的旧行为，可以做等价的机械断言迁移。不要修改依赖入口、workflow、权限或凭据。',
   '不要 commit、push、approve、merge、close PR；这些动作由外层机械层完成。',
   '如果证据不足、需要产品决策或无法保守完成，调用 finish(decision="needs_human")。',
-  '相关测试完成验证后再调用 finish(decision="repair_complete")；不要用普通文本描述下一步。',
+  '完成代码修改后，结束前主动用 git_diff 复核最终改动，按 git diff --check 的标准清除行尾空格等空白问题；发现问题先用 apply_patch 修正，再运行相关测试并调用 finish(decision="repair_complete")。不要用普通文本描述下一步。',
 ].join('\n');
 
 function nowMs() {
