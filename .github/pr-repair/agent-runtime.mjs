@@ -29,7 +29,7 @@ export const REPAIR_AGENT_SYSTEM_PROMPT = [
   '你是 Stone Memory 的 PR 冲突维修 coding agent，不是 reviewer，也不是计划生成器。',
   '你的任务是直接在隔离 repair worktree 中读取代码、调查 current main 与 PR 的差异、修改代码并运行测试。远程 CI 的 Windows/macOS/Linux 失败证据也属于可信输入；若 Ubuntu 复现通过但远程平台仍失败，只根据具体断言做兼容性或命名修复，不要因本地测试通过就停止。',
   '必须保留 PR 的原始功能意图，只处理 current main 导致的冲突或明确的相关测试失败。',
-  '冲突任务优先调用一次 get_status；其 conflictDetails 已集中给出所有未解决冲突块，ours 是 PR 侧、theirs 是 current main 侧，并带有前后文。不要逐个调用 git_show_file 来重新扫描这些冲突；读取集中结果后直接 apply_patch。每次 apply_patch 的结果会列出 remainingUnresolved；必须继续处理这些文件，直到列表为空。未解决冲突清空前不要调用 run_tests，先完成所有冲突文件；只有列表为空后才验证。每次读取若省略 path，runtime 会优先给出仍未解决的文件；不要重复修改或读取已经解决的文件。测试失败后的 read_file 会附带该文件的 main/pr 参考版本和 repairGuidance；务必用三方对照修复当前文件，最多补读两次后必须 apply_patch。若 notebook MCP/web 报 JSON 解析错误，读取并修复受限的 scripts/stmem-notebook.js（CLI 必须输出单行 JSON），不要只反复改 bin/stmem。最多探索两回合后必须直接 apply_patch。冲突清空后每次成功 apply_patch 后 runtime 会自动运行一次相关测试，再根据结果继续。测试失败后只读取失败相关源码并立即修复；git_show_file 必须带 revision（base、pr 或 main），否则用 read_file。',
+  '冲突任务优先调用一次 get_status；其 conflictDetails 已集中给出所有未解决冲突块，ours 是 PR 侧、theirs 是 current main 侧，并带有前后文。不要逐个调用 git_show_file 来重新扫描这些冲突；读取集中结果后直接 apply_patch。每次 apply_patch 的结果会列出 remainingUnresolved；必须继续处理这些文件，直到列表为空。未解决冲突清空前不要调用 run_tests，先完成所有冲突文件；只有列表为空后才验证。每次读取若省略 path，runtime 会优先给出仍未解决的文件。测试失败后，runtime 的第一次 read_file 会直接返回失败相关的允许源码，并附带 main/pr 参考、repairGuidance 和相关候选文件；根据这份集中证据直接 apply_patch。若 notebook MCP/web 报 JSON 解析错误，读取并修复受限的 scripts/stmem-notebook.js（CLI 必须输出单行 JSON），不要只反复改 bin/stmem。冲突清空后每次成功 apply_patch 后 runtime 会自动运行一次相关测试，再根据结果继续。git_show_file 必须带 revision（base、pr 或 main），否则用 read_file。',
   'apply_patch 的 patch 参数不要用 Markdown 围栏；可用标准 unified diff，或严格使用 *** Begin Patch、*** Update File: 路径、@@、带 +/- 前缀的行、*** End Patch 格式。',
   '不要输出计划来代替修改，不要输出完整文件，不要修改测试、依赖入口、workflow、权限或凭据。',
   '不要 commit、push、approve、merge、close PR；这些动作由外层机械层完成。',
@@ -146,10 +146,16 @@ function gateToolCall(name, args, state, limits) {
   if (!name) return '工具调用缺少名称';
   if (state.toolCalls >= limits.maxToolCalls) return '工具调用达到硬上限';
   if (READ_ONLY_TOOLS.has(name) && state.readOnlyCalls >= limits.maxReadOnlyCalls) return '只读工具调用达到硬上限';
-  if (['read_file', 'git_show_file', 'search_code'].includes(name) && state.testCalls > 0 && state.lastTestPassed !== true && state.failureReadCalls >= 3) {
-    return '测试失败后已读取失败源码三次，必须直接 apply_patch';
+  const failureEvidenceRead = state.testCalls > 0 && state.lastTestPassed !== true;
+  if (['read_file', 'git_show_file', 'search_code'].includes(name) && failureEvidenceRead && state.failureReadCalls >= 1) {
+    return '测试失败源码已在上一次读取中集中返回，必须直接 apply_patch 或 needs_human';
   }
-  if (READ_ONLY_TOOLS.has(name) && state.patchCalls === 0 && state.logicalTurns > limits.maxExploreTurns) return '探索回合达到上限，请直接 apply_patch 或 needs_human';
+  // A failed test is a new evidence phase.  Always allow its one bundled
+  // source read even when the model spent several turns on the initial test
+  // file; the read tool maps it to the first allowed repair source and includes
+  // related candidates, so the model does not need another search round.
+  const mayReadFailureEvidence = failureEvidenceRead && state.failureReadCalls < 1;
+  if (READ_ONLY_TOOLS.has(name) && state.patchCalls === 0 && state.logicalTurns > limits.maxExploreTurns && !mayReadFailureEvidence) return '探索回合达到上限，请直接 apply_patch 或 needs_human';
   if (name === 'apply_patch') {
     if (state.readOnlyCalls < 1) return '必须先通过只读工具调查代码，再 apply_patch';
     if (state.patchCalls >= limits.maxPatchCalls) return '修改批次达到硬上限';
@@ -167,8 +173,12 @@ function gateToolCall(name, args, state, limits) {
 }
 
 function availableDefinitions(definitions, state, limits) {
+  const failureEvidenceRead = state.testCalls > 0 && state.lastTestPassed !== true;
+  if (failureEvidenceRead && state.patchCalls === 0 && state.failureReadCalls < 1) {
+    return definitions.filter((tool) => ['read_file', 'apply_patch', 'git_diff', 'finish'].includes(tool?.function?.name));
+  }
   if (state.patchCalls > 0 && state.lastTestPassed !== true) {
-    if (state.failureReadCalls >= 3) return definitions.filter((tool) => ['git_diff', 'apply_patch', 'finish'].includes(tool?.function?.name));
+    if (state.failureReadCalls >= 1) return definitions.filter((tool) => ['git_diff', 'apply_patch', 'finish'].includes(tool?.function?.name));
     return definitions.filter((tool) => ['read_file', 'git_diff', 'apply_patch', 'finish'].includes(tool?.function?.name));
   }
   if (state.patchCalls === 0 && state.logicalTurns > limits.maxExploreTurns) {

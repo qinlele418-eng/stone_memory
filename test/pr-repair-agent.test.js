@@ -99,6 +99,41 @@ test('agent rejects a repair completion before a passing test and fails closed a
   assert.deepEqual(client.calls[2].tools.map((tool) => tool.function.name), ['apply_patch', 'run_tests', 'finish']);
 });
 
+test('failed tests get one bundled source read after the exploration cap', async () => {
+  const client = scriptedClient([
+    { role: 'assistant', tool_calls: [toolCall('1', 'read_file', { path: 'test/theme.test.js' })] },
+    { role: 'assistant', tool_calls: [toolCall('2', 'run_tests', { mode: 'related' })] },
+    { role: 'assistant', tool_calls: [toolCall('3', 'read_file', { path: 'test/theme.test.js' })] },
+    { role: 'assistant', tool_calls: [toolCall('4', 'apply_patch', { patch: 'diff --git a/src/theme.js b/src/theme.js\n' })] },
+  ]);
+  let testCalls = 0;
+  const tools = {
+    definitions: [
+      { type: 'function', function: { name: 'read_file', parameters: { type: 'object' } } },
+      { type: 'function', function: { name: 'apply_patch', parameters: { type: 'object' } } },
+      { type: 'function', function: { name: 'run_tests', parameters: { type: 'object' } } },
+      { type: 'function', function: { name: 'finish', parameters: { type: 'object' } } },
+    ],
+    async call(name) {
+      if (name === 'read_file') return { ok: true, path: 'src/theme.js', content: 'const prefix = "--stone-tide-";\n', relatedFiles: [{ path: 'src/theme.js', content: '...' }] };
+      if (name === 'apply_patch') return { ok: true, applied: true, changedFiles: ['src/theme.js'], remainingUnresolved: [] };
+      if (name === 'run_tests') {
+        testCalls += 1;
+        return testCalls === 1
+          ? { ok: true, passed: false, result: { total: 1, passed: 0, failed: 1, failures: [{ file: 'test/theme.test.js', error: 'stone-tide' }] } }
+          : { ok: true, passed: true, result: { total: 1, passed: 1, failed: 0, failures: [] } };
+      }
+      return { ok: true, status: 'needs_human' };
+    },
+    snapshot() { return {}; },
+  };
+  const result = await runRepairAgent({ task: '修复 CI 失败', client, tools, limits: { ...AGENT_LIMITS, maxExploreTurns: 2 } });
+
+  assert.equal(result.status, 'repair_complete');
+  assert.deepEqual(result.metrics.toolSequence, ['read_file', 'run_tests', 'read_file', 'apply_patch', 'run_tests(auto)']);
+  assert.deepEqual(client.calls[2].tools.map((tool) => tool.function.name), ['read_file', 'apply_patch', 'finish']);
+});
+
 test('agent finishes all unresolved conflict patches before running tests', async () => {
   const client = scriptedClient([
     { role: 'assistant', tool_calls: [toolCall('1', 'read_file', { path: 'src/example.js' })] },
