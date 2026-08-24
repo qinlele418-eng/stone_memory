@@ -11,6 +11,16 @@ test('remote platform failure triggers PR repair when Ubuntu reproduction passes
   assert.equal(relation, 'pr_related_failure');
 });
 
+test('remote CI evidence still triggers repair when local Ubuntu has another failure', () => {
+  const relation = classifyReproductionRelation({
+    baseline: { passed: true },
+    pr: { passed: false, result: { failures: [{ file: 'test/unchanged-expectation.test.js' }] } },
+    changedFiles: ['src/feature.mjs'],
+    remoteFailures: [{ name: 'Test / macOS', conclusion: 'failure', log: 'platform assertion failed' }],
+  });
+  assert.equal(relation, 'pr_related_failure');
+});
+
 test('cancelled-only evidence does not turn green tests into a repair', () => {
   const relation = classifyReproductionRelation({
     baseline: { passed: true },

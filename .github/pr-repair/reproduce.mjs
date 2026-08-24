@@ -21,10 +21,12 @@ function cleanEnv(token) {
 export function classifyReproductionRelation({ baseline = {}, pr = {}, changedFiles = [], remoteFailures = [] } = {}) {
   if (!baseline.passed && !baseline.flaky) return 'main_ci_failure';
   if (baseline.flaky || pr.flaky) return 'needs_human';
-  // A clean Ubuntu reproduction does not disprove a real PR regression on a
-  // remote Windows/macOS/Linux runner.  Preserve completed remote failure
-  // evidence so the bounded coding agent can inspect the exact assertion.
-  if (pr.passed && remoteFailures.length > 0) return 'pr_related_failure';
+  // The trusted CI result is evidence even when Ubuntu reproduces a different
+  // failure (for example, an old test expectation against current main).
+  // Preserve completed remote failure evidence so the bounded coding agent can
+  // inspect the exact assertion instead of silently classifying the PR as
+  // human-only because the local failure file is not in the PR diff.
+  if (remoteFailures.length > 0) return 'pr_related_failure';
   if (pr.passed) return 'tests_passed';
   const failureFiles = (pr.result?.failures || []).map((failure) => failure.file).filter(Boolean);
   const related = failureFiles.length > 0 && failureFiles.some((file) => changedFiles.includes(file));

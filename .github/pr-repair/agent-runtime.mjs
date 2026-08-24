@@ -178,7 +178,7 @@ function defaultTask({ diagnosis, reproduction = {} } = {}) {
   const failures = reproduction?.pr?.result?.failures || [];
   const remoteFailures = reproduction?.remote?.failures || [];
   return [
-    '请直接处理当前 PR 与 current main 的冲突。不要只生成计划。',
+    '请直接处理当前 PR 与 current main 的冲突或可信 CI 失败。不要只生成计划。',
     '机械事实：',
     safeJson({
       pr: {
