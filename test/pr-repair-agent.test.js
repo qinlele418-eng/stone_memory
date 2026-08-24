@@ -456,6 +456,36 @@ test('agent apply_patch accepts the bounded Begin Patch format emitted by coding
   }
 });
 
+test('agent applies a bounded repeated identifier migration across one allowed file', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'stone-memory-agent-identifier-'));
+  try {
+    const git = async (...args) => {
+      const result = await runGit(args, { cwd });
+      assert.equal(result.code, 0, `${args.join(' ')}\n${result.stderr}`);
+      return result.stdout.trim();
+    };
+    await git('init', '-b', 'main');
+    await git('config', 'user.name', 'test');
+    await git('config', 'user.email', 'test@example.invalid');
+    await writeFile(join(cwd, 'theme.css'), '.alpha { color: var(--legacy-contract-ink); }\n.beta { color: var(--legacy-contract-canvas); }\n');
+    await git('add', 'theme.css');
+    await git('commit', '-m', 'base');
+    const sha = await git('rev-parse', 'HEAD');
+    const tools = createAgentTools({ cwd, revisions: { base: sha, pr: sha, main: sha }, allowedFiles: ['theme.css'] });
+    await tools.call('get_status', {});
+    const result = await tools.call('apply_patch', {
+      patch: '*** Begin Patch\n*** Update File: theme.css\n@@\n-.alpha { color: var(--legacy-contract-ink); }\n+.alpha { color: var(--current-contract-ink); }\n*** End Patch\n',
+    });
+    assert.equal(result.applied, true, JSON.stringify(result));
+    const content = await readFile(join(cwd, 'theme.css'), 'utf8');
+    assert.doesNotMatch(content, /legacy-contract/);
+    assert.match(content, /current-contract-ink/);
+    assert.match(content, /current-contract-canvas/);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test('agent resolves a conflict when a model patch has a stale conflict footer', async () => {
   const cwd = await mkdtemp(join(tmpdir(), 'stone-memory-agent-stale-footer-'));
   try {

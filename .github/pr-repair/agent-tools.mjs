@@ -325,8 +325,62 @@ function replaceSingleConflict(content, candidateLines, path) {
   return [...lines.slice(0, start), ...candidateLines, ...lines.slice(end + 1)].join('\n');
 }
 
+function identifierReplacement(oldLine, newLine) {
+  const oldText = String(oldLine ?? '');
+  const newText = String(newLine ?? '');
+  const tokenPattern = /[A-Za-z_$][A-Za-z0-9_$.-]*/g;
+  const oldTokens = [...oldText.matchAll(tokenPattern)].map((match) => match[0]);
+  const newTokens = [...newText.matchAll(tokenPattern)].map((match) => match[0]);
+  const changedTokens = oldTokens
+    .map((token, index) => ({ oldPart: token, newPart: newTokens[index] }))
+    .filter(({ oldPart, newPart }) => newPart && oldPart !== newPart);
+  if (changedTokens.length === 1) {
+    const { oldPart: oldToken, newPart: newToken } = changedTokens[0];
+    let suffix = 0;
+    while (
+      suffix < oldToken.length
+      && suffix < newToken.length
+      && oldToken[oldToken.length - suffix - 1] === newToken[newToken.length - suffix - 1]
+    ) suffix += 1;
+    const replacement = {
+      oldPart: oldToken.slice(0, oldToken.length - suffix),
+      newPart: newToken.slice(0, newToken.length - suffix),
+      bounded: true,
+    };
+    if (replacement.oldPart.length >= 5 && /^[A-Za-z_$][A-Za-z0-9_$.-]*$/.test(replacement.oldPart)
+      && /^[A-Za-z_$][A-Za-z0-9_$.-]*$/.test(replacement.newPart)) return replacement;
+  }
+  let prefix = 0;
+  while (prefix < oldText.length && prefix < newText.length && oldText[prefix] === newText[prefix]) prefix += 1;
+  let suffix = 0;
+  while (
+    suffix < oldText.length - prefix
+    && suffix < newText.length - prefix
+    && oldText[oldText.length - suffix - 1] === newText[newText.length - suffix - 1]
+  ) suffix += 1;
+  const oldPart = oldText.slice(prefix, oldText.length - suffix);
+  const newPart = newText.slice(prefix, newText.length - suffix);
+  if (!oldPart || !newPart || oldPart === newPart || /\s/.test(oldPart) || /\s/.test(newPart)) return null;
+  if (!/^[A-Za-z_$][A-Za-z0-9_$.-]*$/.test(oldPart) || !/^[A-Za-z_$][A-Za-z0-9_$.-]*$/.test(newPart)) return null;
+  // Only widen a one-line hunk for an unmistakable identifier migration.
+  // This keeps ordinary repeated code edits precise while making large,
+  // mechanically renamed vocabularies possible in one bounded patch.
+  if (oldPart.length < 5 || !/[-_.]/.test(oldPart)) return null;
+  return { oldPart, newPart };
+}
+
 function replaceUniqueLines(content, oldLines, newLines, path, addedLines = []) {
   const lines = content.split('\n');
+  if (oldLines.length === 1 && newLines.length === 1) {
+    const replacement = identifierReplacement(oldLines[0], newLines[0]);
+    if (replacement && content.split(replacement.oldPart).length > 2) {
+      if (replacement.bounded) {
+        const escaped = replacement.oldPart.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return content.replace(new RegExp(`(?<![A-Za-z0-9_$])${escaped}(?![A-Za-z0-9_$])`, 'g'), replacement.newPart);
+      }
+      return content.replaceAll(replacement.oldPart, replacement.newPart);
+    }
+  }
   let matchAt = -1;
   for (let start = 0; start <= lines.length - oldLines.length; start += 1) {
     if (oldLines.every((line, offset) => lines[start + offset] === line)) {
