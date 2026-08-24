@@ -320,8 +320,10 @@ test('failed verification routes the next read to the first failing source file'
       }),
     });
     await tools.call('run_tests', { mode: 'related' });
-    const read = await tools.call('read_file', { path: 'bin.stmem', start_line: 1, end_line: 1 });
-    assert.equal(read.path, 'src.js');
+    const defaultRead = await tools.call('read_file', { start_line: 1, end_line: 1 });
+    assert.equal(defaultRead.path, 'src.js');
+    const explicitRead = await tools.call('read_file', { path: 'bin.stmem', start_line: 1, end_line: 1 });
+    assert.equal(explicitRead.path, 'bin.stmem');
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
@@ -360,7 +362,7 @@ test('failed evidence returns matching allowed source files on the first follow-
     assert.ok(failed.repairSources.some((source) => source.path === 'src/theme.js'));
     const search = await tools.call('search_code', {});
     assert.ok(search.repairSources.some((source) => source.path === 'src/theme.js'));
-    const read = await tools.call('read_file', { path: 'test/theme.test.js' });
+    const read = await tools.call('read_file', {});
     assert.equal(read.path, 'src/theme.js');
     assert.match(read.content, /legacy-contract/);
   } finally {

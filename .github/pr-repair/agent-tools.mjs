@@ -663,9 +663,10 @@ export function createAgentTools({
     const failurePaths = failureStage && unresolved.length === 0 ? await failureFallbackPaths() : [];
     const firstFailurePath = failurePaths[0] || null;
     const fallbackPath = unresolved.at(0) || firstFailurePath || state.changedFiles.at(-1) || allowed.at(0);
-    // After a failed test, force the first diagnostic read to the first reported
-    // source file even when the model repeats a cascaded CLI path explicitly.
-    const requestedPath = unresolved.length > 0 ? (args.path || fallbackPath) : (firstFailurePath || args.path || fallbackPath);
+    // After a failed test, use the first reported source only when the model
+    // does not name a path. An explicit path is an intentional navigation
+    // request and must not be rewritten back to the same failure file.
+    const requestedPath = args.path || fallbackPath;
     const { normalized, absolute } = safeReadPath(cwd, requestedPath);
     const content = await readFile(absolute, 'utf8');
     const repeatedRead = state.readPaths.has(normalized);
