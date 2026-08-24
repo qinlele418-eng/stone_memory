@@ -305,6 +305,10 @@ jobs:
         working-directory: pr-worktree
         run: npm run audit:developer-modules
 
+      - name: Run supervisor cross-platform regression suite
+        working-directory: pr-worktree
+        run: npm run test:supervisor
+
       - name: Smoke test the CLI
         working-directory: pr-worktree
         run: node bin/stmem --help
