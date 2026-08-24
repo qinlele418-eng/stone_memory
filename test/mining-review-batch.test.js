@@ -76,7 +76,9 @@ test("batch runner respects concurrency, continues failures and retries only fai
   assert.deepEqual(result.tasks.map(task => task.status), ["completed", "failed", "completed"]);
   assert.equal(result.status, "completed_with_failures");
   const recordPath = path.join(dir, "review-batches", `${created.id}.json`);
-  assert.equal(fs.statSync(recordPath).mode & 0o777, 0o600);
+  if (process.platform !== "win32") {
+    assert.equal(fs.statSync(recordPath).mode & 0o777, 0o600);
+  }
   assert.doesNotMatch(fs.readFileSync(recordPath, "utf8"), /conversation text|api[_ ]?key/i);
 
   prepareReviewBatchRetry(store, created.id);
