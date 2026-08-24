@@ -5,9 +5,12 @@
   let modulesPromise = null;
 
   function sortModules(host) {
-    [...host.querySelectorAll("[data-developer-module]")]
-      .sort((a, b) => Number(a.dataset.moduleOrder) - Number(b.dataset.moduleOrder))
-      .forEach(item => host.append(item));
+    const modules = [...host.querySelectorAll("[data-developer-module]")];
+    const sorted = [...modules]
+      .sort((a, b) => Number(a.dataset.moduleOrder) - Number(b.dataset.moduleOrder));
+    sorted.forEach((item, index) => {
+      if (host.children[index] !== item) host.append(item);
+    });
   }
 
   function mount(host) {
