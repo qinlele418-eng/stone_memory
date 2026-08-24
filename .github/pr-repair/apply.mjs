@@ -68,7 +68,11 @@ export async function applyRepair({
     ...(diagnosis.merge?.conflictFiles || []),
     ...(diagnosis.reproduction?.pr?.result?.failures || []).map((failure) => failure.file).filter(Boolean),
   ])];
-  const validation = validateRepairResponse(plan, { allowedFiles });
+  const mutableTestFiles = (diagnosis.changedFiles || []).filter((file) => (
+    /(?:^|\/)(?:test|tests|__tests__)(?:\/|$)/i.test(file)
+      || /\.(?:test|spec)\.[^/]+$/i.test(file)
+  ));
+  const validation = validateRepairResponse(plan, { allowedFiles, mutableTestFiles });
   if (!validation.ok) return { version: 1, status: 'repair_failed', error: validation.errors.join('；') };
   if (plan.status === 'ai_unavailable') return { version: 1, status: 'ai_unavailable', reason: plan.reason || '外部模型不可用' };
   if (diagnosis.prKind === 'bugfix' && plan.bugStatus === 'already_fixed') {
@@ -181,7 +185,13 @@ export async function commitAgentRepair({
     decision: 'repair',
     summary: String(summary || '').slice(0, 2_000),
     changes: modelChangedFiles.map((path) => ({ path, content: 'agent workspace change' })),
-  }, { allowedFiles });
+  }, {
+    allowedFiles,
+    mutableTestFiles: (diagnosis.changedFiles || []).filter((file) => (
+      /(?:^|\/)(?:test|tests|__tests__)(?:\/|$)/i.test(file)
+        || /\.(?:test|spec)\.[^/]+$/i.test(file)
+    )),
+  });
   if (!validation.ok) return { version: 1, status: 'repair_failed', error: validation.errors.join('；') };
   const diffCheck = await runGit(['diff', '--check', '--', ...modelChangedFiles], { cwd });
   if (diffCheck.code !== 0) return { version: 1, status: 'repair_failed', error: redactErrorMessage(diffCheck.stderr || diffCheck.stdout || '工作区 diff 检查失败') };

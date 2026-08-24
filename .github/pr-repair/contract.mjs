@@ -90,12 +90,10 @@ export function normalizeSafeRelativePath(file) {
   return file.replaceAll('\\', '/');
 }
 
-function isProtectedRepairPath(file) {
+function isTestPath(file) {
   const normalized = normalizeSafeRelativePath(file);
-  if (!normalized) return true;
-  return /^(?:package\.json|package-lock\.json|npm-shrinkwrap\.json)$/.test(normalized)
-    || /(?:^|\/)(?:test|tests|__tests__)(?:\/|$)/i.test(normalized)
-    || /\.(?:test|spec)\.[^/]+$/i.test(normalized);
+  return Boolean(normalized && (/(?:^|\/)(?:test|tests|__tests__)(?:\/|$)/i.test(normalized)
+    || /\.(?:test|spec)\.[^/]+$/i.test(normalized)));
 }
 
 const MODEL_SECRET_PATTERNS = [
@@ -153,7 +151,7 @@ function addedLines(patch) {
     .filter((line) => line.startsWith('+') && !line.startsWith('+++'));
 }
 
-export function validateRepairResponse(response, { allowedFiles = [] } = {}) {
+export function validateRepairResponse(response, { allowedFiles = [], mutableTestFiles = [] } = {}) {
   const errors = [];
   if (!response || typeof response !== 'object') errors.push('模型响应不是 JSON 对象');
   const decision = response?.decision;
@@ -166,6 +164,9 @@ export function validateRepairResponse(response, { allowedFiles = [] } = {}) {
     errors.push('repair 必须提供 changes 或 patch');
   }
   const allowedInput = Array.isArray(allowedFiles) ? allowedFiles : [];
+  const mutableTests = new Set((Array.isArray(mutableTestFiles) ? mutableTestFiles : [])
+    .map(normalizeSafeRelativePath)
+    .filter(Boolean));
   if (decision === 'repair' && allowedInput.length === 0) errors.push('没有已验证的允许修改文件，拒绝自动 repair');
   if (changes.length > 20) errors.push('一次 repair 最多修改 20 个文件');
 
@@ -182,7 +183,13 @@ export function validateRepairResponse(response, { allowedFiles = [] } = {}) {
 
   const safePaths = [...paths].map(normalizeSafeRelativePath).filter(Boolean);
   for (const path of paths) if (!normalizeSafeRelativePath(path)) errors.push(`禁止修改不安全路径: ${path}`);
-  for (const path of safePaths) if (isProtectedRepairPath(path)) errors.push(`禁止自动修改测试或依赖入口: ${path}`);
+  for (const path of safePaths) {
+    if (/^(?:package\.json|package-lock\.json|npm-shrinkwrap\.json)$/.test(path)) {
+      errors.push(`禁止修改测试或依赖入口: ${path}`);
+    } else if (isTestPath(path) && !mutableTests.has(path)) {
+      errors.push(`禁止自动修改测试: 非 PR 测试文件 ${path}`);
+    }
+  }
 
   const allowed = new Set(allowedInput.map(normalizeSafeRelativePath).filter(Boolean));
   for (const path of safePaths) if (!allowed.has(path)) errors.push(`模型修改了上下文之外的文件: ${path}`);

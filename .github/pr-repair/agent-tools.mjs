@@ -384,31 +384,6 @@ function failureSummary(report) {
   };
 }
 
-function repairGuidance(report, allowed) {
-  const hints = [];
-  const failures = Array.isArray(report?.result?.failures) ? report.result.failures : [];
-  const evidence = failures.map((failure) => JSON.stringify(failure || {})).join('\n');
-  if (allowed.includes('src/services/memory-keyword-search.js') && /memory-keyword-search|deep-search|paths\[0\]/i.test(evidence)) {
-    hints.push({
-      file: 'src/services/memory-keyword-search.js',
-      instruction: '具体修复：searchByKeyword 最终必须返回 { hits, text }；renderRankedFeelings 的 keyword 分支在 { id, content, score } 后补上 date: t.date、utcTime: t.utcTime；searchArchiveContext 中把 readArchive(p.archiveDir, dateStr) 改为 readArchive(p.memoryDir, p.threadId, dateStr)。',
-    });
-  }
-  if (allowed.includes('bin/stmem') && /ensureWatcher|watcher(?:\.pid|-supervisor|[-_ ]state)|ENOTEMPTY/i.test(evidence)) {
-    hints.push({
-      file: 'bin/stmem',
-      instruction: '入口冲突必须同时保留 PR 的 search/search-index 命令分支与 current main 的无副作用 CLI 语义；删除或禁用文件顶部对 ensureWatcher() 的普通命令自动调用（尤其 notebook、rebuild、watcher），因为 current main 不在 CLI 入口隐式拉起 watcher。',
-    });
-  }
-  if (allowed.includes('scripts/stmem-notebook.js') && /JSON\.parse|Unexpected non-whitespace|after JSON|serializer|单行 JSON/i.test(evidence)) {
-    hints.push({
-      file: 'scripts/stmem-notebook.js',
-      instruction: '若 notebook MCP/web 报 JSON 解析错误，只让 CLI stdout 输出单行 JSON；诊断信息走 stderr，不要改测试或反复修改 bin/stmem。',
-    });
-  }
-  return hints;
-}
-
 async function validateJavascriptUpdates(updates, {
   runCommandImpl = runCommand,
   cwd,
@@ -458,6 +433,7 @@ export function createAgentTools({
   cwd,
   revisions = {},
   allowedFiles = [],
+  mutableFiles = allowedFiles,
   runTestsImpl = runSandboxedTests,
   runGitImpl = runGit,
   runCommandImpl = runCommand,
@@ -465,6 +441,9 @@ export function createAgentTools({
 } = {}) {
   if (!cwd) throw new Error('agent tools 缺少 repair worktree');
   const allowed = [...new Set(allowedFiles.map(normalizeSafeRelativePath).filter(Boolean))];
+  const mutable = [...new Set(mutableFiles.map(normalizeSafeRelativePath).filter(Boolean))];
+  const isTestPath = (file) => /(?:^|\/)(?:test|tests|__tests__)(?:\/|$)/i.test(file || '')
+    || /\.(?:test|spec)\.[^/]+$/i.test(file || '');
   const state = {
     startedAt: now(),
     changedFiles: [],
@@ -475,7 +454,6 @@ export function createAgentTools({
     lastFailureFiles: [],
     lastFailureEvidence: [],
     failureReadIndex: 0,
-    lastRepairGuidance: [],
     readPaths: new Set(),
   };
 
@@ -496,7 +474,7 @@ export function createAgentTools({
   }
 
   async function stageFiles(paths) {
-    const safePaths = [...new Set(paths.map(normalizeSafeRelativePath).filter((path) => path && allowed.includes(path)))];
+    const safePaths = [...new Set(paths.map(normalizeSafeRelativePath).filter((path) => path && mutable.includes(path)))];
     if (safePaths.length === 0) throw new Error('没有可标记为已解决的允许文件');
     const result = await runGitImpl(['add', '--', ...safePaths], { cwd, timeoutMs: 30_000 });
     if (result.code !== 0) throw new Error(redactErrorMessage(result.stderr || result.stdout || '标记冲突文件已解决失败'));
@@ -518,6 +496,25 @@ export function createAgentTools({
       if (matchingSource) paths.push(matchingSource);
     }
     const unique = [...new Set(paths)];
+    // When a failing assertion names a retired identifier but not its source
+    // path, derive bounded identifier tokens from the failure itself and look
+    // for those exact tokens in the already allowed PR files.  This keeps
+    // routing generic: the runtime never needs to know a project's vocabulary.
+    const evidenceTokens = [...new Set(
+      state.lastFailureEvidence.join('\n').match(/[A-Za-z][A-Za-z0-9]*(?:[-_][A-Za-z0-9]+)+/g) || [],
+    )].slice(0, 12);
+    if (evidenceTokens.length > 0) {
+      for (const file of allowed) {
+        if (isTestPath(file)) continue;
+        try {
+          const { absolute } = safeReadPath(cwd, file);
+          const content = await readFile(absolute, 'utf8');
+          if (evidenceTokens.some((token) => content.includes(token))) unique.push(file);
+        } catch {
+          // Keep the direct failure path; a missing candidate is not guessed.
+        }
+      }
+    }
     return [...new Set(unique)];
   }
 
@@ -649,7 +646,6 @@ export function createAgentTools({
         result.references = references;
         result.referenceRange = { startLine: start, endLine: end };
       }
-      if (state.lastRepairGuidance.length > 0) result.repairGuidance = state.lastRepairGuidance;
       if (failurePaths.length > 1) {
         result.relatedFiles = [];
         for (const relatedPath of failurePaths.slice(0, 8)) {
@@ -793,7 +789,10 @@ export function createAgentTools({
   async function applyPatchTool(args = {}) {
     const patch = String(args.patch || '');
     if (!patch || patch.length > AGENT_TOOL_LIMITS.maxPatchChars) throw new Error(`patch 不能为空且不得超过 ${AGENT_TOOL_LIMITS.maxPatchChars} 字符`);
-    const validation = validateRepairResponse({ decision: 'repair', summary: 'agent patch', patch }, { allowedFiles: allowed });
+    const validation = validateRepairResponse({ decision: 'repair', summary: 'agent patch', patch }, {
+      allowedFiles: mutable,
+      mutableTestFiles: mutable.filter(isTestPath),
+    });
     if (!validation.ok) {
       const failureTargets = state.testCalls > 0 && state.lastTestPassed !== true
         ? await failureFallbackPaths()
@@ -815,7 +814,7 @@ export function createAgentTools({
       try {
         for (const operation of applyPatchOperations) {
           const { normalized, absolute } = safeReadPath(cwd, operation.path);
-          if (!allowed.includes(normalized)) throw new Error(`禁止修改允许列表之外的文件: ${normalized}`);
+          if (!mutable.includes(normalized)) throw new Error(`禁止修改允许列表之外的文件: ${normalized}`);
           let content = await readFile(absolute, 'utf8');
           for (const hunk of operation.hunks) content = replaceUniqueLines(content, hunk.oldLines, hunk.newLines, normalized, hunk.addedLines);
           updates.push({ normalized, absolute, content });
@@ -930,7 +929,6 @@ export function createAgentTools({
     if (state.lastTestPassed) {
       state.lastFailureFiles = [];
       state.lastFailureEvidence = [];
-      state.lastRepairGuidance = [];
     } else {
       const counts = new Map();
       const firstSeen = new Map();
@@ -947,7 +945,6 @@ export function createAgentTools({
         const withoutTestSuffix = normalizeSafeRelativePath(failure?.file || '')?.replace(/\.test(?=\.[^.]+$)/, '');
         const basename = withoutTestSuffix?.split('/').at(-1);
         if (basename) allowed.filter((file) => file.split('/').at(-1) === basename).forEach(addCandidate);
-        if (/JSON\.parse|Unexpected non-whitespace|after JSON|serializer|单行 JSON/i.test(evidence)) addCandidate('scripts/stmem-notebook.js');
         allowed.filter((file) => evidence.includes(file)).forEach(addCandidate);
       }
       state.lastFailureFiles = [...counts.entries()]
@@ -960,7 +957,6 @@ export function createAgentTools({
         ...(report?.result?.failures || []).map((failure) => JSON.stringify(failure || {})),
         String(report?.stderr || ''),
       ];
-      state.lastRepairGuidance = repairGuidance(report, allowed);
     }
     state.failureReadIndex = 0;
     const repairTargets = state.lastTestPassed ? [] : (await failureFallbackPaths()).slice(0, 8);
@@ -974,17 +970,13 @@ export function createAgentTools({
       ...failureSummary(report),
       ...(state.lastTestPassed ? {} : {
         repairTargets,
-        repairGuidance: repairGuidance(report, allowed),
         repairSources,
       }),
     };
   }
 
   function patchError(error) {
-    const message = redactErrorMessage(error);
-    if (state.lastRepairGuidance.length === 0) return message;
-    const hints = state.lastRepairGuidance.map((hint) => `${hint.file}: ${hint.instruction}`).join('；');
-    return `${message}。请依据当前源码重做补丁；当前失败证据的定向提示：${hints}`;
+    return redactErrorMessage(error);
   }
 
   async function finishTool(args = {}) {
