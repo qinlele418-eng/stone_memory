@@ -126,10 +126,11 @@ function buildReviewBatchPlan(input, { config = {}, threadId = "" } = {}) {
 }
 
 class MiningReviewBatchStore {
-  constructor({ memoryDir, threadId }) {
+  constructor({ memoryDir, threadId, directoryName = "review-batches" }) {
     if (!memoryDir || !threadId) throw new Error("memoryDir and threadId are required");
+    if (!/^[a-z0-9-]+$/.test(directoryName)) throw new Error("invalid batch directory name");
     this.threadId = threadId;
-    this.dir = path.join(memoryDir, "review-batches");
+    this.dir = path.join(memoryDir, directoryName);
   }
 
   create(input, options = {}) {
@@ -153,6 +154,7 @@ class MiningReviewBatchStore {
       tasks: plan.tasks,
       ruleIds: [...new Set((input.ruleIds || []).map(String))],
       additionalInstruction: String(input.additionalInstruction || "").trim().slice(0, 4000),
+      autoApply: input.autoApply === true,
     };
     this.write(record);
     return record;

@@ -35,7 +35,8 @@ async function main() {
   const config = loadConfig();
   if (!config[threadId] || typeof config[threadId] !== "object") throw new Error(`unknown configured thread: ${threadId}`);
   const memoryDir = path.join(getThreadDir(threadId), "memory");
-  const reviews = new MiningReviewStore({ memoryDir, threadId });
+  const candidateDirectoryName = valueOf(args, "--candidate-dir") || "review-candidates";
+  const reviews = new MiningReviewStore({ memoryDir, threadId, candidateDirectoryName });
   const batches = new MiningReviewBatchStore({ memoryDir, threadId });
 
   if (action === "batch-create") {
@@ -168,6 +169,7 @@ async function main() {
         aiName: getCfg("ai", threadId),
         userName: getCfg("user", threadId),
         userGender: getCfg("userGender", threadId, "female"),
+        relationshipTimeline: getCfg("relationshipTimeline", threadId, []),
         purpose: getCfg("purpose", threadId),
         runtime: getCfg("runtime", threadId, "claude"),
       },

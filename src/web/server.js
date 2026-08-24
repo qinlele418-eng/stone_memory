@@ -23,7 +23,7 @@ const { DreamReader } = require("../services/dream-reader");
 const { NotebookService } = require("../services/notebook-service");
 const { watcherActions, watcherEnabled } = require("../services/watcher-runtime");
 const { normalizeMiningApiProfile } = require("../services/mining-api-profile");
-const { configuredRuntimeIds } = require("../services/mining-review-batch");
+const { configuredRuntimeIds, MiningReviewBatchStore } = require("../services/mining-review-batch");
 const { buildFeelingPrompt, buildFeaturePrompt } = require("../services/memory-miner");
 const { normalizeRebuildRequest, rebuildRequestCliArgs } = require("../services/rebuild-request");
 
@@ -374,6 +374,24 @@ function compactTimelineReport(data) {
 
 async function executeMiningJob(job) {
   job.status="running";job.startedAt=new Date().toISOString();
+  if(job.dates.length>1){
+    const batch=writePrivateBatch({dates:job.dates,forceDates:job.forceDates,mode:job.mode,apiProfile:job.apiProfile});
+    try{
+      const args=["mine","--thread",job.threadId,job.mode==="api"?"--api":"--subagent","--batch-file",batch.file];
+      if(job.mode==="api"&&job.apiProfile==="optimized")args.push("--api-profile","optimized");
+      const output=await runStmemAsync(args,{maxOutput:2*1024*1024});
+      const result=parseStmemJson(output);
+      job.batchId=result.id||null;
+      job.results=(result.tasks||[]).flatMap(task=>task.dates.map(date=>({date,status:["completed","completed_empty"].includes(task.status)?"completed":task.status,error:task.error||null})));
+      job.completed=job.results.filter(row=>row.status==="completed").length;
+      job.status=result.status==="cancelled"?"cancelled":result.status==="completed_with_failures"?"completed_with_failures":"completed";
+      job.currentDate=null;job.completedAt=new Date().toISOString();job.updatedAt=job.completedAt;
+      return;
+    }catch(cause){
+      job.status=job.cancelRequested?"cancelled":"failed";job.currentDate=null;job.error=String(cause.message||cause).slice(0,500);job.updatedAt=new Date().toISOString();
+      return;
+    }finally{batch.cleanup();}
+  }
   for(const date of job.dates){
     if(job.cancelRequested)break;
     job.currentDate=date;job.updatedAt=new Date().toISOString();
@@ -387,6 +405,22 @@ async function executeMiningJob(job) {
   job.currentDate=null;
   job.status=job.cancelRequested?"cancelled":job.results.some(row=>row.status==="failed")?"completed_with_errors":"completed";
   job.completedAt=new Date().toISOString();job.updatedAt=job.completedAt;
+}
+
+function refreshMiningBatchJob(job){
+  if(!job||job.dates.length<2||!["queued","running","cancelling"].includes(job.status))return job;
+  try{
+    const store=new MiningReviewBatchStore({memoryDir:path.join(getThreadDir(job.threadId),"memory"),threadId:job.threadId,directoryName:"mining-batches"});
+    const batch=store.list().find(row=>row.autoApply&&row.createdAt>=job.createdAt&&JSON.stringify(row.dates)===JSON.stringify(job.dates));
+    if(!batch)return job;
+    job.batchId=batch.id;
+    job.results=batch.tasks.flatMap(task=>task.dates.map(date=>({date,status:task.status,error:task.error||null})));
+    job.completed=job.results.filter(row=>["completed","completed_empty"].includes(row.status)).length;
+    const active=batch.tasks.find(task=>task.status==="running");
+    job.currentDate=active?active.dates.join(" 至 "):null;
+    job.updatedAt=batch.updatedAt;
+  }catch{}
+  return job;
 }
 
 function publicThreadSettings(threadId) {
@@ -1035,7 +1069,7 @@ async function handleApi(req, res, url) {
   const miningMatch=url.pathname.match(/^\/api\/libraries\/([^/]+)\/mining\/(status|start|stop|check|day|targeted-messages|targeted)$/);
   if(miningMatch){
     const threadId=decodeURIComponent(miningMatch[1]);publicThreadSettings(threadId);
-    if(req.method==="GET"&&miningMatch[2]==="status")return json(res,200,{job:miningJobs.get(threadId)||null,dates:miningDates(threadId)});
+    if(req.method==="GET"&&miningMatch[2]==="status")return json(res,200,{job:refreshMiningBatchJob(miningJobs.get(threadId)||null),dates:miningDates(threadId)});
     if(req.method==="POST"&&miningMatch[2]==="check"){
       const body=await readJson(req),date=String(body.date||""),mode=body.mode==="api"?"api":body.mode==="subagent"?"subagent":null,apiProfile=normalizeMiningApiProfile(body.apiProfile);
       if(!/^\d{4}-\d{2}-\d{2}$/.test(date))throw new Error("请选择需要自检的对话日期");

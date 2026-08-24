@@ -18,9 +18,10 @@ const path = require("path");
 const { MemoryMiner } = require("../src/services/memory-miner");
 const { getCfg, getThreadDir, listThreadIds, loadConfig } = require("../src/config");
 const { MemoryStore } = require("../src/storage/memory-store");
-const { requiresRemine, shouldAttempt } = require("../src/services/mining-state");
+const { isCompleted, requiresRemine, shouldAttempt } = require("../src/services/mining-state");
 const { resolveMiningApiCredentials } = require("../src/services/mining-engine-config");
 const { normalizeMiningApiProfile } = require("../src/services/mining-api-profile");
+const { handleMiningBatch, miningBatchAction, runMiningSelection } = require("./stmem-mine-batch");
 
 function resolveApiConfig(tid, forceApi, forceSub, { diagnostic = false, model = "", apiProfile = "optimized" } = {}) {
   if (forceSub) return {};  // 强制 subagent
@@ -62,8 +63,10 @@ function stopMiningProcess(tid) {
   catch { return { stopped: false, code: "MINING_NOT_RUNNING", reason: "当前没有登记中的挖掘进程" }; }
   try {
     process.kill(Number(state.pid), "SIGTERM");
-    try { fs.rmSync(path.join(getThreadDir(tid), "memory", `.mining-lock-${state.date}`), { recursive: true, force: true }); } catch {}
-    try {
+    if (state.kind !== "batch") {
+      try { fs.rmSync(path.join(getThreadDir(tid), "memory", `.mining-lock-${state.date}`), { recursive: true, force: true }); } catch {}
+    }
+    if (state.kind !== "batch") try {
       const store = new MemoryStore({ memoryDir: path.join(getThreadDir(tid), "memory"), threadId: tid });
       const current = store.getDayState(state.date);
       store.setDayState(state.date, {
@@ -87,15 +90,15 @@ function stopMiningProcess(tid) {
 async function main() {
   const args = process.argv.slice(2);
   const dateIdx = args.indexOf("--date");
-  const targetDate = dateIdx >= 0 ? args[dateIdx + 1] : "";
+  let targetDate = dateIdx >= 0 ? args[dateIdx + 1] : "";
   const allMode = args.includes("--all");
-  const forceApi = args.includes("--api");
-  const forceSub = args.includes("--subagent");
-  const force = args.includes("--force");
+  let forceApi = args.includes("--api");
+  let forceSub = args.includes("--subagent");
+  let force = args.includes("--force");
   const modelIdx = args.indexOf("--model");
   const model = modelIdx >= 0 ? String(args[modelIdx + 1] || "").trim() : "";
   const apiProfileIdx = args.indexOf("--api-profile");
-  const apiProfile = apiProfileIdx >= 0 ? String(args[apiProfileIdx + 1] || "optimized").trim() : "optimized";
+  let apiProfile = apiProfileIdx >= 0 ? String(args[apiProfileIdx + 1] || "optimized").trim() : "optimized";
   const targeted = args.includes("--targeted");
   const check = args.includes("--check");
   const stop = args.includes("--stop");
@@ -105,6 +108,50 @@ async function main() {
   const tid = threadIdx >= 0 ? args[threadIdx + 1] : listThreadIds()[0];
   if (!tid) throw new Error("未指定线程，请用 --thread <id> 或先 stmem init");
   const memoryDir = path.join(getThreadDir(tid), "memory");
+
+  if (miningBatchAction(args)) {
+    const result = await handleMiningBatch(args, { threadId: tid });
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  let dateSelection = null;
+  if (batchIdx >= 0 && !targeted && !check) {
+    dateSelection = JSON.parse(fs.readFileSync(path.resolve(args[batchIdx + 1]), "utf8"));
+    const requested = [...new Set((dateSelection.dates || []).map(String))].sort();
+    if (!requested.length || requested.some(date => !/^\d{4}-\d{2}-\d{2}$/.test(date))) {
+      throw new Error("挖掘日期列表为空或格式无效");
+    }
+    const forceDates = new Set((dateSelection.forceDates || []).map(String));
+    const stateStore = new MemoryStore({ memoryDir, threadId: tid });
+    try {
+      dateSelection.dates = requested.filter(date => forceDates.has(date) || !isCompleted({ [`day:${date}`]: stateStore.getDayState(date) }, date));
+    } finally { stateStore.close(); }
+    if (!dateSelection.dates.length) {
+      console.log(JSON.stringify({ status: "already_completed", dates: requested }, null, 2));
+      return;
+    }
+    if (dateSelection.mode === "api") { forceApi = true; forceSub = false; }
+    if (dateSelection.mode === "subagent") { forceSub = true; forceApi = false; }
+    if (dateSelection.apiProfile) apiProfile = normalizeMiningApiProfile(dateSelection.apiProfile);
+    if (dateSelection.dates.length === 1) {
+      targetDate = dateSelection.dates[0];
+      force = force || forceDates.has(targetDate);
+    } else {
+      const config = loadConfig()[tid] || {};
+      const mode = forceApi ? "api" : forceSub ? "subagent" : config.minerMode || "subagent";
+      registerMiningProcess(tid, dateSelection.dates.join(","), mode);
+      try {
+        const file = processFile(tid);
+        const state = JSON.parse(fs.readFileSync(file, "utf8"));
+        fs.writeFileSync(file, JSON.stringify({ ...state, kind: "batch", dates: dateSelection.dates }, null, 2));
+        const result = await runMiningSelection(dateSelection, { threadId: tid, mode, apiProfile, model });
+        console.log(JSON.stringify(result, null, 2));
+        if (result.status === "completed_with_failures" || result.status === "cancelled") process.exitCode = 1;
+        return;
+      } finally { clearMiningProcess(tid); }
+    }
+  }
 
   if (stop) {
     const result = stopMiningProcess(tid);
@@ -189,6 +236,28 @@ async function main() {
       return shouldAttempt(miningState, d, messages) || requiresRemine(miningState, d, messages);
     });
     if (!pending.length) { console.log("[stmem] 所有日期已挖掘完毕"); process.exit(0); }
+
+    if (pending.length > 1) {
+      const mode = forceApi ? "api" : forceSub ? "subagent" : (loadConfig()[tid]?.minerMode || "subagent");
+      const forceDates = pending.filter(date => requiresRemine(
+        miningState,
+        date,
+        miner.store.listMessages({ date }),
+      ));
+      miner.store.close();
+      registerMiningProcess(tid, pending.join(","), mode);
+      try {
+        const file = processFile(tid);
+        const state = JSON.parse(fs.readFileSync(file, "utf8"));
+        fs.writeFileSync(file, JSON.stringify({ ...state, kind: "batch", dates: pending }, null, 2));
+        const result = await runMiningSelection({ dates: pending, forceDates }, {
+          threadId: tid, mode, apiProfile, model,
+        });
+        console.log(JSON.stringify(result, null, 2));
+        if (result.status === "completed_with_failures" || result.status === "cancelled") process.exitCode = 1;
+        return;
+      } finally { clearMiningProcess(tid); }
+    }
 
     console.log(`[stmem] 待挖掘: ${pending.length} 天 (${pending[0]} ~ ${pending[pending.length-1]}) (${modeLabel})`);
     let ok = 0, empty = 0, fail = 0;

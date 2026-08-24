@@ -97,11 +97,12 @@ function nearDuplicateHints(candidates, threshold = 0.48) {
 }
 
 class MiningReviewStore {
-  constructor({ memoryDir, threadId }) {
+  constructor({ memoryDir, threadId, candidateDirectoryName = "review-candidates" }) {
     if (!memoryDir || !threadId) throw new Error("memoryDir and threadId are required");
+    if (!/^[a-z0-9-]+$/.test(candidateDirectoryName)) throw new Error("invalid candidate directory name");
     this.memoryDir = memoryDir;
     this.threadId = threadId;
-    this.candidateDir = path.join(memoryDir, "review-candidates");
+    this.candidateDir = path.join(memoryDir, candidateDirectoryName);
     this.backupDir = path.join(memoryDir, "backups");
   }
 

@@ -38,6 +38,7 @@ if (!cmd || cmd === "--help" || cmd === "-h") {
   stmem mine --thread <id> --date <日期> --check --json  自检提示词、输入、上游响应与返回格式
   stmem mine --thread <id> --stop                  停止该记忆体当前挖掘任务
   stmem mine [--thread <id>] --targeted --batch-file <json>  对选中的对话精准补挖并追加摘要
+  stmem mine --thread <id> --batch-file <json>    挖掘所选日期（单日直跑，多日自动批处理）
   stmem mine-review preview|list|mix|apply|discard            可审阅候选与按日替换
   stmem scratch inspect|settings|generate --thread <id>      刮刮乐奖励读取、设置与生成
   stmem dream --thread <id> --date <YYYY-MM-DD>     织梦：为已挖掘完成的日期生成一场梦
