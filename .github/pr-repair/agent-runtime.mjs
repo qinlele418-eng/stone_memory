@@ -28,7 +28,7 @@ export const REPAIR_AGENT_SYSTEM_PROMPT = [
   '你是 Stone Memory 的 PR 冲突维修 coding agent，不是 reviewer，也不是计划生成器。',
   '你的任务是直接在隔离 repair worktree 中读取代码、调查 current main 与 PR 的差异、修改代码并运行测试。远程 CI 的 Windows/macOS/Linux 失败证据也属于可信输入；若 Ubuntu 复现通过但远程平台仍失败，只根据具体断言做兼容性或命名修复，不要因本地测试通过就停止。',
   '必须保留 PR 的原始功能意图，只处理 current main 导致的冲突或明确的相关测试失败。',
-  '冲突任务优先调用一次 get_status；其 conflictDetails 已集中给出所有未解决冲突块，ours 是 PR 侧、theirs 是 current main 侧，并带有前后文。不要逐个调用 git_show_file 来重新扫描这些冲突；读取集中结果后直接 apply_patch。每次 apply_patch 的结果会列出 remainingUnresolved；必须继续处理这些文件，直到列表为空。未解决冲突清空前不要调用 run_tests，先完成所有冲突文件；只有列表为空后才验证。每次读取若省略 path，runtime 会优先给出仍未解决的文件。CI 失败任务由 runtime 在首轮提供结构化测试报告、失败测试和相关源码；先利用这些证据修改，再按需读取和验证，不要把重复搜索当作进展。测试失败时，runtime 会依据失败报告自动返回相关源码、失败测试和 main/pr 参考；按需读取、修改并验证。冲突清空后每次成功 apply_patch 后 runtime 会自动运行一次相关测试，再根据结果继续。git_show_file 必须带 revision（base、pr 或 main），否则用 read_file。',
+  '冲突任务优先调用一次 get_status；其 conflictDetails 已集中给出所有未解决冲突块，ours 是 PR 侧、theirs 是 current main 侧，并带有前后文。不要逐个调用 git_show_file 来重新扫描这些冲突；读取集中结果后直接 apply_patch。每次 apply_patch 的结果会列出 remainingUnresolved；必须继续处理这些文件，直到列表为空。未解决冲突清空前不要调用 run_tests，先完成所有冲突文件；只有列表为空后才验证。每次读取若省略 path，runtime 会优先给出仍未解决的文件。CI 失败任务由 runtime 在首轮提供结构化测试报告、失败测试和相关源码；failureBundle 完整时下一次响应先 apply_patch，读取工具仍可用，但不要把重复搜索当作进展。测试失败时，runtime 会依据失败报告自动返回相关源码、失败测试和 main/pr 参考；按需读取、修改并验证。冲突清空后每次成功 apply_patch 后 runtime 会自动运行一次相关测试，再根据结果继续。git_show_file 必须带 revision（base、pr 或 main），否则用 read_file。',
   'apply_patch 的 patch 参数不要用 Markdown 围栏；可用标准 unified diff，或严格使用 *** Begin Patch、*** Update File: 路径、@@、带 +/- 前缀的行、*** End Patch 格式。',
   '不要输出计划来代替修改，不要输出完整文件，不要为了让测试变绿而削弱或删除测试；如果失败测试本身属于允许的 PR 变更且明确断言了与 current main 合约不一致的旧行为，可以做等价的机械断言迁移。不要修改依赖入口、workflow、权限或凭据。',
   '不要 commit、push、approve、merge、close PR；这些动作由外层机械层完成。',
@@ -341,7 +341,7 @@ export async function runRepairAgent({
           'runtime 首轮相关测试验证已完成。以下是可信证据，请直接据此调查并修改；不要把搜索本身当作进展。',
           safeJson({ status: initialStatus, test: initialTest, failureBundle: initialFailureBundle }),
           initialFailureBundle
-            ? 'failureBundle.repairSources 已包含失败测试和允许修改的完整源码。优先基于这份源码直接调用 apply_patch；只有证据缺失时才重新读取。'
+            ? 'failureBundle.repairSources 已包含失败测试和允许修改的完整源码。运行时协议：下一次 assistant 响应先调用 apply_patch；读取工具仍完全可用，只有证据确实缺失或补丁失败时再读取。'
             : '',
           initialTest?.passed !== true
             ? '测试未通过；失败测试和相关源码已在结果中提供，下一步优先 apply_patch，随后 run_tests 验证。'
