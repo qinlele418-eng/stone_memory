@@ -653,7 +653,7 @@ jobs:
           REPRODUCTION_PATH: ${{ github.workspace }}/evidence/reproduction/pr-repair-reproduction.json
           REPAIR_WORKTREE: ${{ github.workspace }}/repair
           AGENT_RESULT_PATH: ${{ github.workspace }}/pr-repair-agent-result.json
-          AGENT_AUDIT_PATH: ${{ github.workspace }}/pr-repair-agent-audit.json
+          AGENT_AUDIT_PATH: ${{ github.workspace }}/pr-repair-agent-audit.jsonl
         run: node tools/.github/pr-repair/agent-runtime.mjs
 
       - name: Commit verified agent workspace
@@ -687,7 +687,7 @@ jobs:
           name: pr-repair-ai-plan-${{ env.PR_NUMBER }}
           path: |
             pr-repair-agent-result.json
-            pr-repair-agent-audit.json
+            pr-repair-agent-audit.jsonl
             pr-repair-result.json
             repair.bundle
           if-no-files-found: warn

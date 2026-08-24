@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { createAgentTools } from './agent-tools.mjs';
 import { callZaiChat, DEFAULT_ZAI_MODEL } from './zai-client.mjs';
@@ -8,8 +8,15 @@ export const AGENT_LIMITS = Object.freeze({
   maxLogicalTurns: 26,
   maxApiAttempts: 27,
   maxTokensPerTurn: 16_000,
-  maxCompletionTokens: 128_000,
-  maxHistoryChars: 1_000_000,
+  // Provider input sizing is configuration, not a history-length policy. The
+  // request budget reserves the requested completion, tool schemas, and a
+  // safety margin from the provider context window before every API call.
+  providerContextTokens: Number(process.env.ZAI_CONTEXT_TOKENS || 128_000),
+  toolSchemaTokens: Number(process.env.ZAI_TOOL_SCHEMA_TOKENS || 8_000),
+  inputSafetyTokens: Number(process.env.ZAI_INPUT_SAFETY_TOKENS || 4_000),
+  maxInputChars: null,
+  maxRecentGroups: 6,
+  maxToolResultChars: 24_000,
   maxReadOnlyCalls: 24,
   maxPatchCalls: 10,
   maxTestCalls: 5,
@@ -28,7 +35,7 @@ export const REPAIR_AGENT_SYSTEM_PROMPT = [
   '你是 Stone Memory 的 PR 冲突维修 coding agent，不是 reviewer，也不是计划生成器。',
   '你的任务是直接在隔离 repair worktree 中读取代码、调查 current main 与 PR 的差异、修改代码并运行测试。远程 CI 的 Windows/macOS/Linux 失败证据也属于可信输入；若 Ubuntu 复现通过但远程平台仍失败，只根据具体断言做兼容性或命名修复，不要因本地测试通过就停止。',
   '必须保留 PR 的原始功能意图，只处理 current main 导致的冲突或明确的相关测试失败。',
-  '冲突任务优先调用一次 get_status；其 conflictDetails 已集中给出所有未解决冲突块，ours 是 PR 侧、theirs 是 current main 侧，并带有前后文。不要逐个调用 git_show_file 来重新扫描这些冲突；读取集中结果后直接 apply_patch。每次 apply_patch 的结果会列出 remainingUnresolved；必须继续处理这些文件，直到列表为空。未解决冲突清空前不要调用 run_tests，先完成所有冲突文件；只有列表为空后才验证。每次读取若省略 path，runtime 会优先给出仍未解决的文件。CI 失败任务由 runtime 在首轮提供结构化测试报告、失败测试和相关源码；failureBundle 完整时下一次响应先 apply_patch，读取工具仍可用，但不要把重复搜索当作进展。测试失败时，runtime 会依据失败报告自动返回相关源码、失败测试和 main/pr 参考；按需读取、修改并验证。冲突清空后每次成功 apply_patch 后 runtime 会自动运行一次相关测试，再根据结果继续。git_show_file 必须带 revision（base、pr 或 main），否则用 read_file。',
+  '先用 get_status 和 checkpoint 了解当前事实。冲突必须全部清除后再运行测试；apply_patch 的结果会给出 remainingUnresolved。CI 失败任务的 checkpoint 包含可信测试与远程 CI 证据。根据需要自由读取、搜索、比较 main/pr 版本、修改并验证；不要把重复读取当作修复。git_show_file 必须带 revision（base、pr 或 main），否则用 read_file。',
   'apply_patch 的 patch 参数不要用 Markdown 围栏；可用标准 unified diff，或严格使用 *** Begin Patch、*** Update File: 路径、@@、带 +/- 前缀的行、*** End Patch 格式。',
   '不要输出计划来代替修改，不要输出完整文件，不要为了让测试变绿而削弱或删除测试；如果失败测试本身属于允许的 PR 变更且明确断言了与 current main 合约不一致的旧行为，可以做等价的机械断言迁移。不要修改依赖入口、workflow、权限或凭据。',
   '不要 commit、push、approve、merge、close PR；这些动作由外层机械层完成。',
@@ -48,8 +55,29 @@ function safeJson(value) {
   try { return JSON.stringify(redactModelValue(value)); } catch { return '{"error":"无法序列化工具结果"}'; }
 }
 
+const AUDIT_BODY_FIELDS = new Set([
+  'content', 'log', 'stderr', 'stdout', 'diff', 'patch', 'preview',
+  'repairSources', 'failureEvidence', 'relatedFiles', 'references', 'matches',
+  // Conflict and search responses can embed original source lines under these
+  // keys. The artifact only needs to record that content existed, not retain it.
+  'ours', 'theirs', 'before', 'after',
+]);
+
+function auditSummary(value, field = '') {
+  if (typeof value === 'string') {
+    if (AUDIT_BODY_FIELDS.has(field)) return { omitted: true, totalChars: value.length };
+    return value.length <= 2_000 ? value : { truncated: true, totalChars: value.length, preview: value.slice(0, 2_000) };
+  }
+  if (Array.isArray(value)) {
+    if (AUDIT_BODY_FIELDS.has(field)) return { omitted: true, count: value.length };
+    return value.slice(0, 20).map((item) => auditSummary(item));
+  }
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, auditSummary(item, key)]));
+}
+
 function auditValue(value, maxChars = 64_000) {
-  const redacted = redactModelValue(value);
+  const redacted = auditSummary(redactModelValue(value));
   let serialized;
   try { serialized = JSON.stringify(redacted); } catch { return { auditError: '无法序列化审计值' }; }
   if (serialized.length <= maxChars) return redacted;
@@ -95,23 +123,87 @@ function groupConversation(messages) {
   return groups;
 }
 
-function compactMessages(messages, snapshot, limits) {
+function inputBudgetChars(limits) {
+  if (Number.isFinite(limits.maxInputChars) && limits.maxInputChars > 0) return Math.floor(limits.maxInputChars);
+  const inputTokens = Math.max(1, Number(limits.providerContextTokens || 0)
+    - Number(limits.maxTokensPerTurn || 0)
+    - Number(limits.toolSchemaTokens || 0)
+    - Number(limits.inputSafetyTokens || 0));
+  // Mixed Chinese/ASCII input can approach one token per character. Use that
+  // conservative ceiling unless a synthetic character budget is explicit.
+  return inputTokens;
+}
+
+function boundedValue(value, maxChars) {
+  const serialized = safeJson(value);
+  if (serialized.length <= maxChars) return value;
+  return {
+    truncated: true,
+    totalChars: serialized.length,
+    preview: serialized.slice(0, Math.max(0, maxChars - 180)),
+    continuation: 'Historical payload omitted; use the tool again for an exact safe page.',
+  };
+}
+
+function checkpointState(snapshot, workState, limits) {
+  const source = snapshot && typeof snapshot === 'object' ? snapshot : {};
+  const current = {
+    taskKind: workState.taskKind || source.taskKind || null,
+    baseSha: workState.baseSha || source.baseSha || null,
+    headSha: workState.headSha || source.headSha || source.prSha || null,
+    currentMainSha: workState.currentMainSha || source.currentMainSha || source.mainSha || null,
+    mutableFiles: source.mutableFiles || workState.mutableFiles || [],
+    unresolvedConflicts: workState.unresolvedConflicts || source.unresolvedConflicts || source.unresolved || [],
+    changedFiles: workState.changedFiles || source.changedFiles || [],
+    currentDiff: workState.currentDiff || source.currentDiff || null,
+    latestTestSummary: workState.latestTestSummary || source.latestTestSummary || null,
+    latestFailureSummary: workState.latestFailureSummary || source.latestFailureSummary || null,
+    latestRemoteCiSummary: workState.latestRemoteCiSummary || source.latestRemoteCiSummary || null,
+    recentFileViews: workState.recentFileViews || source.recentFileViews || [],
+    lastPatchResult: workState.lastPatchResult || source.lastPatchResult || null,
+  };
+  return boundedValue(current, Math.max(1_200, Math.floor(inputBudgetChars(limits) * 0.35)));
+}
+
+function compactMessages(messages, snapshot, workState, definitions, limits) {
   const base = messages.slice(0, 2);
   const groups = groupConversation(messages);
-  const checkpoint = {
+  let checkpoint = {
     role: 'system',
-    content: `Runtime checkpoint（旧工具结果已压缩，仅保留事实）：${safeJson(snapshot)}`,
+    content: `Runtime checkpoint（旧工具结果已压缩，仅保留当前事实）：${safeJson(checkpointState(snapshot, workState, limits))}`,
   };
+  const budget = inputBudgetChars(limits);
   const kept = [];
-  let chars = base.reduce((sum, item) => sum + safeJson(item).length, 0) + safeJson(checkpoint).length;
-  for (let index = groups.length - 1; index >= 0; index -= 1) {
+  for (let index = groups.length - 1; index >= 0 && kept.length < limits.maxRecentGroups; index -= 1) {
     const group = groups[index];
-    const groupChars = group.reduce((sum, item) => sum + safeJson(item).length, 0);
-    if (kept.length > 0 && chars + groupChars > limits.maxHistoryChars) break;
     kept.unshift(group);
-    chars += groupChars;
+    const candidate = [...base, checkpoint, ...kept.flat()];
+    if (safeJson({ messages: candidate, tools: definitions, maxTokens: limits.maxTokensPerTurn }).length > budget) {
+      kept.shift();
+      break;
+    }
   }
-  return [...base, checkpoint, ...kept.flat()];
+  let result = [...base, checkpoint, ...kept.flat()];
+  let serializedChars = safeJson({ messages: result, tools: definitions, maxTokens: limits.maxTokensPerTurn }).length;
+  if (serializedChars > budget) {
+    const baseChars = safeJson({ messages: base, tools: definitions, maxTokens: limits.maxTokensPerTurn }).length;
+    const availableCheckpointChars = Math.max(256, budget - baseChars - 120);
+    checkpoint = {
+      role: 'system',
+      content: `Runtime checkpoint（仅保留身份与最新状态）：${safeJson(boundedValue(checkpointState(snapshot, workState, limits), availableCheckpointChars))}`,
+    };
+    result = [...base, checkpoint];
+    serializedChars = safeJson({ messages: result, tools: definitions, maxTokens: limits.maxTokensPerTurn }).length;
+  }
+  return {
+    messages: result,
+    budget,
+    serializedChars,
+    compactedGroups: Math.max(0, groups.length - kept.length),
+    retainedGroups: kept.length,
+    checkpointChars: safeJson(checkpoint).length,
+    overBudget: serializedChars > budget,
+  };
 }
 
 function metrics(state, limits, startedAt, clock = nowMs) {
@@ -128,7 +220,11 @@ function metrics(state, limits, startedAt, clock = nowMs) {
     maxLogicalTurns: limits.maxLogicalTurns,
     maxApiAttempts: limits.maxApiAttempts,
     maxTokensPerTurn: limits.maxTokensPerTurn,
-    maxCompletionTokens: limits.maxCompletionTokens,
+    providerContextTokens: limits.providerContextTokens,
+    inputBudgetChars: inputBudgetChars(limits),
+    contextHighWaterChars: state.contextHighWaterChars,
+    contextCompactions: state.contextCompactions,
+    largestToolResultChars: state.largestToolResultChars,
     elapsedMs: Math.max(0, clock() - startedAt),
     toolSequence: [...(state.toolSequence || [])],
     toolTrace: [...(state.toolTrace || [])],
@@ -226,6 +322,7 @@ export async function runRepairAgent({
   tools,
   limits = AGENT_LIMITS,
   requiresPatch = false,
+  initialWorkState = {},
   auditPath = process.env.AGENT_AUDIT_PATH || null,
   clock = nowMs,
 } = {}) {
@@ -259,23 +356,24 @@ export async function runRepairAgent({
     rejectedToolCalls: 0,
     requirePatch: Boolean(requiresPatch),
     lastReadOnlySignature: null,
+    workState: { recentFileViews: [], ...initialWorkState },
+    contextHighWaterChars: 0,
+    contextCompactions: 0,
+    largestToolResultChars: 0,
   };
   state.flushAudit = (type, payload = {}) => {
-    state.auditTrace.push({
+    const event = {
       sequence: state.auditTrace.length + 1,
       atMs: clock(),
       type,
-      ...auditValue(payload, 16_000),
-    });
+      payload: auditValue(payload, 16_000),
+    };
+    // The result file keeps a small diagnostic index. The append-only JSONL
+    // stream is the complete redacted audit and is never used as model memory.
+    state.auditTrace.push(event);
     if (!state.auditPath) return;
     try {
-      writeFileSync(state.auditPath, `${JSON.stringify({
-        version: 1,
-        status: state.auditStatus,
-        reason: state.auditReason,
-        updatedAt: new Date(clock()).toISOString(),
-        metrics: metrics(state, limits, startedAt, clock),
-      }, null, 2)}\n`, 'utf8');
+      appendFileSync(state.auditPath, `${JSON.stringify({ version: 2, ...event })}\n`, 'utf8');
     } catch (error) {
       state.auditWriteError = redactErrorMessage(error);
     }
@@ -284,7 +382,35 @@ export async function runRepairAgent({
     { role: 'system', content: REPAIR_AGENT_SYSTEM_PROMPT },
     { role: 'user', content: String(task || '').slice(0, 24_000) },
   ];
-  let lengthRetryUsed = false;
+  const updateWorkState = (name, result) => {
+    if (!result || typeof result !== 'object') return;
+    if (name === 'get_status') {
+      state.workState.baseSha = result.baseSha || state.workState.baseSha;
+      state.workState.headSha = result.prSha || result.headSha || state.workState.headSha;
+      state.workState.currentMainSha = result.mainSha || state.workState.currentMainSha;
+      if (Array.isArray(result.unresolved)) state.workState.unresolvedConflicts = result.unresolved;
+    }
+    if (name === 'read_file' && result.path) {
+      const view = { path: result.path, startLine: result.startLine, endLine: result.endLine, content: boundedValue(result.content || '', 4_000) };
+      const prior = (state.workState.recentFileViews || []).filter((item) => item.path !== result.path);
+      state.workState.recentFileViews = [...prior, view].slice(-6);
+    }
+    if (name === 'git_diff') state.workState.currentDiff = boundedValue(result.diff || '', 8_000);
+    if (name === 'apply_patch') {
+      state.workState.lastPatchResult = boundedValue(result, 4_000);
+      if (Array.isArray(result.changedFiles)) state.workState.changedFiles = result.changedFiles;
+      if (Array.isArray(result.remainingUnresolved)) state.workState.unresolvedConflicts = result.remainingUnresolved;
+    }
+    if (name === 'run_tests') {
+      state.workState.latestTestSummary = boundedValue({ passed: result.passed, result: result.result, stderr: result.stderr }, 8_000);
+      state.workState.latestFailureSummary = result.passed === true ? null : boundedValue({ failures: result?.result?.failures || [], repairTargets: result.repairTargets || [] }, 6_000);
+    }
+  };
+  const modelToolResult = (result) => {
+    const serialized = safeJson(result);
+    state.largestToolResultChars = Math.max(state.largestToolResultChars, serialized.length);
+    return safeJson(boundedValue(result, limits.maxToolResultChars));
+  };
 
   // Reproduction already identified the failing PR state. Seed one trusted
   // status/test observation before asking the model to explore, so it receives
@@ -311,8 +437,11 @@ export async function runRepairAgent({
       ...(initialStatus?.error ? { error: String(initialStatus.error).slice(0, 1_000) } : {}),
     });
     state.flushAudit('tool_result', { tool: 'get_status', phase: 'initial', result: initialStatus });
+    updateWorkState('get_status', initialStatus);
     if (Array.isArray(initialStatus?.unresolved)) state.remainingUnresolved = initialStatus.unresolved;
-    if (initialStatus?.ok === true && state.remainingUnresolved.length === 0) {
+    const trustedCiFailure = state.workState.taskKind === 'ci_failure'
+      && state.workState.trustedFailureEvidence === true;
+    if (initialStatus?.ok === true && state.remainingUnresolved.length === 0 && !trustedCiFailure) {
       let initialTest;
       try {
         initialTest = await tools.call('run_tests', { mode: 'related' });
@@ -338,31 +467,7 @@ export async function runRepairAgent({
         test: testTrace(initialTest),
       });
       state.flushAudit('tool_result', { tool: 'run_tests', phase: 'initial', result: initialTest });
-      const initialFailureBundle = initialTest?.passed === true ? null : {
-        failures: initialTest?.result?.failures || [],
-        repairTargets: initialTest?.repairTargets || [],
-        repairSources: initialTest?.repairSources || [],
-      };
-      messages.push({
-        role: 'system',
-        content: [
-          'runtime 首轮相关测试验证已完成。以下是可信证据，请直接据此调查并修改；不要把搜索本身当作进展。',
-          safeJson({ status: initialStatus, test: initialTest, failureBundle: initialFailureBundle }),
-          initialFailureBundle
-            ? 'failureBundle.repairSources 已包含失败测试和允许修改的完整源码。运行时协议：下一次 assistant 响应先调用 apply_patch；读取工具仍完全可用，只有证据确实缺失或补丁失败时再读取。'
-            : '',
-          initialTest?.passed !== true
-            ? '测试未通过；失败测试和相关源码已在结果中提供，下一步优先 apply_patch，随后 run_tests 验证。'
-            : state.requirePatch
-              ? '本地测试通过但仍有远程 CI 失败证据；必须先分析远程断言并应用保守补丁，不能直接结束。'
-              : '测试通过；若没有待处理的远程失败或冲突，才可结束。',
-        ].join('\n'),
-      });
-    } else if (initialStatus?.ok === true && state.remainingUnresolved.length > 0) {
-      messages.push({
-        role: 'system',
-        content: `runtime 首轮状态已提供，仍有未解决冲突：${safeJson(state.remainingUnresolved)}。先 apply_patch 清空冲突，再运行测试。`,
-      });
+      updateWorkState('run_tests', initialTest);
     }
   }
 
@@ -374,9 +479,22 @@ export async function runRepairAgent({
     let completion;
     try {
       while (true) {
-        const requestMessages = compactMessages(messages, tools.snapshot?.() || {}, limits);
+        const request = compactMessages(messages, tools.snapshot?.() || {}, state.workState, tools.definitions, limits);
+        state.contextHighWaterChars = Math.max(state.contextHighWaterChars, request.serializedChars);
+        state.contextCompactions += request.compactedGroups;
+        state.flushAudit('request_context', {
+          turn: state.logicalTurns,
+          serializedChars: request.serializedChars,
+          inputBudgetChars: request.budget,
+          checkpointChars: request.checkpointChars,
+          retainedRecentGroups: request.retainedGroups,
+          compactedGroups: request.compactedGroups,
+        });
+        if (request.overBudget) {
+          return finalResult('needs_human', '配置的 provider 输入预算不足以容纳系统提示和受限工具契约', state, limits, startedAt, clock);
+        }
         completion = await client.complete({
-          messages: requestMessages,
+          messages: request.messages,
           tools: availableDefinitions(tools.definitions, state, limits),
           maxTokens: limits.maxTokensPerTurn,
         });
@@ -394,28 +512,11 @@ export async function runRepairAgent({
         retryable: error?.code === 'token_limit' || error?.retryable === true,
       });
       state.flushAudit('api_error', { turn: state.logicalTurns, error: errorMessage });
-      if (error?.code === 'token_limit' && !lengthRetryUsed) {
-        lengthRetryUsed = true;
-        state.apiAttempts += 1;
-        messages.splice(2, messages.length - 2, {
-          role: 'system',
-          content: '上一次响应达到 token 上限。请立即缩小操作：只调用一个必要工具，或调用 finish(decision="needs_human")。',
-        });
-        continue;
-      }
       if (isRecoverableApiError(error)) {
         state.transientApiRecoveries += 1;
-        const nextAction = state.failureEvidenceDelivered && state.patchCalls === 0
-          ? '失败证据已经完整提供；下一次响应直接调用 apply_patch，读取工具仍可用。'
-          : '保留已有上下文，继续执行尚未完成的工具调用；不要重复已经成功读取的内容。';
         state.flushAudit('api_recovery', {
           turn: state.logicalTurns,
           recovery: state.transientApiRecoveries,
-          nextAction,
-        });
-        messages.push({
-          role: 'system',
-          content: `上一轮 Z.AI 请求暂时没有返回（${errorMessage}）。运行时保留了全部上下文，请继续当前维修，不要把通信失败当成人工结论。${nextAction}`,
         });
         continue;
       }
@@ -519,7 +620,8 @@ export async function runRepairAgent({
           }
         }
       }
-      const serialized = safeJson(result);
+      updateWorkState(name, result);
+      const serialized = modelToolResult(result);
       const readOnlySignature = `${name}:${serialized}`;
       const unchangedReadOnly = READ_ONLY_TOOLS.has(name)
         && state.lastReadOnlySignature === readOnlySignature;
@@ -549,17 +651,8 @@ export async function runRepairAgent({
         unchanged: unchangedReadOnly,
       });
       messages.push({ role: 'tool', tool_call_id: call.id || `${name}-${state.toolCalls}`, content: serialized });
-      if (args === null) {
-        messages.push({
-          role: 'system',
-          content: '上一次工具参数不是合法 JSON。请修正参数格式后继续，不要重复同一只读调用。',
-        });
-      } else if (unchangedReadOnly) {
-        messages.push({
-          role: 'system',
-          content: '本次只读结果与上一相同调用完全一致，没有产生新证据。请转入 apply_patch 或 run_tests；只有明确的新路径/查询才继续读取。',
-        });
-      }
+      // Bad arguments and duplicate reads remain visible in the tool result
+      // and audit. Do not inject behavioural nag messages into model memory.
       if (name === 'finish' && result?.ok === true) finished = result;
       if (forcedStopReason) break;
     }
@@ -607,17 +700,12 @@ export async function runRepairAgent({
         callId: `auto-test-${state.toolCalls}`,
         result: automaticTest,
       });
+      updateWorkState('run_tests', automaticTest);
       messages.push({
         role: 'tool',
         tool_call_id: `auto-test-${state.toolCalls}`,
-          content: safeJson({ automatic: true, ...automaticTest }),
+        content: modelToolResult({ automatic: true, ...automaticTest }),
       });
-      if (automaticTest?.passed !== true && state.failureEvidenceDelivered) {
-        messages.push({
-          role: 'system',
-          content: '自动复测已返回失败报告和相关文件内容；继续使用任何必要的受限工具完成修复。',
-        });
-      }
     }
 
     if (!finished && appliedInTurn && state.lastTestPassed === true) {
@@ -641,6 +729,22 @@ function defaultClient({ apiKey = process.env.ZAI_API_KEY, model = process.env.Z
   };
 }
 
+export function trustedFailurePaths(failures = []) {
+  const paths = [];
+  for (const failure of failures) {
+    if (typeof failure?.file === 'string') paths.push(failure.file);
+    const text = `${failure?.name || ''}\n${failure?.summary || ''}\n${failure?.log || ''}`;
+    for (const match of text.matchAll(/(?:^|[^A-Za-z0-9_.-])((?:[A-Za-z0-9_.-]+\/)+[A-Za-z0-9_.-]+\.(?:c?m?js|json|css|md|test\.[A-Za-z0-9]+))/g)) {
+      paths.push(match[1]);
+    }
+  }
+  return [...new Set(paths.filter((path) => (
+    !path.startsWith('/')
+    && !path.split('/').includes('..')
+    && !/(?:^|\/)(?:\.git|node_modules)(?:\/|$)|(?:^|\/)\.env(?:[./]|$)/.test(path)
+  )))];
+}
+
 export async function main() {
   const diagnosis = JSON.parse(readFileSync(process.env.DIAGNOSIS_PATH || 'pr-repair-diagnosis.json', 'utf8'));
   let reproduction = {};
@@ -655,6 +759,17 @@ export async function main() {
     ...(diagnosis.changedFiles || []),
     ...(diagnosis.merge?.conflictFiles || []),
   ])];
+  const trustedFailures = [
+    ...(reproduction?.pr?.result?.failures || []),
+    ...(reproduction?.remote?.failures || []),
+    ...(diagnosis?.checks?.failureEvidence || []),
+  ];
+  const knownFailureFiles = trustedFailurePaths(trustedFailures);
+  const knownFailingTestFiles = knownFailureFiles
+    .filter((file) => /(?:^|\/)(?:test|tests|__tests__)(?:\/|$)/i.test(file)
+      || /\.(?:test|spec)\.[^/]+$/i.test(file));
+  const trustedFailureEvidence = reproduction?.relation === 'pr_related_failure'
+    && trustedFailures.length > 0;
   const tools = createAgentTools({
     cwd,
     revisions: {
@@ -664,12 +779,30 @@ export async function main() {
     },
     allowedFiles,
     mutableFiles,
+    knownFailingTestFiles,
+    knownFailureFiles,
+    initialFailureEvidence: trustedFailureEvidence ? trustedFailures : [],
   });
   const result = await runRepairAgent({
     task: buildAgentTask({ diagnosis, reproduction }),
     client: defaultClient(),
     tools,
     requiresPatch: (reproduction?.remote?.failures || []).length > 0,
+    initialWorkState: {
+      taskKind: diagnosis?.nextAction === 'ai_conflict' ? 'merge_conflict' : 'ci_failure',
+      baseSha: diagnosis.currentMainSha || diagnosis.pr?.baseSha,
+      headSha: diagnosis.pr?.headSha,
+      currentMainSha: diagnosis.currentMainSha || diagnosis.pr?.baseSha,
+      mutableFiles,
+      latestRemoteCiSummary: reproduction?.remote?.failures || diagnosis?.checks?.failureEvidence || [],
+      latestFailureSummary: trustedFailureEvidence ? { failures: trustedFailures } : null,
+      latestTestSummary: trustedFailureEvidence ? {
+        passed: reproduction?.pr?.passed === true,
+        command: reproduction?.pr?.command,
+        result: reproduction?.pr?.result || null,
+      } : null,
+      trustedFailureEvidence,
+    },
   });
   const output = process.env.AGENT_RESULT_PATH || 'pr-repair-agent-result.json';
   writeFileSync(output, `${JSON.stringify({ ...result, model: process.env.ZAI_MODEL || DEFAULT_ZAI_MODEL, changedFiles: tools.snapshot?.().changedFiles || [] }, null, 2)}\n`, 'utf8');

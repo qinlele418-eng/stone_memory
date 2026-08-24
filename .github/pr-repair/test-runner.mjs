@@ -13,7 +13,16 @@ function sanitizedEnv() {
   return env;
 }
 
-export async function runTests({ cwd = process.cwd(), timeoutMs = 1_800_000 } = {}) {
+function trustedTestFiles(files = []) {
+  if (!Array.isArray(files)) return [];
+  return [...new Set(files.filter((file) => (
+    typeof file === 'string'
+    && /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9_./-]+\.(?:test|spec)\.[cm]?js$/.test(file)
+    && !/(?:^|\/)(?:\.git|node_modules)(?:\/|$)|(?:^|\/)\.env(?:[./]|$)/.test(file)
+  )))];
+}
+
+export async function runTests({ cwd = process.cwd(), timeoutMs = 1_800_000, files = [] } = {}) {
   let packageJson;
   try {
     packageJson = JSON.parse(readFileSync(join(cwd, 'package.json'), 'utf8'));
@@ -37,8 +46,9 @@ export async function runTests({ cwd = process.cwd(), timeoutMs = 1_800_000 } = 
       passed: false,
     };
   }
-  const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-  const result = await runCommand(npmCommand, ['test'], {
+  const focusedFiles = trustedTestFiles(files);
+  const command = focusedFiles.length > 0 ? 'node --test' : 'npm test';
+  const result = await runCommand(focusedFiles.length > 0 ? process.execPath : (process.platform === 'win32' ? 'npm.cmd' : 'npm'), focusedFiles.length > 0 ? ['--test', ...focusedFiles] : ['test'], {
     cwd,
     env: sanitizedEnv(),
     timeoutMs,
@@ -59,7 +69,7 @@ export async function runTests({ cwd = process.cwd(), timeoutMs = 1_800_000 } = 
     parsed.failures.push({ name: 'npm test', error: '测试命令没有产生有效的 TAP 测试证据' });
   }
   return {
-    command: 'npm test',
+    command,
     exitCode: result.code,
     timedOut: result.timedOut,
     result: parsed,
@@ -72,6 +82,7 @@ export async function main() {
   const report = await runTests({
     cwd: process.env.TEST_CWD || process.cwd(),
     timeoutMs: Number(process.env.TEST_TIMEOUT_MS || 1_800_000),
+    files: (() => { try { return JSON.parse(process.env.TEST_FILES || '[]'); } catch { return []; } })(),
   });
   const output = process.env.TEST_REPORT_PATH || 'pr-repair-test.json';
   writeFileSync(output, `${JSON.stringify(report, null, 2)}\n`, 'utf8');

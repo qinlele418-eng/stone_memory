@@ -14,19 +14,23 @@ import {
 } from './contract.mjs';
 
 export const AGENT_TOOL_LIMITS = Object.freeze({
-  // These are serialization ceilings rather than model exploration budgets.
-  // The agent must be able to inspect the complete failing file/report while
-  // we are diagnosing its behaviour; the outer job remains the lifecycle
-  // boundary. Path validation and secret redaction still apply.
-  maxReadChars: 1_000_000,
-  maxSearchChars: 1_000_000,
-  maxDiffChars: 1_000_000,
-  maxTestChars: 1_000_000,
-  maxPatchChars: 1_000_000,
-  maxReadLines: 100_000,
+  // Payload ceilings keep each request inspectable. They are pageable tool
+  // responses, not a limit on how often the model may investigate.
+  maxReadChars: 48_000,
+  maxSearchChars: 32_000,
+  maxDiffChars: 48_000,
+  maxTestChars: 48_000,
+  maxPatchChars: 100_000,
+  maxReadLines: 2_000,
 });
 
-export async function runSandboxedTests({ cwd, runCommandImpl = runCommand, timeoutMs = 8 * 60 * 1_000 } = {}) {
+export async function runSandboxedTests({
+  cwd,
+  runCommandImpl = runCommand,
+  timeoutMs = 8 * 60 * 1_000,
+  files = [],
+  dependenciesPrepared = false,
+} = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'stone-memory-pr-agent-tests-'));
   const install = join(directory, 'install');
   const output = join(directory, 'output');
@@ -35,18 +39,19 @@ export async function runSandboxedTests({ cwd, runCommandImpl = runCommand, time
   const packageJson = join(cwd, 'package.json');
   const packageLock = join(cwd, 'package-lock.json');
   try {
-    await cp(packageJson, join(install, 'package.json'));
-    await cp(packageLock, join(install, 'package-lock.json'));
+    if (!dependenciesPrepared) {
+      await cp(packageJson, join(install, 'package.json'));
+      await cp(packageLock, join(install, 'package-lock.json'));
     // Install dependencies without executing PR-controlled lifecycle scripts.
     // The test container below is network-isolated; npm ci must not be able to
     // exfiltrate the checked-out source through an install hook.
-    await mkdir(join(install, 'scripts'), { recursive: true });
-    try {
-      await cp(join(cwd, 'scripts', 'check-node-version.js'), join(install, 'scripts', 'check-node-version.js'));
-    } catch (error) {
-      if (error?.code !== 'ENOENT') throw error;
-    }
-    const installResult = await runCommandImpl('docker', [
+      await mkdir(join(install, 'scripts'), { recursive: true });
+      try {
+        await cp(join(cwd, 'scripts', 'check-node-version.js'), join(install, 'scripts', 'check-node-version.js'));
+      } catch (error) {
+        if (error?.code !== 'ENOENT') throw error;
+      }
+      const installResult = await runCommandImpl('docker', [
       'run', '--rm', '--init', '--user', `${process.getuid?.() || 0}:${process.getgid?.() || 0}`,
       '-v', `${install}:/install:rw`, '-w', '/install',
       '-e', 'HOME=/tmp', '-e', 'npm_config_cache=/tmp/npm-cache',
@@ -54,8 +59,8 @@ export async function runSandboxedTests({ cwd, runCommandImpl = runCommand, time
       '-e', 'NPM_TOKEN=', '-e', 'NODE_AUTH_TOKEN=',
       '-e', 'ACTIONS_RUNTIME_TOKEN=', '-e', 'ACTIONS_ID_TOKEN_REQUEST_TOKEN=',
       'node:22-bookworm', 'npm', 'ci', '--ignore-scripts', '--no-audit', '--no-fund',
-    ], { cwd, timeoutMs });
-    if (installResult.code !== 0) {
+      ], { cwd, timeoutMs });
+      if (installResult.code !== 0) {
       return {
         command: 'npm test',
         exitCode: installResult.code,
@@ -64,14 +69,14 @@ export async function runSandboxedTests({ cwd, runCommandImpl = runCommand, time
         stderr: clip(redactSensitiveText(installResult.stderr || installResult.stdout), AGENT_TOOL_LIMITS.maxTestChars),
         passed: false,
       };
-    }
-    const rebuildResult = await runCommandImpl('docker', [
+      }
+      const rebuildResult = await runCommandImpl('docker', [
       'run', '--rm', '--init', '--user', `${process.getuid?.() || 0}:${process.getgid?.() || 0}`,
       '-v', `${install}:/install:rw`, '-w', '/install',
       '-e', 'HOME=/tmp', '-e', 'npm_config_cache=/tmp/npm-cache',
       'node:22-bookworm', 'npm', 'rebuild', 'better-sqlite3', '--no-audit', '--no-fund',
-    ], { cwd, timeoutMs });
-    if (rebuildResult.code !== 0) {
+      ], { cwd, timeoutMs });
+      if (rebuildResult.code !== 0) {
       return {
         command: 'npm test',
         exitCode: rebuildResult.code,
@@ -80,9 +85,10 @@ export async function runSandboxedTests({ cwd, runCommandImpl = runCommand, time
         stderr: clip(redactSensitiveText(rebuildResult.stderr || rebuildResult.stdout), AGENT_TOOL_LIMITS.maxTestChars),
         passed: false,
       };
+      }
+      await rm(join(cwd, 'node_modules'), { recursive: true, force: true });
+      await cp(join(install, 'node_modules'), join(cwd, 'node_modules'), { recursive: true });
     }
-    await rm(join(cwd, 'node_modules'), { recursive: true, force: true });
-    await cp(join(install, 'node_modules'), join(cwd, 'node_modules'), { recursive: true });
     const reportPath = join(output, 'pr-repair-test.json');
     const runnerPath = fileURLToPath(new URL('./test-runner.mjs', import.meta.url));
     const testResult = await runCommandImpl('docker', [
@@ -93,10 +99,11 @@ export async function runSandboxedTests({ cwd, runCommandImpl = runCommand, time
       '-e', 'NPM_TOKEN=', '-e', 'NODE_AUTH_TOKEN=',
       '-e', 'ACTIONS_RUNTIME_TOKEN=', '-e', 'ACTIONS_ID_TOKEN_REQUEST_TOKEN=',
       '-e', 'TEST_CWD=/work', '-e', 'TEST_REPORT_PATH=/out/pr-repair-test.json',
+      '-e', `TEST_FILES=${JSON.stringify(files)}`,
       'node:22-bookworm', 'node', '/tools/test-runner.mjs',
     ], { cwd, timeoutMs });
     try {
-      return JSON.parse(await readFile(reportPath, 'utf8'));
+      return { ...JSON.parse(await readFile(reportPath, 'utf8')), dependenciesPrepared: true };
     } catch {
       return {
         command: 'npm test',
@@ -345,62 +352,8 @@ function replaceSingleConflict(content, candidateLines, path) {
   return [...lines.slice(0, start), ...candidateLines, ...lines.slice(end + 1)].join('\n');
 }
 
-function identifierReplacement(oldLine, newLine) {
-  const oldText = String(oldLine ?? '');
-  const newText = String(newLine ?? '');
-  const tokenPattern = /[A-Za-z_$][A-Za-z0-9_$.-]*/g;
-  const oldTokens = [...oldText.matchAll(tokenPattern)].map((match) => match[0]);
-  const newTokens = [...newText.matchAll(tokenPattern)].map((match) => match[0]);
-  const changedTokens = oldTokens
-    .map((token, index) => ({ oldPart: token, newPart: newTokens[index] }))
-    .filter(({ oldPart, newPart }) => newPart && oldPart !== newPart);
-  if (changedTokens.length === 1) {
-    const { oldPart: oldToken, newPart: newToken } = changedTokens[0];
-    let suffix = 0;
-    while (
-      suffix < oldToken.length
-      && suffix < newToken.length
-      && oldToken[oldToken.length - suffix - 1] === newToken[newToken.length - suffix - 1]
-    ) suffix += 1;
-    const replacement = {
-      oldPart: oldToken.slice(0, oldToken.length - suffix),
-      newPart: newToken.slice(0, newToken.length - suffix),
-      bounded: true,
-    };
-    if (replacement.oldPart.length >= 5 && /^[A-Za-z_$][A-Za-z0-9_$.-]*$/.test(replacement.oldPart)
-      && /^[A-Za-z_$][A-Za-z0-9_$.-]*$/.test(replacement.newPart)) return replacement;
-  }
-  let prefix = 0;
-  while (prefix < oldText.length && prefix < newText.length && oldText[prefix] === newText[prefix]) prefix += 1;
-  let suffix = 0;
-  while (
-    suffix < oldText.length - prefix
-    && suffix < newText.length - prefix
-    && oldText[oldText.length - suffix - 1] === newText[newText.length - suffix - 1]
-  ) suffix += 1;
-  const oldPart = oldText.slice(prefix, oldText.length - suffix);
-  const newPart = newText.slice(prefix, newText.length - suffix);
-  if (!oldPart || !newPart || oldPart === newPart || /\s/.test(oldPart) || /\s/.test(newPart)) return null;
-  if (!/^[A-Za-z_$][A-Za-z0-9_$.-]*$/.test(oldPart) || !/^[A-Za-z_$][A-Za-z0-9_$.-]*$/.test(newPart)) return null;
-  // Only widen a one-line hunk for an unmistakable identifier migration.
-  // This keeps ordinary repeated code edits precise while making large,
-  // mechanically renamed vocabularies possible in one bounded patch.
-  if (oldPart.length < 5 || !/[-_.]/.test(oldPart)) return null;
-  return { oldPart, newPart };
-}
-
 function replaceUniqueLines(content, oldLines, newLines, path, addedLines = []) {
   const lines = content.split('\n');
-  if (oldLines.length === 1 && newLines.length === 1) {
-    const replacement = identifierReplacement(oldLines[0], newLines[0]);
-    if (replacement && content.split(replacement.oldPart).length > 2) {
-      if (replacement.bounded) {
-        const escaped = replacement.oldPart.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        return content.replace(new RegExp(`(?<![A-Za-z0-9_$])${escaped}(?![A-Za-z0-9_$])`, 'g'), replacement.newPart);
-      }
-      return content.replaceAll(replacement.oldPart, replacement.newPart);
-    }
-  }
   let matchAt = -1;
   for (let start = 0; start <= lines.length - oldLines.length; start += 1) {
     if (oldLines.every((line, offset) => lines[start + offset] === line)) {
@@ -423,6 +376,9 @@ function replaceUniqueLines(content, oldLines, newLines, path, addedLines = []) 
 function safeReadPath(root, file, { allowDirectory = false } = {}) {
   const normalized = normalizeSafeRelativePath(file);
   if (!normalized || normalized === '.') throw new Error(`拒绝读取不安全路径: ${file}`);
+  if (/(?:^|\/)(?:\.git|node_modules)(?:\/|$)|(?:^|\/)\.env(?:[./]|$)/.test(normalized)) {
+    throw new Error(`拒绝读取受保护路径: ${normalized}`);
+  }
   const absoluteRoot = realpathSync(root);
   let current = absoluteRoot;
   for (const part of normalized.split('/')) {
@@ -508,6 +464,9 @@ export function createAgentTools({
   revisions = {},
   allowedFiles = [],
   mutableFiles = allowedFiles,
+  knownFailingTestFiles = [],
+  knownFailureFiles = [],
+  initialFailureEvidence = [],
   runTestsImpl = runSandboxedTests,
   runGitImpl = runGit,
   runCommandImpl = runCommand,
@@ -525,11 +484,20 @@ export function createAgentTools({
     readOnlyCalls: 0,
     patchCalls: 0,
     testCalls: 0,
-    lastFailureFiles: [],
-    lastFailureEvidence: [],
+    lastFailureFiles: [...new Set(knownFailureFiles.map(normalizeSafeRelativePath).filter(Boolean))],
+    lastFailingTestFiles: [...new Set(knownFailingTestFiles
+      .map(normalizeSafeRelativePath)
+      .filter((file) => file && isTestPath(file)))],
+    lastFailureEvidence: initialFailureEvidence.map((failure) => JSON.stringify(redactModelValue(failure || {}))),
+    trustedFailureEvidence: initialFailureEvidence.length > 0,
     failureReadIndex: 0,
     readPaths: new Set(),
+    dependenciesPrepared: false,
+    dependencyFingerprint: null,
   };
+
+  const inFailureStage = () => state.lastTestPassed !== true
+    && (state.testCalls > 0 || state.trustedFailureEvidence);
 
   async function unresolvedFiles() {
     const result = await runGitImpl(['diff', '--name-only', '--diff-filter=U'], { cwd, timeoutMs: 30_000 });
@@ -679,7 +647,7 @@ export function createAgentTools({
 
   async function readFileTool(args = {}) {
     const unresolved = await unresolvedFiles();
-    const failureStage = state.testCalls > 0 && state.lastTestPassed !== true;
+    const failureStage = inFailureStage();
     const failurePaths = failureStage && unresolved.length === 0 ? await failureFallbackPaths() : [];
     const firstFailurePath = failurePaths[0] || null;
     const fallbackPath = unresolved.at(0) || firstFailurePath || state.changedFiles.at(-1) || allowed.at(0);
@@ -701,6 +669,7 @@ export function createAgentTools({
       startLine: start,
       endLine: end,
       content: clip(redactSensitiveText(lines.slice(start - 1, end).join('\n')), AGENT_TOOL_LIMITS.maxReadChars),
+      ...(end < lines.length ? { continuation: { nextStartLine: end + 1, totalLines: lines.length } } : { totalLines: lines.length }),
       ...(repeatedRead ? {
         cached: true,
         note: '该路径已在本回合读取；内容未变化。请停止重复读取，直接运行测试或根据失败证据 apply_patch。',
@@ -717,7 +686,7 @@ export function createAgentTools({
         ? '这是当前首个失败源码目标；可直接基于 failureEvidence 修改。'
         : '当前读取路径不是首个失败源码目标；failureEvidence 已附上可修改源码和失败测试，避免重复读取。';
     }
-    if (state.testCalls > 0 && state.lastTestPassed !== true && state.lastFailureFiles.length > 0) {
+    if (inFailureStage() && state.lastFailureFiles.length > 0) {
       const references = {};
       for (const [label, revision] of [['main', revisions.main], ['pr', revisions.pr]]) {
         if (!revision) continue;
@@ -751,7 +720,7 @@ export function createAgentTools({
 
   async function searchCode(args = {}) {
     const query = String(args.query || '').trim();
-    const failureStage = state.testCalls > 0 && state.lastTestPassed !== true;
+    const failureStage = inFailureStage();
     if (!query && failureStage) {
       const repairTargets = await failureFallbackPaths();
       return {
@@ -882,7 +851,7 @@ export function createAgentTools({
       mutableTestFiles: mutable.filter(isTestPath),
     });
     if (!validation.ok) {
-      const failureTargets = state.testCalls > 0 && state.lastTestPassed !== true
+      const failureTargets = inFailureStage()
         ? await failureFallbackPaths()
         : [];
       const targetHint = failureTargets.length > 0
@@ -1014,11 +983,28 @@ export function createAgentTools({
     // after a failed verification the model's requested CLI path won over the
     // first failing source file.
     state.testCalls += 1;
-    const report = await runTestsImpl({ cwd, timeoutMs: 8 * 60 * 1_000 });
+    const relatedFiles = mode === 'related' ? state.lastFailingTestFiles : [];
+    const dependencyFingerprint = await Promise.all(['package.json', 'package-lock.json'].map(async (file) => {
+      try { return await readFile(join(cwd, file), 'utf8'); } catch { return null; }
+    }));
+    const canReuseDependencies = state.dependenciesPrepared
+      && JSON.stringify(dependencyFingerprint) === JSON.stringify(state.dependencyFingerprint);
+    const report = await runTestsImpl({
+      cwd,
+      timeoutMs: 8 * 60 * 1_000,
+      files: relatedFiles,
+      dependenciesPrepared: canReuseDependencies,
+    });
+    if (report?.dependenciesPrepared === true) {
+      state.dependenciesPrepared = true;
+      state.dependencyFingerprint = dependencyFingerprint;
+    }
     state.lastTestPassed = report.passed === true;
     if (state.lastTestPassed) {
       state.lastFailureFiles = [];
+      state.lastFailingTestFiles = [];
       state.lastFailureEvidence = [];
+      state.trustedFailureEvidence = false;
     } else {
       const counts = new Map();
       const firstSeen = new Map();
@@ -1043,6 +1029,9 @@ export function createAgentTools({
         // source regression that the model can fix first.
         .sort((left, right) => (firstSeen.get(left[0]) - firstSeen.get(right[0])) || (right[1] - left[1]))
         .map(([file]) => file);
+      state.lastFailingTestFiles = [...new Set((report?.result?.failures || [])
+        .map((failure) => normalizeSafeRelativePath(failure?.file || ''))
+        .filter((file) => file && isTestPath(file)))];
       state.lastFailureEvidence = [
         ...(report?.result?.failures || []).map((failure) => JSON.stringify(failure || {})),
         String(report?.stderr || ''),
@@ -1055,7 +1044,7 @@ export function createAgentTools({
       : [...await failureSourceEvidence(), ...await failureTestEvidence()];
     return {
       ok: true,
-      mode: 'full',
+      mode: relatedFiles.length > 0 ? 'related' : 'full',
       requestedMode: mode,
       ...failureSummary(report),
       ...(state.lastTestPassed ? {} : {
@@ -1093,6 +1082,10 @@ export function createAgentTools({
     snapshot() {
       return {
         ...state,
+        baseSha: revisions.base || null,
+        prSha: revisions.pr || null,
+        mainSha: revisions.main || revisions.base || null,
+        mutableFiles: [...mutable],
         elapsedMs: Math.max(0, now() - state.startedAt),
         changedFiles: [...state.changedFiles],
       };
