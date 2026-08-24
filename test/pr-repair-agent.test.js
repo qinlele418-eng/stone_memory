@@ -91,12 +91,12 @@ test('agent rejects a repair completion before a passing test and fails closed a
     { role: 'assistant', tool_calls: [toolCall('5', 'read_file', { path: 'src/example.js' })] },
     { role: 'assistant', tool_calls: [toolCall('6', 'read_file', { path: 'src/example.js' })] },
   ]);
-  const result = await runRepairAgent({ task: '修复冲突', client, tools: fakeTools(), limits: { ...AGENT_LIMITS, maxLogicalTurns: 5, maxExploreTurns: 2 } });
+  const result = await runRepairAgent({ task: '修复冲突', client, tools: fakeTools(), limits: { ...AGENT_LIMITS, maxLogicalTurns: 5 } });
 
   assert.equal(result.status, 'needs_human');
   assert.match(result.reason, /回合上限|repair_complete/);
   assert.equal(result.metrics.logicalTurns, 5);
-  assert.deepEqual(client.calls[2].tools.map((tool) => tool.function.name), ['apply_patch', 'run_tests', 'finish']);
+  assert.ok(client.calls[2].tools.map((tool) => tool.function.name).includes('read_file'));
 });
 
 test('failed tests get bundled source evidence while retaining a bounded repair loop', async () => {
@@ -277,7 +277,10 @@ test('failed naming evidence returns matching allowed source files on the first 
         stderr: '',
       }),
     });
-    await tools.call('run_tests', { mode: 'related' });
+    const failed = await tools.call('run_tests', { mode: 'related' });
+    assert.ok(failed.repairSources.some((source) => source.path === 'src-theme.js'));
+    const search = await tools.call('search_code', {});
+    assert.ok(search.repairSources.some((source) => source.path === 'src-theme.js'));
     const read = await tools.call('read_file', { path: 'test-theme.test.js' });
     assert.equal(read.path, 'src-theme.js');
     assert.match(read.content, /stone-tide/);

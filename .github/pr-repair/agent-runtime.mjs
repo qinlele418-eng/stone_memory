@@ -6,10 +6,6 @@ import { redactErrorMessage, redactModelValue } from './contract.mjs';
 
 export const AGENT_LIMITS = Object.freeze({
   maxLogicalTurns: 20,
-  // A CI failure normally needs one read of the failing test, one test run,
-  // and one source search/read before the first patch.  Two turns blocked the
-  // source lookup and made the model spend the remaining budget retrying it.
-  maxExploreTurns: 4,
   maxApiAttempts: 21,
   maxTokensPerTurn: 4_096,
   maxCompletionTokens: 24_576,
@@ -24,7 +20,6 @@ export const AGENT_LIMITS = Object.freeze({
 
 const READ_ONLY_TOOLS = new Set(['get_status', 'read_file', 'search_code', 'git_show_file', 'git_diff']);
 const FINISH_TOOLS = new Set(['finish']);
-const MAX_FAILURE_EVIDENCE_READS = 4;
 
 export const REPAIR_AGENT_SYSTEM_PROMPT = [
   '你是 Stone Memory 的 PR 冲突维修 coding agent，不是 reviewer，也不是计划生成器。',
@@ -147,16 +142,6 @@ function gateToolCall(name, args, state, limits) {
   if (!name) return '工具调用缺少名称';
   if (state.toolCalls >= limits.maxToolCalls) return '工具调用达到硬上限';
   if (READ_ONLY_TOOLS.has(name) && state.readOnlyCalls >= limits.maxReadOnlyCalls) return '只读工具调用达到硬上限';
-  const failureEvidenceRead = state.testCalls > 0 && state.lastTestPassed !== true;
-  if (['read_file', 'git_show_file', 'search_code'].includes(name) && failureEvidenceRead && state.failureReadCalls >= MAX_FAILURE_EVIDENCE_READS) {
-    return '测试失败后的源码读取预算已用尽，必须直接 apply_patch 或 needs_human';
-  }
-  // A failed test is a new evidence phase.  Keep its bounded read/search
-  // budget independent from initial exploration, even when the model spent
-  // several turns on the initial test file.  The read tool maps the first
-  // failure read to an allowed repair source and includes related candidates.
-  const mayReadFailureEvidence = failureEvidenceRead && state.failureReadCalls < MAX_FAILURE_EVIDENCE_READS;
-  if (READ_ONLY_TOOLS.has(name) && state.patchCalls === 0 && state.logicalTurns > limits.maxExploreTurns && !mayReadFailureEvidence) return '探索回合达到上限，请直接 apply_patch 或 needs_human';
   if (name === 'apply_patch') {
     if (state.readOnlyCalls < 1) return '必须先通过只读工具调查代码，再 apply_patch';
     if (state.patchCalls >= limits.maxPatchCalls) return '修改批次达到硬上限';
@@ -174,17 +159,6 @@ function gateToolCall(name, args, state, limits) {
 }
 
 function availableDefinitions(definitions, state, limits) {
-  const failureEvidenceRead = state.testCalls > 0 && state.lastTestPassed !== true;
-  if (failureEvidenceRead && state.failureReadCalls < MAX_FAILURE_EVIDENCE_READS) {
-    return definitions.filter((tool) => ['read_file', 'search_code', 'git_show_file', 'git_diff', 'apply_patch', 'finish'].includes(tool?.function?.name));
-  }
-  if (state.patchCalls > 0 && state.lastTestPassed !== true) {
-    if (state.failureReadCalls >= MAX_FAILURE_EVIDENCE_READS) return definitions.filter((tool) => ['git_diff', 'apply_patch', 'finish'].includes(tool?.function?.name));
-    return definitions.filter((tool) => ['read_file', 'search_code', 'git_show_file', 'git_diff', 'apply_patch', 'finish'].includes(tool?.function?.name));
-  }
-  if (state.patchCalls === 0 && state.logicalTurns > limits.maxExploreTurns) {
-    return definitions.filter((tool) => ['apply_patch', 'run_tests', 'finish'].includes(tool?.function?.name));
-  }
   return definitions;
 }
 

@@ -552,6 +552,23 @@ export function createAgentTools({
     return paths[0];
   }
 
+  async function failureSourceEvidence() {
+    const sources = [];
+    for (const normalized of (await failureFallbackPaths()).slice(0, 8)) {
+      try {
+        const { absolute } = safeReadPath(cwd, normalized);
+        sources.push({
+          path: normalized,
+          content: clip(redactSensitiveText(await readFile(absolute, 'utf8')), 4_000),
+        });
+      } catch {
+        // Keep the evidence that is available; a concurrent file removal is
+        // reported by the normal read path instead of guessed around.
+      }
+    }
+    return sources;
+  }
+
   async function changedFileNames() {
     const [working, staged] = await Promise.all([
       runGitImpl(['diff', '--name-only'], { cwd, timeoutMs: 30_000 }),
@@ -641,11 +658,28 @@ export function createAgentTools({
 
   async function searchCode(args = {}) {
     const query = String(args.query || '').trim();
+    const failureStage = state.testCalls > 0 && state.lastTestPassed !== true;
+    if (!query && failureStage) {
+      return {
+        ok: true,
+        query: '',
+        matches: '',
+        repairSources: await failureSourceEvidence(),
+        note: '失败测试的允许 PR 源码已直接返回；无需继续猜测搜索词。',
+      };
+    }
     if (!query) throw new Error('search_code 缺少 query');
     const target = safeSearchPath(cwd, args.path || '.');
     const result = await runCommandImpl('rg', ['--no-heading', '--line-number', '--fixed-strings', '--max-count', '40', query, target.normalized], { cwd, timeoutMs: 30_000 });
     if (result.code !== 0 && result.code !== 1) throw new Error(redactErrorMessage(result.stderr || result.stdout || 'rg 搜索失败'));
-    return { ok: true, query, path: target.normalized, matches: clip(redactSensitiveText(result.stdout), AGENT_TOOL_LIMITS.maxSearchChars), truncated: result.stdout.length > AGENT_TOOL_LIMITS.maxSearchChars };
+    return {
+      ok: true,
+      query,
+      path: target.normalized,
+      matches: clip(redactSensitiveText(result.stdout), AGENT_TOOL_LIMITS.maxSearchChars),
+      truncated: result.stdout.length > AGENT_TOOL_LIMITS.maxSearchChars,
+      ...(failureStage ? { repairSources: await failureSourceEvidence() } : {}),
+    };
   }
 
   async function gitShowFile(args = {}) {
@@ -793,7 +827,15 @@ export function createAgentTools({
     const patch = String(args.patch || '');
     if (!patch || patch.length > AGENT_TOOL_LIMITS.maxPatchChars) throw new Error(`patch 不能为空且不得超过 ${AGENT_TOOL_LIMITS.maxPatchChars} 字符`);
     const validation = validateRepairResponse({ decision: 'repair', summary: 'agent patch', patch }, { allowedFiles: allowed });
-    if (!validation.ok) throw new Error(validation.errors.join('；'));
+    if (!validation.ok) {
+      const failureTargets = state.testCalls > 0 && state.lastTestPassed !== true
+        ? await failureFallbackPaths()
+        : [];
+      const targetHint = failureTargets.length > 0
+        ? `；当前失败证据对应的允许源码目标：${failureTargets.slice(0, 8).join(', ')}`
+        : '';
+      throw new Error(`${validation.errors.join('；')}${targetHint}`);
+    }
     let applyPatchOperations;
     let parseError;
     try {
@@ -965,7 +1007,10 @@ export function createAgentTools({
       mode: 'full',
       requestedMode: mode,
       ...failureSummary(report),
-      ...(state.lastTestPassed ? {} : { repairGuidance: repairGuidance(report, allowed) }),
+      ...(state.lastTestPassed ? {} : {
+        repairGuidance: repairGuidance(report, allowed),
+        repairSources: await failureSourceEvidence(),
+      }),
     };
   }
 
