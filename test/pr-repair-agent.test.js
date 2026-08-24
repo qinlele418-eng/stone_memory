@@ -581,6 +581,18 @@ test('agent tools expose bounded file/diff/edit/test seams without a shell', asy
     const tests = await tools.call('run_tests', { mode: 'related' });
     assert.equal(tests.passed, true);
     assert.equal((await readFile(join(cwd, 'example.js'), 'utf8')).trim(), 'const value = 2;');
+    const whitespacePatch = await tools.call('apply_patch', { patch: 'diff --git a/example.js b/example.js\n--- a/example.js\n+++ b/example.js\n@@ -1 +1 @@\n-const value = 2;\n+const value = 2; \n' });
+    assert.equal(whitespacePatch.applied, true);
+    const formatFailure = await tools.checkFinalDiff();
+    assert.equal(formatFailure.ok, false);
+    assert.deepEqual(formatFailure.checkedFiles, ['example.js']);
+    assert.match(formatFailure.errors.join('\n'), /example\.js:1: trailing whitespace/);
+    assert.doesNotMatch(formatFailure.errors.join('\n'), /const value/);
+    const eofPatch = await tools.call('apply_patch', { patch: 'diff --git a/example.js b/example.js\n--- a/example.js\n+++ b/example.js\n@@ -1 +1,2 @@\n-const value = 2; \n+const value = 2;\n+\n' });
+    assert.equal(eofPatch.applied, true);
+    const eofFailure = await tools.checkFinalDiff();
+    assert.match(eofFailure.errors.join('\n'), /example\.js:2: new blank line at EOF/);
+    assert.doesNotMatch(eofFailure.errors.join('\n'), /const value/);
     assert.equal(tools.definitions.some((tool) => tool.function.name === 'shell'), false);
   } finally {
     await rm(cwd, { recursive: true, force: true });

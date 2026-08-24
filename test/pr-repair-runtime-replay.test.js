@@ -186,6 +186,190 @@ test('normal CI-failure replay reads main, patches, runs focused verification, a
   assert.deepEqual(calls.map(([name]) => name), ['git_show_file', 'read_file', 'search_code', 'apply_patch', 'run_tests', 'finish']);
 });
 
+test('a final diff-check failure wakes the same model once with exact format evidence', async () => {
+  const calls = [];
+  let patchCount = 0;
+  let checkCount = 0;
+  const tools = {
+    definitions: ['apply_patch', 'run_tests'].map((name) => ({ type: 'function', function: { name, parameters: { type: 'object' } } })),
+    async call(name) {
+      calls.push(name);
+      if (name === 'apply_patch') {
+        patchCount += 1;
+        return { ok: true, applied: true, changedFiles: ['README.md'], remainingUnresolved: [] };
+      }
+      return { ok: true, passed: true, result: { total: 1, passed: 1, failed: 0, failures: [] } };
+    },
+    async checkFinalDiff() {
+      checkCount += 1;
+      return checkCount === 1
+        ? { ok: false, checkedFiles: ['README.md'], errors: ['README.md:2: trailing whitespace.'] }
+        : { ok: true, checkedFiles: ['README.md'], errors: [] };
+    },
+    snapshot() { return { taskKind: 'merge_conflict', unresolvedConflicts: [], changedFiles: ['README.md'] }; },
+  };
+  const client = {
+    calls: [],
+    async complete(input) {
+      this.calls.push(input);
+      if (this.calls.length === 1) {
+        return { message: { role: 'assistant', tool_calls: [toolCall('first-patch', 'apply_patch', { patch: 'first' })] }, usage: { completion_tokens: 10 } };
+      }
+      assert.match(input.messages.at(-1).content, /README\.md:2: trailing whitespace/);
+      assert.match(input.messages.at(-1).content, /你上一轮修改造成/);
+      return { message: { role: 'assistant', tool_calls: [toolCall('format-fix', 'apply_patch', { patch: 'second' })] }, usage: { completion_tokens: 10 } };
+    },
+  };
+
+  const result = await runRepairAgent({ task: 'synthetic format repair', client, tools });
+
+  assert.equal(result.status, 'repair_complete');
+  assert.equal(checkCount, 2);
+  assert.deepEqual(calls, ['apply_patch', 'run_tests', 'apply_patch', 'run_tests']);
+  assert.equal(client.calls.length, 2);
+});
+
+test('a second final diff-check failure stops after the one corrective model turn', async () => {
+  let patchCount = 0;
+  let checkCount = 0;
+  const tools = {
+    definitions: ['apply_patch', 'run_tests'].map((name) => ({ type: 'function', function: { name, parameters: { type: 'object' } } })),
+    async call(name) {
+      if (name === 'apply_patch') {
+        patchCount += 1;
+        return { ok: true, applied: true, changedFiles: ['README.md'], remainingUnresolved: [] };
+      }
+      return { ok: true, passed: true, result: { total: 1, passed: 1, failed: 0, failures: [] } };
+    },
+    async checkFinalDiff() {
+      checkCount += 1;
+      return { ok: false, checkedFiles: ['README.md'], errors: ['README.md:2: trailing whitespace.'] };
+    },
+    snapshot() { return { taskKind: 'merge_conflict', unresolvedConflicts: [], changedFiles: ['README.md'] }; },
+  };
+  const client = {
+    calls: 0,
+    async complete() {
+      this.calls += 1;
+      return { message: { role: 'assistant', tool_calls: [toolCall(`patch-${this.calls}`, 'apply_patch', { patch: 'format fix' })] }, usage: { completion_tokens: 10 } };
+    },
+  };
+
+  const result = await runRepairAgent({ task: 'synthetic format repair', client, tools });
+
+  assert.equal(result.status, 'needs_human');
+  assert.match(result.reason, /格式检查仍未通过/);
+  assert.equal(checkCount, 2);
+  assert.equal(patchCount, 2);
+  assert.equal(client.calls, 2);
+});
+
+test('the one format-correction turn cannot spend a third model call reading first', async () => {
+  let checkCount = 0;
+  const tools = {
+    definitions: ['read_file', 'apply_patch', 'run_tests'].map((name) => ({ type: 'function', function: { name, parameters: { type: 'object' } } })),
+    async call(name) {
+      if (name === 'apply_patch') return { ok: true, applied: true, changedFiles: ['README.md'], remainingUnresolved: [] };
+      if (name === 'run_tests') return { ok: true, passed: true, result: { total: 1, passed: 1, failed: 0, failures: [] } };
+      return { ok: true, path: 'README.md', content: 'source' };
+    },
+    async checkFinalDiff() {
+      checkCount += 1;
+      return { ok: false, checkedFiles: ['README.md'], errors: ['README.md:2: trailing whitespace.'] };
+    },
+    snapshot() { return { taskKind: 'merge_conflict', unresolvedConflicts: [], changedFiles: ['README.md'] }; },
+  };
+  const client = {
+    calls: 0,
+    async complete() {
+      this.calls += 1;
+      const name = this.calls === 1 ? 'apply_patch' : 'read_file';
+      return { message: { role: 'assistant', tool_calls: [toolCall(`call-${this.calls}`, name, name === 'read_file' ? { path: 'README.md' } : { patch: 'first' })] }, usage: { completion_tokens: 10 } };
+    },
+  };
+
+  const result = await runRepairAgent({ task: 'synthetic format repair', client, tools });
+
+  assert.equal(result.status, 'needs_human');
+  assert.match(result.reason, /唯一修正回合/);
+  assert.equal(checkCount, 1);
+  assert.equal(client.calls, 2);
+});
+
+test('a failed test in the one format-correction turn cannot request a third model call', async () => {
+  let testCount = 0;
+  let checkCount = 0;
+  const tools = {
+    definitions: ['apply_patch', 'run_tests'].map((name) => ({ type: 'function', function: { name, parameters: { type: 'object' } } })),
+    async call(name) {
+      if (name === 'apply_patch') return { ok: true, applied: true, changedFiles: ['README.md'], remainingUnresolved: [] };
+      testCount += 1;
+      return testCount === 1
+        ? { ok: true, passed: true, result: { total: 1, passed: 1, failed: 0, failures: [] } }
+        : { ok: true, passed: false, result: { total: 1, passed: 0, failed: 1, failures: [{ file: 'README.md', error: 'still broken' }] } };
+    },
+    async checkFinalDiff() {
+      checkCount += 1;
+      return { ok: false, checkedFiles: ['README.md'], errors: ['README.md:2: trailing whitespace.'] };
+    },
+    snapshot() { return { taskKind: 'merge_conflict', unresolvedConflicts: [], changedFiles: ['README.md'] }; },
+  };
+  const client = {
+    calls: 0,
+    async complete() {
+      this.calls += 1;
+      return { message: { role: 'assistant', tool_calls: [toolCall(`patch-${this.calls}`, 'apply_patch', { patch: 'format fix' })] }, usage: { completion_tokens: 10 } };
+    },
+  };
+
+  const result = await runRepairAgent({ task: 'synthetic format repair', client, tools });
+
+  assert.equal(result.status, 'needs_human');
+  assert.match(result.reason, /唯一修正回合/);
+  assert.equal(checkCount, 1);
+  assert.equal(client.calls, 2);
+});
+
+test('a patch after an explicit correction test receives a fresh automatic verification', async () => {
+  const calls = [];
+  let checkCount = 0;
+  const tools = {
+    definitions: ['apply_patch', 'run_tests'].map((name) => ({ type: 'function', function: { name, parameters: { type: 'object' } } })),
+    async call(name) {
+      calls.push(name);
+      if (name === 'apply_patch') return { ok: true, applied: true, changedFiles: ['README.md'], remainingUnresolved: [] };
+      return { ok: true, passed: true, result: { total: 1, passed: 1, failed: 0, failures: [] } };
+    },
+    async checkFinalDiff() {
+      checkCount += 1;
+      return checkCount === 1
+        ? { ok: false, checkedFiles: ['README.md'], errors: ['README.md:2: trailing whitespace.'] }
+        : { ok: true, checkedFiles: ['README.md'], errors: [] };
+    },
+    snapshot() { return { taskKind: 'merge_conflict', unresolvedConflicts: [], changedFiles: ['README.md'] }; },
+  };
+  const client = {
+    calls: 0,
+    async complete() {
+      this.calls += 1;
+      const toolsForTurn = this.calls === 1
+        ? [toolCall('first-patch', 'apply_patch', { patch: 'first' })]
+        : [
+          toolCall('format-fix-one', 'apply_patch', { patch: 'first format fix' }),
+          toolCall('format-test', 'run_tests', { mode: 'related' }),
+          toolCall('format-fix-two', 'apply_patch', { patch: 'second format fix' }),
+        ];
+      return { message: { role: 'assistant', tool_calls: toolsForTurn }, usage: { completion_tokens: 10 } };
+    },
+  };
+
+  const result = await runRepairAgent({ task: 'synthetic format repair', client, tools });
+
+  assert.equal(result.status, 'repair_complete');
+  assert.equal(client.calls, 2);
+  assert.deepEqual(calls, ['apply_patch', 'run_tests', 'apply_patch', 'run_tests', 'apply_patch', 'run_tests']);
+});
+
 test('conflict replay clears every file before verification', async () => {
   const calls = [];
   let patchCount = 0;

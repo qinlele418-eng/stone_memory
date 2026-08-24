@@ -775,6 +775,26 @@ export function createAgentTools({
     return { ok: true, scope: args.scope || 'working', path, diff: clip(redactSensitiveText(result.stdout), AGENT_TOOL_LIMITS.maxDiffChars), truncated: result.stdout.length > AGENT_TOOL_LIMITS.maxDiffChars };
   }
 
+  async function checkFinalDiff() {
+    const checkedFiles = [...new Set(state.changedFiles)].filter((file) => isSafeRelativePath(file));
+    const suffix = checkedFiles.length > 0 ? ['--', ...checkedFiles] : [];
+    const [working, staged] = await Promise.all([
+      runGitImpl(['diff', '--check', ...suffix], { cwd, timeoutMs: 30_000 }),
+      runGitImpl(['diff', '--cached', '--check', ...suffix], { cwd, timeoutMs: 30_000 }),
+    ]);
+    const errors = [working, staged]
+      .flatMap((result) => String(result.stderr || result.stdout || '').split(/\r?\n/))
+      .map((line) => line.match(/^(.*):(\d+): (trailing whitespace|space before tab|tab in indent|new blank line at EOF)\.?$/))
+      .filter(Boolean)
+      .map((match) => `${match[1]}:${match[2]}: ${match[3]}.`)
+      .filter(Boolean);
+    return {
+      ok: working.code === 0 && staged.code === 0,
+      checkedFiles,
+      errors: [...new Set(errors)].slice(0, 40),
+    };
+  }
+
   async function applyConflictFallback(patch, validation) {
     const unresolvedPaths = await unresolvedFiles();
     if (unresolvedPaths.length === 0) return null;
@@ -1079,6 +1099,7 @@ export function createAgentTools({
   return {
     definitions: TOOL_DEFINITIONS,
     call,
+    checkFinalDiff,
     snapshot() {
       return {
         ...state,

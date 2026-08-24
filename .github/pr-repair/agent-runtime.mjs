@@ -406,6 +406,8 @@ export async function runRepairAgent({
     failureReadCalls: 0,
     failureEvidenceDelivered: false,
     patchRetryRequired: false,
+    formatRepairAttempts: 0,
+    formatCorrectionPending: false,
     rejectedToolCalls: 0,
     requirePatch: Boolean(requiresPatch),
     lastReadOnlySignature: null,
@@ -463,6 +465,58 @@ export async function runRepairAgent({
     const serialized = safeJson(result);
     state.largestToolResultChars = Math.max(state.largestToolResultChars, serialized.length);
     return safeJson(boundedValue(result, limits.maxToolResultChars));
+  };
+  const requestFormatCorrection = async () => {
+    if (typeof tools.checkFinalDiff !== 'function') return { clean: true };
+    state.toolCalls += 1;
+    state.readOnlyCalls += 1;
+    state.toolSequence.push('check_diff(final)');
+    let result;
+    try {
+      result = await tools.checkFinalDiff();
+    } catch (error) {
+      result = { ok: false, checkedFiles: [], errors: [redactErrorMessage(error)] };
+    }
+    state.workState.finalDiffCheck = boundedValue(result, 4_000);
+    state.toolTrace.push({
+      name: 'check_diff(final)',
+      turn: state.logicalTurns,
+      ok: result?.ok === true,
+      result: auditValue(result),
+      ...(result?.errors?.length ? { error: result.errors.join('\n').slice(0, 4_000) } : {}),
+    });
+    state.flushAudit('tool_result', {
+      turn: state.logicalTurns,
+      tool: 'check_diff',
+      phase: 'final_validation',
+      result,
+    });
+    if (result?.ok === true) return { clean: true };
+    if (state.formatRepairAttempts >= 1) return { clean: false, exhausted: true, result };
+    state.formatRepairAttempts += 1;
+    state.formatCorrectionPending = true;
+    state.lastTestPassed = false;
+    state.pendingVerification = true;
+    const errors = Array.isArray(result?.errors) && result.errors.length > 0
+      ? result.errors.join('\n')
+      : 'git diff --check 未通过，但没有返回可显示的错误文本';
+    messages.push({
+      role: 'user',
+      content: [
+        '你上一轮修改造成了机械格式检查失败。当前修改尚未提交，请在同一 repair worktree 中自己修正。',
+        `受影响文件：${(result?.checkedFiles || []).join(', ') || '未知'}`,
+        '具体错误：',
+        errors,
+        '只修复这些格式问题；修完后重新运行相关测试，再完成维修。',
+      ].join('\n'),
+    });
+    state.flushAudit('format_repair_feedback', {
+      turn: state.logicalTurns,
+      attempt: state.formatRepairAttempts,
+      checkedFiles: result?.checkedFiles || [],
+      errors: result?.errors || [],
+    });
+    return { clean: false, retry: true, result };
   };
 
   // Reproduction already identified the failing PR state. Seed one trusted
@@ -577,6 +631,8 @@ export async function runRepairAgent({
     }
 
     const message = completion?.message || {};
+    const isFormatCorrectionTurn = state.formatCorrectionPending;
+    state.formatCorrectionPending = false;
     const calls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
     state.turnTrace.push({
       turn: state.logicalTurns,
@@ -600,7 +656,7 @@ export async function runRepairAgent({
 
     let finished = null;
     let appliedInTurn = false;
-    let explicitTestInTurn = false;
+    let patchNeedsVerification = false;
     let forcedStopReason = null;
     for (const call of calls) {
       const name = call.function.name;
@@ -621,7 +677,6 @@ export async function runRepairAgent({
           if (['read_file', 'git_show_file', 'search_code'].includes(name) && state.testCalls > 0 && state.lastTestPassed !== true) state.failureReadCalls += 1;
           if (name === 'apply_patch') state.patchCalls += 1;
           if (name === 'run_tests') state.testCalls += 1;
-          if (name === 'run_tests') explicitTestInTurn = true;
           try {
             result = await tools.call(name, args);
           } catch (error) {
@@ -640,10 +695,12 @@ export async function runRepairAgent({
             state.successfulPatchCalls += 1;
             state.pendingVerification = state.remainingUnresolved.length === 0;
             appliedInTurn = true;
+            patchNeedsVerification = true;
           }
           if (name === 'run_tests') {
             state.lastTestPassed = result?.passed === true;
             state.pendingVerification = false;
+            patchNeedsVerification = false;
             state.failureReadCalls = 0;
             // run_tests already returns the bounded failure report, repair
             // targets, and source snippets.  Mark that evidence as delivered
@@ -703,7 +760,7 @@ export async function runRepairAgent({
 
     if (forcedStopReason) return finalResult('needs_human', forcedStopReason, state, limits, startedAt, clock);
 
-    if (appliedInTurn && state.remainingUnresolved.length === 0 && !explicitTestInTurn) {
+    if (patchNeedsVerification && state.remainingUnresolved.length === 0) {
       state.testCalls += 1;
       state.toolCalls += 1;
       state.toolSequence.push('run_tests(auto)');
@@ -752,7 +809,16 @@ export async function runRepairAgent({
       });
     }
 
+    if (isFormatCorrectionTurn && (!appliedInTurn || state.lastTestPassed !== true)) {
+      return finalResult('needs_human', '格式反馈后的唯一修正回合没有产出通过验证的修复', state, limits, startedAt, clock);
+    }
+
     if (!finished && appliedInTurn && state.lastTestPassed === true) {
+      const formatCheck = await requestFormatCorrection();
+      if (formatCheck.retry) continue;
+      if (formatCheck.exhausted) {
+        return finalResult('needs_human', '模型第二次修改后格式检查仍未通过', state, limits, startedAt, clock);
+      }
       return finalResult('repair_complete', null, state, limits, startedAt, clock, {
         summary: '代码修改已应用，隔离相关测试通过，运行时自动完成维修。',
       });
@@ -760,6 +826,11 @@ export async function runRepairAgent({
 
     if (finished) {
       if (finished.status === 'repair_complete') {
+        const formatCheck = await requestFormatCorrection();
+        if (formatCheck.retry) continue;
+        if (formatCheck.exhausted) {
+          return finalResult('needs_human', '模型第二次修改后格式检查仍未通过', state, limits, startedAt, clock);
+        }
         return finalResult('repair_complete', null, state, limits, startedAt, clock, {
           summary: omittedModelText(finished.summary, '模型完成说明'),
         });
