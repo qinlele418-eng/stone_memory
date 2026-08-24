@@ -213,6 +213,42 @@ test('failed verification routes the next read to the first failing source file'
   }
 });
 
+test('failed naming evidence returns matching allowed source files on the first follow-up read', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'stone-memory-agent-naming-evidence-'));
+  try {
+    const git = async (...args) => {
+      const result = await runGit(args, { cwd });
+      assert.equal(result.code, 0, `${args.join(' ')}\n${result.stderr}`);
+      return result.stdout.trim();
+    };
+    await git('init', '-b', 'main');
+    await git('config', 'user.name', 'test');
+    await git('config', 'user.email', 'test@example.invalid');
+    await writeFile(join(cwd, 'src-theme.js'), 'const prefix = "--stone-tide-";\n');
+    await writeFile(join(cwd, 'test-theme.test.js'), 'test\n');
+    await git('add', '.');
+    await git('commit', '-m', 'base');
+    const sha = await git('rev-parse', 'HEAD');
+    const tools = createAgentTools({
+      cwd,
+      revisions: { base: sha, pr: sha, main: sha },
+      allowedFiles: ['src-theme.js', 'test-theme.test.js'],
+      runTestsImpl: async () => ({
+        passed: false,
+        command: 'npm test',
+        result: { total: 1, passed: 0, failed: 1, failures: [{ file: 'test-theme.test.js', error: 'stone-tide\\n\\ntrue !== false' }] },
+        stderr: '',
+      }),
+    });
+    await tools.call('run_tests', { mode: 'related' });
+    const read = await tools.call('read_file', { path: 'test-theme.test.js' });
+    assert.equal(read.path, 'src-theme.js');
+    assert.match(read.content, /stone-tide/);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test('agent apply_patch can resolve an actual current-main conflict in the repair worktree', async () => {
   const cwd = await mkdtemp(join(tmpdir(), 'stone-memory-agent-conflict-'));
   try {

@@ -479,6 +479,7 @@ export function createAgentTools({
     patchCalls: 0,
     testCalls: 0,
     lastFailureFiles: [],
+    lastFailureEvidence: [],
     failureReadIndex: 0,
     lastRepairGuidance: [],
   };
@@ -507,7 +508,7 @@ export function createAgentTools({
     return safePaths;
   }
 
-  function failureFallbackPaths() {
+  async function failureFallbackPaths() {
     const paths = [];
     for (const failureFile of state.lastFailureFiles) {
       const normalized = normalizeSafeRelativePath(failureFile);
@@ -521,11 +522,28 @@ export function createAgentTools({
       const matchingSource = allowed.find((file) => file.split('/').at(-1) === basename);
       if (matchingSource) paths.push(matchingSource);
     }
-    return [...new Set(paths)];
+    const unique = [...new Set(paths)];
+    // A test can report a retired identifier without naming the source file.
+    // Resolve that evidence against the already allowed PR source files before
+    // the model's first post-failure read, so it receives the actual edit
+    // target instead of having to guess a path through repeated calls.
+    if (/stone-tide|tidal-visual|tidal-tokens|Tidal_Echo|Pearl Tide/i.test(state.lastFailureEvidence.join('\n'))) {
+      for (const file of allowed) {
+        if (/(?:^|\/)(?:test|tests|__tests__)(?:\/|$)/i.test(file) || /\.(?:test|spec)\.[^/]+$/i.test(file)) continue;
+        try {
+          const { absolute } = safeReadPath(cwd, file);
+          const content = await readFile(absolute, 'utf8');
+          if (/stone-tide|tidal-visual|tidal-tokens|Tidal_Echo|Pearl Tide/i.test(content)) unique.push(file);
+        } catch {
+          // The normal read path will report missing files; do not guess here.
+        }
+      }
+    }
+    return [...new Set(unique)];
   }
 
-  function failureFallbackPath() {
-    const paths = failureFallbackPaths();
+  async function failureFallbackPath() {
+    const paths = await failureFallbackPaths();
     if (paths.length === 0) return null;
     // Stay on the first failing source until the model applies a correction
     // and the next test report can establish a new first failure. Rotating on
@@ -575,7 +593,8 @@ export function createAgentTools({
   async function readFileTool(args = {}) {
     const unresolved = await unresolvedFiles();
     const failureStage = state.testCalls > 0 && state.lastTestPassed !== true;
-    const firstFailurePath = failureStage && unresolved.length === 0 ? failureFallbackPath() : null;
+    const failurePaths = failureStage && unresolved.length === 0 ? await failureFallbackPaths() : [];
+    const firstFailurePath = failurePaths[0] || null;
     const fallbackPath = unresolved.at(0) || firstFailurePath || state.changedFiles.at(-1) || allowed.at(0);
     // After a failed test, force the first diagnostic read to the first reported
     // source file even when the model repeats a cascaded CLI path explicitly.
@@ -602,6 +621,20 @@ export function createAgentTools({
         result.referenceRange = { startLine: start, endLine: end };
       }
       if (state.lastRepairGuidance.length > 0) result.repairGuidance = state.lastRepairGuidance;
+      if (failurePaths.length > 1) {
+        result.relatedFiles = [];
+        for (const relatedPath of failurePaths.slice(0, 8)) {
+          try {
+            const related = await safeReadPath(cwd, relatedPath);
+            result.relatedFiles.push({
+              path: relatedPath,
+              content: clip(redactSensitiveText(await readFile(related.absolute, 'utf8')), 2_000),
+            });
+          } catch {
+            // Keep the primary source content even if a secondary candidate vanished.
+          }
+        }
+      }
     }
     return result;
   }
@@ -617,7 +650,7 @@ export function createAgentTools({
 
   async function gitShowFile(args = {}) {
     const unresolved = await unresolvedFiles();
-    const fallbackPath = unresolved.at(0) || failureFallbackPath() || state.changedFiles.at(-1) || allowed.at(0);
+    const fallbackPath = unresolved.at(0) || await failureFallbackPath() || state.changedFiles.at(-1) || allowed.at(0);
     const { normalized } = safeReadPath(cwd, args.path || fallbackPath);
     const revision = revisions[args.revision || 'main'];
     if (!revision) throw new Error(`没有配置 revision: ${args.revision}`);
@@ -893,6 +926,7 @@ export function createAgentTools({
     state.lastTestPassed = report.passed === true;
     if (state.lastTestPassed) {
       state.lastFailureFiles = [];
+      state.lastFailureEvidence = [];
       state.lastRepairGuidance = [];
     } else {
       const counts = new Map();
@@ -919,6 +953,10 @@ export function createAgentTools({
         // source regression that the model can fix first.
         .sort((left, right) => (firstSeen.get(left[0]) - firstSeen.get(right[0])) || (right[1] - left[1]))
         .map(([file]) => file);
+      state.lastFailureEvidence = [
+        ...(report?.result?.failures || []).map((failure) => JSON.stringify(failure || {})),
+        String(report?.stderr || ''),
+      ];
       state.lastRepairGuidance = repairGuidance(report, allowed);
     }
     state.failureReadIndex = 0;
