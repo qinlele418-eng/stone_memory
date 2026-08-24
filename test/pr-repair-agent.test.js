@@ -91,7 +91,7 @@ test('agent rejects a repair completion before a passing test and fails closed a
     { role: 'assistant', tool_calls: [toolCall('5', 'read_file', { path: 'src/example.js' })] },
     { role: 'assistant', tool_calls: [toolCall('6', 'read_file', { path: 'src/example.js' })] },
   ]);
-  const result = await runRepairAgent({ task: '修复冲突', client, tools: fakeTools(), limits: { ...AGENT_LIMITS, maxLogicalTurns: 5 } });
+  const result = await runRepairAgent({ task: '修复冲突', client, tools: fakeTools(), limits: { ...AGENT_LIMITS, maxLogicalTurns: 5, maxExploreTurns: 2 } });
 
   assert.equal(result.status, 'needs_human');
   assert.match(result.reason, /回合上限|repair_complete/);

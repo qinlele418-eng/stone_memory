@@ -406,6 +406,12 @@ function repairGuidance(report, allowed) {
       instruction: '若 notebook MCP/web 报 JSON 解析错误，只让 CLI stdout 输出单行 JSON；诊断信息走 stderr，不要改测试或反复修改 bin/stmem。',
     });
   }
+  if (/stone-tide|tidal-visual|tidal-tokens|Tidal_Echo|Pearl Tide/i.test(evidence)) {
+    hints.push({
+      file: 'PR changed frontend source files',
+      instruction: '这是 current main 已迁移命名但 PR 仍带旧兼容命名的失败。先用 search_code 搜索 stone-tide、tidal-visual、tidal-tokens，再只修改 PR changedFiles 中命中的源码；参照 current main 的 --stone-theme-*、stone-theme-* 命名契约，不修改测试或 workflow。',
+    });
+  }
   return hints;
 }
 
