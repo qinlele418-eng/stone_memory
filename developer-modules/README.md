@@ -2,6 +2,8 @@
 
 这里是 Stone Memory 开发者模块的唯一代码注册根目录。一个模块一个目录，并必须提供 `module.json`。
 
+开工前完整阅读 [DEVELOPMENT.md](./DEVELOPMENT.md)。这份文档是模块目录、数据、CLI、Prompt、数据库和 Watcher 的正式接入规范；CI 按同一套边界执行审计。
+
 - 新模块的前端、Prompt、命令实现都放在自己的目录内。
 - 模块运行数据统一写入 `~/.stone_memory/developer-module-data/<thread-id>/<module-id>/`。
 - 全局模块写入 `~/.stone_memory/developer-module-data/_global/<module-id>/`。

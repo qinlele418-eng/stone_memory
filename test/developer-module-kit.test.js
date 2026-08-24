@@ -19,6 +19,8 @@ test("developer kit consumes an optional semantic snapshot without reading theme
   assert.match(runtime, /threadId/);
   assert.match(runtime, /stone-memory-developer-thread/);
   assert.deepEqual(contract.requiredFiles, ["module.json", "index.html", "app.js", "styles.css"]);
+  assert.equal(contract.developerContract, "developer-modules/DEVELOPMENT.md");
+  assert.ok(contract.rules.some(rule => rule.includes("audit:developer-modules")));
   assert.match(index, /<stone-module-page/);
   assert.doesNotMatch(index, /stone-module-context/);
   assert.doesNotMatch(index, /data-stone-library/);
