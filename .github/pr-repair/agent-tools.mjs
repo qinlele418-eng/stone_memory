@@ -271,6 +271,10 @@ function parseApplyPatchFormat(value) {
         hunkStarted = true;
         continue;
       }
+      // Models often combine our Begin Patch envelope with ordinary unified
+      // file headers. They describe the same file as the Update File header,
+      // not source lines to match in the worktree.
+      if (/^(?:---|\+\+\+)\s+/.test(line)) continue;
       if (!hunkStarted) {
         if (line.trim() === '' || line.trim() === '*** End of File') continue;
         // Accept the common compact form that omits an empty @@ marker.
@@ -941,7 +945,8 @@ export function createAgentTools({
         if (unresolved.code === 0 && unresolved.stdout.trim()) {
           // git apply cannot use an unmerged index; the bounded patch utility only edits the
           // already-validated worktree path and never receives arbitrary shell input.
-          result = await runCommandImpl('patch', ['--batch', '--forward', '--reject-file=-', '-p1', '--input', patchPath], { cwd, timeoutMs: 60_000 });
+          const stripLevel = /^(?:---|\+\+\+)\s+(?:a\/|b\/)/m.test(patch) ? '1' : '0';
+          result = await runCommandImpl('patch', ['--batch', '--forward', '--reject-file=-', `-p${stripLevel}`, '--input', patchPath], { cwd, timeoutMs: 60_000 });
         }
       }
       if (result.code !== 0) return { ok: false, applied: false, error: clip(redactErrorMessage(result.stderr || result.stdout || 'git apply 失败'), 8_000) };
