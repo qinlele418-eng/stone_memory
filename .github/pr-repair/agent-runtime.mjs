@@ -155,6 +155,9 @@ function gateToolCall(name, args, state, limits) {
   if (['read_file', 'search_code', 'git_show_file', 'git_diff'].includes(name) && state.testCalls > 0 && state.lastTestPassed !== true && state.failureEvidenceDelivered && !state.patchRetryRequired) {
     return '失败对应的 PR 源码证据已提供，请直接 apply_patch 或 needs_human';
   }
+  if (READ_ONLY_TOOLS.has(name) && state.patchRetryRequired && state.lastTestPassed !== true && state.failureReadCalls >= 1) {
+    return '补丁失败后的重读预算已用尽，请直接依据刚刚返回的源码 apply_patch 或 needs_human';
+  }
   if (name === 'apply_patch') {
     if (state.readOnlyCalls < 1) return '必须先通过只读工具调查代码，再 apply_patch';
     if (state.patchCalls >= limits.maxPatchCalls) return '修改批次达到硬上限';
@@ -180,6 +183,9 @@ function availableDefinitions(definitions, state, limits) {
     return definitions.filter((tool) => ['apply_patch', 'run_tests', 'finish'].includes(tool?.function?.name));
   }
   if (state.patchRetryRequired && state.lastTestPassed !== true) {
+    if (state.failureReadCalls >= 1) {
+      return definitions.filter((tool) => ['apply_patch', 'finish'].includes(tool?.function?.name));
+    }
     return definitions.filter((tool) => ['read_file', 'git_diff', 'apply_patch', 'finish'].includes(tool?.function?.name));
   }
   return definitions;

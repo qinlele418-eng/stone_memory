@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { AGENT_LIMITS, runRepairAgent } from '../.github/pr-repair/agent-runtime.mjs';
@@ -287,6 +287,47 @@ test('failed naming evidence returns matching allowed source files on the first 
     const read = await tools.call('read_file', { path: 'test-theme.test.js' });
     assert.equal(read.path, 'src-theme.js');
     assert.match(read.content, /stone-tide/);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test('failed naming evidence recovers a stale model patch with a bounded vocabulary rename', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'stone-memory-agent-naming-recovery-'));
+  try {
+    const git = async (...args) => {
+      const result = await runGit(args, { cwd });
+      assert.equal(result.code, 0, `${args.join(' ')}\n${result.stderr}`);
+      return result.stdout.trim();
+    };
+    await git('init', '-b', 'main');
+    await git('config', 'user.name', 'test');
+    await git('config', 'user.email', 'test@example.invalid');
+    await mkdir(join(cwd, 'src'), { recursive: true });
+    await writeFile(join(cwd, 'src', 'theme.css'), 'body { color: var(--stone-tide-ink); }\n');
+    await writeFile(join(cwd, 'src', 'index.html'), '<body class="tidal-visual">\n');
+    await git('add', '.');
+    await git('commit', '-m', 'base');
+    const sha = await git('rev-parse', 'HEAD');
+    const tools = createAgentTools({
+      cwd,
+      revisions: { base: sha, pr: sha, main: sha },
+      allowedFiles: ['src/theme.css', 'src/index.html'],
+      runTestsImpl: async () => ({
+        passed: false,
+        command: 'npm test',
+        result: { total: 1, passed: 0, failed: 1, failures: [{ file: 'theme.test.js', error: 'stone-tide\n\ntrue !== false' }] },
+        stderr: '',
+      }),
+    });
+    await tools.call('run_tests', { mode: 'related' });
+    const result = await tools.call('apply_patch', {
+      patch: '*** Begin Patch\n*** Update File: src/theme.css\n@@\n-old context\n+new context\n*** End Patch\n',
+    });
+    assert.equal(result.applied, true, JSON.stringify(result));
+    assert.equal(result.format, 'guided-vocabulary-rename');
+    assert.match(await readFile(join(cwd, 'src', 'theme.css'), 'utf8'), /stone-theme-ink/);
+    assert.match(await readFile(join(cwd, 'src', 'index.html'), 'utf8'), /stone-theme-enabled/);
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
