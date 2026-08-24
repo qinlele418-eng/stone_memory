@@ -414,6 +414,72 @@ export async function runRepairAgent({
         tool_call_id: `auto-test-${state.toolCalls}`,
         content: safeJson({ automatic: true, ...automaticTest }).slice(0, 16_000),
       });
+
+      // If the model's patch exposed a second, mechanically related naming
+      // failure, use the bounded trusted recovery seam once before asking the
+      // model for another turn.  GLM occasionally ignores the narrowed tool
+      // list and repeats read_file anyway; allowing those rejected calls to
+      // consume 20+ API turns recreates the timeout we are trying to prevent.
+      if (automaticTest?.passed !== true
+        && typeof tools.recoverLatestFailure === 'function'
+        && state.testCalls < limits.maxTestCalls
+        && state.toolCalls + 2 <= limits.maxToolCalls) {
+        let guided;
+        try {
+          guided = await tools.recoverLatestFailure();
+        } catch (error) {
+          guided = { ok: false, applied: false, error: redactErrorMessage(error) };
+        }
+        if (guided?.applied === true) {
+          state.toolCalls += 1;
+          state.patchCalls += 1;
+          state.toolSequence.push('apply_guided_correction');
+          state.remainingUnresolved = Array.isArray(guided.remainingUnresolved)
+            ? guided.remainingUnresolved
+            : state.remainingUnresolved;
+          state.toolTrace.push({
+            name: 'apply_guided_correction',
+            ok: true,
+            applied: true,
+            passed: false,
+            format: guided.format,
+          });
+          messages.push({
+            role: 'tool',
+            tool_call_id: `guided-correction-${state.toolCalls}`,
+            content: safeJson(guided).slice(0, 16_000),
+          });
+
+          state.testCalls += 1;
+          state.toolCalls += 1;
+          state.toolSequence.push('run_tests(auto-guided)');
+          let guidedTest;
+          try {
+            guidedTest = await tools.call('run_tests', { mode: 'related' });
+          } catch (error) {
+            guidedTest = { ok: false, passed: false, error: redactErrorMessage(error) };
+          }
+          state.lastTestPassed = guidedTest?.passed === true;
+          state.pendingVerification = false;
+          state.failureReadCalls = 0;
+          state.failureEvidenceDelivered = state.lastTestPassed !== true
+            && ((Array.isArray(guidedTest?.repairTargets) && guidedTest.repairTargets.length > 0)
+              || (Array.isArray(guidedTest?.repairSources) && guidedTest.repairSources.length > 0)
+              || (guidedTest?.result?.failures?.length > 0));
+          state.toolTrace.push({
+            name: 'run_tests(auto-guided)',
+            ok: guidedTest?.ok === true,
+            passed: guidedTest?.passed === true,
+            ...(guidedTest?.error ? { error: String(guidedTest.error).slice(0, 1_000) } : {}),
+            test: testTrace(guidedTest),
+          });
+          messages.push({
+            role: 'tool',
+            tool_call_id: `auto-guided-test-${state.toolCalls}`,
+            content: safeJson({ automatic: true, guided: true, ...guidedTest }).slice(0, 16_000),
+          });
+        }
+      }
     }
 
     if (!finished && appliedInTurn && state.lastTestPassed === true) {

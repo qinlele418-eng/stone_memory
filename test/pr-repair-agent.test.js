@@ -178,6 +178,44 @@ test('automatic failed verification locks the next turn onto the new repair evid
   assert.equal(client.calls[2].tools.some((tool) => tool.function.name === 'apply_patch'), true);
 });
 
+test('automatic naming failure uses one bounded guided recovery before another model turn', async () => {
+  const client = scriptedClient([
+    { role: 'assistant', tool_calls: [toolCall('1', 'read_file', { path: 'src/theme.js' })] },
+    { role: 'assistant', tool_calls: [toolCall('2', 'apply_patch', { patch: 'diff --git a/src/theme.js b/src/theme.js\n' })] },
+  ]);
+  let testCalls = 0;
+  const tools = {
+    definitions: [
+      { type: 'function', function: { name: 'read_file', parameters: { type: 'object' } } },
+      { type: 'function', function: { name: 'apply_patch', parameters: { type: 'object' } } },
+      { type: 'function', function: { name: 'run_tests', parameters: { type: 'object' } } },
+      { type: 'function', function: { name: 'finish', parameters: { type: 'object' } } },
+    ],
+    async call(name) {
+      if (name === 'read_file') return { ok: true, path: 'src/theme.js', content: 'const prefix = "--stone-tide-";\n' };
+      if (name === 'apply_patch') return { ok: true, applied: true, changedFiles: ['src/theme.js'], remainingUnresolved: [] };
+      if (name === 'run_tests') {
+        testCalls += 1;
+        return testCalls === 1
+          ? { ok: true, passed: false, repairSources: [{ path: 'test/theme.test.js', content: 'stone-tide' }], result: { total: 2, passed: 1, failed: 1, failures: [{ file: 'test/theme.test.js', error: 'stone-tide' }] } }
+          : { ok: true, passed: true, result: { total: 2, passed: 2, failed: 0, failures: [] } };
+      }
+      return { ok: true, status: 'needs_human' };
+    },
+    async recoverLatestFailure() {
+      return { ok: true, applied: true, changedFiles: ['test/theme.test.js'], remainingUnresolved: [], format: 'guided-vocabulary-rename' };
+    },
+    snapshot() { return {}; },
+  };
+  const result = await runRepairAgent({ task: '修复命名迁移后的 CI 失败', client, tools });
+
+  assert.equal(result.status, 'repair_complete');
+  assert.deepEqual(result.metrics.toolSequence, [
+    'read_file', 'apply_patch', 'run_tests(auto)', 'apply_guided_correction', 'run_tests(auto-guided)',
+  ]);
+  assert.equal(client.calls.length, 2);
+});
+
 test('agent finishes all unresolved conflict patches before running tests', async () => {
   const client = scriptedClient([
     { role: 'assistant', tool_calls: [toolCall('1', 'read_file', { path: 'src/example.js' })] },

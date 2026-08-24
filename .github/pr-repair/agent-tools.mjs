@@ -814,21 +814,23 @@ export function createAgentTools({
 
   async function applyGuidedCorrection(validation) {
     // This is deliberately narrower than a general fixer: it only repairs
-    // the two regressions identified by the trusted test evidence after the
-    // model has already attempted the file and its patch no longer applies.
+    // the regressions identified by trusted test evidence after the model has
+    // attempted the file.  A stale PR test assertion is included when the
+    // evidence names the retired vocabulary; that is a mechanical contract
+    // migration, not permission to weaken or delete tests.
     // The resulting content still goes through the normal syntax/staging path.
     if (state.testCalls === 0 || state.lastTestPassed === true) return null;
     const failureEvidence = state.lastFailureEvidence.join('\n');
     if (/stone-tide|tidal-visual|tidal-tokens|Tidal_Echo|Pearl Tide/i.test(failureEvidence)) {
       // The current-main visual vocabulary migration is a mechanical rename,
       // not a product decision.  The CI failure names the retired vocabulary
-      // and the allowed PR files are the complete repair boundary, so apply a
-      // bounded rename only to those source files.  This is the deterministic
-      // recovery path after a model hunk misses because the file is a newly
-      // added PR file with no stable surrounding context.
+      // and the allowed PR files are the complete repair boundary.  Include
+      // PR-owned tests only when they still assert that same retired name.
       const updates = [];
       for (const candidate of allowed) {
-        if (!candidate.startsWith('src/') || /(?:^|\/)(?:test|tests|__tests__)(?:\/|$)/i.test(candidate)) continue;
+        const isTest = /(?:^|\/)(?:test|tests|__tests__)(?:\/|$)/i.test(candidate)
+          || /\.(?:test|spec)\.[^/]+$/i.test(candidate);
+        if (!candidate.startsWith('src/') && !isTest) continue;
         if (!/\.(?:css|html|js|mjs|json|md)$/i.test(candidate)) continue;
         let absolute;
         try { absolute = safeReadPath(cwd, candidate).absolute; } catch { continue; }
@@ -1106,6 +1108,10 @@ export function createAgentTools({
     return { ok: true, status: args.decision, summary: clip(redactSensitiveText(args.summary || ''), 2_000), reason: clip(redactSensitiveText(args.reason || ''), 2_000) };
   }
 
+  async function recoverLatestFailure() {
+    return applyGuidedCorrection({ files: [...state.lastFailureFiles] });
+  }
+
   async function call(name, args = {}) {
     state.readOnlyCalls += 0;
     if (name === 'get_status') return getStatus();
@@ -1122,6 +1128,7 @@ export function createAgentTools({
   return {
     definitions: TOOL_DEFINITIONS,
     call,
+    recoverLatestFailure,
     snapshot() {
       return {
         ...state,
