@@ -70,6 +70,23 @@ test('publish is gated by the post-validation final status', () => {
   assert.match(workflow, /pr-repair-test-output\/pr-repair-test\.json/);
 });
 
+test('publish accepts only an explicit true manual-dispatch input after repair success', () => {
+  const canPublish = ({ eventName, pushRepair, applyResult, applyStatus }) => (
+    eventName === 'workflow_dispatch'
+    && pushRepair === 'true'
+    && applyResult === 'success'
+    && applyStatus === 'repair_success'
+  );
+  assert.equal(canPublish({ eventName: 'workflow_dispatch', pushRepair: 'true', applyResult: 'success', applyStatus: 'repair_success' }), true);
+  assert.equal(canPublish({ eventName: 'workflow_dispatch', pushRepair: 'false', applyResult: 'success', applyStatus: 'repair_success' }), false);
+  assert.equal(canPublish({ eventName: 'pull_request', pushRepair: 'true', applyResult: 'success', applyStatus: 'repair_success' }), false);
+  const publishJob = workflow.slice(workflow.indexOf('  publish:'), workflow.indexOf('  post_push:'));
+  assert.match(publishJob, /github\.event_name == 'workflow_dispatch'/);
+  assert.match(publishJob, /github\.event\.inputs\.push_repair == 'true'/);
+  assert.match(publishJob, /needs\.apply_and_verify\.result == 'success'/);
+  assert.match(publishJob, /needs\.apply_and_verify\.outputs\.status == 'repair_success'/);
+});
+
 test('final validation stages every trusted test-runner dependency and restores artifact files by name', () => {
   assert.match(workflow, /cp tools\/\.github\/pr-repair\/contract\.mjs tools\/\.github\/pr-repair\/git\.mjs/);
   assert.match(workflow, /bundle_path="\$\(find restore -type f -name repair\.bundle/);

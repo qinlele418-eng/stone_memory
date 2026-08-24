@@ -950,7 +950,8 @@ jobs:
     name: Optionally push verified append-only repair
     needs: apply_and_verify
     if: >-
-      inputs.push_repair == true &&
+      github.event_name == 'workflow_dispatch' &&
+      github.event.inputs.push_repair == 'true' &&
       needs.apply_and_verify.result == 'success' &&
       needs.apply_and_verify.outputs.status == 'repair_success'
     runs-on: ubuntu-latest

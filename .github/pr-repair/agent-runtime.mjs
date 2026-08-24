@@ -57,7 +57,7 @@ function safeJson(value) {
 
 const AUDIT_BODY_FIELDS = new Set([
   'content', 'log', 'stderr', 'stdout', 'diff', 'patch', 'preview',
-  'repairSources', 'failureEvidence', 'relatedFiles', 'references', 'matches',
+  'repairSources', 'failureEvidence', 'relatedFiles', 'references', 'matches', 'query', 'summary', 'reason',
   // Conflict and search responses can embed original source lines under these
   // keys. The artifact only needs to record that content existed, not retain it.
   'ours', 'theirs', 'before', 'after',
@@ -86,6 +86,59 @@ function auditValue(value, maxChars = 64_000) {
     totalChars: serialized.length,
     preview: serialized.slice(0, maxChars),
   };
+}
+
+function patchTargetFiles(patch) {
+  const files = new Set();
+  for (const line of String(patch ?? '').split(/\r?\n/)) {
+    const beginPatch = line.match(/^\*\*\* (?:Update|Add|Delete) File: (.+)$/);
+    const diffHeader = line.match(/^diff --git a\/(.+) b\/(.+)$/);
+    const fileHeader = line.match(/^(?:---|\+\+\+) (.+?)(?:\t.*)?$/);
+    if (beginPatch) files.add(beginPatch[1].trim());
+    if (diffHeader) {
+      files.add(diffHeader[1]);
+      files.add(diffHeader[2]);
+    }
+    if (fileHeader && fileHeader[1] !== '/dev/null') files.add(fileHeader[1].replace(/^[ab]\//, ''));
+  }
+  return [...files].slice(0, 20);
+}
+
+function auditArguments(args, raw = '') {
+  if (!args || typeof args !== 'object' || Array.isArray(args)) {
+    return { invalidJson: true, totalChars: String(raw ?? '').length };
+  }
+  const values = {};
+  for (const [key, value] of Object.entries(args).slice(0, 20)) {
+    if (key === 'patch') {
+      values[key] = { omitted: true, totalChars: String(value ?? '').length, targetFiles: patchTargetFiles(value) };
+    } else if (key === 'path' && typeof value === 'string') {
+      values[key] = { targetFile: value, totalChars: value.length };
+    } else if (typeof value === 'string') {
+      values[key] = { omitted: true, totalChars: value.length };
+    } else if (Array.isArray(value)) {
+      values[key] = { omitted: true, count: value.length };
+    } else if (value && typeof value === 'object') {
+      values[key] = { omitted: true, fieldNames: Object.keys(value).slice(0, 20) };
+    } else {
+      values[key] = value;
+    }
+  }
+  return { fieldNames: Object.keys(args).slice(0, 20), values };
+}
+
+function auditModelCall(call) {
+  const raw = call?.function?.arguments ?? '';
+  return {
+    id: call?.id || null,
+    name: call?.function?.name || null,
+    arguments: auditArguments(toolArguments(call), raw),
+  };
+}
+
+function omittedModelText(value, label) {
+  const totalChars = String(value ?? '').length;
+  return totalChars > 0 ? `${label}已省略（${totalChars} chars）` : '';
 }
 
 function testTrace(result) {
@@ -529,22 +582,13 @@ export async function runRepairAgent({
       turn: state.logicalTurns,
       apiAttempts: state.apiAttempts,
       completionTokens: Number(completion?.usage?.completion_tokens || 0),
-      content: typeof message.content === 'string' ? message.content.slice(0, 2_000) : null,
-      calls: calls.map((call) => ({
-        name: call?.function?.name || null,
-        arguments: typeof call?.function?.arguments === 'string'
-          ? redactModelValue(call.function.arguments.slice(0, 4_000))
-          : null,
-      })),
+      content: auditSummary(message.content, 'content'),
+      calls: calls.map(auditModelCall),
     });
     state.flushAudit('model_response', {
       turn: state.logicalTurns,
       content: message.content,
-      calls: calls.map((call) => ({
-        id: call?.id || null,
-        name: call?.function?.name || null,
-        arguments: call?.function?.arguments || null,
-      })),
+      calls: calls.map(auditModelCall),
     });
     if (calls.length === 0) {
       return finalResult('needs_human', '模型没有调用受限工具，拒绝把普通文本当作修复结果', state, limits, startedAt, clock);
@@ -630,13 +674,13 @@ export async function runRepairAgent({
         name,
         turn: state.logicalTurns,
         callId: call.id || null,
-        ...(args === null ? { argumentsInvalid: true } : { arguments: redactModelValue(args) }),
+        ...(args === null ? { argumentsInvalid: true } : { arguments: auditArguments(args, call.function.arguments) }),
         ok: result?.ok === true,
         applied: result?.applied === true,
         passed: result?.passed === true,
         result: auditValue(result),
         ...(READ_ONLY_TOOLS.has(name) && result?.path ? { path: result.path } : {}),
-        ...(name === 'search_code' && typeof args?.query === 'string' ? { query: args.query.slice(0, 300) } : {}),
+        ...(name === 'search_code' && typeof args?.query === 'string' ? { queryChars: args.query.length } : {}),
         ...(unchangedReadOnly ? { unchanged: true } : {}),
         ...(result?.error ? { error: String(result.error).slice(0, 1_000) } : {}),
         ...(name === 'apply_patch' && Array.isArray(result?.remainingUnresolved) ? { remainingUnresolved: result.remainingUnresolved } : {}),
@@ -646,7 +690,7 @@ export async function runRepairAgent({
         turn: state.logicalTurns,
         tool: name,
         callId: call.id || null,
-        arguments: args,
+        arguments: auditArguments(args, call.function.arguments),
         result,
         unchanged: unchangedReadOnly,
       });
@@ -716,9 +760,13 @@ export async function runRepairAgent({
 
     if (finished) {
       if (finished.status === 'repair_complete') {
-        return finalResult('repair_complete', null, state, limits, startedAt, clock, { summary: finished.summary || '' });
+        return finalResult('repair_complete', null, state, limits, startedAt, clock, {
+          summary: omittedModelText(finished.summary, '模型完成说明'),
+        });
       }
-      return finalResult('needs_human', finished.reason || finished.summary || '模型请求人工处理', state, limits, startedAt, clock, { summary: finished.summary || '' });
+      return finalResult('needs_human', omittedModelText(finished.reason || finished.summary, '模型人工处理说明') || '模型请求人工处理', state, limits, startedAt, clock, {
+        summary: omittedModelText(finished.summary, '模型完成说明'),
+      });
     }
   }
 }

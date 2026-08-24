@@ -211,7 +211,7 @@ test('transient Z.AI timeout resumes the repair loop with preserved evidence', a
   assert.ok(result.metrics.auditTrace.some((event) => event.type === 'api_recovery'));
 });
 
-test('runtime audit trace preserves tool arguments, search queries, and unchanged results', async () => {
+test('runtime audit trace preserves argument metadata and unchanged results without query bodies', async () => {
   const auditDirectory = await mkdtemp(join(tmpdir(), 'stone-memory-agent-audit-'));
   const auditPath = join(auditDirectory, 'agent-audit.json');
   const client = scriptedClient([
@@ -234,8 +234,14 @@ test('runtime audit trace preserves tool arguments, search queries, and unchange
 
   assert.equal(result.status, 'needs_human');
   const [first, second, finish] = result.metrics.toolTrace;
-  assert.deepEqual(first.arguments, { query: 'legacy-name', path: 'src' });
-  assert.equal(first.query, 'legacy-name');
+  assert.deepEqual(first.arguments, {
+    fieldNames: ['query', 'path'],
+    values: {
+      query: { omitted: true, totalChars: 'legacy-name'.length },
+      path: { targetFile: 'src', totalChars: 'src'.length },
+    },
+  });
+  assert.equal(first.queryChars, 'legacy-name'.length);
   assert.equal(second.unchanged, true);
   assert.deepEqual(second.result.matches, { omitted: true, totalChars: 'src/example.js:1:legacy-name'.length });
   assert.equal(finish.callId, 'finish-1');
@@ -276,6 +282,63 @@ test('append-only audit records payload metadata without persisting file content
   assert.doesNotMatch(audit, new RegExp(privateSearchMatch));
   assert.doesNotMatch(audit, new RegExp(privateConflictLine));
   assert.match(audit, /"omitted":true/);
+  await rm(auditDirectory, { recursive: true, force: true });
+});
+
+test('artifacts omit model patch and source bodies while apply_patch receives the original patch', async () => {
+  const auditDirectory = await mkdtemp(join(tmpdir(), 'stone-memory-agent-audit-model-body-'));
+  const auditPath = join(auditDirectory, 'agent-audit.jsonl');
+  const privatePatch = 'private-patch-body-must-not-enter-artifact';
+  const privateModelText = 'private-model-body-must-not-enter-artifact';
+  let appliedPatch = null;
+  const tools = {
+    definitions: ['apply_patch', 'run_tests', 'finish'].map((name) => ({ type: 'function', function: { name, parameters: { type: 'object' } } })),
+    async call(name, args) {
+      if (name === 'apply_patch') {
+        appliedPatch = args.patch;
+        return { ok: true, applied: true, changedFiles: ['src/example.js'], remainingUnresolved: [] };
+      }
+      if (name === 'run_tests') return { ok: true, passed: true, result: { total: 1, passed: 1, failed: 0 } };
+      return { ok: true, status: args.decision };
+    },
+    snapshot() { return {}; },
+  };
+  const result = await runRepairAgent({
+    task: 'artifact privacy', tools, auditPath,
+    client: scriptedClient([
+      { role: 'assistant', content: privateModelText, tool_calls: [toolCall('patch', 'apply_patch', { patch: privatePatch, path: 'src/example.js' })] },
+      { role: 'assistant', tool_calls: [toolCall('finish', 'finish', { decision: 'repair_complete', reason: 'verified' })] },
+    ]),
+  });
+  assert.equal(appliedPatch, privatePatch);
+  const artifact = `${await readFile(auditPath, 'utf8')}\n${JSON.stringify(result)}`;
+  assert.doesNotMatch(artifact, new RegExp(privatePatch));
+  assert.doesNotMatch(artifact, new RegExp(privateModelText));
+  assert.match(artifact, /"patch"/);
+  assert.match(artifact, /"totalChars":/);
+  await rm(auditDirectory, { recursive: true, force: true });
+});
+
+test('artifacts omit model finish summaries and reasons', async () => {
+  const auditDirectory = await mkdtemp(join(tmpdir(), 'stone-memory-agent-audit-finish-body-'));
+  const auditPath = join(auditDirectory, 'agent-audit.jsonl');
+  const privateSummary = 'private-finish-summary-must-not-enter-artifact';
+  const privateReason = 'private-finish-reason-must-not-enter-artifact';
+  const result = await runRepairAgent({
+    task: 'finish privacy', auditPath,
+    tools: {
+      definitions: [{ type: 'function', function: { name: 'finish', parameters: { type: 'object' } } }],
+      async call(name, args) { return { ok: true, status: args.decision, summary: args.summary, reason: args.reason }; },
+      snapshot() { return {}; },
+    },
+    client: scriptedClient([
+      { role: 'assistant', tool_calls: [toolCall('finish', 'finish', { decision: 'needs_human', summary: privateSummary, reason: privateReason })] },
+    ]),
+  });
+  const artifact = `${await readFile(auditPath, 'utf8')}\n${JSON.stringify(result)}`;
+  assert.doesNotMatch(artifact, new RegExp(privateSummary));
+  assert.doesNotMatch(artifact, new RegExp(privateReason));
+  assert.match(result.reason, /模型人工处理说明已省略/);
   await rm(auditDirectory, { recursive: true, force: true });
 });
 
