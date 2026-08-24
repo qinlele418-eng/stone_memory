@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 const fs = require("fs");
 const path = require("path");
+const os = require("os");
+const { spawn } = require("child_process");
 const { getCfg, getThreadDir, listThreadIds, loadConfig } = require("../src/config");
 const { MemoryMiner } = require("../src/services/memory-miner");
 const { runSubagent } = require("../src/services/subagent-runner");
@@ -12,6 +14,13 @@ const {
 } = require("../src/services/mining-review");
 const { resolveMiningApiCredentials } = require("../src/services/mining-engine-config");
 const { normalizeMiningApiProfile, buildMiningApiBody } = require("../src/services/mining-api-profile");
+const { archiveFingerprint } = require("../src/services/mining-state");
+const { isInjectedMemoryBlock } = require("../src/lib/system-injection");
+const {
+  MiningReviewBatchStore,
+  prepareReviewBatchRetry,
+  runReviewBatch,
+} = require("../src/services/mining-review-batch");
 
 async function main() {
   const args = process.argv.slice(2);
@@ -26,7 +35,20 @@ async function main() {
   const config = loadConfig();
   if (!config[threadId] || typeof config[threadId] !== "object") throw new Error(`unknown configured thread: ${threadId}`);
   const memoryDir = path.join(getThreadDir(threadId), "memory");
-  const reviews = new MiningReviewStore({ memoryDir, threadId });
+  const candidateDirectoryName = valueOf(args, "--candidate-dir") || "review-candidates";
+  const reviews = new MiningReviewStore({ memoryDir, threadId, candidateDirectoryName });
+  const batches = new MiningReviewBatchStore({ memoryDir, threadId });
+
+  if (action === "batch-create") {
+    return print(batches.create(readBatch(args), { config }));
+  }
+  if (action === "batch-list") return print({ threadId, batches: batches.list() });
+  if (action === "batch-status") return print(batches.load(required(args, "--batch")));
+  if (["batch-run", "batch-retry"].includes(action)) {
+    const batchId = required(args, "--batch");
+    if (action === "batch-retry") prepareReviewBatchRetry(batches, batchId);
+    return print(await runReviewBatch(batches, batchId, executeBatchTask));
+  }
 
   if (action === "list") {
     const candidates = reviews.list({ date: valueOf(args, "--date") || null });
@@ -81,11 +103,14 @@ async function main() {
       ruleIds: payload.ruleIds || [],
       additionalInstruction: payload.additionalInstruction || "",
     });
+    const chunkKb = resolveReviewChunkKb(payload.chunkKb);
     const miner = new MemoryMiner({
       memoryDir,
       threadId,
       deepseekConfig,
       apiProfile: profile.apiProfile,
+      allowSubagentFallback: profile.channel !== "api",
+      chunkMaxBytes: chunkKb * 1024,
       personaConfig: {
         aiName: getCfg("ai", threadId),
         userName: getCfg("user", threadId),
@@ -110,12 +135,74 @@ async function main() {
         date,
         profile,
         ruleIds: overlay.ruleIds,
+        chunkKb,
+        batch: payload.batch,
         priorCounts: {
           feelings: miner.store.listFeelings({ date }).length,
           features: miner.store.listFeatures({ date }).length,
         },
       });
       return print(candidate);
+    } finally {
+      miner.store.close();
+    }
+  }
+
+  if (action === "preview-merged") {
+    const payload = readBatch(args);
+    const dates = [...new Set((payload.dates || []).map(String))].sort();
+    if (dates.length < 2) throw new Error("preview-merged requires at least two dates in --batch-file");
+    const { profile, deepseekConfig, subagentModel } = resolveProfile(threadId, payload.profile);
+    const overlay = buildReviewOverlay({
+      ruleIds: payload.ruleIds || [],
+      additionalInstruction: payload.additionalInstruction || "",
+    });
+    const chunkKb = resolveReviewChunkKb(payload.chunkKb);
+    const miner = new MemoryMiner({
+      memoryDir,
+      threadId,
+      deepseekConfig,
+      apiProfile: profile.apiProfile,
+      allowSubagentFallback: profile.channel !== "api",
+      chunkMaxBytes: chunkKb * 1024,
+      personaConfig: {
+        aiName: getCfg("ai", threadId),
+        userName: getCfg("user", threadId),
+        userGender: getCfg("userGender", threadId, "female"),
+        relationshipTimeline: getCfg("relationshipTimeline", threadId, []),
+        purpose: getCfg("purpose", threadId),
+        runtime: getCfg("runtime", threadId, "claude"),
+      },
+    });
+    try {
+      const result = await captureReviewDiagnostics(() => miner.previewMerged(dates, {
+        promptOverlay: overlay.text,
+        model: subagentModel,
+        runtime: profile.runtime,
+        reasoning: profile.reasoning,
+      }));
+      const candidates = dates.map(date => {
+        const messages = miner.store.listMessages({ date }).filter(row => !isInjectedMemoryBlock(row.text));
+        return reviews.createCandidate({
+          date,
+          profile,
+          ruleIds: overlay.ruleIds,
+          promptHash: result.promptHash,
+          archiveFingerprint: archiveFingerprint(messages),
+          messageCount: messages.length,
+          chunkCount: result.chunkCount,
+          chunkReport: result.chunkReport,
+          chunkKb,
+          batch: payload.batch,
+          feelings: result.byDate[date]?.feelings || [],
+          features: result.byDate[date]?.features || [],
+          priorCounts: {
+            feelings: miner.store.listFeelings({ date }).length,
+            features: miner.store.listFeatures({ date }).length,
+          },
+        });
+      });
+      return print({ dates, candidates });
     } finally {
       miner.store.close();
     }
@@ -141,11 +228,15 @@ function printHelp() {
 
 Usage:
   stmem mine-review preview --thread <id> --date <YYYY-MM-DD> [--batch-file <json>]
+  stmem mine-review preview-merged --thread <id> --batch-file <json>
   stmem mine-review list --thread <id> [--date <YYYY-MM-DD>]
   stmem mine-review mix --thread <id> --batch-file <json>
   stmem mine-review fuse --thread <id> --batch-file <json>
   stmem mine-review apply --thread <id> --candidate <candidate-id>
   stmem mine-review discard --thread <id> --candidate <candidate-id>
+  stmem mine-review batch-create --thread <id> --batch-file <json>
+  stmem mine-review batch-run|batch-retry --thread <id> --batch <batch-id>
+  stmem mine-review batch-list|batch-status --thread <id> [--batch <batch-id>]
 
 preview, mix and fuse never publish formal memories. apply rechecks the message
 fingerprint, creates a SQLite backup, and then atomically replaces one day.`);
@@ -233,6 +324,71 @@ function resolveProfile(threadId, requested = {}) {
   };
 }
 
+function resolveReviewChunkKb(requested) {
+  if (requested === undefined || requested === null || requested === "" || requested === "auto") return 100;
+  const value = Number(requested);
+  if (![50, 100, 150, 200].includes(value)) throw new Error("chunkKb must be one of 50, 100, 150 or 200");
+  return value;
+}
+
+function executeBatchTask(task, batch) {
+  return new Promise((resolve, reject) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-review-batch-task-"));
+    const file = path.join(dir, "batch.json");
+    const payload = {
+      profile: task.profile,
+      dates: task.dates,
+      chunkKb: task.chunkKb,
+      ruleIds: batch.ruleIds,
+      additionalInstruction: batch.additionalInstruction,
+      batch: { id: batch.id, taskId: task.id, groupDates: task.dates },
+    };
+    fs.writeFileSync(file, JSON.stringify(payload), { mode: 0o600 });
+    const cliArgs = [
+      path.join(__dirname, "..", "bin", "stmem"),
+      "mine-review",
+      task.action,
+      "--thread",
+      batch.threadId,
+      "--batch-file",
+      file,
+    ];
+    if (task.action === "preview") cliArgs.push("--date", task.dates[0]);
+    const child = spawn(process.execPath, cliArgs, {
+      cwd: path.join(__dirname, ".."),
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", chunk => { stdout += chunk; });
+    child.stderr.on("data", chunk => { stderr = (stderr + chunk).slice(-8000); });
+    child.once("error", error => finish(error));
+    child.once("close", code => {
+      if (code !== 0) return finish(new Error(batchChildError(stderr, code)));
+      try {
+        return finish(null, JSON.parse(stdout));
+      } catch {
+        return finish(new Error("batch child returned invalid JSON"));
+      }
+    });
+    function finish(error, result) {
+      try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+      if (error) reject(error);
+      else resolve(result);
+    }
+  });
+}
+
+function batchChildError(stderr, code) {
+  for (const line of String(stderr || "").split(/\r?\n/).reverse()) {
+    try {
+      const row = JSON.parse(line);
+      if (row?.error) return String(row.error).slice(0, 1000);
+    } catch {}
+  }
+  return `batch review task failed (exit ${code})`;
+}
+
 function readBatch(args, { optional = false } = {}) {
   const file = valueOf(args, "--batch-file");
   if (!file) {
@@ -268,4 +424,9 @@ main().catch(error => {
   process.exitCode = 1;
 });
 
-module.exports = { resolveProfile, runFusionWriter, captureReviewDiagnostics };
+module.exports = {
+  resolveProfile,
+  resolveReviewChunkKb,
+  runFusionWriter,
+  captureReviewDiagnostics,
+};

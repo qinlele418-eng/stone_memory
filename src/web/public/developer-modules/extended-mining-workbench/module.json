@@ -1,0 +1,13 @@
+{
+  "id": "extended-mining-workbench",
+  "title": "拓展挖掘台",
+  "contributor": "@evelynnn137",
+  "summary": "在手机端按连续日期批量生成可审阅候选，并与正式记忆对照。",
+  "status": "社区实验",
+  "eyebrow": "Extended mining · Review before apply",
+  "actionLabel": "打开工作台 →",
+  "metaLabel": "Workbench · v2",
+  "features": ["多日期批量候选", "中断续跑", "采用前审阅"],
+  "order": 45,
+  "entry": "/developer-modules/extended-mining-workbench/"
+}

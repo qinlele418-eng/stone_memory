@@ -23,6 +23,7 @@ const { DreamReader } = require("../services/dream-reader");
 const { NotebookService } = require("../services/notebook-service");
 const { watcherActions, watcherEnabled } = require("../services/watcher-runtime");
 const { normalizeMiningApiProfile } = require("../services/mining-api-profile");
+const { configuredRuntimeIds, MiningReviewBatchStore } = require("../services/mining-review-batch");
 const { buildFeelingPrompt, buildFeaturePrompt } = require("../services/memory-miner");
 const { normalizeRebuildRequest, rebuildRequestCliArgs } = require("../services/rebuild-request");
 
@@ -171,7 +172,8 @@ function reviewProfileFromInput(threadId, input = {}) {
   if (!/^[A-Za-z0-9._:/+-]{1,128}$/.test(model)) throw new Error("请填写实际可用的模型名");
   if (channel === "subagent") {
     const runtime = String(input.runtime || "");
-    if (!["claude", "codex"].includes(runtime)) throw new Error("Subagent 必须选择 Claude Code 或 Codex");
+    const config = loadConfig();
+    if (!configuredRuntimeIds(config, threadId).has(runtime)) throw new Error("请选择设置中已经配置的本机 CLI");
     const reasoning = input.reasoning ? String(input.reasoning) : null;
     if (reasoning && runtime !== "codex") throw new Error("只有 Codex 支持 reasoning effort");
     if (reasoning && !["minimal", "low", "medium", "high", "xhigh"].includes(reasoning)) {
@@ -197,6 +199,37 @@ function reviewProfileFromInput(threadId, input = {}) {
     };
   }
   throw new Error("请选择 Subagent 或 API 通道");
+}
+
+function reviewBatchPayload(threadId, input = {}) {
+  const dates = [...new Set((Array.isArray(input.dates) ? input.dates : []).map(String))].sort();
+  if (!dates.length || dates.length > 366 || dates.some(date => !/^\d{4}-\d{2}-\d{2}$/.test(date))) {
+    throw new Error("请选择 1～366 个有效日期");
+  }
+  const ruleIds = Object.entries(REVIEW_RULE_IDS)
+    .filter(([key]) => input.rules?.[key] === true)
+    .map(([, id]) => id);
+  return {
+    dates,
+    profile: reviewProfileFromInput(threadId, input.profile),
+    groupDays: Number(input.groupDays),
+    chunkKb: input.chunkKb === "auto" ? "auto" : Number(input.chunkKb),
+    parallel: Number(input.parallel),
+    ruleIds,
+    additionalInstruction: String(input.additionalInstruction || "").trim().slice(0, 4000),
+  };
+}
+
+function reviewBatchCommandArgs(action, threadId, value) {
+  const args = ["mine-review", action, "--thread", threadId];
+  if (action === "batch-create") args.push("--batch-file", value);
+  else if (value) args.push("--batch", value);
+  return args;
+}
+
+function runReviewBatchInBackground(threadId, batchId, action = "batch-run") {
+  runStmemAsync(reviewBatchCommandArgs(action, threadId, batchId), { maxOutput: 2 * 1024 * 1024 })
+    .catch(() => {});
 }
 
 function reviewCandidateForWeb(candidate) {
@@ -341,6 +374,24 @@ function compactTimelineReport(data) {
 
 async function executeMiningJob(job) {
   job.status="running";job.startedAt=new Date().toISOString();
+  if(job.dates.length>1){
+    const batch=writePrivateBatch({dates:job.dates,forceDates:job.forceDates,mode:job.mode,apiProfile:job.apiProfile});
+    try{
+      const args=["mine","--thread",job.threadId,job.mode==="api"?"--api":"--subagent","--batch-file",batch.file];
+      if(job.mode==="api"&&job.apiProfile==="optimized")args.push("--api-profile","optimized");
+      const output=await runStmemAsync(args,{maxOutput:2*1024*1024});
+      const result=parseStmemJson(output);
+      job.batchId=result.id||null;
+      job.results=(result.tasks||[]).flatMap(task=>task.dates.map(date=>({date,status:["completed","completed_empty"].includes(task.status)?"completed":task.status,error:task.error||null})));
+      job.completed=job.results.filter(row=>row.status==="completed").length;
+      job.status=result.status==="cancelled"?"cancelled":result.status==="completed_with_failures"?"completed_with_failures":"completed";
+      job.currentDate=null;job.completedAt=new Date().toISOString();job.updatedAt=job.completedAt;
+      return;
+    }catch(cause){
+      job.status=job.cancelRequested?"cancelled":"failed";job.currentDate=null;job.error=String(cause.message||cause).slice(0,500);job.updatedAt=new Date().toISOString();
+      return;
+    }finally{batch.cleanup();}
+  }
   for(const date of job.dates){
     if(job.cancelRequested)break;
     job.currentDate=date;job.updatedAt=new Date().toISOString();
@@ -354,6 +405,22 @@ async function executeMiningJob(job) {
   job.currentDate=null;
   job.status=job.cancelRequested?"cancelled":job.results.some(row=>row.status==="failed")?"completed_with_errors":"completed";
   job.completedAt=new Date().toISOString();job.updatedAt=job.completedAt;
+}
+
+function refreshMiningBatchJob(job){
+  if(!job||job.dates.length<2||!["queued","running","cancelling"].includes(job.status))return job;
+  try{
+    const store=new MiningReviewBatchStore({memoryDir:path.join(getThreadDir(job.threadId),"memory"),threadId:job.threadId,directoryName:"mining-batches"});
+    const batch=store.list().find(row=>row.autoApply&&row.createdAt>=job.createdAt&&JSON.stringify(row.dates)===JSON.stringify(job.dates));
+    if(!batch)return job;
+    job.batchId=batch.id;
+    job.results=batch.tasks.flatMap(task=>task.dates.map(date=>({date,status:task.status,error:task.error||null})));
+    job.completed=job.results.filter(row=>["completed","completed_empty"].includes(row.status)).length;
+    const active=batch.tasks.find(task=>task.status==="running");
+    job.currentDate=active?active.dates.join(" 至 "):null;
+    job.updatedAt=batch.updatedAt;
+  }catch{}
+  return job;
 }
 
 function publicThreadSettings(threadId) {
@@ -698,6 +765,40 @@ async function handleApi(req, res, url) {
     executeReviewPreview(job);
     return json(res, 202, { job: { id: job.id, status: job.status } });
   }
+  if (req.method === "GET" && url.pathname === "/review-lab/api/batches") {
+    const threadId = String(url.searchParams.get("threadId") || "");
+    const result = parseStmemJson(runStmem(reviewBatchCommandArgs("batch-list", threadId)));
+    return json(res, 200, result);
+  }
+  if (req.method === "POST" && url.pathname === "/review-lab/api/batches") {
+    const body = await readJson(req);
+    const threadId = String(body.threadId || "");
+    const batch = writePrivateBatch(reviewBatchPayload(threadId, body));
+    try {
+      const created = parseStmemJson(runStmem(reviewBatchCommandArgs("batch-create", threadId, batch.file)));
+      runReviewBatchInBackground(threadId, created.id);
+      return json(res, 202, { batch: created });
+    } finally {
+      batch.cleanup();
+    }
+  }
+  const reviewBatchMatch = url.pathname.match(/^\/review-lab\/api\/batches\/(batch-[0-9a-f-]+)$/);
+  if (req.method === "GET" && reviewBatchMatch) {
+    const threadId = String(url.searchParams.get("threadId") || "");
+    const batch = parseStmemJson(runStmem(reviewBatchCommandArgs(
+      "batch-status",
+      threadId,
+      reviewBatchMatch[1],
+    )));
+    return json(res, 200, { batch });
+  }
+  const reviewBatchRetryMatch = url.pathname.match(/^\/review-lab\/api\/batches\/(batch-[0-9a-f-]+)\/retry$/);
+  if (req.method === "POST" && reviewBatchRetryMatch) {
+    const body = await readJson(req);
+    const threadId = String(body.threadId || "");
+    runReviewBatchInBackground(threadId, reviewBatchRetryMatch[1], "batch-retry");
+    return json(res, 202, { ok: true, batchId: reviewBatchRetryMatch[1] });
+  }
   const reviewJobMatch = url.pathname.match(/^\/review-lab\/api\/preview-jobs\/([^/]+)$/);
   if (req.method === "GET" && reviewJobMatch) {
     const job = reviewJobs.get(decodeURIComponent(reviewJobMatch[1]));
@@ -968,7 +1069,7 @@ async function handleApi(req, res, url) {
   const miningMatch=url.pathname.match(/^\/api\/libraries\/([^/]+)\/mining\/(status|start|stop|check|day|targeted-messages|targeted)$/);
   if(miningMatch){
     const threadId=decodeURIComponent(miningMatch[1]);publicThreadSettings(threadId);
-    if(req.method==="GET"&&miningMatch[2]==="status")return json(res,200,{job:miningJobs.get(threadId)||null,dates:miningDates(threadId)});
+    if(req.method==="GET"&&miningMatch[2]==="status")return json(res,200,{job:refreshMiningBatchJob(miningJobs.get(threadId)||null),dates:miningDates(threadId)});
     if(req.method==="POST"&&miningMatch[2]==="check"){
       const body=await readJson(req),date=String(body.date||""),mode=body.mode==="api"?"api":body.mode==="subagent"?"subagent":null,apiProfile=normalizeMiningApiProfile(body.apiProfile);
       if(!/^\d{4}-\d{2}-\d{2}$/.test(date))throw new Error("请选择需要自检的对话日期");
@@ -1389,5 +1490,5 @@ module.exports = {
   listDeveloperModules,
   miningDatesFromStore, miningCommandArgs, miningCheckCommandArgs, targetedMiningCommandArgs,
   timelineCommandArgs, compactTimelineReport, compressionCommandArgs, safeStmemFailure, runStmem,
-  reviewCandidateForWeb, reviewProfileFromInput,
+  reviewCandidateForWeb, reviewProfileFromInput, reviewBatchPayload, reviewBatchCommandArgs,
 };

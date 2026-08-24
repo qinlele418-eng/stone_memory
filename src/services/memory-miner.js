@@ -9,7 +9,7 @@ const { archiveFingerprint, getDayState, isCompleted, retryDelayMs } = require("
 const { MemoryStore } = require("../storage/memory-store");
 const { parseFeelingTime } = require("./thread-rebuilder");
 const { diagnoseApiMining } = require("./mining-diagnostics");
-const { splitMiningMessages, byteLength } = require("./mining-chunks");
+const { splitMiningMessages, byteLength, DEFAULT_MAX_MINING_CHUNK_BYTES } = require("./mining-chunks");
 const { isInjectedMemoryBlock } = require("../lib/system-injection");
 const { normalizeMiningApiProfile, buildMiningApiBody } = require("./mining-api-profile");
 const { CONFIG_PATH } = require("../config");
@@ -256,7 +256,16 @@ const FEATURE_CATEGORIES = [
  * 每天读取待处理日期的消息，分两路提取 feelings 与 features，并原子写入 SQLite。
  */
 class MemoryMiner {
-  constructor({ memoryDir, archive, deepseekConfig, personaConfig, threadId, apiProfile = null }) {
+  constructor({
+    memoryDir,
+    archive,
+    deepseekConfig,
+    personaConfig,
+    threadId,
+    apiProfile = null,
+    allowSubagentFallback = true,
+    chunkMaxBytes = DEFAULT_MAX_MINING_CHUNK_BYTES,
+  }) {
     this.threadId = threadId;
     this.aiName = personaConfig?.aiName || "AI";
     this.userName = personaConfig?.userName || "用户";
@@ -271,6 +280,8 @@ class MemoryMiner {
     this.archive = archive;
     this.deepseekConfig = deepseekConfig;
     this.apiProfile = normalizeMiningApiProfile(apiProfile || deepseekConfig?.apiProfile);
+    this.allowSubagentFallback = allowSubagentFallback !== false;
+    this.chunkMaxBytes = Number(chunkMaxBytes) > 0 ? Number(chunkMaxBytes) : DEFAULT_MAX_MINING_CHUNK_BYTES;
     this.timer = null;
     this.running = false;
 
@@ -488,6 +499,7 @@ class MemoryMiner {
   _messageChunks(messages) {
     return splitMiningMessages(messages, {
       render: rows => this._buildConversationText(rows),
+      maxBytes: this.chunkMaxBytes,
     });
   }
 
@@ -724,6 +736,7 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
       model,
       runtime,
       reasoning,
+      chunkMaxBytes: this.chunkMaxBytes,
     })).digest("hex").slice(0, 16);
     const cachePrefix = `review-${cacheScope}-`;
     const stateKeys = [`feeling:${targetDate}`, `feature:${targetDate}`];
@@ -760,6 +773,128 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
       features,
       promptHash: crypto.createHash("sha256").update(`${opsPrompt}\n${overlay}`).digest("hex"),
     };
+  }
+
+  /**
+   * Generate review-only candidates from one continuous multi-day context.
+   * Nothing is published; the CLI caller creates one independently reviewable
+   * candidate per date.
+   */
+  async previewMerged(dates, {
+    promptOverlay = "",
+    model = null,
+    runtime = null,
+    reasoning = null,
+  } = {}) {
+    const sortedDates = [...new Set((dates || []).map(String))].sort();
+    if (sortedDates.length < 2) throw new Error("merged review requires at least two dates");
+    for (const date of sortedDates) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error(`invalid merged review date: ${date}`);
+    }
+    const selected = new Set(sortedDates);
+    const messages = this.store.listMessages()
+      .filter(row => selected.has(row.sourceDate) && !isInjectedMemoryBlock(row.text));
+    const chunks = this._messageChunks(messages);
+    const overlay = String(promptOverlay || "").trim();
+    const opsPrompt = this._readOperationsPrompt();
+    const promptHash = crypto.createHash("sha256").update(`${opsPrompt}\n${overlay}`).digest("hex");
+    this.chunkReport = [];
+    if (!messages.length) {
+      return {
+        dates: sortedDates,
+        messageCount: 0,
+        chunkCount: 0,
+        chunkReport: [],
+        byDate: Object.fromEntries(sortedDates.map(date => [date, { feelings: [], features: [] }])),
+        promptHash,
+      };
+    }
+
+    const rangeLabel = this._dateRangeLabel(sortedDates);
+    const baseFeelingPrompt = opsPrompt && this.purpose === "accompany"
+      ? `${opsPrompt}\n\n只输出 feelings 数组，不要 features。\n\n以下是 ${rangeLabel} 的连续对话记录。每条 feelings 必须以事件实际发生的日期开头，禁止改写、遗漏或捏造日期。\n\n格式：[{"content":"6月1日，……","importance":2|3|5}]`
+      : `${buildFeelingPrompt(this.aiName, this.userName, this.purpose)}\n\n以下是 ${rangeLabel} 的连续对话记录。每条 feelings 必须以事件实际发生的日期开头，禁止改写、遗漏或捏造日期。`;
+    const feelingPrompt = overlay ? `${baseFeelingPrompt}\n\n${overlay}` : baseFeelingPrompt;
+    const feelings = [];
+    for (let index = 0; index < chunks.length; index++) {
+      const entries = await this._extractViaSubagent(
+        chunks[index],
+        this._mergedChunkPrompt(feelingPrompt, index, chunks.length, feelings),
+        { model, runtime, reasoning, expectedKey: "feelings" },
+      );
+      this._recordFeelingChunk(
+        chunks[index],
+        index,
+        chunks.length,
+        entries,
+        this.deepseekConfig?.apiKey ? "api" : "subagent",
+        { model, runtime, recovery: this._lastApiRecovery },
+      );
+      feelings.push(...entries);
+    }
+
+    const byDate = this._splitMergedFeelingsByDate(feelings, sortedDates);
+    const featureBase = opsPrompt && this.purpose === "accompany"
+      ? `${opsPrompt}\n\n以下输入是一天内已经生成并去噪的 feelings。只输出 features 数组，不要 feelings。\n\n格式：[{"content":"……","category":"……","importance":2|3|5}]`
+      : buildFeaturePrompt(this.userName, this.purpose);
+    const featurePrompt = overlay ? `${featureBase}\n\n${overlay}` : featureBase;
+    for (const date of sortedDates) {
+      const dayFeelings = byDate[date].feelings;
+      if (!dayFeelings.length) continue;
+      const source = dayFeelings.map((entry, index) => ({
+        timestamp: `${date}T12:00:${String(index % 60).padStart(2, "0")}+08:00`,
+        type: "memory",
+        text: entry.content,
+      }));
+      byDate[date].features = await this._extractViaSubagent(
+        source,
+        this._datedChannelPrompt(featurePrompt, date, true),
+        { model, runtime, reasoning, expectedKey: "features" },
+      );
+    }
+    return {
+      dates: sortedDates,
+      messageCount: messages.length,
+      chunkCount: chunks.length,
+      chunkReport: this.chunkReport,
+      byDate,
+      promptHash,
+    };
+  }
+
+  _dateRangeLabel(dates) {
+    const label = date => {
+      const [, month, day] = date.split("-").map(Number);
+      return `${month}月${day}日`;
+    };
+    return `${label(dates[0])}至${label(dates.at(-1))}`;
+  }
+
+  _mergedChunkPrompt(prompt, index, total, previousEntries) {
+    if (total <= 1) return prompt;
+    const previous = previousEntries.slice(-5).map(entry => ({
+      content: entry.content,
+      importance: entry.importance,
+    }));
+    return `${prompt}\n\n这是连续日期范围中的第 ${index + 1}/${total} 块。只总结本块有证据的事件。`
+      + (previous.length
+        ? `\n\n上一块末尾候选仅用于理解连续事件并避免重复，禁止再次输出：\n${JSON.stringify(previous)}`
+        : "");
+  }
+
+  _splitMergedFeelingsByDate(feelings, dates) {
+    const prefixToDate = new Map(dates.map(date => {
+      const [, month, day] = date.split("-").map(Number);
+      return [`${month}月${day}日`, date];
+    }));
+    const byDate = Object.fromEntries(dates.map(date => [date, { feelings: [], features: [] }]));
+    for (const entry of feelings) {
+      const match = String(entry?.content || "").match(/^(\d{1,2})月(\d{1,2})日/);
+      const date = match ? prefixToDate.get(`${Number(match[1])}月${Number(match[2])}日`) : null;
+      if (!date) throw new MiningError("MERGED_DATE_MISSING", "merged review output contains an item without a selected-date prefix");
+      byDate[date].feelings.push(entry);
+    }
+    return byDate;
   }
   /** claude -p 单日双通道：ops 走 --system-prompt-file，stdin 只传对话 + 输出指令 */
   async _mineDayWithSubagent(targetDate, messages, state, opsPrompt, {
@@ -1011,6 +1146,9 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
       this._lastApiRecovery = null;
       const { apiKey, baseUrl = "https://api.deepseek.com", model: rawModel } = this.deepseekConfig;
       if (!String(rawModel || "").trim()) {
+        if (!this.allowSubagentFallback) {
+          throw new MiningError("API_MODEL_MISSING", "API mode has no configured model name");
+        }
         return this._subagentTakeoverChunk({
           messages,
           prompt,
@@ -1039,6 +1177,7 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
         reply = data?.choices?.[0]?.message?.content;
         if (!reply || !reply.trim()) throw new MiningError("OUTPUT_EMPTY", "API returned empty content");
       } catch (apiError) {
+        if (!this.allowSubagentFallback) throw apiError;
         return this._subagentTakeoverChunk({
           messages,
           prompt,
@@ -1123,6 +1262,9 @@ ${String(rawReply || "")}
   }
 
   _recoverInvalidApiChunk({ rawReply, messages, prompt, expectedKey }) {
+    if (!this.allowSubagentFallback) {
+      throw new MiningError("OUTPUT_INVALID", "API output failed local JSON validation; no hidden CLI fallback was used");
+    }
     const schema = expectedKey === "features"
       ? '[{"content":"事实","category":"eat|body|sleep|work|relation|habit|location|preference|misc","importance":2|3|5}]'
       : '[{"content":"带日期时间的摘要","importance":1|2|3|4|5}]';
