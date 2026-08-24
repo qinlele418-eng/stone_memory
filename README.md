@@ -9,7 +9,7 @@ Stone Memory 是一个本地优先、可解释的 AI 记忆与线程生命周期
 主要能力：
 
 - Claude Code / Codex 双运行时线程归档、导入、检查与重建
-- 全局 SQLite、多线程与 fork 动态记忆继承
+- 全局 SQLite、多记忆体与 Binding 接入；兼容现有 fork 动态记忆继承
 - API / Subagent 双通道记忆挖掘与压缩
 - feelings、features、原文锚点、事件锚点和规则文档管理
 - relation 生命周期、work 项目证据和多词共同签名时间轴
@@ -28,7 +28,7 @@ stone_memory/
 │   ├── watcher-supervisor.js  # 唯一 supervisor，动态维护每线程一个 watcher worker
 │   ├── watcher.js             # 单线程实时归档监听 + 自动挖掘 worker
 │   ├── stmem-init.js          # 初始化新线程
-│   ├── stmem-fork.js          # 登记父子线程记忆关系
+│   ├── stmem-fork.js          # 旧版父子线程兼容入口（将迁移为 Binding 策略）
 │   ├── stmem-sync.js          # 增量同步线程 → archive
 │   ├── stmem-mine.js          # 挖掘 feelings + features
 │   ├── stmem-import.js        # 导入旧线程文件
@@ -95,7 +95,7 @@ stone_memory/
 
 规范化 messages、feelings、features、挖掘状态和通知统一存放在全局 SQLite 中，通过 `thread_id` 区分线程；消息以 `(thread_id, timestamp)` 为主键。系统只保存当前有效的记忆结果，不维护历史版本；运行时唯一保留的 JSONL 是 `archive/full` 原始备份，其他 JSONL 只由显式 `stmem db export` 生成或用于一次性迁移。
 
-父子线程不复制记忆。子线程每次 rebuild 动态读取父级最新的 feelings/features；子线程自己的近期上下文仍只来自自己的 `full`。子线程记忆默认可回流给父级，也可以在建立关系时关闭。
+线程不是记忆体身份，只是记忆体连接到 Codex、Claude Code 或其他 Agent 的运行入口。目标架构使用稳定 `memoryId` 管理记忆，以 `bindingId` 描述线程文件、运行时和读写策略；并行入口、摘要回流分支和隔离分支都是 Binding 策略组合。当前版本仍保留 `threadId/fork` 数据结构与 CLI，迁移完成前不会破坏已有关系。
 
 ## 安装
 
@@ -110,9 +110,10 @@ node --version   # 应显示 v22.x.x
 ### Linux / macOS
 
 ```bash
-tar xzf stonememory.tar.gz -C ~/          # 1. 解压
-ln -sf ~/stone_memory/bin/stmem ~/.local/bin/stmem   # 2. 软链到 PATH
-cd ~/stone_memory && npm ci --omit=dev     # 3. 安装依赖
+cd /path/to/stone_memory                    # 1. 进入解压或 clone 后的项目目录
+npm ci --omit=dev                           # 2. 安装锁定的运行时依赖
+mkdir -p ~/.local/bin
+ln -sf "$PWD/bin/stmem" ~/.local/bin/stmem  # 3. 软链到 PATH
 stmem web                                   # 4. 启动前端；首次记忆体在浏览器内创建
 ```
 
@@ -208,14 +209,14 @@ stmem web --port 4173   # 或 npm run web
 
 所有正式写入仍经过 `stmem` CLI；HTTP 层只做本地参数适配和结果展示，不另建第二套写逻辑。
 
-### 关联 fork 线程
+### 关联 fork 线程（兼容入口）
 
 ```bash
 stmem fork --parent <父线程ID> --thread <子线程ID>          # 默认双向可见
 stmem fork --parent <父线程ID> --thread <子线程ID> --no-memory-return  # 子记忆不回流
 ```
 
-只建立持续记忆关系，不复制 feelings/features，也不拼接父子线程的近期 `full`。
+这是现行兼容接口：只建立持续记忆关系，不复制 feelings/features，也不拼接父子线程的近期 `full`。后续会迁移为 Memory 下的 Binding 策略；现有配置将自动映射，不要求用户重新绑定。
 
 ### 导入旧对话
 
@@ -602,7 +603,7 @@ memory/topics/
 
 `stmem watcher` 只修改 `stmem.json`，不启动、不停止也不重启进程。每个记忆体保存 `watcherEnabled` 总期望状态与 `watcherModules` 插件开关；supervisor 周期读取配置，使实际 worker 数量收敛为 ON=1、OFF=0。旧版 `automaticFullMining`、`automaticMemoryMaintenance`、`automaticCompression`、`automaticDream` 会兼容映射到对应插件。PID、启动时间等瞬时信息不写入配置，而是原子覆盖到该记忆体目录的 `watcher-state.json`。
 
-所有正式线程共享 `~/.stone_memory/stone-memory.db`，通过 `thread_id` 隔离；fork 依靠同库递归读取父子关系，不复制记忆。SQLite 使用 WAL 和 30 秒 busy timeout，不同 worker 可以并发调用模型，实际短写事务由 SQLite 串行提交。
+当前版本的正式线程共享 `~/.stone_memory/stone-memory.db`，仍通过 `thread_id` 隔离；兼容 fork 依靠同库递归读取父子关系，不复制记忆。目标版本将把稳定的 `memoryId` 与可替换的 Binding 分开。SQLite 继续使用 WAL 和 30 秒 busy timeout，不同 worker 可以并发调用模型，实际短写事务由 SQLite 串行提交。
 
 规范化 archive 的正式数据源是共享数据库中的 `messages` 表，每行都写入对应 `thread_id`。full 原始备份不改写原始 JSON，但保存在对应线程自己的路径：
 
