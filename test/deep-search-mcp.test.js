@@ -28,6 +28,14 @@ test("deep-search child MCP exposes only its two read-only search tools", () => 
     "memory_keyword_search",
     "memory_archive_context",
   ]);
+  for (const tool of responses[1].result.tools) {
+    assert.deepEqual(tool.annotations, {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    });
+  }
   assert.equal(responses[2].result.isError, true);
   assert.match(responses[2].result.content[0].text, /不提供工具/);
 });
