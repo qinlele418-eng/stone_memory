@@ -131,7 +131,7 @@ test('failed tests get bundled source evidence while retaining a bounded repair 
   assert.equal(result.status, 'repair_complete');
   assert.deepEqual(result.metrics.toolSequence, ['read_file', 'run_tests', 'apply_patch', 'run_tests(auto)']);
   const failureTools = client.calls[2].tools.map((tool) => tool.function.name);
-  assert.equal(failureTools.includes('read_file'), false);
+  assert.equal(failureTools.includes('read_file'), true);
   assert.equal(failureTools.includes('apply_patch'), true);
 });
 
@@ -174,7 +174,7 @@ test('automatic failed verification locks the next turn onto the new repair evid
 
   assert.equal(result.status, 'repair_complete');
   assert.deepEqual(result.metrics.toolSequence, ['read_file', 'apply_patch', 'run_tests(auto)', 'apply_patch', 'run_tests(auto)']);
-  assert.equal(client.calls[2].tools.some((tool) => tool.function.name === 'read_file'), false);
+  assert.equal(client.calls[2].tools.some((tool) => tool.function.name === 'read_file'), true);
   assert.equal(client.calls[2].tools.some((tool) => tool.function.name === 'apply_patch'), true);
 });
 
@@ -184,6 +184,7 @@ test('repeated forbidden reads fail closed instead of spending model turns', asy
     { role: 'assistant', tool_calls: [toolCall('2', 'apply_patch', { patch: 'diff --git a/src/theme.js b/src/theme.js\n' })] },
     { role: 'assistant', tool_calls: [toolCall('3', 'read_file', { path: 'test/theme.test.js' })] },
     { role: 'assistant', tool_calls: [toolCall('4', 'read_file', { path: 'test/theme.test.js' })] },
+    { role: 'assistant', tool_calls: [toolCall('5', 'read_file', { path: 'test/theme.test.js' })] },
   ]);
   let testCalls = 0;
   const tools = {
@@ -208,7 +209,7 @@ test('repeated forbidden reads fail closed instead of spending model turns', asy
 
   assert.equal(result.status, 'needs_human');
   assert.match(result.reason, /禁止的工具/);
-  assert.equal(result.metrics.logicalTurns, 4);
+  assert.equal(result.metrics.logicalTurns, 5);
   assert.equal(testCalls, 1);
 });
 
