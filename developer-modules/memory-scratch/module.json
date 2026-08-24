@@ -1,0 +1,14 @@
+{
+  "id": "memory-scratch",
+  "title": "刮刮乐",
+  "version": "1.0.0",
+  "sdkVersion": 1,
+  "scope": "memory",
+  "permissions": ["core:read", "generation:use"],
+  "entry": { "frontend": "index.html", "commands": { "scratch": "backend/commands/scratch.js" } },
+  "storage": { "files": ["settings.json", "history.jsonl"] },
+  "legacy": {
+    "frontend": "src/web/public/developer-modules/my-module",
+    "commands": { "scratch": "scripts/stmem-scratch.js" }
+  }
+}

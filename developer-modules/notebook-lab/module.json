@@ -1,0 +1,14 @@
+{
+  "id": "notebook-lab",
+  "title": "主题笔记",
+  "version": "1.0.0",
+  "sdkVersion": 1,
+  "scope": "memory",
+  "permissions": ["core:read", "generation:use"],
+  "entry": { "frontend": "index.html", "commands": { "notebook": "backend/commands/notebook.js" } },
+  "storage": { "database": "module.sqlite", "documents": "documents" },
+  "legacy": {
+    "frontend": "src/web/public/notebook-lab",
+    "commands": { "notebook": "scripts/stmem-notebook.js" }
+  }
+}

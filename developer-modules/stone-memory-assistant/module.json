@@ -1,0 +1,11 @@
+{
+  "id": "stone-memory-assistant",
+  "title": "Stone Memory 小助理",
+  "version": "1.0.0",
+  "sdkVersion": 1,
+  "scope": "memory",
+  "permissions": ["core:read"],
+  "entry": { "frontend": "index.html", "commands": {} },
+  "storage": {},
+  "legacy": { "frontend": "src/web/public/developer-modules/stone-memory-assistant" }
+}

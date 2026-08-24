@@ -301,6 +301,10 @@ jobs:
         working-directory: pr-worktree
         run: node ../ci-tools/.github/ci-test-reporter.mjs
 
+      - name: Audit developer modules
+        working-directory: pr-worktree
+        run: npm run audit:developer-modules
+
       - name: Smoke test the CLI
         working-directory: pr-worktree
         run: node bin/stmem --help

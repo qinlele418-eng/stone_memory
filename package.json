@@ -12,7 +12,8 @@
     "preinstall": "node scripts/check-node-version.js",
     "start": "node bin/stmem web",
     "web": "node bin/stmem web",
-    "test": "node --test"
+    "test": "node --test",
+    "audit:developer-modules": "node bin/stmem module audit --strict"
   },
   "repository": {
     "type": "git",

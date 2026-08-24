@@ -1,0 +1,11 @@
+{
+  "id": "theme-studio",
+  "title": "前端工作台",
+  "version": "1.0.0",
+  "sdkVersion": 1,
+  "scope": "global",
+  "permissions": ["theme:write"],
+  "entry": { "frontend": "index.html", "commands": {} },
+  "storage": { "files": ["themes", "assets"] },
+  "legacy": { "frontend": "src/web/public/theme-studio" }
+}

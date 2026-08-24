@@ -1,0 +1,14 @@
+{
+  "id": "extended-mining-workbench",
+  "title": "拓展挖掘台",
+  "version": "2.0.0",
+  "sdkVersion": 1,
+  "scope": "memory",
+  "permissions": ["core:read", "mining:review"],
+  "entry": { "frontend": "index.html", "commands": { "review": "backend/commands/review.js" } },
+  "storage": { "database": "module.sqlite", "files": ["candidates", "batches"] },
+  "legacy": {
+    "frontend": "src/web/public/developer-modules/extended-mining-workbench",
+    "commands": { "review": "scripts/stmem-mine-review.js" }
+  }
+}

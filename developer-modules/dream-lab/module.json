@@ -1,0 +1,15 @@
+{
+  "id": "dream-lab",
+  "title": "自动织梦",
+  "version": "1.0.0",
+  "sdkVersion": 1,
+  "scope": "memory",
+  "permissions": ["core:read", "generation:use", "watcher:plugin"],
+  "entry": { "frontend": "index.html", "commands": { "dream": "backend/commands/dream.js" } },
+  "storage": { "files": ["preferences.json", "dreams"] },
+  "watcher": { "plugin": "dev-dream" },
+  "legacy": {
+    "frontend": "src/web/public/dream-lab",
+    "commands": { "dream": "scripts/stmem-dream.js" }
+  }
+}
