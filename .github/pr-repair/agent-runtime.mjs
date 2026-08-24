@@ -24,8 +24,6 @@ const FINISH_TOOLS = new Set(['finish']);
 // test run.  Keeping this independent of the much larger total read budget
 // prevents repeated reads of the same test file from starving the actual
 // repair loop (and from making a large, slow model request).
-const INITIAL_READ_BUDGET = 6;
-const FAILURE_READ_RESERVE = 8;
 
 export const REPAIR_AGENT_SYSTEM_PROMPT = [
   '你是 Stone Memory 的 PR 冲突维修 coding agent，不是 reviewer，也不是计划生成器。',
@@ -136,36 +134,16 @@ function finalResult(status, reason, state, limits, startedAt, clock = nowMs, ex
 }
 
 function exceeded(state, limits, startedAt, clock = nowMs) {
-  if (state.logicalTurns >= limits.maxLogicalTurns) return '模型回合上限';
-  if (state.apiAttempts >= limits.maxApiAttempts) return '模型 API 请求达到硬上限';
-  if (state.completionTokens >= limits.maxCompletionTokens) return '模型总输出 token 达到硬上限';
   if (clock() - startedAt >= limits.maxElapsedMs) return '维修运行时间达到硬上限';
-  if (state.toolCalls >= limits.maxToolCalls) return '工具调用达到硬上限';
   return null;
 }
 
 function gateToolCall(name, args, state, limits) {
   if (!name) return '工具调用缺少名称';
-  if (state.toolCalls >= limits.maxToolCalls) return '工具调用达到硬上限';
-  if (READ_ONLY_TOOLS.has(name) && state.readOnlyCalls >= limits.maxReadOnlyCalls) return '只读工具调用达到硬上限';
-  const initialReadBudget = Math.min(INITIAL_READ_BUDGET, Math.max(1, limits.maxReadOnlyCalls - FAILURE_READ_RESERVE));
-  if (READ_ONLY_TOOLS.has(name) && state.testCalls === 0 && state.patchCalls === 0 && state.readOnlyCalls >= initialReadBudget) {
-    return '初始源码读取预算已用尽，请先运行测试获取失败证据';
-  }
-  if (['read_file', 'search_code', 'git_show_file', 'git_diff'].includes(name) && state.testCalls > 0 && state.lastTestPassed !== true && state.failureEvidenceDelivered && !state.patchRetryRequired && state.failureReadCalls >= 1) {
-    return '失败对应的 PR 源码证据已提供，请直接 apply_patch 或 needs_human';
-  }
-  if (READ_ONLY_TOOLS.has(name) && state.patchRetryRequired && state.lastTestPassed !== true && state.failureReadCalls >= 1) {
-    return '补丁失败后的重读预算已用尽，请直接依据刚刚返回的源码 apply_patch 或 needs_human';
-  }
   if (name === 'apply_patch') {
-    if (state.readOnlyCalls < 1) return '必须先通过只读工具调查代码，再 apply_patch';
-    if (state.patchCalls >= limits.maxPatchCalls) return '修改批次达到硬上限';
-    if (state.pendingVerification) return '上一个 patch 尚未运行测试，不能继续修改';
     if (typeof args?.patch !== 'string' || args.patch.length > limits.maxPatchChars) return `patch 必须是字符串且不超过 ${limits.maxPatchChars} 字符`;
   }
   if (name === 'run_tests') {
-    if (state.testCalls >= limits.maxTestCalls) return '测试调用达到硬上限';
     if (state.remainingUnresolved.length > 0) return '仍存在未解决冲突，必须先 apply_patch 清空 remainingUnresolved';
   }
   if (name === 'finish' && args?.decision === 'repair_complete' && state.lastTestPassed !== true) {
@@ -175,22 +153,6 @@ function gateToolCall(name, args, state, limits) {
 }
 
 function availableDefinitions(definitions, state, limits) {
-  const initialReadBudget = Math.min(INITIAL_READ_BUDGET, Math.max(1, limits.maxReadOnlyCalls - FAILURE_READ_RESERVE));
-  if (state.testCalls === 0 && state.patchCalls === 0 && state.readOnlyCalls >= initialReadBudget) {
-    return definitions.filter((tool) => ['apply_patch', 'run_tests', 'finish'].includes(tool?.function?.name));
-  }
-  if (state.testCalls > 0 && state.lastTestPassed !== true && state.failureEvidenceDelivered) {
-    if (state.failureReadCalls < 1) {
-      return definitions.filter((tool) => ['read_file', 'apply_patch', 'run_tests', 'finish'].includes(tool?.function?.name));
-    }
-    return definitions.filter((tool) => ['apply_patch', 'run_tests', 'finish'].includes(tool?.function?.name));
-  }
-  if (state.patchRetryRequired && state.lastTestPassed !== true) {
-    if (state.failureReadCalls >= 1) {
-      return definitions.filter((tool) => ['apply_patch', 'finish'].includes(tool?.function?.name));
-    }
-    return definitions.filter((tool) => ['read_file', 'git_diff', 'apply_patch', 'finish'].includes(tool?.function?.name));
-  }
   return definitions;
 }
 
@@ -279,15 +241,12 @@ export async function runRepairAgent({
         state.apiAttempts += Number(completion?.attempts || 1);
         const usageTokens = Number(completion?.usage?.completion_tokens || 0);
         state.completionTokens += usageTokens || estimateTokens(completion?.message);
-        if (state.apiAttempts > limits.maxApiAttempts) return finalResult('needs_human', '模型 API 请求达到硬上限', state, limits, startedAt, clock);
-        if (state.completionTokens > limits.maxCompletionTokens) return finalResult('needs_human', '模型总输出 token 达到硬上限', state, limits, startedAt, clock);
         break;
       }
     } catch (error) {
       if (error?.code === 'token_limit' && !lengthRetryUsed) {
         lengthRetryUsed = true;
         state.apiAttempts += 1;
-        if (state.apiAttempts > limits.maxApiAttempts) return finalResult('needs_human', '模型 API 请求达到硬上限', state, limits, startedAt, clock);
         messages.splice(2, messages.length - 2, {
           role: 'system',
           content: '上一次响应达到 token 上限。请立即缩小操作：只调用一个必要工具，或调用 finish(decision="needs_human")。',
@@ -323,9 +282,6 @@ export async function runRepairAgent({
         if (gateError) {
           result = { ok: false, error: gateError };
           state.rejectedToolCalls += 1;
-          if (state.rejectedToolCalls >= 2) {
-            forcedStopReason = '模型连续调用被禁止的工具，已停止本轮以避免无效回合消耗';
-          }
         } else {
           state.rejectedToolCalls = 0;
           state.toolCalls += 1;
@@ -391,7 +347,7 @@ export async function runRepairAgent({
 
     if (forcedStopReason) return finalResult('needs_human', forcedStopReason, state, limits, startedAt, clock);
 
-    if (appliedInTurn && state.remainingUnresolved.length === 0 && !explicitTestInTurn && state.testCalls < limits.maxTestCalls) {
+    if (appliedInTurn && state.remainingUnresolved.length === 0 && !explicitTestInTurn) {
       state.testCalls += 1;
       state.toolCalls += 1;
       state.toolSequence.push('run_tests(auto)');
@@ -430,7 +386,7 @@ export async function runRepairAgent({
       if (automaticTest?.passed !== true && state.failureEvidenceDelivered) {
         messages.push({
           role: 'system',
-          content: '自动复测已返回完整失败报告和相关文件内容。下一次只能直接 apply_patch、再次 run_tests 或 finish；不要重新读取、搜索或猜测路径。',
+          content: '自动复测已返回失败报告和相关文件内容；继续使用任何必要的受限工具完成修复。',
         });
       }
     }

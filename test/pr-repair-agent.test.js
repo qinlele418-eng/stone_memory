@@ -82,7 +82,7 @@ test('agent keeps one conversation and uses a bounded inspect-edit-test-finish l
   assert.equal(result.metrics.maxLogicalTurns, AGENT_LIMITS.maxLogicalTurns);
 });
 
-test('agent rejects a repair completion before a passing test and fails closed at the turn cap', async () => {
+test('agent rejects a repair completion before a passing test without a tool-call cap', async () => {
   const client = scriptedClient([
     { role: 'assistant', tool_calls: [toolCall('1', 'read_file', { path: 'src/example.js' })] },
     { role: 'assistant', tool_calls: [toolCall('2', 'finish', { decision: 'repair_complete', summary: '过早完成' })] },
@@ -93,9 +93,9 @@ test('agent rejects a repair completion before a passing test and fails closed a
   ]);
   const result = await runRepairAgent({ task: '修复冲突', client, tools: fakeTools(), limits: { ...AGENT_LIMITS, maxLogicalTurns: 5 } });
 
-  assert.equal(result.status, 'needs_human');
-  assert.match(result.reason, /回合上限|repair_complete/);
-  assert.equal(result.metrics.logicalTurns, 5);
+  assert.equal(result.status, 'ai_unavailable');
+  assert.match(result.reason, /scripted client ran out/);
+  assert.equal(result.metrics.logicalTurns, 7);
   assert.ok(client.calls[2].tools.map((tool) => tool.function.name).includes('read_file'));
 });
 
@@ -178,7 +178,7 @@ test('automatic failed verification locks the next turn onto the new repair evid
   assert.equal(client.calls[2].tools.some((tool) => tool.function.name === 'apply_patch'), true);
 });
 
-test('repeated forbidden reads fail closed instead of spending model turns', async () => {
+test('repeated reads remain available until the outer client or time budget ends', async () => {
   const client = scriptedClient([
     { role: 'assistant', tool_calls: [toolCall('1', 'read_file', { path: 'src/theme.js' })] },
     { role: 'assistant', tool_calls: [toolCall('2', 'apply_patch', { patch: 'diff --git a/src/theme.js b/src/theme.js\n' })] },
@@ -207,9 +207,9 @@ test('repeated forbidden reads fail closed instead of spending model turns', asy
   };
   const result = await runRepairAgent({ task: '修复 CI 失败', client, tools });
 
-  assert.equal(result.status, 'needs_human');
-  assert.match(result.reason, /禁止的工具/);
-  assert.equal(result.metrics.logicalTurns, 5);
+  assert.equal(result.status, 'ai_unavailable');
+  assert.match(result.reason, /scripted client ran out/);
+  assert.equal(result.metrics.logicalTurns, 6);
   assert.equal(testCalls, 1);
 });
 
