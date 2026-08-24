@@ -240,7 +240,19 @@ function clip(value, limit) {
 function parseApplyPatchFormat(value) {
   const lines = String(value ?? '').replaceAll('\r', '').split('\n');
   const begin = lines.findIndex((line) => line.trim() === '*** Begin Patch');
-  if (begin < 0) return null;
+  if (begin < 0) {
+    // GLM occasionally emits a single-file replacement envelope: an Update
+    // File header followed by the complete new file, without Begin Patch,
+    // hunks, or +/- prefixes. It is still a bounded patch: the caller
+    // validates the path against the mutable allow-list and runs syntax/tests
+    // before committing it.
+    const first = lines.findIndex((line) => line.trim() !== '');
+    const fullHeader = first >= 0 ? lines[first].match(/^\*\*\* Update File: (.+)$/) : null;
+    const body = first >= 0 ? lines.slice(first + 1) : [];
+    const hasPatchSyntax = body.some((line) => line.startsWith('@@') || line.startsWith('--- ') || line.startsWith('+++ '));
+    if (!fullHeader || body.length === 0 || body.every((line) => line.trim() === '') || hasPatchSyntax) return null;
+    return [{ path: fullHeader[1].trim(), fullContent: body.join('\n') }];
+  }
   const operations = [];
   let index = begin + 1;
   while (index < lines.length && lines[index].trim() !== '*** End Patch') {
@@ -892,7 +904,8 @@ export function createAgentTools({
           const { normalized, absolute } = safeReadPath(cwd, operation.path);
           if (!mutable.includes(normalized)) throw new Error(`禁止修改允许列表之外的文件: ${normalized}`);
           let content = await readFile(absolute, 'utf8');
-          for (const hunk of operation.hunks) content = replaceUniqueLines(content, hunk.oldLines, hunk.newLines, normalized, hunk.addedLines);
+          if (operation.fullContent !== undefined) content = operation.fullContent;
+          else for (const hunk of operation.hunks) content = replaceUniqueLines(content, hunk.oldLines, hunk.newLines, normalized, hunk.addedLines);
           updates.push({ normalized, absolute, content });
         }
       } catch (error) {

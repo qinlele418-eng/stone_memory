@@ -623,6 +623,32 @@ test('agent accepts a Begin Patch envelope with embedded unified file headers', 
   }
 });
 
+test('agent accepts a single-file full replacement Update File envelope', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'stone-memory-agent-full-envelope-'));
+  try {
+    const git = async (...args) => {
+      const result = await runGit(args, { cwd });
+      assert.equal(result.code, 0, `${args.join(' ')}\n${result.stderr}`);
+      return result.stdout.trim();
+    };
+    await git('init', '-b', 'main');
+    await git('config', 'user.name', 'test');
+    await git('config', 'user.email', 'test@example.invalid');
+    await writeFile(join(cwd, 'theme.css'), '.alpha { color: var(--legacy-contract-ink); }\n');
+    await git('add', 'theme.css');
+    await git('commit', '-m', 'base');
+    const sha = await git('rev-parse', 'HEAD');
+    const tools = createAgentTools({ cwd, revisions: { base: sha, pr: sha, main: sha }, allowedFiles: ['theme.css'] });
+    const result = await tools.call('apply_patch', {
+      patch: '*** Update File: theme.css\n.alpha { color: var(--current-contract-ink); }\n',
+    });
+    assert.equal(result.applied, true, JSON.stringify(result));
+    assert.equal(await readFile(join(cwd, 'theme.css'), 'utf8'), '.alpha { color: var(--current-contract-ink); }\n');
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test('agent resolves a conflict when a model patch has a stale conflict footer', async () => {
   const cwd = await mkdtemp(join(tmpdir(), 'stone-memory-agent-stale-footer-'));
   try {
