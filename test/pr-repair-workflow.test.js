@@ -14,6 +14,11 @@ test('PR Repair workflow auto-runs on PR changes and requires manual publish per
   assert.match(workflow, /statuses: read/);
   assert.match(workflow, /actions: read/);
   assert.match(workflow, /ZAI_BASE_URL: \$\{\{ vars\.ZAI_BASE_URL \|\| 'https:\/\/api\.z\.ai\/api\/paas\/v4' \}\}/);
+  assert.match(workflow, /trusted_tools_available: \$\{\{ steps\.trusted_tools\.outputs\.available \}\}/);
+  assert.match(workflow, /Verify trusted repair tooling is installed on main/);
+  assert.match(workflow, /repo\/\.github\/pr-repair\/diagnose\.mjs/);
+  assert.match(workflow, /Trusted PR Repair tooling is not installed on main; refusing a manual repair dispatch/);
+  assert.match(workflow, /skipping this bootstrap pull-request run/);
 });
 
 test('Z.AI secret is isolated from the test and apply jobs', () => {
@@ -79,7 +84,8 @@ test('publish accepts only an explicit true manual-dispatch input after repair s
   assert.equal(publishGate({ eventName: 'workflow_dispatch', pushRepair: 'true', applyResult: 'failure', applyStatus: 'repair_success' }).allowed, false);
   const gateJob = workflow.slice(workflow.indexOf('  publish_gate:'), workflow.indexOf('  publish:'));
   const publishJob = workflow.slice(workflow.indexOf('  publish:'), workflow.indexOf('  post_push:'));
-  assert.match(gateJob, /if: always\(\)/);
+  assert.match(gateJob, /needs: \[diagnose, apply_and_verify\]/);
+  assert.match(gateJob, /if: always\(\) && needs\.diagnose\.outputs\.trusted_tools_available == 'true'/);
   assert.match(gateJob, /PUSH_REPAIR_INPUT: \$\{\{ github\.event\.inputs\.push_repair \|\| '' \}\}/);
   assert.match(gateJob, /APPLY_JOB_RESULT: \$\{\{ needs\.apply_and_verify\.result \}\}/);
   assert.match(gateJob, /APPLY_REPAIR_STATUS: \$\{\{ needs\.apply_and_verify\.outputs\.status \}\}/);

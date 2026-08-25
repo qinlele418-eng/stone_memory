@@ -56,6 +56,7 @@ jobs:
       base_sha: ${{ steps.diagnose.outputs.base_sha }}
       head_sha: ${{ steps.diagnose.outputs.head_sha }}
       head_ref: ${{ steps.diagnose.outputs.head_ref }}
+      trusted_tools_available: ${{ steps.trusted_tools.outputs.available }}
     steps:
       - name: Check out trusted current main tools
         uses: actions/checkout@v4
@@ -70,8 +71,28 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
+      - name: Verify trusted repair tooling is installed on main
+        id: trusted_tools
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [[ -f repo/.github/pr-repair/diagnose.mjs && -f repo/.github/pr-repair/publish-gate.mjs ]]; then
+            echo 'available=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ "$EVENT_NAME" == 'workflow_dispatch' ]]; then
+            echo '::error::Trusted PR Repair tooling is not installed on main; refusing a manual repair dispatch.'
+            exit 1
+          fi
+
+          echo 'available=false' >> "$GITHUB_OUTPUT"
+          echo 'PR Repair is not installed on main yet; skipping this bootstrap pull-request run.' >> "$GITHUB_STEP_SUMMARY"
+
       - name: Diagnose without executing PR code
         id: diagnose
+        if: steps.trusted_tools.outputs.available == 'true'
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -81,7 +102,7 @@ jobs:
         run: node repo/.github/pr-repair/diagnose.mjs
 
       - name: Upload mechanical diagnosis
-        if: always()
+        if: always() && steps.trusted_tools.outputs.available == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: pr-repair-diagnosis-${{ env.PR_NUMBER }}
@@ -948,8 +969,8 @@ jobs:
 
   publish_gate:
     name: Evaluate verified repair publish gate
-    needs: apply_and_verify
-    if: always()
+    needs: [diagnose, apply_and_verify]
+    if: always() && needs.diagnose.outputs.trusted_tools_available == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
