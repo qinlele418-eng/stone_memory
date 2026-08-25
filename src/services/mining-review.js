@@ -97,13 +97,14 @@ function nearDuplicateHints(candidates, threshold = 0.48) {
 }
 
 class MiningReviewStore {
-  constructor({ memoryDir, threadId, candidateDirectoryName = "review-candidates" }) {
+  constructor({ memoryDir, threadId, candidateDirectoryName = "review-candidates", dataDir = null }) {
     if (!memoryDir || !threadId) throw new Error("memoryDir and threadId are required");
     if (!/^[a-z0-9-]+$/.test(candidateDirectoryName)) throw new Error("invalid candidate directory name");
     this.memoryDir = memoryDir;
     this.threadId = threadId;
-    this.candidateDir = path.join(memoryDir, candidateDirectoryName);
-    this.backupDir = path.join(memoryDir, "backups");
+    this.candidateDir = dataDir ? path.join(dataDir, "candidates") : path.join(memoryDir, candidateDirectoryName);
+    this.legacyCandidateDir = dataDir ? path.join(memoryDir, candidateDirectoryName) : null;
+    this.backupDir = dataDir ? path.join(dataDir, "backups") : path.join(memoryDir, "backups");
   }
 
   createCandidate(input) {
@@ -146,12 +147,16 @@ class MiningReviewStore {
   }
 
   list({ date = null } = {}) {
-    if (!fs.existsSync(this.candidateDir)) return [];
-    return fs.readdirSync(this.candidateDir)
+    const directories = [this.candidateDir, this.legacyCandidateDir].filter(Boolean).filter(fs.existsSync);
+    if (!directories.length) return [];
+    const names = [...new Set(directories.flatMap(directory => fs.readdirSync(directory)))];
+    return names
       .filter(name => /^candidate-[0-9a-f-]+\.json$/.test(name))
       .flatMap(name => {
         try {
-          const candidate = JSON.parse(fs.readFileSync(path.join(this.candidateDir, name), "utf8"));
+          const primary = path.join(this.candidateDir, name);
+          const legacy = this.legacyCandidateDir && path.join(this.legacyCandidateDir, name);
+          const candidate = JSON.parse(fs.readFileSync(fs.existsSync(primary) ? primary : legacy, "utf8"));
           if (candidate.threadId !== this.threadId || (date && candidate.date !== date)) return [];
           return [candidate];
         } catch {
@@ -162,7 +167,9 @@ class MiningReviewStore {
   }
 
   load(id) {
-    const candidate = JSON.parse(fs.readFileSync(this._path(id), "utf8"));
+    const primary = this._path(id);
+    const legacy = this.legacyCandidateDir && path.join(this.legacyCandidateDir, `${id}.json`);
+    const candidate = JSON.parse(fs.readFileSync(fs.existsSync(primary) ? primary : legacy, "utf8"));
     validateCandidate(candidate, { id, threadId: this.threadId });
     return candidate;
   }

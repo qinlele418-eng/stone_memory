@@ -27,6 +27,7 @@ const { configuredRuntimeIds, MiningReviewBatchStore } = require("../services/mi
 const { buildFeelingPrompt, buildFeaturePrompt } = require("../services/memory-miner");
 const { normalizeRebuildRequest, rebuildRequestCliArgs } = require("../services/rebuild-request");
 const { MODULE_ROOT, loadModules, resolveInside } = require("../services/developer-module-contract");
+const { dataDirFor } = require("../services/developer-module-data");
 
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MAX_UPLOAD = 512 * 1024 * 1024;
@@ -411,7 +412,7 @@ async function executeMiningJob(job) {
 function refreshMiningBatchJob(job){
   if(!job||job.dates.length<2||!["queued","running","cancelling"].includes(job.status))return job;
   try{
-    const store=new MiningReviewBatchStore({memoryDir:path.join(getThreadDir(job.threadId),"memory"),threadId:job.threadId,directoryName:"mining-batches"});
+    const store=new MiningReviewBatchStore({memoryDir:path.join(getThreadDir(job.threadId),"memory"),threadId:job.threadId,directoryName:"mining-batches",dataDir:dataDirFor("extended-mining-workbench",job.threadId)});
     const batch=store.list().find(row=>row.autoApply&&row.createdAt>=job.createdAt&&JSON.stringify(row.dates)===JSON.stringify(job.dates));
     if(!batch)return job;
     job.batchId=batch.id;
@@ -710,6 +711,22 @@ async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/developer-modules") {
     return json(res, 200, { modules: listDeveloperModules() });
   }
+  if (url.pathname === "/api/developer-modules/theme-studio/state") {
+    if (req.method === "GET") {
+      return json(res, 200, JSON.parse(runStmem(["module", "theme-studio", "state"])));
+    }
+    if (req.method === "PUT") {
+      const body = await readJson(req);
+      return json(res, 200, runStmemBatch(["module", "theme-studio", "state"], { write: true, state: body }));
+    }
+  }
+  if (req.method === "POST" && url.pathname === "/api/developer-modules/theme-studio/migrate") {
+    const body = await readJson(req);
+    return json(res, 200, runStmemBatch(
+      ["module", "theme-studio", "migrate", "--apply"],
+      { browserState: body?.browserState },
+    ));
+  }
 
   const scratchJobMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/scratch\/jobs\/([^/]+)$/);
   if (req.method === "GET" && scratchJobMatch) {
@@ -868,6 +885,7 @@ async function handleApi(req, res, url) {
     const reviews = new MiningReviewStore({
       memoryDir: path.join(getThreadDir(threadId), "memory"),
       threadId,
+      dataDir: dataDirFor("review-lab", threadId),
     });
     const candidate = editFusionCandidate({
       reviews,
@@ -879,7 +897,7 @@ async function handleApi(req, res, url) {
   const reviewEvidenceMatch = url.pathname.match(/^\/review-lab\/api\/candidates\/([^/]+)\/evidence$/);
   if (req.method === "GET" && reviewEvidenceMatch) {
     const threadId = String(url.searchParams.get("threadId") || "");
-    const reviews = new MiningReviewStore({ memoryDir: path.join(getThreadDir(threadId), "memory"), threadId });
+    const reviews = new MiningReviewStore({ memoryDir: path.join(getThreadDir(threadId), "memory"), threadId, dataDir: dataDirFor("review-lab", threadId) });
     const candidate = reviews.load(decodeURIComponent(reviewEvidenceMatch[1]));
     const index = Number(url.searchParams.get("index"));
     const item = candidate.feelings?.[index];

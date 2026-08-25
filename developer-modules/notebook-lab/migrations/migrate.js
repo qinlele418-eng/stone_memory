@@ -1,4 +1,4 @@
 "use strict";
-const { migrationPlan, legacySources, applyLegacyMigration } = require("../../../src/services/developer-module-runtime");
-function run(context, input = {}) { const plan = migrationPlan(context, legacySources(context)); return input.apply === true ? applyLegacyMigration(context) : { ...plan, applied: false }; }
+const { migrate } = require("../../../src/services/developer-module-migrations");
+function run(context, input = {}) { return migrate(context, input); }
 module.exports = { run };

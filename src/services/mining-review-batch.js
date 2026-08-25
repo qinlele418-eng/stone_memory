@@ -126,11 +126,12 @@ function buildReviewBatchPlan(input, { config = {}, threadId = "" } = {}) {
 }
 
 class MiningReviewBatchStore {
-  constructor({ memoryDir, threadId, directoryName = "review-batches" }) {
+  constructor({ memoryDir, threadId, directoryName = "review-batches", dataDir = null }) {
     if (!memoryDir || !threadId) throw new Error("memoryDir and threadId are required");
     if (!/^[a-z0-9-]+$/.test(directoryName)) throw new Error("invalid batch directory name");
     this.threadId = threadId;
-    this.dir = path.join(memoryDir, directoryName);
+    this.dir = dataDir ? path.join(dataDir, "batches") : path.join(memoryDir, directoryName);
+    this.legacyDir = dataDir ? path.join(memoryDir, directoryName) : null;
   }
 
   create(input, options = {}) {
@@ -161,12 +162,16 @@ class MiningReviewBatchStore {
   }
 
   list() {
-    if (!fs.existsSync(this.dir)) return [];
-    return fs.readdirSync(this.dir)
+    const directories = [this.dir, this.legacyDir].filter(Boolean).filter(fs.existsSync);
+    if (!directories.length) return [];
+    const names = [...new Set(directories.flatMap(directory => fs.readdirSync(directory)))];
+    return names
       .filter(name => /^batch-[0-9a-f-]+\.json$/.test(name))
       .flatMap(name => {
         try {
-          const row = JSON.parse(fs.readFileSync(path.join(this.dir, name), "utf8"));
+          const primary = path.join(this.dir, name);
+          const legacy = this.legacyDir && path.join(this.legacyDir, name);
+          const row = JSON.parse(fs.readFileSync(fs.existsSync(primary) ? primary : legacy, "utf8"));
           return row.threadId === this.threadId ? [row] : [];
         } catch {
           return [];
@@ -177,7 +182,9 @@ class MiningReviewBatchStore {
 
   load(id) {
     if (!/^batch-[0-9a-f-]+$/.test(String(id || ""))) throw new Error("invalid batch id");
-    const record = JSON.parse(fs.readFileSync(path.join(this.dir, `${id}.json`), "utf8"));
+    const primary = path.join(this.dir, `${id}.json`);
+    const legacy = this.legacyDir && path.join(this.legacyDir, `${id}.json`);
+    const record = JSON.parse(fs.readFileSync(fs.existsSync(primary) ? primary : legacy, "utf8"));
     if (record.threadId !== this.threadId || record.id !== id) throw new Error("batch identity mismatch");
     return record;
   }

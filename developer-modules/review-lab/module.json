@@ -4,8 +4,8 @@
   "version": "1.0.0",
   "sdkVersion": 1,
   "scope": "memory",
-  "permissions": ["core:read", "mining:review", "generation:use"],
+  "permissions": ["core:read", "mining:review", "generation:use", "process:spawn"],
   "entry": { "frontend": "frontend/index.html", "commands": { "migrate": "migrations/migrate.js" } },
-  "storage": { "database": "module.sqlite", "files": ["candidates", "batches", "backups"], "browser": ["review-preferences"] },
+  "storage": { "files": ["candidates", "batches", "backups"], "browser": ["review-preferences"] },
   "migration": { "mode": "explicit", "receipt": "migration-receipt.json" }
 }

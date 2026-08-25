@@ -50,6 +50,8 @@ function runModuleCommand(args = process.argv.slice(3)) {
   if (!threadId && findModule(moduleId).manifest.scope === "memory") throw new Error("module command requires --thread <id>");
   const batchFile = valueAfter(args, "--batch-file");
   const input = batchFile ? JSON.parse(fs.readFileSync(batchFile, "utf8")) : {};
+  if (args.includes("--apply")) input.apply = true;
+  if (args.includes("--dry-run")) input.apply = false;
   return Promise.resolve(runModuleAction({ moduleId, action: command, threadId, input }))
     .then(result => console.log(JSON.stringify(result, null, 2)));
 }

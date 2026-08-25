@@ -8,6 +8,14 @@ const {
   validateManifest,
 } = require("./developer-module-contract");
 
+const COMPATIBILITY_SCRIPTS = new Map([
+  ["dream-lab", "scripts/stmem-dream.js"],
+  ["memory-scratch", "scripts/stmem-scratch.js"],
+  ["notebook-lab", "scripts/stmem-notebook.js"],
+  ["review-lab", "scripts/stmem-mine-review.js"],
+  ["extended-mining-workbench", "scripts/stmem-mine-batch.js"],
+]);
+
 function finding(severity, code, moduleId, message, file = null) {
   return { severity, code, moduleId, message, file };
 }
@@ -70,8 +78,12 @@ function auditModule(moduleDir) {
   const canonicalSource = walk(moduleDir)
     .filter(file => /\.(?:js|mjs|cjs|ts)$/u.test(file))
     .map(file => fs.readFileSync(file, "utf8")).join("\n");
-  if (/getThreadDir\s*\(|\.stone_memory|openDatabase\s*\([^)]*(?:memoryDir|getThreadDir)/u.test(canonicalSource)) {
+  const usesCoreThreadPath = /getThreadDir\s*\(|openDatabase\s*\([^)]*(?:memoryDir|getThreadDir)/u.test(canonicalSource);
+  if (/\.stone_memory/u.test(canonicalSource) || (usesCoreThreadPath && !manifest.permissions?.includes("core:read"))) {
     findings.push(finding("error", "storage-core-path", id, "模块代码直接定位 Core/线程数据目录；应使用 SDK 提供的 moduleDataDir", manifestFile));
+  }
+  if (usesCoreThreadPath && manifest.permissions?.includes("core:read") && !/dataDirFor\s*\(|moduleDataDir/u.test(canonicalSource)) {
+    findings.push(finding("error", "storage-module-path-missing", id, "模块读取 Core 数据，但运行数据未接入 moduleDataDir", manifestFile));
   }
   if (/localStorage\.(?:getItem|setItem|removeItem)\s*\(/u.test(canonicalSource) && !manifest.storage?.browser) {
     findings.push(finding("error", "storage-browser-undeclared", id, "模块使用浏览器持久化但未声明 storage.browser", manifestFile));
@@ -84,6 +96,15 @@ function auditModule(moduleDir) {
   }
   if (/(?:spawn|execFile|fork)\s*\(|require\(["'](?:node:)?child_process["']\)/u.test(source) && !manifest.permissions?.includes("process:spawn") && !manifest.watcher) {
     findings.push(finding("warning", "process-undeclared", id, "检测到子进程或 watcher 逻辑，但未声明权限/插件", manifestFile));
+  }
+  const compatibilityScript = COMPATIBILITY_SCRIPTS.get(id);
+  if (compatibilityScript) {
+    const file = path.join(PROJECT_ROOT, compatibilityScript);
+    const wrapper = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+    const executableLines = wrapper.split(/\r?\n/u).filter(line => line.trim() && !line.trim().startsWith("//") && !line.trim().startsWith('"use strict"'));
+    if (!/developer-modules/u.test(wrapper) || executableLines.length !== 1) {
+      findings.push(finding("error", "legacy-wrapper-regressed", id, "旧 CLI 必须只是转发到模块目录的单行兼容包装，不得承载业务实现", file));
+    }
   }
   return findings;
 }

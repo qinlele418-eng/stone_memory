@@ -5,7 +5,7 @@
   "sdkVersion": 1,
   "scope": "global",
   "permissions": ["theme:write"],
-  "entry": { "frontend": "frontend/index.html", "commands": { "migrate": "migrations/migrate.js" } },
+  "entry": { "frontend": "frontend/index.html", "commands": { "migrate": "migrations/migrate.js", "state": "backend/commands/state.js" } },
   "storage": { "files": ["theme.json", "themes.json", "assets"], "browser": ["semantic-theme-bridge"] },
   "migration": { "mode": "explicit", "receipt": "migration-receipt.json" }
 }

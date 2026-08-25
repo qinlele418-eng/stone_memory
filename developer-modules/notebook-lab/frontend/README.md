@@ -5,7 +5,7 @@
 ## 边界
 
 - 正式写入只调用 `stmem notebook` CLI。
-- 正文保存在当前记忆体的 `memory/notebook/topics/*/entries/*.md`。
+- 正文保存在 Notebook Lab 模块数据目录的 `documents/topics/*/entries/*.md`。
 - 索引保存在 Stone Memory 共享 SQLite 的 notebook 表中，不创建第二个数据库。
 - `sealed` 仅为前端展示协议。MCP、数据库和 Markdown 文件始终可完整读取。
 - 不调用写入即不产生笔记；模块不删除或改写活动线程。
@@ -22,7 +22,7 @@
 - 子代理只生成结构化计划。主题、路径、归档状态和 revision 由 Stone 校验，正式写入仍只经过 `stmem notebook` CLI。
 - 新主题必须由调用方明确允许，且规划置信度不低于 0.9；目标不唯一时不写入并返回候选。
 - “删除”仅表示把已有笔记移入按需创建的纸篓，并在收据中保留原主题；不提供物理删除，也不把新笔记主动写入纸篓。管家可用 `move_note` 将同一 noteId 无损移回既有主题，不重传或改写正文，离开纸篓时移除“纸篓”标签。
-- 每次管家操作记录在当前记忆体 `memory/notebook/steward/operations.jsonl`，不记录正文，只记录长度、哈希、计划和收据。
+- 每次管家操作记录在 Notebook Lab 模块数据目录 `documents/steward/operations.jsonl`，不记录正文，只记录长度、哈希、计划和收据。
 
 ## 拆除
 
