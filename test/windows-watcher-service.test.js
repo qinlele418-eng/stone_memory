@@ -49,6 +49,7 @@ test("install creates then runs exactly one named task through argument arrays",
     const result = installWindowsWatcherService({
       projectDir: root,
       platform: "win32",
+      userId: paths.userId,
       execFile(file, args) { calls.push({ file, args }); return ""; },
     });
     assert.equal(result.taskName, TASK_NAME);
@@ -68,6 +69,7 @@ test("service status is unsupported outside Windows and repair replaces an unava
     const result = repairWindowsWatcherService({
       projectDir: root,
       platform: "win32",
+      userId: paths.userId,
       execFile(file, args) {
         calls.push(args);
         if (args[0] === "/Query") throw new Error("not found");
@@ -84,9 +86,10 @@ test("remove deletes the task before gracefully stopping only the supervisor", (
   const result = removeWindowsWatcherService({
     projectDir,
     platform: "win32",
+    userId: paths.userId,
     execFile(file, args) {
       events.push(`task:${args[0]}`);
-      return args[0] === "/Query" ? taskXml(servicePaths(projectDir)) : "";
+      return args[0] === "/Query" ? taskXml(servicePaths(projectDir, { userId: paths.userId })) : "";
     },
     readPid() { return 1234; },
     matches() { return events.includes("kill") ? false : true; },
@@ -101,11 +104,13 @@ test("remove refuses an unverified task and a scheduler query failure", () => {
   assert.throws(() => removeWindowsWatcherService({
     projectDir,
     platform: "win32",
+    userId: paths.userId,
     execFile(file, args) { return args[0] === "/Query" ? "<Task><Actions/></Task>" : ""; },
   }), /拒绝删除/);
   assert.throws(() => removeWindowsWatcherService({
     projectDir,
     platform: "win32",
+    userId: paths.userId,
     execFile() { throw new Error("access denied"); },
   }), /未删除任务或停止进程/);
 });

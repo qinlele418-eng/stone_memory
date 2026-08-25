@@ -27,9 +27,11 @@ function taskXml({ nodePath, watcherScript, workingDirectory, userId, now = new 
 </Task>`;
 }
 
-function servicePaths(projectDir) {
-  const username = process.env.USERNAME;
-  const userId = username ? `${process.env.USERDOMAIN ? `${process.env.USERDOMAIN}\\` : ""}${username}` : null;
+function servicePaths(projectDir, { userId } = {}) {
+  if (userId === undefined) {
+    const username = process.env.USERNAME;
+    userId = username ? `${process.env.USERDOMAIN ? `${process.env.USERDOMAIN}\\` : ""}${username}` : null;
+  }
   return {
     nodePath: process.execPath,
     watcherScript: path.join(projectDir, "scripts", "watcher-supervisor.js"),
@@ -66,7 +68,7 @@ function taskMatches(xml, paths) {
 
 function installWindowsWatcherService({ projectDir, platform = process.platform, ...options }) {
   if (platform !== "win32") throw new Error("Windows Task Scheduler watcher service 仅支持 Windows");
-  const paths = servicePaths(projectDir);
+  const paths = servicePaths(projectDir, options);
   if (!paths.userId) throw new Error("无法确定 Windows 当前用户，未创建 watcher 计划任务");
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-watcher-task-"));
   const xmlFile = path.join(tempDir, "task.xml");
@@ -82,7 +84,7 @@ function installWindowsWatcherService({ projectDir, platform = process.platform,
 
 function windowsWatcherServiceStatus({ projectDir, platform = process.platform, ...options }) {
   if (platform !== "win32") return { supported: false, installed: false, healthy: false };
-  const paths = servicePaths(projectDir);
+  const paths = servicePaths(projectDir, options);
   const queried = queryTask(options);
   const expected = queried.available && taskMatches(queried.xml, paths);
   let pid = null;
@@ -112,7 +114,7 @@ function removeWindowsWatcherService({ projectDir, platform = process.platform, 
   if (platform !== "win32") throw new Error("Windows Task Scheduler watcher service 仅支持 Windows");
   const queried = queryTask(options);
   if (!queried.available) throw new Error(`无法确认 watcher 计划任务状态，未删除任务或停止进程：${queried.error?.message || "未知错误"}`);
-  const paths = servicePaths(projectDir);
+  const paths = servicePaths(projectDir, options);
   if (!taskMatches(queried.xml, paths)) throw new Error("同名计划任务不属于当前 Stone Memory 安装，拒绝删除");
   runSchtasks(["/Delete", "/TN", TASK_NAME, "/F"], options);
   const stopped = stopSupervisor(options);
