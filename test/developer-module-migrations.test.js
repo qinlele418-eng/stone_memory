@@ -54,6 +54,18 @@ test("review and mining copy only backups referenced by their own candidates", t
   assert.equal(fs.existsSync(path.join(f.moduleDataDir, "backups", "mining.db")), false);
 });
 
+test("an unrelated shared backup directory is not treated as module migration input", t => {
+  const f = fixture(t, "extended-mining-workbench");
+  const backups = path.join(f.legacyThreadDir, "memory", "backups");
+  fs.mkdirSync(backups, { recursive: true });
+  fs.writeFileSync(path.join(backups, "other-module.db"), "other");
+  const result = migrate(f.context, { apply: true });
+  const backupMap = result.mappings.find(item => item.mode === "referenced-backups-only");
+  assert.equal(backupMap.sourceInventory.exists, false);
+  assert.equal(backupMap.sourceInventory.files, 0);
+  assert.equal(fs.existsSync(path.join(f.moduleDataDir, "backups")), false);
+});
+
 test("notebook migration copies selected thread tables into module.sqlite and verifies counts", t => {
   const f = fixture(t, "notebook-lab");
   const memory = path.join(f.legacyThreadDir, "memory");
@@ -77,11 +89,13 @@ test("notebook migration copies selected thread tables into module.sqlite and ve
   f.context.legacyDatabaseFile = sourceFile;
   const result = migrate(f.context, { apply: true });
   const targetFile = path.join(f.moduleDataDir, "module.sqlite");
-  assert.deepEqual(notebookCounts(targetFile, "thread-a"), { exists: true, tables: true, topics: 1, entries: 1 });
-  assert.deepEqual(notebookCounts(targetFile, "thread-b"), { exists: true, tables: true, topics: 0, entries: 0 });
+  assert.deepEqual(notebookCounts(targetFile, "thread-a"), { exists: true, tables: true, topics: 1, entries: 1, sha256: result.mappings.find(item => item.mode === "sqlite-tables").targetRows.sha256 });
+  assert.equal(notebookCounts(targetFile, "thread-b").topics, 0);
+  assert.equal(notebookCounts(targetFile, "thread-b").entries, 0);
   const sqlite = result.mappings.find(item => item.mode === "sqlite-tables");
   assert.equal(sqlite.sourceRows.topics, sqlite.targetRows.topics);
   assert.equal(sqlite.sourceRows.entries, sqlite.targetRows.entries);
+  assert.equal(sqlite.sourceRows.sha256, sqlite.targetRows.sha256);
   assert.equal(fs.readFileSync(path.join(f.moduleDataDir, "documents", "note.md"), "utf8"), "# migrated");
   assert.equal(migrate(f.context, { apply: true }).verified, true);
 });
@@ -101,6 +115,20 @@ test("migration detects target conflicts and removes files created by the failed
   assert.equal(fs.existsSync(path.join(f.moduleDataDir, "dreams", "2026-08-25.md")), false);
   assert.equal(fs.readFileSync(preferences, "utf8"), "legacy");
   assert.equal(fs.readFileSync(path.join(f.moduleDataDir, "preferences.json"), "utf8"), "newer");
+});
+
+test("dream migration maps only owned temporary operation files", t => {
+  const f = fixture(t, "dream-lab");
+  f.context.legacyDreamRoot = path.join(f.root, "legacy-dream");
+  const temporary = path.join(f.legacyThreadDir, "tmp");
+  fs.mkdirSync(temporary, { recursive: true });
+  fs.writeFileSync(path.join(temporary, "dream-2026-08-25-beautiful.md"), "dream operation");
+  fs.writeFileSync(path.join(temporary, "unrelated.tmp"), "other module");
+  const result = migrate(f.context, { apply: true });
+  const operations = result.mappings.find(item => item.mode === "dream-operation-files");
+  assert.deepEqual(operations.selectedNames, ["dream-2026-08-25-beautiful.md"]);
+  assert.equal(fs.readFileSync(path.join(f.moduleDataDir, "operations", "dream-2026-08-25-beautiful.md"), "utf8"), "dream operation");
+  assert.equal(fs.existsSync(path.join(f.moduleDataDir, "operations", "unrelated.tmp")), false);
 });
 
 test("theme migration requires browser payload and verifies server files", t => {

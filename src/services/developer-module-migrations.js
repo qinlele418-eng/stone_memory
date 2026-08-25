@@ -25,6 +25,7 @@ function inventory(target, selectedNames = null) {
       return fs.existsSync(absolute) && fs.statSync(absolute).isFile() ? [{ absolute, relative: name }] : [];
     })
     : (fs.statSync(target).isDirectory() ? walk(target) : [{ absolute: target, relative: path.basename(target) }]);
+  if (selectedNames && files.length === 0) return { exists: false, files: 0, bytes: 0, sha256: null };
   const hash = crypto.createHash("sha256");
   let bytes = 0;
   for (const file of files) {
@@ -73,11 +74,11 @@ function notebookCounts(file, threadId) {
   const db = new Database(file, { readonly: true });
   try {
     if (!tableExists(db, "notebook_topics") || !tableExists(db, "notebook_entries")) return { exists: true, tables: false, topics: 0, entries: 0 };
-    return {
-      exists: true, tables: true,
-      topics: db.prepare("SELECT COUNT(*) count FROM notebook_topics WHERE thread_id=?").get(threadId).count,
-      entries: db.prepare("SELECT COUNT(*) count FROM notebook_entries WHERE thread_id=?").get(threadId).count,
-    };
+    const topics = db.prepare("SELECT * FROM notebook_topics WHERE thread_id=? ORDER BY id").all(threadId);
+    const entries = db.prepare("SELECT * FROM notebook_entries WHERE thread_id=? ORDER BY id").all(threadId);
+    const hash = crypto.createHash("sha256");
+    hash.update(JSON.stringify({ topics, entries }));
+    return { exists: true, tables: true, topics: topics.length, entries: entries.length, sha256: hash.digest("hex") };
   } finally { db.close(); }
 }
 
@@ -102,6 +103,11 @@ function referencedBackups(candidateDir) {
   return [...new Set(names)].sort();
 }
 
+function matchingFiles(directory, pattern) {
+  if (!directory || !fs.existsSync(directory)) return [];
+  return walk(directory).map(file => file.relative).filter(name => pattern.test(name.replaceAll("\\", "/"))).sort();
+}
+
 function reviewMappings(context, memoryDir, prefix) {
   const candidateSource = path.join(memoryDir, `${prefix}-candidates`);
   const selectedNames = referencedBackups(candidateSource);
@@ -121,6 +127,9 @@ function migrationMappings(context) {
       mapping(path.join(context.legacyDreamRoot || path.join(os.homedir(), ".stone_memory", "dream"), context.threadId), context.resolveDataPath("dreams"), "dream-archive"),
       mapping(path.join(threadDir, "dream", "preferences.json"), context.resolveDataPath("preferences.json"), "preferences"),
       mapping(path.join(threadDir, "dream", "prompts"), context.resolveDataPath("prompts"), "prompt-overrides"),
+      mapping(path.join(threadDir, "tmp"), context.resolveDataPath("operations"), "dream-operation-files", {
+        selectedNames: matchingFiles(path.join(threadDir, "tmp"), /(?:^|\/)dream-[^/]+\.md$/u),
+      }),
     ];
     case "review-lab": return reviewMappings(context, memoryDir, "review");
     case "extended-mining-workbench": return reviewMappings(context, memoryDir, "mining");
@@ -138,7 +147,10 @@ function migrationMappings(context) {
 }
 
 function verifyMapping(item) {
-  if (item.mode === "sqlite-tables") return !item.sourceRows.tables || (item.targetRows.tables && item.sourceRows.topics === item.targetRows.topics && item.sourceRows.entries === item.targetRows.entries);
+  if (item.mode === "sqlite-tables") return !item.sourceRows.tables || (item.targetRows.tables
+    && item.sourceRows.topics === item.targetRows.topics
+    && item.sourceRows.entries === item.targetRows.entries
+    && item.sourceRows.sha256 === item.targetRows.sha256);
   if (item.mode === "json-rename") return !item.sourceInventory.exists || sameFile(item.source, item.target);
   if (!item.sourceInventory.exists) return true;
   return item.targetInventory.exists && item.sourceInventory.files === item.targetInventory.files
