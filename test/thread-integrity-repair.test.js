@@ -22,6 +22,23 @@ test("repairs a Claude orphan chain and removes a dangling tool result",()=>{
   assert.ok(result.backup);
 });
 
+test("repair preserves existing POSIX thread metadata", { skip: process.platform === "win32" }, () => {
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),"stmem-repair-metadata-")),file=path.join(dir,"thread.jsonl");
+  writeRows(file,[
+    {type:"system",subtype:"init",session_id:"claude-1"},
+    {type:"user",uuid:"a",parentUuid:null,message:{content:[{type:"text",text:"hello"}]}},
+    {type:"user",uuid:"c",parentUuid:"b",message:{content:[{type:"tool_result",tool_use_id:"tool-1",content:"result"}]}},
+  ]);
+  fs.chmodSync(file,0o640);
+  const before=fs.statSync(file);
+  const result=repairIntegrityFile(file,"claude","claude-1");
+  const after=fs.statSync(file);
+  assert.equal(result.after.healthy,true);
+  assert.equal(after.uid,before.uid);
+  assert.equal(after.gid,before.gid);
+  assert.equal(after.mode&0o7777,before.mode&0o7777);
+});
+
 test("restores Codex session metadata from backup and removes dangling tools",()=>{
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),"stmem-codex-integrity-")),file=path.join(dir,"rollout-session-1.jsonl"),backup=path.join(dir,"rollout-session-1.original.bak");
   const meta={type:"session_meta",timestamp:"2026-07-01T00:00:00.000Z",payload:{session_id:"session-1",id:"session-1",base_instructions:{text:"persona"},cwd:"C:\\work"}};

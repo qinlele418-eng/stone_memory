@@ -25,6 +25,7 @@ const { buildCodexSessionMeta, validateCodexRebuildOutput } = require("../src/se
 const { isSystemInjection } = require("../src/lib/thread-message-filter");
 const { serializeJsonl } = require("../src/lib/jsonl");
 const { previewRebuildArchiveCatchup, applyRebuildArchiveCatchup } = require("../src/services/rebuild-archive-catchup");
+const { replaceThreadFile } = require("../src/lib/thread-file-replacement");
 
 const DEFAULT_WINDOW_DAYS = 3;
 
@@ -416,7 +417,8 @@ function main() {
         fs.copyFileSync(stagedFile,inputFile);
         fs.unlinkSync(stagedFile);
       }else{
-        fs.renameSync(stagedFile,inputFile);
+        replaceThreadFile(inputFile,outputText);
+        try{fs.unlinkSync(stagedFile);}catch{}
       }
     }catch(error){
       throw new Error(`重建结果已安全保存在 ${stagedFile}，但无法覆盖活动线程；请关闭占用该线程的 Codex 后重试：${error.message}`);
