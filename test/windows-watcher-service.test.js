@@ -6,7 +6,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const {
-  TASK_NAME, taskXml, taskMatches, installWindowsWatcherService,
+  TASK_NAME, taskXml, taskMatches, servicePaths, installWindowsWatcherService,
   windowsWatcherServiceStatus, repairWindowsWatcherService, removeWindowsWatcherService,
 } = require("../src/services/windows-watcher-service");
 
@@ -60,7 +60,7 @@ test("install creates then runs exactly one named task through argument arrays",
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-test("service status is unsupported outside Windows and repair replaces a missing task", () => {
+test("service status is unsupported outside Windows and repair replaces an unavailable task query", () => {
   assert.deepEqual(windowsWatcherServiceStatus({ projectDir, platform: "linux" }), { supported: false, installed: false, healthy: false });
   const calls = [];
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-windows-repair-"));
@@ -84,7 +84,10 @@ test("remove deletes the task before gracefully stopping only the supervisor", (
   const result = removeWindowsWatcherService({
     projectDir,
     platform: "win32",
-    execFile(file, args) { events.push(`task:${args[0]}`); return ""; },
+    execFile(file, args) {
+      events.push(`task:${args[0]}`);
+      return args[0] === "/Query" ? taskXml(servicePaths(projectDir)) : "";
+    },
     readPid() { return 1234; },
     matches() { return events.includes("kill") ? false : true; },
     kill() { events.push("kill"); },
@@ -92,4 +95,26 @@ test("remove deletes the task before gracefully stopping only the supervisor", (
   assert.equal(result.removed, true);
   assert.equal(result.stopped, true);
   assert.deepEqual(events, ["task:/Query", "task:/Delete", "kill"]);
+});
+
+test("remove refuses an unverified task and a scheduler query failure", () => {
+  assert.throws(() => removeWindowsWatcherService({
+    projectDir,
+    platform: "win32",
+    execFile(file, args) { return args[0] === "/Query" ? "<Task><Actions/></Task>" : ""; },
+  }), /拒绝删除/);
+  assert.throws(() => removeWindowsWatcherService({
+    projectDir,
+    platform: "win32",
+    execFile() { throw new Error("access denied"); },
+  }), /未删除任务或停止进程/);
+});
+
+test("a supervisor that ignores SIGTERM is reported as still running", () => {
+  assert.equal(require("../src/services/windows-watcher-service").stopSupervisor({
+    readPid: () => 1234,
+    matches: () => true,
+    kill() {},
+    waitMs: 0,
+  }), false);
 });

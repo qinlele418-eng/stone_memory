@@ -48,9 +48,12 @@ function runSchtasks(args, { execFile = execFileSync } = {}) {
 
 function queryTask(options = {}) {
   try {
-    return { exists: true, xml: runSchtasks(["/Query", "/TN", TASK_NAME, "/XML"], options) };
+    return { available: true, exists: true, xml: runSchtasks(["/Query", "/TN", TASK_NAME, "/XML"], options) };
   } catch (error) {
-    return { exists: false, error };
+    // schtasks does not offer a locale-neutral distinction between a missing task
+    // and an operational failure.  Do not turn access or scheduler failures into
+    // a misleading "not installed" result.
+    return { available: false, exists: null, error };
   }
 }
 
@@ -81,37 +84,44 @@ function windowsWatcherServiceStatus({ projectDir, platform = process.platform, 
   if (platform !== "win32") return { supported: false, installed: false, healthy: false };
   const paths = servicePaths(projectDir);
   const queried = queryTask(options);
-  const expected = queried.exists && taskMatches(queried.xml, paths);
+  const expected = queried.available && taskMatches(queried.xml, paths);
   let pid = null;
   try { pid = Number(fs.readFileSync(path.join(os.homedir(), ".stone_memory", "watcher.pid"), "utf8")); } catch {}
   const running = !!pid && processMatches(pid, "watcher-supervisor.js");
-  return { supported: true, installed: queried.exists, expected, running, pid: running ? pid : null, healthy: expected && running };
+  return {
+    supported: true, installed: queried.exists, expected, running,
+    pid: running ? pid : null, healthy: expected && running,
+    queryError: queried.error?.message || null,
+  };
 }
 
 function stopSupervisor({ kill = process.kill, matches = processMatches, readPid, waitMs = 5_000 } = {}) {
   let pid = null;
   try { pid = readPid ? readPid() : Number(fs.readFileSync(path.join(os.homedir(), ".stone_memory", "watcher.pid"), "utf8")); } catch {}
-  if (!pid || !matches(pid, "watcher-supervisor.js")) return false;
+  if (!pid || !matches(pid, "watcher-supervisor.js")) return null;
   kill(pid, "SIGTERM");
   const deadline = Date.now() + waitMs;
   while (Date.now() < deadline && matches(pid, "watcher-supervisor.js")) {
     // This short synchronous wait is only used by the explicit remove command.
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
   }
-  return true;
+  return !matches(pid, "watcher-supervisor.js");
 }
 
 function removeWindowsWatcherService({ projectDir, platform = process.platform, ...options }) {
   if (platform !== "win32") throw new Error("Windows Task Scheduler watcher service 仅支持 Windows");
   const queried = queryTask(options);
-  if (queried.exists) runSchtasks(["/Delete", "/TN", TASK_NAME, "/F"], options);
+  if (!queried.available) throw new Error(`无法确认 watcher 计划任务状态，未删除任务或停止进程：${queried.error?.message || "未知错误"}`);
+  const paths = servicePaths(projectDir);
+  if (!taskMatches(queried.xml, paths)) throw new Error("同名计划任务不属于当前 Stone Memory 安装，拒绝删除");
+  runSchtasks(["/Delete", "/TN", TASK_NAME, "/F"], options);
   const stopped = stopSupervisor(options);
-  return { taskName: TASK_NAME, removed: queried.exists, stopped };
+  return { taskName: TASK_NAME, removed: true, stopped };
 }
 
 function repairWindowsWatcherService(input) {
   const status = windowsWatcherServiceStatus(input);
-  if (!status.installed || !status.expected || !status.running) return installWindowsWatcherService(input);
+  if (!status.expected || !status.running) return installWindowsWatcherService(input);
   return { repaired: false, taskName: TASK_NAME };
 }
 

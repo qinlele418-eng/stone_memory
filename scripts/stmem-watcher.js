@@ -66,14 +66,15 @@ if (subcmd === "service") {
   } else if (action === "status") {
     const result = windowsWatcherServiceStatus({ projectDir });
     console.log(`watcher service: ${result.healthy ? "正常" : "需要修复"}`);
-    console.log(`  task: ${result.installed ? (result.expected ? "已安装" : "定义漂移") : "未安装"}`);
+    console.log(`  task: ${result.queryError ? "无法查询" : result.installed ? (result.expected ? "已安装" : "定义漂移") : "未安装"}`);
+    if (result.queryError) console.log(`  query: ${result.queryError}`);
     console.log(`  supervisor: ${result.running ? `运行中 (pid ${result.pid})` : "未运行"}`);
   } else if (action === "repair") {
     const result = repairWindowsWatcherService({ projectDir });
     console.log(result.repaired === false ? "watcher service 已正常" : `watcher service 已修复：${result.taskName}`);
   } else {
     const result = removeWindowsWatcherService({ projectDir });
-    console.log(`watcher service 已移除${result.stopped ? "，supervisor 已停止" : ""}`);
+    console.log(`watcher service 已移除${result.stopped === true ? "，supervisor 已停止" : result.stopped === false ? "；supervisor 在截止时间后仍运行，请手动检查" : "；未发现运行中的 supervisor"}`);
   }
   return;
 }
