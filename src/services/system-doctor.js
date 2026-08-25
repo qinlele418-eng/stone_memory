@@ -7,6 +7,7 @@ const { findThreadSessionFile } = require("../lib/thread-session-file");
 const { MemoryStore } = require("../storage/memory-store");
 const { processMatches } = require("../lib/process-identity");
 const { readWatcherState, watcherActions, watcherEnabled } = require("./watcher-runtime");
+const { windowsWatcherServiceStatus } = require("./windows-watcher-service");
 
 const REQUIRED_CONFIG = ["label", "ai", "user", "runtime", "purpose", "sessionDir", "minerMode"];
 
@@ -16,12 +17,16 @@ function watcherStatus(threadId = null, threadConfig = {}) {
   try { pid = Number(fs.readFileSync(path.join(root, "watcher.pid"), "utf8")); } catch {}
   const running = !!pid && processMatches(pid, "watcher-supervisor.js");
   const state = threadId ? readWatcherState(threadId) : null;
+  const service = process.platform === "win32"
+    ? windowsWatcherServiceStatus({ projectDir: path.resolve(__dirname, "..", "..") })
+    : null;
   return {
     running,
     pid: running ? pid : null,
     enabledForThread: threadId ? watcherEnabled(threadConfig) : null,
     actions: threadId ? watcherActions(threadConfig) : null,
     worker: state,
+    service,
   };
 }
 
@@ -126,7 +131,12 @@ function diagnoseThread(threadId, { projectDir = path.resolve(__dirname, "..", "
   }
 
   const warnings = [];
-  if (checks.watcher.enabledForThread && !checks.watcher.running) warnings.push({ code: "WATCHER_NOT_RUNNING", reason: "该记忆体 watcher 期望状态为 ON，但 supervisor 当前未运行；请修复后台服务，而不是重复启动裸进程", nextCommand: "stmem doctor --thread " + threadId });
+  if (checks.watcher.enabledForThread && !checks.watcher.running) warnings.push({ code: "WATCHER_NOT_RUNNING", reason: "该记忆体 watcher 期望状态为 ON，但 supervisor 当前未运行；请修复后台服务，而不是重复启动裸进程", nextCommand: process.platform === "win32" ? "stmem watcher service repair" : "stmem doctor --thread " + threadId });
+  if (checks.watcher.service && !checks.watcher.service.expected) warnings.push({
+    code: "WATCHER_SERVICE_DRIFT",
+    reason: checks.watcher.service.installed ? "Windows watcher 计划任务定义与当前安装不一致" : "Windows watcher 计划任务未安装",
+    nextCommand: "stmem watcher service repair",
+  });
   if (checks.watcher.enabledForThread && checks.watcher.running && checks.watcher.worker?.status !== "running") warnings.push({
     code: "WATCHER_WORKER_NOT_RUNNING",
     reason: `该记忆体 watcher worker 当前状态：${checks.watcher.worker?.status || "等待启动"}`,

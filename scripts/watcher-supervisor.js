@@ -249,7 +249,7 @@ async function main() {
 
 main().catch(error => {
   log(`FATAL: ${error.stack || error.message}`);
-  if (process.platform === "win32" || process.env.STMEM_SUPERVISOR_SELF_HEAL === "1") {
+  if (process.env.STMEM_SUPERVISOR_SELF_HEAL === "1") {
     try {
       const replacement = spawn(process.execPath, [__filename, "--delay", "30"], {
         detached: true, stdio: ["ignore", "ignore", "ignore"], windowsHide: true,
@@ -258,7 +258,7 @@ main().catch(error => {
       replacement.unref();
       log(`supervisor 自愈：已安排 30 秒后重启 pid=${replacement.pid}`);
     } catch (restartError) {
-      log(`Windows 自愈安排失败: ${restartError.message}`);
+      log(`supervisor 自愈安排失败: ${restartError.message}`);
     }
   }
   shutdown("fatal");
