@@ -1,6 +1,7 @@
 (() => {
   "use strict";
   const api = window.StoneDeveloperModule;
+  const readerTools = window.StoneNotebookReader;
   const threadId = api?.threadId || "";
   const base = `/api/libraries/${encodeURIComponent(threadId)}/notebooks`;
   const $ = selector => document.querySelector(selector);
@@ -15,10 +16,16 @@
   const notice = $("#notice");
   const topicDialog = $("#topic-dialog");
   const noteDialog = $("#note-dialog");
-  let state = { topics: [], currentTopic: null, currentNote: null, currentEntries: [] };
+  let state = {
+    topics: [], currentTopic: null, currentNote: null, currentEntries: [],
+    readingBlocks: [], readingPages: [], readingPage: 0, visibleEntries: [], currentNoteIndex: -1,
+  };
   const paperStyleSelect = $("#paper-style");
+  const readingModeSelect = $("#reading-mode");
   const PAPER_STYLES = new Set(["blank", "lined", "grid"]);
   const PAPER_STYLE_KEY = "stone:notebook:paper-style:v1";
+  const READING_MODES = new Set(["paged", "continuous"]);
+  const READING_MODE_KEY = "stone:notebook:reading-mode:v1";
 
   const pageShell = document.querySelector("stone-module-page");
   if (pageShell?.shadowRoot) {
@@ -49,6 +56,22 @@
   }
   try { applyPaperStyle(localStorage.getItem(PAPER_STYLE_KEY) || "blank", false); } catch { applyPaperStyle("blank", false); }
   paperStyleSelect.addEventListener("change", event => applyPaperStyle(event.currentTarget.value));
+
+  function applyReadingMode(value, persist = true) {
+    const mode = READING_MODES.has(value) ? value : "paged";
+    paper.dataset.readingMode = mode;
+    readingModeSelect.value = mode;
+    if (persist) {
+      try { localStorage.setItem(READING_MODE_KEY, mode); } catch {}
+    }
+    if (state.currentNote) {
+      state.readingPage = 0;
+      buildReadingPages();
+      renderReadingPage();
+    }
+  }
+  try { applyReadingMode(localStorage.getItem(READING_MODE_KEY) || "paged", false); } catch { applyReadingMode("paged", false); }
+  readingModeSelect.addEventListener("change", event => applyReadingMode(event.currentTarget.value));
 
   async function loadStatus() {
     if (!threadId) throw new Error("缺少当前记忆体，请返回插件工坊重新进入");
@@ -137,10 +160,15 @@
     state.currentNote = note;
     const visibleEntries = state.currentEntries.filter(item => item.visibility !== "sealed");
     const currentIndex = visibleEntries.findIndex(item => item.id === note.id);
+    state.visibleEntries = visibleEntries;
+    state.currentNoteIndex = currentIndex;
+    state.readingPage = 0;
     const date = new Date(note.updatedAt || note.createdAt || Date.now());
     const month = new Intl.DateTimeFormat("en-US", { month: "short" }).format(date).toUpperCase();
     const day = String(date.getDate()).padStart(2, "0");
-    paper.innerHTML = `<span class="paper-ribbon" aria-hidden="true"></span><div class="book-page book-page-title"><header><div class="date-badge"><small>${month}</small><strong>${day}</strong></div><p>${formatLongDate(date)}<span class="leaf-divider" aria-hidden="true"></span>${escapeHtml(note.topicName)} · 第 ${note.revision} 版</p><h2>${escapeHtml(note.title)}</h2><div>${note.tags.map(tag => `<span>#${escapeHtml(tag)}</span>`).join("")}</div></header></div><div class="book-page book-page-body">${renderMarkdown(note.body)}</div><footer><span>${String(Math.max(0, currentIndex) + 1).padStart(2, "0")}</span><i>/</i><span>${String(visibleEntries.length).padStart(2, "0")}</span></footer>`;
+    paper.innerHTML = `<span class="paper-ribbon" aria-hidden="true"></span><div class="book-page book-page-title"><header><div class="date-badge"><small>${month}</small><strong>${day}</strong></div><p>${formatLongDate(date)}<span class="leaf-divider" aria-hidden="true"></span>${escapeHtml(note.topicName)} · 第 ${note.revision} 版</p><h2>${escapeHtml(note.title)}</h2><div>${(note.tags || []).map(tag => `<span>#${escapeHtml(tag)}</span>`).join("")}</div></header></div><div class="book-page book-page-body"><div id="reading-content" aria-live="polite"></div><nav id="body-pagination" class="body-pagination" aria-label="当前笔记正文分页"><button id="previous-page" type="button">← 上一页</button><span id="page-status"></span><button id="next-page" type="button">下一页 →</button></nav></div><footer><span>${String(Math.max(0, currentIndex) + 1).padStart(2, "0")}</span><i>/</i><span>${String(visibleEntries.length).padStart(2, "0")}</span></footer>`;
+    buildReadingPages();
+    renderReadingPage();
     const previous = $("#previous-note"), next = $("#next-note");
     previous.disabled = currentIndex <= 0;
     next.disabled = currentIndex < 0 || currentIndex >= visibleEntries.length - 1;
@@ -151,21 +179,44 @@
     $("#reader-back").focus();
   }
 
-  function renderMarkdown(markdown) {
-    const lines = String(markdown || "").split(/\r?\n/), output = [];
-    let paragraph = [];
-    const flush = () => { if (paragraph.length) output.push(`<p>${inline(paragraph.join(" "))}</p>`); paragraph = []; };
-    for (const line of lines) {
-      if (!line.trim()) { flush(); continue; }
-      const heading = line.match(/^(#{1,3})\s+(.+)$/);
-      if (heading) { flush(); const level = heading[1].length + 1; output.push(`<h${level}>${inline(heading[2])}</h${level}>`); }
-      else if (/^[-*]\s+/.test(line)) { flush(); output.push(`<p class="list-item">• ${inline(line.replace(/^[-*]\s+/, ""))}</p>`); }
-      else paragraph.push(line.trim());
-    }
-    flush();
-    return `<div class="markdown">${output.join("")}</div>`;
+  function readingBudget() {
+    return window.matchMedia("(max-width: 800px)").matches ? 320 : 420;
   }
-  function inline(text) { return escapeHtml(text).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/`([^`]+)`/g, "<code>$1</code>"); }
+
+  function buildReadingPages() {
+    const note = state.currentNote;
+    if (!note || !readerTools) return;
+    state.readingBlocks = readerTools.renderMarkdownBlocks(note.body, {
+      resolveImageUrl: source => readerTools.resolveImageUrl(source, { base, topicId: note.topicId }),
+    });
+    state.readingPages = readerTools.paginateBlocks(state.readingBlocks, readingBudget());
+    state.readingPage = Math.min(state.readingPage, Math.max(0, state.readingPages.length - 1));
+  }
+
+  function renderReadingPage() {
+    const content = $("#reading-content"), controls = $("#body-pagination");
+    if (!content || !controls) return;
+    const continuous = readingModeSelect.value === "continuous";
+    const blocks = continuous ? state.readingBlocks : (state.readingPages[state.readingPage] || []);
+    content.innerHTML = `<div class="markdown">${blocks.map(block => block.html).join("")}</div>`;
+    controls.hidden = continuous || state.readingPages.length <= 1;
+    if (!controls.hidden) {
+      const previous = $("#previous-page"), next = $("#next-page");
+      previous.disabled = state.readingPage <= 0;
+      next.disabled = state.readingPage >= state.readingPages.length - 1;
+      $("#page-status").textContent = `正文 ${state.readingPage + 1} / ${state.readingPages.length}`;
+      previous.onclick = () => changeReadingPage(-1);
+      next.onclick = () => changeReadingPage(1);
+    }
+  }
+
+  function changeReadingPage(offset) {
+    const next = Math.max(0, Math.min(state.readingPages.length - 1, state.readingPage + offset));
+    if (next === state.readingPage) return;
+    state.readingPage = next;
+    renderReadingPage();
+    paper.scrollIntoView({ block: "start", behavior: "auto" });
+  }
 
   function openTopicForm(topicId = "") {
     const form = $("#topic-form"), topic = state.topics.find(item => item.id === topicId) || null;
@@ -222,6 +273,19 @@
   $("#reader-index").onclick = () => { reader.hidden = true; workspace.hidden = false; };
   $("#previous-note").onclick = event => event.currentTarget.dataset.note && readNote(event.currentTarget.dataset.note);
   $("#next-note").onclick = event => event.currentTarget.dataset.note && readNote(event.currentTarget.dataset.note);
+  let previousReadingBudget = readingBudget();
+  let resizeTimer = null;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      const nextBudget = readingBudget();
+      if (!state.currentNote || nextBudget === previousReadingBudget) return;
+      previousReadingBudget = nextBudget;
+      state.readingPage = 0;
+      buildReadingPages();
+      renderReadingPage();
+    }, 120);
+  });
 
   $("#topic-form").addEventListener("submit", async event => {
     event.preventDefault();

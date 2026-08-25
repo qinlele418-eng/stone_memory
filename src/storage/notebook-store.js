@@ -7,6 +7,11 @@ const { openDatabase } = require("./database");
 
 const VISIBILITIES = new Set(["visible", "sealed"]);
 const COVER_PRESETS = new Set(["", "preset:forest", "preset:mist", "preset:amber", "preset:berry", "preset:night"]);
+const NOTEBOOK_IMAGE_TYPES = new Map([
+  [".png", "image/png"], [".jpg", "image/jpeg"], [".jpeg", "image/jpeg"],
+  [".webp", "image/webp"], [".gif", "image/gif"], [".avif", "image/avif"],
+]);
+const MAX_NOTEBOOK_ASSET_BYTES = 20 * 1024 * 1024;
 
 class NotebookStore {
   constructor({ threadId, root, memoryDir = root } = {}) {
@@ -233,6 +238,22 @@ class NotebookStore {
       revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at,
       ...(includeBody ? { body: row.body_text } : {}),
     }));
+  }
+
+  readAsset(topicId, filename) {
+    const topic = this.getTopic(topicId);
+    if (!topic) throw new Error(`notebook topic not found: ${topicId}`);
+    const safeName = requiredSegment(filename, "asset filename");
+    const extension = path.extname(safeName).toLowerCase();
+    const contentType = NOTEBOOK_IMAGE_TYPES.get(extension);
+    if (!contentType) throw new Error("notebook asset must be png, jpg, jpeg, webp, gif, or avif");
+    const relativePath = path.posix.join("topics", topic.slug, "assets", safeName);
+    const absolutePath = this.resolveRelative(relativePath);
+    if (!fs.existsSync(absolutePath)) return null;
+    const stat = fs.statSync(absolutePath);
+    if (!stat.isFile()) return null;
+    if (stat.size > MAX_NOTEBOOK_ASSET_BYTES) throw new Error("notebook asset exceeds 20 MB display limit");
+    return { absolutePath, relativePath, contentType, size: stat.size, modifiedAt: stat.mtime };
   }
 
   getEntryRecord(noteId) {

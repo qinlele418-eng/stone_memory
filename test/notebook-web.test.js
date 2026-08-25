@@ -43,6 +43,15 @@ test("notebook web API reads directly and routes confirmed writes through the CL
   });
   assert.equal(topic.coverPath, "preset:mist");
   assert.equal(topic.isDefault, true);
+  const topicDirectory = path.join(stoneRoot, "runtimes", "codex", "accompany", "thread-test", "memory", "notebook", "topics", topic.slug, "assets");
+  fs.writeFileSync(path.join(topicDirectory, "tiny.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+  const imageResponse = await fetch(`${origin}/api/libraries/thread-test/notebooks/assets/${encodeURIComponent(topic.id)}/tiny.png`);
+  assert.equal(imageResponse.status, 200);
+  assert.equal(imageResponse.headers.get("content-type"), "image/png");
+  assert.equal(imageResponse.headers.get("x-content-type-options"), "nosniff");
+  assert.deepEqual(Buffer.from(await imageResponse.arrayBuffer()), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+  const unsafeImageResponse = await fetch(`${origin}/api/libraries/thread-test/notebooks/assets/${encodeURIComponent(topic.id)}/unsafe.svg`);
+  assert.equal(unsafeImageResponse.status, 400);
   const note = await request("/api/libraries/thread-test/notebooks/entries", {
     method: "POST", body: JSON.stringify({
       title: "海边", body: "记住海风和晚霞。", tags: ["旅行", "海边"], visibility: "sealed",

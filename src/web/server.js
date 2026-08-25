@@ -688,6 +688,27 @@ async function handleDreamSettings(req, url, threadId, resource) {
   throw new Error("不支持的织梦设置请求");
 }
 
+function serveNotebookAsset(req, res, asset) {
+  if (!asset) return false;
+  const etag = `W/"${asset.size.toString(16)}-${Math.floor(asset.modifiedAt.getTime()).toString(16)}"`;
+  const headers = {
+    "content-type": asset.contentType,
+    "content-length": asset.size,
+    "cache-control": "private, max-age=300",
+    "x-content-type-options": "nosniff",
+    etag,
+  };
+  if (req.headers["if-none-match"] === etag) {
+    delete headers["content-length"];
+    res.writeHead(304, headers);
+    res.end();
+    return true;
+  }
+  res.writeHead(200, headers);
+  fs.createReadStream(asset.absolutePath).pipe(res);
+  return true;
+}
+
 async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/developer-modules") {
     return json(res, 200, { modules: listDeveloperModules() });
@@ -1095,6 +1116,11 @@ async function handleApi(req, res, url) {
     if (req.method === "POST" && parts[0] === "topics" && parts.length === 1) {
       const body = await readJson(req);
       return json(res, 201, runStmemBatch(["notebook", "topic-create", "--thread", threadId], body));
+    }
+    if (req.method === "GET" && parts[0] === "assets" && parts.length === 3) {
+      const asset = service.asset({ threadId, topicId: parts[1], filename: parts[2] });
+      if (!asset) return json(res, 404, { found: false });
+      return serveNotebookAsset(req, res, asset);
     }
     if (req.method === "PATCH" && parts[0] === "topics" && parts[1]) {
       const body = await readJson(req);

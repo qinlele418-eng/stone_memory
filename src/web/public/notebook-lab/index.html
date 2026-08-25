@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>Stone Memory · 主题小笔记</title>
   <script src="../developer-kit/runtime.js?v=5"></script>
-  <link rel="stylesheet" href="./styles.css?v=5">
+  <link rel="stylesheet" href="./styles.css?v=10">
 </head>
 <body class="stone-theme-enabled">
   <stone-module-page eyebrow="THEMED NOTEBOOKS · MARKDOWN ARCHIVE" title="主题小笔记" description="封存是一份温柔的君子协议：页面不展示正文，但小机、Markdown 与数据库始终保留完整记忆。">
@@ -24,12 +24,13 @@
       <div id="entries" class="entries"></div>
     </section>
     <section id="reader" class="reader" hidden>
-      <div class="reader-actions"><button id="reader-back" class="quiet" type="button">← 返回目录</button><div class="reader-tools"><label class="paper-style-control" for="paper-style"><span>纸张</span><select id="paper-style" aria-label="阅读纸张样式"><option value="blank">空白</option><option value="lined">横线</option><option value="grid">网格</option></select></label><button id="edit-note" type="button">编辑此页</button></div></div><article id="paper" data-paper-style="blank"></article>
+      <div class="reader-actions"><button id="reader-back" class="quiet" type="button">← 返回目录</button><div class="reader-tools"><label class="paper-style-control" for="reading-mode"><span>阅读</span><select id="reading-mode" aria-label="长文阅读方式"><option value="paged">分页</option><option value="continuous">连续</option></select></label><label class="paper-style-control" for="paper-style"><span>纸张</span><select id="paper-style" aria-label="阅读纸张样式"><option value="blank">空白</option><option value="lined">横线</option><option value="grid">网格</option></select></label><button id="edit-note" type="button">编辑此页</button></div></div><article id="paper" data-paper-style="blank" data-reading-mode="paged"></article>
       <nav class="reader-nav" aria-label="笔记翻页"><button id="previous-note" type="button">← 上一篇</button><button id="reader-index" type="button" aria-label="返回目录"><span class="index-icon" aria-hidden="true"></span><span>目录</span></button><button id="next-note" type="button">下一篇 →</button></nav>
     </section>
     <dialog id="topic-dialog"><form id="topic-form" method="dialog"><h2>新建一本主题笔记</h2><input name="topicId" type="hidden"><label>主题名称<input name="name" required maxlength="80" placeholder="例如：旅行笔记"></label><label>一句说明<input name="description" maxlength="180" placeholder="这本笔记想留下什么"></label><label>封面颜色<select name="coverPath"><option value="">松林绿（默认）</option><option value="preset:mist">雾蓝</option><option value="preset:amber">暖杏</option><option value="preset:berry">莓果</option><option value="preset:night">夜色</option></select></label><label class="check"><input name="isDefault" type="checkbox">设为默认写入主题（不会随最近使用自动变化）</label><label class="check"><input name="sealed" type="checkbox">整本封存，仅在书架展示状态</label><label class="check edit-only" hidden><input name="archived" type="checkbox">归档到书架后排，可随时恢复</label><p class="form-error" role="alert" hidden></p><div class="actions"><button type="button" data-close-dialog>取消</button><button class="primary" name="save" value="default">创建</button></div></form></dialog>
     <dialog id="note-dialog"><form id="note-form" method="dialog"><h2>写一页</h2><input name="topicId" type="hidden"><input name="noteId" type="hidden"><input name="expectedRevision" type="hidden"><label>标题<input name="title" required maxlength="120"></label><label>标签<input name="tags" placeholder="用逗号分隔"></label><label>正文<textarea name="body" required rows="12"></textarea></label><label class="check"><input name="sealed" type="checkbox">由小机封存，前端不展示正文</label><p class="form-error" role="alert" hidden></p><div class="actions"><button type="button" data-close-dialog>取消</button><button class="primary" name="save" value="default">保存 Markdown</button></div></form></dialog>
   </stone-module-page>
-  <script src="./app.js?v=9"></script>
+  <script src="./reader-tools.js?v=1"></script>
+  <script src="./app.js?v=10"></script>
 </body>
 </html>
