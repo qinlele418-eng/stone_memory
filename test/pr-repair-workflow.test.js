@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { publishGate } from '../.github/pr-repair/publish-gate.mjs';
 
-const workflow = readFileSync(new URL('../.github/workflows/pr-repair.yml', import.meta.url), 'utf8');
+const workflow = readFileSync(new URL('../.github/workflows/pr-repair.yml', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+const officialCiWorkflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
 
 test('PR Repair workflow auto-runs on PR changes and requires manual publish permission', () => {
   assert.match(workflow, /workflow_dispatch:/);
@@ -19,6 +20,12 @@ test('PR Repair workflow auto-runs on PR changes and requires manual publish per
   assert.match(workflow, /repo\/\.github\/pr-repair\/diagnose\.mjs/);
   assert.match(workflow, /Trusted PR Repair tooling is not installed on main; refusing a manual repair dispatch/);
   assert.match(workflow, /skipping this bootstrap pull-request run/);
+});
+
+test('official CI never dispatches every historical PR from a main push', () => {
+  assert.doesNotMatch(officialCiWorkflow, /\n  push:\n/);
+  assert.doesNotMatch(officialCiWorkflow, /Dispatch CI for open main PRs/);
+  assert.match(officialCiWorkflow, /workflow_dispatch:/);
 });
 
 test('Z.AI secret is isolated from the test and apply jobs', () => {

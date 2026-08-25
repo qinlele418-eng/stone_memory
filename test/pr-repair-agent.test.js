@@ -774,7 +774,7 @@ test('agent apply_patch can resolve an actual current-main conflict in the repai
     await git('switch', 'pr');
     const merge = await runGit(['merge', '--no-commit', '--no-ff', mainSha], { cwd });
     assert.notEqual(merge.code, 0);
-    const conflictText = await readFile(join(cwd, 'example.txt'), 'utf8');
+    const conflictText = (await readFile(join(cwd, 'example.txt'), 'utf8')).replace(/\r\n/g, '\n');
     assert.match(conflictText, /<<<<<<< HEAD/);
     assert.deepEqual(conflictText.split(/\n/), ['<<<<<<< HEAD', 'pr', '=======', 'main', `>>>>>>> ${mainSha}`, '']);
     const tools = createAgentTools({ cwd, revisions: { base: mainSha, pr: prSha, main: mainSha }, allowedFiles: ['example.txt'] });
