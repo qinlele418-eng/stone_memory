@@ -5,10 +5,10 @@ import { publishGate } from '../.github/pr-repair/publish-gate.mjs';
 
 const workflow = readFileSync(new URL('../.github/workflows/pr-repair.yml', import.meta.url), 'utf8');
 
-test('PR Repair workflow auto-runs on PR changes and keeps manual no-push controls', () => {
+test('PR Repair workflow auto-runs on PR changes and requires manual publish permission', () => {
   assert.match(workflow, /workflow_dispatch:/);
   assert.match(workflow, /pull_request:\n\s+types: \[opened, synchronize, reopened\]/);
-  assert.match(workflow, /push_repair:\n[\s\S]*?default: false/);
+  assert.match(workflow, /push_repair:\n[\s\S]*?default: true/);
   assert.match(workflow, /allow_external_model_data:\n[\s\S]*?default: false/);
   assert.match(workflow, /PR_REPAIR_ALLOW_EXTERNAL_MODEL_DATA/);
   assert.match(workflow, /statuses: read/);

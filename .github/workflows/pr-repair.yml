@@ -12,7 +12,7 @@ on:
       push_repair:
         description: Push a verified append-only repair commit after final checks
         required: false
-        default: false
+        default: true
         type: boolean
       allow_external_model_data:
         description: Explicitly allow sanitized PR excerpts to be sent to Z.AI
