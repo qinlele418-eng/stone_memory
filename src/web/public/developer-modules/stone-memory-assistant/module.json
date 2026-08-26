@@ -1,9 +1,0 @@
-{
-  "id": "stone-memory-assistant",
-  "name": "Stone Memory 小助理",
-  "version": 1,
-  "kind": "guided-maintenance-developer-module",
-  "entry": "index.html",
-  "contributor": "@不知道昵称",
-  "description": "介绍 Stone Memory、回答常见问题，并通过现有正式接口协助维护当前记忆体。"
-}

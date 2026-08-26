@@ -7,7 +7,7 @@ const path = require("node:path");
 
 test("notebook developer module is detachable and bound to the selected memory thread", () => {
   const publicDir = path.join(__dirname, "..", "src", "web", "public");
-  const moduleDir = path.join(publicDir, "notebook-lab");
+  const moduleDir = path.join(__dirname, "..", "developer-modules", "notebook-lab", "frontend");
   const main = fs.readFileSync(path.join(publicDir, "app.js"), "utf8");
   const bootstrap = fs.readFileSync(path.join(moduleDir, "bootstrap.js"), "utf8");
   const app = fs.readFileSync(path.join(moduleDir, "app.js"), "utf8");

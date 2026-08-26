@@ -4,17 +4,11 @@
   "version": "2.0.0",
   "sdkVersion": 1,
   "scope": "memory",
-  "permissions": ["core:read", "mining:review"],
-  "entry": { "frontend": "index.html", "commands": { "review": "backend/commands/review.js" } },
-  "storage": { "database": "module.sqlite", "files": ["candidates", "batches"], "browser": ["profile", "rules"] },
-  "legacy": {
-    "frontend": "src/web/public/developer-modules/extended-mining-workbench",
-    "commands": { "review": "scripts/stmem-mine-review.js" },
-    "storage": [
-      { "path": "<thread-dir>/memory/mining-candidates/", "mode": "候选摘要" },
-      { "path": "<thread-dir>/memory/mining-batches/", "mode": "批处理状态" },
-      { "path": "<thread-dir>/memory/backups/", "mode": "采用前备份" },
-      { "path": "浏览器 localStorage", "mode": "模型与规则偏好" }
-    ]
-  }
+  "permissions": ["core:read", "mining:review", "process:spawn"],
+  "entry": { "frontend": "frontend/index.html", "commands": { "migrate": "migrations/migrate.js" } },
+  "storage": { "files": ["candidates", "batches", "backups"], "browser": ["profile", "rules"] },
+  "migration": { "mode": "explicit", "receipt": "migration-receipt.json" }
+  ,"coreExtensions": [
+    { "path": "src/web/server.js", "reason": "主服务的拓展挖掘兼容 API" }
+  ]
 }

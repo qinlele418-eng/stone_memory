@@ -5,7 +5,10 @@
   "sdkVersion": 1,
   "scope": "memory",
   "permissions": ["core:read"],
-  "entry": { "frontend": "index.html", "commands": {} },
+  "entry": { "frontend": "frontend/index.html", "commands": {} },
   "storage": {},
-  "legacy": { "frontend": "src/web/public/developer-modules/stone-memory-assistant" }
+  "coreExtensions": [
+    { "path": "src/web/public/app.js", "reason": "主前端的小助理常驻入口" },
+    { "path": "src/web/server.js", "reason": "主服务的小助理兼容 API" }
+  ]
 }

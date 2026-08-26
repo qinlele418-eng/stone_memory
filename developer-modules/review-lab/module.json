@@ -4,17 +4,13 @@
   "version": "1.0.0",
   "sdkVersion": 1,
   "scope": "memory",
-  "permissions": ["core:read", "mining:review", "generation:use"],
-  "entry": { "frontend": "index.html", "commands": { "review": "backend/commands/review.js" } },
-  "storage": { "database": "module.sqlite", "files": ["candidates", "batches", "backups"], "browser": ["review-preferences"] },
-  "legacy": {
-    "frontend": "src/web/public/review-lab",
-    "commands": { "review": "scripts/stmem-mine-review.js" },
-    "storage": [
-      { "path": "<thread-dir>/memory/review-candidates/", "mode": "候选摘要" },
-      { "path": "<thread-dir>/memory/review-batches/", "mode": "批处理状态" },
-      { "path": "<thread-dir>/memory/backups/", "mode": "采用前备份" },
-      { "path": "<thread-dir>/memory/memory.sqlite", "mode": "采用后写入正式摘要/素材表" }
-    ]
-  }
+  "permissions": ["core:read", "mining:review", "generation:use", "process:spawn"],
+  "entry": { "frontend": "frontend/index.html", "commands": { "migrate": "migrations/migrate.js" } },
+  "storage": { "files": ["candidates", "batches", "backups"], "browser": ["review-preferences"] },
+  "migration": { "mode": "explicit", "receipt": "migration-receipt.json" }
+  ,"coreExtensions": [
+    { "path": "src/web/public/app.js", "reason": "主前端的审阅室兼容入口" },
+    { "path": "src/web/public/developer-kit/runtime.js", "reason": "开发者前端运行时的审阅室兼容桥" },
+    { "path": "src/web/server.js", "reason": "主服务的审阅室兼容 API" }
+  ]
 }

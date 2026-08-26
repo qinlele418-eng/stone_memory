@@ -26,7 +26,8 @@ const { normalizeMiningApiProfile } = require("../services/mining-api-profile");
 const { configuredRuntimeIds, MiningReviewBatchStore } = require("../services/mining-review-batch");
 const { buildFeelingPrompt, buildFeaturePrompt } = require("../services/memory-miner");
 const { normalizeRebuildRequest, rebuildRequestCliArgs } = require("../services/rebuild-request");
-const { loadModules, resolveInside } = require("../services/developer-module-contract");
+const { MODULE_ROOT, loadModules, resolveInside } = require("../services/developer-module-contract");
+const { dataDirFor } = require("../services/developer-module-data");
 
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MAX_UPLOAD = 512 * 1024 * 1024;
@@ -411,7 +412,7 @@ async function executeMiningJob(job) {
 function refreshMiningBatchJob(job){
   if(!job||job.dates.length<2||!["queued","running","cancelling"].includes(job.status))return job;
   try{
-    const store=new MiningReviewBatchStore({memoryDir:path.join(getThreadDir(job.threadId),"memory"),threadId:job.threadId,directoryName:"mining-batches"});
+    const store=new MiningReviewBatchStore({memoryDir:path.join(getThreadDir(job.threadId),"memory"),threadId:job.threadId,directoryName:"mining-batches",dataDir:dataDirFor("extended-mining-workbench",job.threadId)});
     const batch=store.list().find(row=>row.autoApply&&row.createdAt>=job.createdAt&&JSON.stringify(row.dates)===JSON.stringify(job.dates));
     if(!batch)return job;
     job.batchId=batch.id;
@@ -555,17 +556,13 @@ function listLibraries() {
   });
 }
 
-function listDeveloperModules(publicDir = PUBLIC_DIR) {
-  const root = path.join(publicDir, "developer-modules");
-  const legacyModules = !fs.existsSync(root) ? [] : fs.readdirSync(root, { withFileTypes: true })
-    .filter(entry => entry.isDirectory())
-    .flatMap(entry => {
-      try {
-        const manifest = JSON.parse(fs.readFileSync(path.join(root, entry.name, "module.json"), "utf8"));
-        const id = String(manifest.id || "").trim();
-        const expectedEntry = `/developer-modules/${id}/`;
-        if (!/^[a-z0-9][a-z0-9-]*$/u.test(id) || id !== entry.name || manifest.entry !== expectedEntry) return [];
-        return [{
+function listDeveloperModules() {
+  return loadModules(MODULE_ROOT)
+    .filter(module => !module.errors.length)
+    .map(module => {
+      const manifest = module.manifest;
+      const id = module.id;
+      return {
           id,
           title: String(manifest.title || id),
           summary: String(manifest.summary || ""),
@@ -576,31 +573,10 @@ function listDeveloperModules(publicDir = PUBLIC_DIR) {
           metaLabel: String(manifest.metaLabel || "Module"),
           features: Array.isArray(manifest.features) ? manifest.features.map(String).slice(0, 6) : [],
           order: Number.isFinite(Number(manifest.order)) ? Number(manifest.order) : 100,
-          entry: expectedEntry,
-        }];
-      } catch {
-        return [];
-      }
+          entry: `/developer-modules/${id}/`,
+      };
     })
     .sort((left, right) => left.order - right.order || left.id.localeCompare(right.id));
-  const canonicalModules = loadModules()
-    .filter(item => !item.errors.length && item.manifest.entry?.frontend && !item.manifest.legacy?.frontend)
-    .map(item => ({
-      id: item.id,
-      title: String(item.manifest.title || item.id),
-      summary: String(item.manifest.summary || ""),
-      contributor: String(item.manifest.contributor || "Stone Memory"),
-      status: String(item.manifest.status || "官方实验"),
-      eyebrow: String(item.manifest.eyebrow || "STONE MEMORY LAB"),
-      actionLabel: String(item.manifest.actionLabel || "进入实验室 →"),
-      metaLabel: String(item.manifest.metaLabel || `Module · v${item.manifest.version}`),
-      features: Array.isArray(item.manifest.features) ? item.manifest.features.map(String).slice(0, 6) : [],
-      order: Number.isFinite(Number(item.manifest.order)) ? Number(item.manifest.order) : 100,
-      entry: `/developer-modules/${item.id}/`,
-    }));
-  const byId = new Map(legacyModules.map(item => [item.id, item]));
-  for (const item of canonicalModules) byId.set(item.id, item);
-  return [...byId.values()].sort((left, right) => left.order - right.order || left.id.localeCompare(right.id));
 }
 
 function serveCanonicalDeveloperModule(req, res, pathname) {
@@ -644,9 +620,10 @@ function overview(threadId) {
 }
 
 function serveStatic(req, res, pathname) {
+  const moduleFile = resolveDeveloperModuleAsset(pathname);
   const requested = pathname === "/" ? "index.html" : pathname.endsWith("/") ? `${pathname.slice(1)}index.html` : pathname.slice(1);
-  const file = path.resolve(PUBLIC_DIR, requested);
-  if (!file.startsWith(PUBLIC_DIR) || !fs.existsSync(file)) return false;
+  const file = moduleFile || path.resolve(PUBLIC_DIR, requested);
+  if ((!file.startsWith(PUBLIC_DIR) && !file.startsWith(MODULE_ROOT)) || !fs.existsSync(file)) return false;
   const stat = fs.statSync(file);
   if (stat.isDirectory()) return false;
   const types = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".json": "application/json; charset=utf-8", ".svg": "image/svg+xml" };
@@ -675,6 +652,36 @@ function serveStatic(req, res, pathname) {
     fs.createReadStream(file).pipe(res);
   }
   return true;
+}
+
+// Module code is not copied into public/.  The host exposes manifest-owned
+// frontend assets through one generic, traversal-safe resolver.
+function resolveDeveloperModuleAsset(pathname) {
+  const aliases = new Map([
+    ["/dream-lab", "dream-lab"],
+    ["/notebook-lab", "notebook-lab"],
+    ["/review-lab", "review-lab"],
+    ["/theme-studio", "theme-studio"],
+    ["/developer-modules/extended-mining-workbench", "extended-mining-workbench"],
+    ["/developer-modules/my-module", "memory-scratch"],
+    ["/developer-modules/stone-memory-assistant", "stone-memory-assistant"],
+  ]);
+  const canonical = pathname.match(/^\/developer-modules\/([a-z0-9-]+)(?:\/(.*))?$/u);
+  if (canonical) {
+    try {
+      const module = loadModules(MODULE_ROOT).find(item => item.id === canonical[1]);
+      if (module) return resolveInside(path.join(module.moduleDir, "frontend"), canonical[2] || "index.html", "module frontend asset");
+    } catch { return null; }
+  }
+  const match = [...aliases.entries()].find(([prefix]) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+  if (!match) return null;
+  const [prefix, id] = match;
+  let module;
+  try { module = loadModules(MODULE_ROOT).find(item => item.id === id); } catch { return null; }
+  if (!module) return null;
+  const relative = pathname.slice(prefix.length).replace(/^\/+/, "") || "index.html";
+  try { return resolveInside(path.join(module.moduleDir, "frontend"), relative, "module frontend asset"); }
+  catch { return null; }
 }
 
 async function handleDreamSettings(req, url, threadId, resource) {
@@ -725,6 +732,22 @@ async function handleDreamSettings(req, url, threadId, resource) {
 async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/developer-modules") {
     return json(res, 200, { modules: listDeveloperModules() });
+  }
+  if (url.pathname === "/api/developer-modules/theme-studio/state") {
+    if (req.method === "GET") {
+      return json(res, 200, JSON.parse(runStmem(["module", "theme-studio", "state"])));
+    }
+    if (req.method === "PUT") {
+      const body = await readJson(req);
+      return json(res, 200, runStmemBatch(["module", "theme-studio", "state"], { write: true, state: body }));
+    }
+  }
+  if (req.method === "POST" && url.pathname === "/api/developer-modules/theme-studio/migrate") {
+    const body = await readJson(req);
+    return json(res, 200, runStmemBatch(
+      ["module", "theme-studio", "migrate", "--apply"],
+      { browserState: body?.browserState },
+    ));
   }
 
   const bindingsMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/bindings$/);
@@ -959,6 +982,7 @@ async function handleApi(req, res, url) {
     const reviews = new MiningReviewStore({
       memoryDir: path.join(getThreadDir(threadId), "memory"),
       threadId,
+      dataDir: dataDirFor("review-lab", threadId),
     });
     const candidate = editFusionCandidate({
       reviews,
@@ -970,7 +994,7 @@ async function handleApi(req, res, url) {
   const reviewEvidenceMatch = url.pathname.match(/^\/review-lab\/api\/candidates\/([^/]+)\/evidence$/);
   if (req.method === "GET" && reviewEvidenceMatch) {
     const threadId = String(url.searchParams.get("threadId") || "");
-    const reviews = new MiningReviewStore({ memoryDir: path.join(getThreadDir(threadId), "memory"), threadId });
+    const reviews = new MiningReviewStore({ memoryDir: path.join(getThreadDir(threadId), "memory"), threadId, dataDir: dataDirFor("review-lab", threadId) });
     const candidate = reviews.load(decodeURIComponent(reviewEvidenceMatch[1]));
     const index = Number(url.searchParams.get("index"));
     const item = candidate.feelings?.[index];

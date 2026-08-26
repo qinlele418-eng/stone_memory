@@ -5,16 +5,15 @@
   "sdkVersion": 1,
   "scope": "memory",
   "permissions": ["core:read", "generation:use", "watcher:plugin"],
-  "entry": { "frontend": "index.html", "commands": { "dream": "backend/commands/dream.js" } },
-  "storage": { "files": ["preferences.json", "dreams"] },
+  "entry": { "frontend": "frontend/index.html", "commands": { "migrate": "migrations/migrate.js" } },
+  "storage": { "files": ["preferences.json", "dreams", "prompts", "operations"] },
   "watcher": { "plugin": "dev-dream" },
-  "legacy": {
-    "frontend": "src/web/public/dream-lab",
-    "commands": { "dream": "scripts/stmem-dream.js" },
-    "storage": [
-      { "path": "~/.stone_memory/dream/<thread-id>/<date>.md", "mode": "梦境正文" },
-      { "path": "<thread-dir>/dream/", "mode": "偏好与 Prompt 覆盖" },
-      { "path": "<thread-dir>/tmp/", "mode": "生成临时文件" }
-    ]
-  }
+  "migration": { "mode": "explicit", "receipt": "migration-receipt.json" }
+  ,"coreExtensions": [
+    { "path": "src/services/dream-preferences.js", "reason": "现有织梦偏好兼容服务" },
+    { "path": "src/services/dream-service.js", "reason": "现有织梦生成兼容服务" },
+    { "path": "src/storage/dream-store.js", "reason": "现有织梦存储兼容层" },
+    { "path": "src/web/public/app.js", "reason": "主前端的织梦状态兼容入口" },
+    { "path": "src/web/server.js", "reason": "主服务的织梦兼容 API" }
+  ]
 }

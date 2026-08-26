@@ -383,8 +383,9 @@ test("developer experiments register through removable bootstraps instead of app
   const publicDir = path.join(__dirname, "..", "src", "web", "public");
   const appSource = fs.readFileSync(path.join(publicDir, "app.js"), "utf8");
   const indexSource = fs.readFileSync(path.join(publicDir, "index.html"), "utf8");
-  const reviewBootstrap = fs.readFileSync(path.join(publicDir, "review-lab", "bootstrap.js"), "utf8");
-  const themeBootstrap = fs.readFileSync(path.join(publicDir, "theme-studio", "bootstrap.js"), "utf8");
+  const moduleRoot = path.join(__dirname, "..", "developer-modules");
+  const reviewBootstrap = fs.readFileSync(path.join(moduleRoot, "review-lab", "frontend", "bootstrap.js"), "utf8");
+  const themeBootstrap = fs.readFileSync(path.join(moduleRoot, "theme-studio", "frontend", "bootstrap.js"), "utf8");
 
   assert.match(appSource, /id="developer-module-host"/);
   assert.doesNotMatch(appSource, /enter-review-lab|贡献人：@小思飞刀/);

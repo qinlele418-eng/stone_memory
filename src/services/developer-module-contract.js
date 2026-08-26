@@ -84,6 +84,22 @@ function moduleDataDir(manifest, { threadId, dataRoot = MODULE_DATA_ROOT } = {})
   return path.join(dataRoot, safeSegment(threadId, "thread id"), id);
 }
 
+/**
+ * Build the only filesystem capability handed to a developer module command.
+ * Commands receive a resolved data directory rather than a Core thread path.
+ */
+function createModuleContext(manifest, { threadId, dataRoot = MODULE_DATA_ROOT } = {}) {
+  const moduleId = assertModuleId(manifest.id);
+  if (manifest.scope === "memory") safeSegment(threadId, "thread id");
+  const dataDir = moduleDataDir(manifest, { threadId, dataRoot });
+  return Object.freeze({
+    moduleId,
+    threadId: manifest.scope === "global" ? null : String(threadId),
+    moduleDataDir: dataDir,
+    resolveDataPath(relativePath) { return resolveInside(dataDir, relativePath, "module data path"); },
+  });
+}
+
 module.exports = {
   PROJECT_ROOT,
   MODULE_ROOT,
@@ -95,4 +111,5 @@ module.exports = {
   loadModules,
   findModule,
   moduleDataDir,
+  createModuleContext,
 };

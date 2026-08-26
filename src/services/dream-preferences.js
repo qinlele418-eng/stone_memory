@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 const { getThreadDir } = require("../config");
+const { dataPathFor } = require("./developer-module-data");
 const { DREAM_TYPE_ORDER, assertDreamType, normalizeMultipliers, normalizedProbabilities, MULTIPLIER_STEPS } = require("./dream-policy");
 
 // 每记忆体织梦偏好与 Prompt override 的正式用户数据层。
@@ -30,8 +31,12 @@ const PROMPT_FILES = Object.freeze([
 const LOCK_STALE_MS = 15 * 60 * 1000;
 
 class DreamPreferences {
-  constructor({ baseDirForThread = threadId => path.join(getThreadDir(threadId), "dream") } = {}) {
+  constructor({
+    baseDirForThread = threadId => dataPathFor("dream-lab", threadId, "."),
+    legacyBaseDirForThread = threadId => path.join(getThreadDir(threadId), "dream"),
+  } = {}) {
     this.baseDirForThread = baseDirForThread;
+    this.legacyBaseDirForThread = legacyBaseDirForThread;
   }
 
   directoryFor(threadId) {
@@ -51,7 +56,9 @@ class DreamPreferences {
   }
 
   read(threadId) {
-    const file = this.preferencesFileFor(threadId);
+    const primary = this.preferencesFileFor(threadId);
+    const legacy = path.join(this.legacyBaseDirForThread(threadId), "preferences.json");
+    const file = fs.existsSync(primary) ? primary : legacy;
     let parsed;
     try { parsed = JSON.parse(fs.readFileSync(file, "utf8")); }
     catch (error) {
@@ -133,10 +140,12 @@ class DreamPreferences {
     return current;
   }
 
-  // Prompt override：thread 作用域覆盖 bundled operations/dream，缺失时返回 null 表示回退内置。
+  // Prompt override：thread 作用域覆盖模块内置 prompts，缺失时返回 null 表示回退内置。
   readPromptOverride(threadId, fileName) {
     assertPromptFile(fileName);
-    const file = path.join(this.promptDirectoryFor(threadId), fileName);
+    const primary = path.join(this.promptDirectoryFor(threadId), fileName);
+    const legacy = path.join(this.legacyBaseDirForThread(threadId), "prompts", fileName);
+    const file = fs.existsSync(primary) ? primary : legacy;
     try { return fs.readFileSync(file, "utf8"); }
     catch (error) {
       if (error.code === "ENOENT") return null;

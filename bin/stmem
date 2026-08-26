@@ -65,6 +65,7 @@ if (!cmd || cmd === "--help" || cmd === "-h") {
   stmem notebook status|topic-create|topic-update|write|query|read|list --thread <id>
                                                 管理主题 Markdown 笔记本
   stmem module list|inspect|paths|audit          查看模块、统一路径与执行模块契约审计
+  stmem module <id> migrate --thread <id> [--apply] 预览或显式执行历史数据迁移
   stmem web [--port 4173]                       启动本地记忆管理前端
   stmem db [status|migrate|migrate-all|export] [--thread <id>]  数据库管理
 
@@ -141,10 +142,18 @@ switch (cmd) {
     }
     break;
   case "module":
-    Promise.resolve(require(path.join(SCRIPTS, "stmem-module")).runModuleCommand(process.argv.slice(3))).catch(error => {
-      console.error(`[module] error: ${error.message}`);
-      process.exit(1);
-    });
+    {
+      // A module command may cross an async SDK boundary without opening an I/O
+      // handle. Keep the CLI alive until its promise has actually printed the
+      // result (notably when stdout is captured by another process).
+      const keepAlive = setInterval(() => {}, 1000);
+      Promise.resolve(require(path.join(SCRIPTS, "stmem-module")).runModuleCommand(process.argv.slice(3)))
+        .catch(error => {
+          console.error(`[module] error: ${error.message}`);
+          process.exitCode = 1;
+        })
+        .finally(() => clearInterval(keepAlive));
+    }
     break;
   case "rebuild":
     require(path.join(SCRIPTS, "stmem-rebuild"));

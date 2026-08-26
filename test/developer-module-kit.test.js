@@ -4,6 +4,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const publicDir = path.join(__dirname, "..", "src", "web", "public");
+const moduleRoot = path.join(__dirname, "..", "developer-modules");
 
 test("developer kit consumes an optional semantic snapshot without reading theme persistence", () => {
   const runtime = fs.readFileSync(path.join(publicDir, "developer-kit", "runtime.js"), "utf8");
@@ -30,8 +31,8 @@ test("developer kit consumes an optional semantic snapshot without reading theme
 });
 
 test("review lab uses the shared developer module shell before its styles paint", () => {
-  const html = fs.readFileSync(path.join(publicDir, "review-lab", "index.html"), "utf8");
-  const app = fs.readFileSync(path.join(publicDir, "review-lab", "app.js"), "utf8");
+  const html = fs.readFileSync(path.join(moduleRoot, "review-lab", "frontend", "index.html"), "utf8");
+  const app = fs.readFileSync(path.join(moduleRoot, "review-lab", "frontend", "app.js"), "utf8");
   const runtimeAt = html.indexOf("developer-kit/runtime.js");
   const stylesAt = html.indexOf("review-lab-v2");
   assert.ok(runtimeAt > 0 && runtimeAt < stylesAt);
@@ -43,8 +44,8 @@ test("review lab uses the shared developer module shell before its styles paint"
 });
 
 test("extended mining workbench stays detachable and uses the shared module contract", () => {
-  const dir = path.join(publicDir, "developer-modules", "extended-mining-workbench");
-  const required = ["module.json", "index.html", "app.js", "styles.css"];
+  const dir = path.join(moduleRoot, "extended-mining-workbench", "frontend");
+  const required = ["index.html", "app.js", "styles.css"];
   for (const file of required) assert.equal(fs.existsSync(path.join(dir, file)), true, `${file} is required`);
   const html = fs.readFileSync(path.join(dir, "index.html"), "utf8");
   const app = fs.readFileSync(path.join(dir, "app.js"), "utf8");
@@ -87,8 +88,8 @@ test("main developer mode lazy-loads the module workshop entry", () => {
 });
 
 test("theme studio applies the saved theme before standalone CSS paints", () => {
-  const html = fs.readFileSync(path.join(publicDir, "theme-studio", "index.html"), "utf8");
-  const bootstrap = fs.readFileSync(path.join(publicDir, "theme-studio", "bootstrap.js"), "utf8");
+  const html = fs.readFileSync(path.join(moduleRoot, "theme-studio", "frontend", "index.html"), "utf8");
+  const bootstrap = fs.readFileSync(path.join(moduleRoot, "theme-studio", "frontend", "bootstrap.js"), "utf8");
   const runtimeAt = html.indexOf("developer-kit/runtime.js");
   const stylesAt = html.indexOf("standalone.css");
   assert.ok(runtimeAt > 0 && runtimeAt < stylesAt);

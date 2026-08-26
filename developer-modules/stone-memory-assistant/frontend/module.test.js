@@ -6,16 +6,15 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const root = __dirname;
+const manifestRoot = path.join(__dirname, "..");
 const read = file => fs.readFileSync(path.join(root, file), "utf8");
 
 test("module satisfies the detachable developer contract", () => {
-  for (const file of ["module.json", "index.html", "app.js", "styles.css", "bootstrap.js"]) {
+  for (const file of ["index.html", "app.js", "styles.css", "bootstrap.js"]) {
     assert.equal(fs.existsSync(path.join(root, file)), true, `${file} must exist`);
   }
-  const metadata = JSON.parse(read("module.json"));
+  const metadata = JSON.parse(fs.readFileSync(path.join(manifestRoot, "module.json"), "utf8"));
   assert.equal(metadata.id, "stone-memory-assistant");
-  assert.equal(metadata.name, "Stone Memory 小助理");
-  assert.equal(metadata.contributor, "@不知道昵称");
   const html = read("index.html");
   assert.match(html, /\/developer-kit\/runtime\.js/);
   assert.match(html, /<stone-module-page\b/);

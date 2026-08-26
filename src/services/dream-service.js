@@ -8,10 +8,11 @@ const { MemoryStore } = require("../storage/memory-store");
 const { DreamStore } = require("../storage/dream-store");
 const { DreamPreferences } = require("./dream-preferences");
 const { resolveDreamType } = require("./dream-policy");
+const { dataPathFor } = require("./developer-module-data");
 const { runSubagent: defaultRunSubagent } = require("./subagent-runner");
 
 const ROLL_SCALE = 10_000;
-const DEFAULT_PROMPT_DIRECTORY = path.join(__dirname, "..", "..", "operations", "dream");
+const DEFAULT_PROMPT_DIRECTORY = path.join(__dirname, "..", "..", "developer-modules", "dream-lab", "prompts");
 
 class DreamService {
   constructor({
@@ -27,7 +28,7 @@ class DreamService {
     randomInt = secureRandomInt,
     runSubagent = defaultRunSubagent,
     promptDirectory = DEFAULT_PROMPT_DIRECTORY,
-    operationDirectoryForThread = threadId => path.join(getThreadDir(threadId), "tmp"),
+    operationDirectoryForThread = threadId => dataPathFor("dream-lab", threadId, "operations"),
     preferences = new DreamPreferences(),
   } = {}) {
     this.dreamStore = dreamStore;
