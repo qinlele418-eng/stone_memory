@@ -1,0 +1,46 @@
+.hook-panel {
+  border-top: 3px solid var(--stone-theme-accent, #397052);
+}
+
+.hook-control {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(260px, 1.4fr);
+  align-items: end;
+  gap: 16px;
+  margin-top: 17px;
+  padding: 16px;
+  border-radius: var(--stone-theme-radius-md, 18px);
+  background: var(--stone-theme-surface-soft, #f8faf5);
+}
+
+.hook-control label {
+  display: grid;
+  gap: 7px;
+  color: var(--stone-theme-ink-soft, #69756d);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.hook-control select {
+  width: 100%;
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--stone-theme-line, #dce6d7);
+  border-radius: var(--stone-theme-radius-sm, 12px);
+  background: var(--stone-theme-surface, #fffef9);
+  color: var(--stone-theme-ink, #18372b);
+  font: inherit;
+}
+
+.hook-control p {
+  margin: 0;
+  color: var(--stone-theme-ink-soft, #69756d);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+@media (max-width: 680px) {
+  .hook-control {
+    grid-template-columns: 1fr;
+  }
+}

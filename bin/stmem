@@ -32,6 +32,8 @@ if (!cmd || cmd === "--help" || cmd === "-h") {
   stmem term-timeline --thread <id> --terms <词列表>  archive 曲线与 feeling 小点
   stmem import --source <json|jsonl|sqlite>       预览导入映射（加 --apply 写入）
   stmem import --dir <path> [--thread <id>]       递归预览目录中的对话数据
+  stmem binding list|add|import|batches|revert    实验性多端绑定与可逆对话导入
+  stmem module <模块ID> <action>                运行 manifest 登记的开发者模块命令
   stmem mine [--thread <id>] --all                  挖掘全部未处理日期，生成feelings + features
   stmem mine [--thread <id>] [--date <YYYY-MM-DD>]  挖掘单日 feelings + features
   stmem mine [--thread <id>] --date <日期> --force   直接重挖并覆盖当天结果
@@ -138,12 +140,10 @@ switch (cmd) {
     }
     break;
   case "module":
-    try {
-      require(path.join(SCRIPTS, "stmem-module")).runModuleCommand(process.argv.slice(3));
-    } catch (error) {
+    Promise.resolve(require(path.join(SCRIPTS, "stmem-module")).runModuleCommand(process.argv.slice(3))).catch(error => {
       console.error(`[module] error: ${error.message}`);
       process.exit(1);
-    }
+    });
     break;
   case "rebuild":
     require(path.join(SCRIPTS, "stmem-rebuild"));
@@ -168,6 +168,14 @@ switch (cmd) {
     break;
   case "import":
     require(path.join(SCRIPTS, "stmem-import"));
+    break;
+  case "binding":
+    try {
+      require(path.join(SCRIPTS, "stmem-binding")).runBindingCommand(process.argv.slice(3));
+    } catch (error) {
+      console.error(`[binding] ${error.message}`);
+      process.exit(1);
+    }
     break;
   case "adapt":
     require(path.join(SCRIPTS, "stmem-adapt"));

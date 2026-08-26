@@ -26,6 +26,7 @@ const { normalizeMiningApiProfile } = require("../services/mining-api-profile");
 const { configuredRuntimeIds, MiningReviewBatchStore } = require("../services/mining-review-batch");
 const { buildFeelingPrompt, buildFeaturePrompt } = require("../services/memory-miner");
 const { normalizeRebuildRequest, rebuildRequestCliArgs } = require("../services/rebuild-request");
+const { loadModules, resolveInside } = require("../services/developer-module-contract");
 
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MAX_UPLOAD = 512 * 1024 * 1024;
@@ -556,8 +557,7 @@ function listLibraries() {
 
 function listDeveloperModules(publicDir = PUBLIC_DIR) {
   const root = path.join(publicDir, "developer-modules");
-  if (!fs.existsSync(root)) return [];
-  return fs.readdirSync(root, { withFileTypes: true })
+  const legacyModules = !fs.existsSync(root) ? [] : fs.readdirSync(root, { withFileTypes: true })
     .filter(entry => entry.isDirectory())
     .flatMap(entry => {
       try {
@@ -583,6 +583,46 @@ function listDeveloperModules(publicDir = PUBLIC_DIR) {
       }
     })
     .sort((left, right) => left.order - right.order || left.id.localeCompare(right.id));
+  const canonicalModules = loadModules()
+    .filter(item => !item.errors.length && item.manifest.entry?.frontend && !item.manifest.legacy?.frontend)
+    .map(item => ({
+      id: item.id,
+      title: String(item.manifest.title || item.id),
+      summary: String(item.manifest.summary || ""),
+      contributor: String(item.manifest.contributor || "Stone Memory"),
+      status: String(item.manifest.status || "官方实验"),
+      eyebrow: String(item.manifest.eyebrow || "STONE MEMORY LAB"),
+      actionLabel: String(item.manifest.actionLabel || "进入实验室 →"),
+      metaLabel: String(item.manifest.metaLabel || `Module · v${item.manifest.version}`),
+      features: Array.isArray(item.manifest.features) ? item.manifest.features.map(String).slice(0, 6) : [],
+      order: Number.isFinite(Number(item.manifest.order)) ? Number(item.manifest.order) : 100,
+      entry: `/developer-modules/${item.id}/`,
+    }));
+  const byId = new Map(legacyModules.map(item => [item.id, item]));
+  for (const item of canonicalModules) byId.set(item.id, item);
+  return [...byId.values()].sort((left, right) => left.order - right.order || left.id.localeCompare(right.id));
+}
+
+function serveCanonicalDeveloperModule(req, res, pathname) {
+  const match = pathname.match(/^\/developer-modules\/([a-z0-9][a-z0-9-]*)(?:\/(.*))?$/u);
+  if (!match) return false;
+  const loaded = loadModules().find(item => item.id === match[1] && !item.errors.length);
+  if (!loaded?.manifest.entry?.frontend || loaded.manifest.legacy?.frontend) return false;
+  const frontendEntry = resolveInside(loaded.moduleDir, loaded.manifest.entry.frontend, "frontend entry");
+  const frontendRoot = path.dirname(frontendEntry);
+  const requested = match[2] || path.basename(frontendEntry);
+  const file = path.resolve(frontendRoot, requested);
+  const relative = path.relative(frontendRoot, file);
+  if (relative.startsWith("..") || path.isAbsolute(relative) || !fs.existsSync(file) || !fs.statSync(file).isFile()) return false;
+  const types = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".json": "application/json; charset=utf-8", ".svg": "image/svg+xml" };
+  const stat = fs.statSync(file);
+  res.writeHead(200, {
+    "content-type": types[path.extname(file)] || "application/octet-stream",
+    "content-length": stat.size,
+    "cache-control": "no-cache",
+  });
+  fs.createReadStream(file).pipe(res);
+  return true;
 }
 
 function overview(threadId) {
@@ -685,6 +725,81 @@ async function handleDreamSettings(req, url, threadId, resource) {
 async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/developer-modules") {
     return json(res, 200, { modules: listDeveloperModules() });
+  }
+
+  const bindingsMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/bindings$/);
+  if (bindingsMatch) {
+    const threadId = decodeURIComponent(bindingsMatch[1]);
+    publicThreadSettings(threadId);
+    if (req.method === "GET") {
+      return json(res, 200, JSON.parse(runStmem(["binding", "list", "--thread", threadId])));
+    }
+    if (req.method === "POST") {
+      const body = await readJson(req);
+      const args = ["binding", "add", "--thread", threadId, "--provider", String(body.provider || "")];
+      if (body.externalThreadId) args.push("--external-thread", String(body.externalThreadId));
+      if (body.threadFile) args.push("--thread-file", String(body.threadFile));
+      if (body.mode) args.push("--mode", String(body.mode));
+      if (body.apply === true) args.push("--apply");
+      return json(res, 200, JSON.parse(runStmem(args)));
+    }
+  }
+
+  const bindingMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/bindings\/([^/]+)$/);
+  if (bindingMatch && req.method === "PATCH") {
+    const threadId = decodeURIComponent(bindingMatch[1]);
+    const bindingId = decodeURIComponent(bindingMatch[2]);
+    publicThreadSettings(threadId);
+    const body = await readJson(req);
+    const action = body.enabled === false ? "disable" : "enable";
+    const args = ["binding", action, "--thread", threadId, "--id", bindingId];
+    if (body.apply === true) args.push("--apply");
+    return json(res, 200, JSON.parse(runStmem(args)));
+  }
+
+  const bindingImportMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/bindings\/([^/]+)\/import$/);
+  if (bindingImportMatch && req.method === "POST") {
+    const threadId = decodeURIComponent(bindingImportMatch[1]);
+    const bindingId = decodeURIComponent(bindingImportMatch[2]);
+    publicThreadSettings(threadId);
+    const body = await readJson(req);
+    const args = ["binding", "import", "--thread", threadId, "--binding", bindingId];
+    if (body.source) args.push("--source", String(body.source));
+    if (body.apply === true) args.push("--apply");
+    return json(res, 200, JSON.parse(runStmem(args)));
+  }
+
+  const moduleCommandMatch = url.pathname.match(/^\/api\/developer-modules\/([^/]+)\/commands\/([^/]+)$/);
+  if (moduleCommandMatch && req.method === "GET") {
+    const moduleId = decodeURIComponent(moduleCommandMatch[1]);
+    const action = decodeURIComponent(moduleCommandMatch[2]);
+    const threadId = String(url.searchParams.get("thread") || "");
+    const bindingId = String(url.searchParams.get("binding") || "");
+    if (!threadId) throw new Error("缺少当前记忆体");
+    publicThreadSettings(threadId);
+    const args = ["module", moduleId, action, "--thread", threadId];
+    if (bindingId) args.push("--binding", bindingId);
+    return json(res, 200, JSON.parse(runStmem(args)));
+  }
+
+  const bindingBatchesMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/binding-imports$/);
+  if (bindingBatchesMatch && req.method === "GET") {
+    const threadId = decodeURIComponent(bindingBatchesMatch[1]);
+    publicThreadSettings(threadId);
+    const args = ["binding", "batches", "--thread", threadId];
+    if (url.searchParams.get("binding")) args.push("--binding", url.searchParams.get("binding"));
+    return json(res, 200, JSON.parse(runStmem(args)));
+  }
+
+  const bindingRevertMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/binding-imports\/([^/]+)\/revert$/);
+  if (bindingRevertMatch && req.method === "POST") {
+    const threadId = decodeURIComponent(bindingRevertMatch[1]);
+    const batchId = decodeURIComponent(bindingRevertMatch[2]);
+    publicThreadSettings(threadId);
+    const body = await readJson(req);
+    const args = ["binding", "revert", "--thread", threadId, "--batch", batchId];
+    if (body.apply === true) args.push("--apply");
+    return json(res, 200, JSON.parse(runStmem(args)));
   }
 
   const scratchJobMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/scratch\/jobs\/([^/]+)$/);
@@ -1471,6 +1586,7 @@ function startWebServer({ host = "127.0.0.1", port = 4173 } = {}) {
     const url = new URL(req.url, `http://${req.headers.host || `${host}:${port}`}`);
     try {
       if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/review-lab/api/")) return await handleApi(req, res, url);
+      if (serveCanonicalDeveloperModule(req, res, url.pathname)) return;
       if (serveStatic(req, res, url.pathname)) return;
       if (!path.extname(url.pathname)) return serveStatic(req, res, "/");
       error(res, 404, "页面不存在");

@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Stone Memory · 连续性实验室</title>
+  <script src="/developer-kit/runtime.js"></script>
+  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./hook.css">
+</head>
+<body class="stone-theme-enabled">
+  <stone-module-page eyebrow="CONTINUITY LAB" title="连续性实验室" description="一个记忆体，可以逐步接入多条线程。当前版本只试验 Binding 与可逆对话导入，不改变现有重建和注入逻辑。">
+    <span slot="meta">当前记忆体：<strong data-stone-library>正在读取……</strong></span>
+
+    <section class="notice">
+      <strong>旧流程仍然有效</strong>
+      <p>新增字段对历史数据全部为 NULL。这里的所有写操作都先预览，只有再次确认才进入正式 SQLite。</p>
+    </section>
+
+    <section class="panel">
+      <div class="section-head"><div><p class="eyebrow">NEW BINDING</p><h2>登记一个接入端</h2></div><span class="step">01</span></div>
+      <div class="form-grid">
+        <label>发送端<select id="provider"><option value="codex">Codex</option><option value="claude_code">Claude Code</option><option value="chatgpt_web">ChatGPT Web</option><option value="claude_web">Claude Web</option><option value="other">其他导入源</option></select></label>
+        <label>绑定形式<select id="mode"><option value="parallel">并行接入</option><option value="primary">主接入端</option><option value="child">子接入端</option><option value="import_only">仅导入</option></select></label>
+        <label>来源线程 ID<input id="external-thread" autocomplete="off" placeholder="来源端存在真实 ID 时填写"></label>
+        <label>来源文件路径<input id="thread-file" autocomplete="off" placeholder="JSON / JSONL / SQLite 的本机路径"></label>
+      </div>
+      <div class="actions"><button class="quiet" id="preview-binding">预览 Binding</button><button class="primary" id="apply-binding" disabled>确认登记</button></div>
+      <pre class="result hidden" id="binding-preview"></pre>
+    </section>
+
+    <section class="panel">
+      <div class="section-head"><div><p class="eyebrow">CONNECTED SOURCES</p><h2>已登记接入端</h2></div><button class="icon" id="refresh" title="刷新">↻</button></div>
+      <div class="binding-list" id="binding-list"><p class="empty">正在读取……</p></div>
+    </section>
+
+    <section class="panel hook-panel">
+      <div class="section-head"><div><p class="eyebrow">CLAUDE CODE HOOK</p><h2>启动时接回近期记忆</h2></div><span class="step">02</span></div>
+      <p class="hint">Claude Code 新建、恢复、清空或压缩上下文后，按当前 Binding 自动补入一小段近期连续性证据。识别失败时安静放行，不会阻断 Claude Code。</p>
+      <div class="hook-control">
+        <label>Claude Code 接入端<select id="claude-binding"><option value="">尚未登记 Claude Code Binding</option></select></label>
+        <p id="hook-status">先在上方登记一个 Claude Code 接入端，才能生成 Hook 配置。</p>
+      </div>
+      <div class="actions hook-actions"><button class="quiet" id="preview-handoff" disabled>预览接续内容</button><button class="primary" id="show-hook-spec" disabled>生成 Hook 配置</button></div>
+      <pre class="result hidden" id="handoff-result"></pre>
+    </section>
+
+    <section class="panel">
+      <div class="section-head"><div><p class="eyebrow">REVERSIBLE IMPORTS</p><h2>正式库导入记录</h2></div><span class="step">03</span></div>
+      <p class="hint">撤销只删除该批次真正新增的消息。若这些消息已经重新挖掘出摘要，本期会拒绝自动撤销。</p>
+      <div class="batch-list" id="batch-list"><p class="empty">尚无导入记录。</p></div>
+    </section>
+
+    <div class="toast hidden" id="toast" role="status"></div>
+  </stone-module-page>
+  <script src="./app.js"></script>
+</body>
+</html>

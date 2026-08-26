@@ -104,9 +104,29 @@ my_module          错误
 | `entry.commands` | 按需 | 可被统一 CLI 调度的命令 |
 | `storage` | 按需 | 数据库、文档、文件和浏览器持久化声明 |
 | `watcher` | 按需 | 开发者 Watcher 插件声明 |
+| `coreExtensions` | 极少 | 模块确实需要修改 Core 时，逐文件声明 `path` 与 `reason` |
 | `legacy` | 仅迁移 | 旧代码和旧数据位置，不得用于新模块 |
 
 所有入口都必须位于模块目录内，禁止使用绝对路径或 `../` 越界。
+
+### Core 扩展声明
+
+新模块的命令必须放在 `backend/commands/` 并登记到 `entry.commands`。模块不得把专属命令藏进 `scripts/` 或把专属 service 放进 `src/services/`。
+
+确有通用架构理由需要修改 Core 时，必须显式声明：
+
+```json
+{
+  "coreExtensions": [
+    {
+      "path": "src/services/example-core-capability.js",
+      "reason": "已脱离模块场景、供所有模块复用的只读能力"
+    }
+  ]
+}
+```
+
+CI 会检查新模块 ID 是否出现在 `bin/`、`scripts/` 或 `src/`。出现但未逐文件声明时直接报错。`coreExtensions` 不是绕过审查的白名单；审阅者仍需判断该能力是否真的属于 Core。
 
 ## 5. 作用域与数据目录
 

@@ -14,7 +14,8 @@ const { auditDeveloperModules } = require("../src/services/developer-module-audi
 
 test("registered developer modules satisfy the v1 manifest contract", () => {
   const modules = loadModules(MODULE_ROOT);
-  assert.ok(modules.length >= 7);
+  assert.ok(modules.length >= 8);
+  assert.ok(modules.some(module => module.id === "continuity-lab"));
   for (const module of modules) assert.deepEqual(module.errors, [], module.id);
 });
 
@@ -71,4 +72,35 @@ test("developer module audit blocks direct Core storage and undeclared browser p
   assert.equal(report.ok, false);
   assert.ok(report.findings.some(item => item.code === "storage-core-path"));
   assert.ok(report.findings.some(item => item.code === "storage-browser-undeclared"));
+});
+
+test("developer module audit rejects undeclared Core ownership and accepts an explicit reviewed extension", () => {
+  const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-module-core-audit-"));
+  const root = path.join(projectRoot, "developer-modules");
+  const moduleDir = path.join(root, "leaky-module");
+  const commandDir = path.join(moduleDir, "backend", "commands");
+  fs.mkdirSync(commandDir, { recursive: true });
+  fs.mkdirSync(path.join(projectRoot, "src"), { recursive: true });
+  fs.writeFileSync(path.join(moduleDir, "index.html"), "<!doctype html>");
+  fs.writeFileSync(path.join(commandDir, "run.js"), "module.exports={run(){return {}}};\n");
+  const coreFile = path.join(projectRoot, "src", "leak.js");
+  fs.writeFileSync(coreFile, "const owner = 'leaky-module';\n");
+  const manifest = {
+    id: "leaky-module",
+    version: "1.0.0",
+    sdkVersion: 1,
+    scope: "memory",
+    permissions: [],
+    entry: { frontend: "index.html", commands: { run: "backend/commands/run.js" } },
+  };
+  fs.writeFileSync(path.join(moduleDir, "module.json"), JSON.stringify(manifest));
+  const rejected = auditDeveloperModules({ root, projectRoot });
+  assert.equal(rejected.ok, false);
+  assert.ok(rejected.findings.some(item => item.code === "core-extension-undeclared"));
+
+  manifest.coreExtensions = [{ path: "src/leak.js", reason: "经架构审阅后提升为通用 Core 能力" }];
+  fs.writeFileSync(path.join(moduleDir, "module.json"), JSON.stringify(manifest));
+  const declared = auditDeveloperModules({ root, projectRoot });
+  assert.equal(declared.ok, true);
+  fs.rmSync(projectRoot, { recursive: true, force: true });
 });

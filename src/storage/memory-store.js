@@ -65,23 +65,40 @@ class MemoryStore {
 
   close() { this.db.close(); }
 
-  insertMessages(rows, { source = "archive" } = {}) {
+  insertMessagesDetailed(rows, {
+    source = "archive",
+    bindingId = null,
+    importBatchId = null,
+  } = {}) {
     const insert = this.db.prepare(`INSERT OR IGNORE INTO messages
-      (thread_id,message_id,timestamp,source_date,role,text,source,created_at)
-      VALUES (@threadId,@messageId,@timestamp,@sourceDate,@role,@text,@source,@createdAt)`);
+      (thread_id,message_id,timestamp,source_date,role,text,source,binding_id,source_message_id,import_batch_id,source_occurred_at,created_at)
+      VALUES (@threadId,@messageId,@timestamp,@sourceDate,@role,@text,@source,@bindingId,@sourceMessageId,@importBatchId,@sourceOccurredAt,@createdAt)`);
     const write = this.db.transaction(items => {
-      let added = 0;
+      const insertedMessageIds = [];
+      let valid = 0;
       const now = new Date().toISOString();
       for (const row of items) {
         if (!row?.timestamp || !row?.sourceDate || !row?.role || !row?.text) continue;
-        added += insert.run({ threadId: this.threadId,
-          messageId: messageIdentity(row.timestamp, row.role, row.text),
+        valid++;
+        const messageId = messageIdentity(row.timestamp, row.role, row.text);
+        const result = insert.run({ threadId: this.threadId,
+          messageId,
           timestamp: row.timestamp, sourceDate: row.sourceDate,
-          role: row.role, text: row.text, source: row.source || source, createdAt: row.createdAt || now }).changes;
+          role: row.role, text: row.text, source: row.source || source,
+          bindingId: row.bindingId || bindingId,
+          sourceMessageId: row.sourceMessageId || null,
+          importBatchId: row.importBatchId || importBatchId,
+          sourceOccurredAt: row.sourceOccurredAt || (bindingId ? row.timestamp : null),
+          createdAt: row.createdAt || now });
+        if (result.changes) insertedMessageIds.push(messageId);
       }
-      return added;
+      return { inserted: insertedMessageIds.length, duplicates: valid - insertedMessageIds.length, insertedMessageIds };
     });
     return write(rows);
+  }
+
+  insertMessages(rows, options = {}) {
+    return this.insertMessagesDetailed(rows, options).inserted;
   }
 
   listMessages({ date = null, from = null, to = null } = {}) {

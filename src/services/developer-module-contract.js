@@ -53,6 +53,10 @@ function validateManifest(manifest, { directoryName } = {}) {
   if (!SCOPES.has(manifest?.scope)) errors.push("scope must be memory or global");
   if (!Array.isArray(manifest?.permissions)) errors.push("permissions must be an array");
   if (!manifest?.entry || typeof manifest.entry !== "object") errors.push("entry must describe frontend and/or commands");
+  if (manifest?.entry?.commands !== undefined && (typeof manifest.entry.commands !== "object" || Array.isArray(manifest.entry.commands))) {
+    errors.push("entry.commands must be an object");
+  }
+  if (manifest?.coreExtensions !== undefined && !Array.isArray(manifest.coreExtensions)) errors.push("coreExtensions must be an array");
   return errors;
 }
 

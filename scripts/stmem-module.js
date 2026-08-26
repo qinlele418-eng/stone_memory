@@ -1,5 +1,6 @@
 const path = require("path");
-const { loadModules, findModule, moduleDataDir } = require("../src/services/developer-module-contract");
+const { loadModules, findModule, moduleDataDir, resolveInside } = require("../src/services/developer-module-contract");
+const { createModuleContext } = require("../src/services/developer-module-runtime");
 const { auditDeveloperModules } = require("../src/services/developer-module-audit");
 
 function valueAfter(args, flag) {
@@ -16,7 +17,31 @@ function printAudit(report, json) {
   }
 }
 
-function runModuleCommand(args = process.argv.slice(3)) {
+function readStdin() {
+  return new Promise((resolve, reject) => {
+    let text = "";
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", chunk => { text += chunk; });
+    process.stdin.on("end", () => {
+      try { resolve(text.trim() ? JSON.parse(text) : {}); }
+      catch (error) { reject(error); }
+    });
+    process.stdin.on("error", reject);
+  });
+}
+
+function commandInput(args, action) {
+  return {
+    action,
+    threadId: valueAfter(args, "--thread"),
+    bindingId: valueAfter(args, "--binding") || valueAfter(args, "--id"),
+    summaryLimit: valueAfter(args, "--summary-limit"),
+    minImportance: valueAfter(args, "--min-importance"),
+    maxChars: valueAfter(args, "--max-chars"),
+  };
+}
+
+async function runModuleCommand(args = process.argv.slice(3)) {
   const action = args[0] || "list";
   const json = args.includes("--json");
   if (action === "list") {
@@ -41,12 +66,27 @@ function runModuleCommand(args = process.argv.slice(3)) {
     if (args.includes("--strict") && !report.ok) process.exitCode = 1;
     return;
   }
-  throw new Error(`unknown module action: ${action}`);
+  const loaded = findModule(action);
+  const moduleAction = args[1];
+  if (!moduleAction) throw new Error(`缺少模块命令：stmem module ${loaded.id} <action>`);
+  const relative = loaded.manifest.entry?.commands?.[moduleAction];
+  if (!relative) throw new Error(`模块 ${loaded.id} 未登记命令：${moduleAction}`);
+  const commandFile = resolveInside(loaded.moduleDir, relative, `module command ${moduleAction}`);
+  const implementation = require(commandFile);
+  if (typeof implementation.run !== "function") throw new Error(`模块命令 ${moduleAction} 未导出 run(context,input)`);
+  const input = commandInput(args.slice(1), moduleAction);
+  if (moduleAction === "hook") {
+    try { input.stdin = await readStdin(); }
+    catch { return console.log("{}"); }
+  }
+  const context = createModuleContext(loaded.manifest, { threadId: input.threadId });
+  const output = await implementation.run(context, input);
+  console.log(JSON.stringify(output ?? {}, null, moduleAction === "hook" ? 0 : 2));
+  return output;
 }
 
 if (require.main === module) {
-  try { runModuleCommand(); }
-  catch (error) { console.error(`[module] error: ${error.message}`); process.exitCode = 1; }
+  runModuleCommand().catch(error => { console.error(`[module] error: ${error.message}`); process.exitCode = 1; });
 }
 
 module.exports = { runModuleCommand };

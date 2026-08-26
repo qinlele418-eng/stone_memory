@@ -106,7 +106,34 @@ function previewIngestMessages(messages) {
   return { candidates, dates: dates.size, invalid, filtered, format };
 }
 
-function ingestRecords(records, { fullDir = null, memoryStore = null, format = "generic" } = {}) {
+/** 只读预览通用 import-source records，使用与正式 ingest 相同的清洗边界。 */
+function previewIngestRecords(records, { format = "generic" } = {}) {
+  const sourceDates = new Set();
+  let candidates = 0, invalid = 0, filtered = 0;
+  const filteredReasons = {};
+  for (const record of records || []) {
+    const raw = record.raw;
+    const row = record.message;
+    const reason = record.excludedReason || internalRecordReason(raw);
+    const date = beijingDateKey(row?.timestamp || (reason ? raw?.timestamp : null));
+    if (reason && date) {
+      filtered++;
+      filteredReasons[reason] = (filteredReasons[reason] || 0) + 1;
+      continue;
+    }
+    if (!row || !date || !row.text) { invalid++; continue; }
+    if (!isArchiveConversation(row)) {
+      filtered++;
+      filteredReasons.archive_filter = (filteredReasons.archive_filter || 0) + 1;
+      continue;
+    }
+    candidates++;
+    sourceDates.add(date);
+  }
+  return { candidates, invalid, filtered, filteredReasons, dates: sourceDates.size, sourceDates: [...sourceDates].sort(), format };
+}
+
+function ingestRecords(records, { fullDir = null, memoryStore = null, format = "generic", messageOptions = {} } = {}) {
   const archiveByDate = new Map(), fullByDate = new Map();
   let invalid = 0;
   let filtered = 0;
@@ -134,19 +161,33 @@ function ingestRecords(records, { fullDir = null, memoryStore = null, format = "
     if (!archiveByDate.has(date)) archiveByDate.set(date, []);
     archiveByDate.get(date).push(row);
   }
-  let imported = 0, fullBacked = 0;
+  let imported = 0, duplicates = 0, insertedMessageIds = [], fullBacked = 0;
   if (memoryStore) {
     memoryStore.removeInjectedMemoryBlocks();
     const rows = [];
     for (const [date, entries] of archiveByDate) for (const row of entries) rows.push({
       timestamp: row.timestamp, sourceDate: date, role: row.type, text: row.text, source: format,
     });
-    imported = memoryStore.insertMessages(rows, { source: format });
+    const result = memoryStore.insertMessagesDetailed(rows, { source: format, ...messageOptions });
+    imported = result.inserted;
+    duplicates = result.duplicates;
+    insertedMessageIds = result.insertedMessageIds;
   } else {
     throw new Error("memoryStore is required for normalized message ingest");
   }
   if (fullDir) for (const [date, rows] of fullByDate) fullBacked += mergeDateFile(fullDir, date, rows, fullKey, false);
-  return { imported, dates: archiveByDate.size, fullBacked, invalid, filtered, filteredReasons, format };
+  return {
+    imported,
+    duplicates,
+    insertedMessageIds,
+    dates: archiveByDate.size,
+    sourceDates: [...archiveByDate.keys()].sort(),
+    fullBacked,
+    invalid,
+    filtered,
+    filteredReasons,
+    format,
+  };
 }
 
 function ingestThreadFile(filePath, options) {
@@ -156,5 +197,5 @@ function ingestThreadFile(filePath, options) {
 
 module.exports = {
   parseThreadMessages, beijingDateKey, isSystemTemplate, isArchiveConversation,
-  internalRecordReason, ingestMessages, ingestRecords, ingestThreadFile, previewIngestMessages,
+  internalRecordReason, ingestMessages, ingestRecords, ingestThreadFile, previewIngestMessages, previewIngestRecords,
 };

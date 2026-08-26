@@ -4,7 +4,7 @@ const Database = require("better-sqlite3");
 const { resolveDatabasePath } = require("./database-location");
 const { messageIdentity } = require("../lib/message-identity");
 
-const SCHEMA_VERSION = 13;
+const SCHEMA_VERSION = 14;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -30,8 +30,42 @@ CREATE TABLE IF NOT EXISTS messages (
   role TEXT NOT NULL,
   text TEXT NOT NULL,
   source TEXT,
+  binding_id TEXT,
+  source_message_id TEXT,
+  import_batch_id TEXT,
+  source_occurred_at TEXT,
   created_at TEXT NOT NULL,
   UNIQUE(thread_id, message_id)
+);
+CREATE TABLE IF NOT EXISTS memory_bindings (
+  id TEXT PRIMARY KEY,
+  memory_id TEXT NOT NULL REFERENCES threads(id),
+  provider TEXT NOT NULL,
+  external_thread_id TEXT,
+  thread_file TEXT,
+  mode TEXT NOT NULL DEFAULT 'parallel' CHECK(mode IN ('primary','parallel','child','import_only')),
+  enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1)),
+  capabilities_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(memory_id, provider, external_thread_id)
+);
+CREATE TABLE IF NOT EXISTS binding_import_batches (
+  id TEXT PRIMARY KEY,
+  memory_id TEXT NOT NULL REFERENCES threads(id),
+  binding_id TEXT NOT NULL REFERENCES memory_bindings(id),
+  status TEXT NOT NULL CHECK(status IN ('applied','reverted')),
+  source_path TEXT,
+  source_fingerprint TEXT NOT NULL,
+  discovered_count INTEGER NOT NULL DEFAULT 0,
+  inserted_count INTEGER NOT NULL DEFAULT 0,
+  duplicate_count INTEGER NOT NULL DEFAULT 0,
+  invalid_count INTEGER NOT NULL DEFAULT 0,
+  filtered_count INTEGER NOT NULL DEFAULT 0,
+  source_dates_json TEXT NOT NULL DEFAULT '[]',
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  applied_at TEXT NOT NULL,
+  reverted_at TEXT
 );
 CREATE TABLE IF NOT EXISTS mining_day_state (
   thread_id TEXT NOT NULL,
@@ -95,6 +129,7 @@ CREATE TABLE IF NOT EXISTS feelings (
   importance INTEGER NOT NULL CHECK(importance BETWEEN 1 AND 5),
   source TEXT NOT NULL CHECK(source IN ('auto','remine','targeted','manual','import')),
   source_thread TEXT,
+  origin_import_batch_id TEXT,
   mining_job_id TEXT REFERENCES mining_jobs(id),
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -108,6 +143,7 @@ CREATE TABLE IF NOT EXISTS features (
   importance INTEGER NOT NULL CHECK(importance BETWEEN 1 AND 5),
   source TEXT NOT NULL CHECK(source IN ('auto','remine','targeted','manual','import')),
   source_thread TEXT,
+  origin_import_batch_id TEXT,
   mining_job_id TEXT REFERENCES mining_jobs(id),
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -164,6 +200,10 @@ CREATE INDEX IF NOT EXISTS idx_notebook_topics_thread
   ON notebook_topics(thread_id, is_archived, updated_at);
 CREATE INDEX IF NOT EXISTS idx_notebook_entries_thread_topic
   ON notebook_entries(thread_id, topic_id, updated_at);
+CREATE INDEX IF NOT EXISTS idx_bindings_memory
+  ON memory_bindings(memory_id, enabled, created_at);
+CREATE INDEX IF NOT EXISTS idx_binding_batches_memory
+  ON binding_import_batches(memory_id, binding_id, applied_at);
 `;
 
 function openDatabase(memoryDir) {
@@ -260,6 +300,14 @@ function migrateColumns(db) {
   if (!feelingColumns.has("summary_mode")) db.exec("ALTER TABLE feelings ADD COLUMN summary_mode TEXT NOT NULL DEFAULT 'daily' CHECK(summary_mode IN ('daily','coarse','hidden'))");
   if (!feelingColumns.has("coarse_summary")) db.exec("ALTER TABLE feelings ADD COLUMN coarse_summary TEXT");
   if (!feelingColumns.has("coarse_terms")) db.exec("ALTER TABLE feelings ADD COLUMN coarse_terms TEXT");
+  if (!feelingColumns.has("origin_import_batch_id")) db.exec("ALTER TABLE feelings ADD COLUMN origin_import_batch_id TEXT");
+  const featureColumns = new Set(db.pragma("table_info(features)").map(column => column.name));
+  if (!featureColumns.has("origin_import_batch_id")) db.exec("ALTER TABLE features ADD COLUMN origin_import_batch_id TEXT");
+  const messageColumns = new Set(db.pragma("table_info(messages)").map(column => column.name));
+  if (!messageColumns.has("binding_id")) db.exec("ALTER TABLE messages ADD COLUMN binding_id TEXT");
+  if (!messageColumns.has("source_message_id")) db.exec("ALTER TABLE messages ADD COLUMN source_message_id TEXT");
+  if (!messageColumns.has("import_batch_id")) db.exec("ALTER TABLE messages ADD COLUMN import_batch_id TEXT");
+  if (!messageColumns.has("source_occurred_at")) db.exec("ALTER TABLE messages ADD COLUMN source_occurred_at TEXT");
   const threadColumns = new Set(db.pragma("table_info(threads)").map(column => column.name));
   if (!threadColumns.has("parent_thread_id")) db.exec("ALTER TABLE threads ADD COLUMN parent_thread_id TEXT REFERENCES threads(id)");
   if (!threadColumns.has("memories_flow_to_parent")) db.exec("ALTER TABLE threads ADD COLUMN memories_flow_to_parent INTEGER NOT NULL DEFAULT 1 CHECK(memories_flow_to_parent IN (0,1))");
@@ -268,6 +316,8 @@ function migrateColumns(db) {
   const notebookTopicColumns = new Set(db.pragma("table_info(notebook_topics)").map(column => column.name));
   if (!notebookTopicColumns.has("is_default")) db.exec("ALTER TABLE notebook_topics ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0 CHECK(is_default IN (0,1))");
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_notebook_topics_one_default ON notebook_topics(thread_id) WHERE is_default=1");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_messages_binding ON messages(thread_id,binding_id,timestamp)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_messages_import_batch ON messages(thread_id,import_batch_id)");
 }
 
 module.exports = { openDatabase, SCHEMA_VERSION };

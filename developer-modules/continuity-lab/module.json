@@ -1,0 +1,27 @@
+{
+  "id": "continuity-lab",
+  "title": "连续性实验室",
+  "version": "0.1.0",
+  "sdkVersion": 1,
+  "scope": "memory",
+  "permissions": ["core:read", "binding:write"],
+  "entry": {
+    "frontend": "frontend/index.html",
+    "commands": {
+      "handoff": "backend/commands/claude-hook.js",
+      "hook-spec": "backend/commands/claude-hook.js",
+      "hook": "backend/commands/claude-hook.js"
+    }
+  },
+  "storage": {
+    "files": ["import-previews", "binding-audit.jsonl"]
+  },
+  "contributor": "Stone Memory · @echozfwoodcrafts-del",
+  "summary": "让一个记忆体安全接入多个线程来源，并试验 Claude Code 启动与压缩后的轻量连续性接续。",
+  "status": "官方架构实验",
+  "eyebrow": "Continuity · One memory, many bindings",
+  "actionLabel": "进入实验室 →",
+  "metaLabel": "Binding · v0.1",
+  "features": ["多端 Binding", "可逆导入", "Claude Hook 接续"],
+  "order": 18
+}

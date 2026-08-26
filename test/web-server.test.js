@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { previewRows, paginate, buildConversationCalendar, miningDatesFromStore, miningCommandArgs, miningCheckCommandArgs, targetedMiningCommandArgs, timelineCommandArgs, compactTimelineReport, compressionCommandArgs, safeStmemFailure, reviewCandidateForWeb, reviewProfileFromInput, reviewBatchPayload, reviewBatchCommandArgs } = require("../src/web/server");
+const { previewRows, paginate, buildConversationCalendar, miningDatesFromStore, miningCommandArgs, miningCheckCommandArgs, targetedMiningCommandArgs, timelineCommandArgs, compactTimelineReport, compressionCommandArgs, safeStmemFailure, reviewCandidateForWeb, reviewProfileFromInput, reviewBatchPayload, reviewBatchCommandArgs, listDeveloperModules } = require("../src/web/server");
 const { buildStdinCmd } = require("../src/services/subagent-runner");
 const { itemKey, inspectClaude, inspectCodex, conversationWindow, latestConversationDate, trimRows } = require("../src/services/rebuild-workbench");
 const { validateThreadInput, validateSessionBinding } = require("../src/services/thread-setup");
@@ -393,4 +393,14 @@ test("developer experiments register through removable bootstraps instead of app
   assert.match(indexSource, /\/theme-studio\/bootstrap\.js/);
   assert.match(reviewBootstrap, /dataModule = MODULE_ID|dataset\.developerModule = MODULE_ID/);
   assert.match(themeBootstrap, /dataModule = MODULE_ID|dataset\.developerModule = MODULE_ID/);
+});
+
+test("canonical developer modules are discovered without copying frontend code into public", () => {
+  const continuity = listDeveloperModules().find(module => module.id === "continuity-lab");
+  assert.ok(continuity);
+  assert.equal(continuity.entry, "/developer-modules/continuity-lab/");
+  assert.equal(continuity.status, "官方架构实验");
+  const root = path.join(__dirname, "..", "developer-modules", "continuity-lab");
+  assert.ok(fs.existsSync(path.join(root, "frontend", "index.html")));
+  assert.equal(fs.existsSync(path.join(__dirname, "..", "src", "web", "public", "developer-modules", "continuity-lab")), false);
 });
