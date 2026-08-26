@@ -1,0 +1,1113 @@
+name: Stone Memory PR Repair
+
+run-name: "PR Repair #${{ github.event.pull_request.number || inputs.pr }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Open pull request number targeting main
+        required: true
+        type: string
+      push_repair:
+        description: Push a verified append-only repair commit after final checks
+        required: false
+        default: true
+        type: boolean
+      allow_external_model_data:
+        description: Explicitly allow sanitized PR excerpts to be sent to Z.AI
+        required: false
+        default: false
+        type: boolean
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: stone-memory-pr-repair-${{ github.event.pull_request.number || inputs.pr }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pull-requests: read
+  statuses: read
+
+env:
+  NODE_VERSION: 22.x
+  PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr }}
+  MODEL_ALLOWED: ${{ inputs.allow_external_model_data || vars.PR_REPAIR_ALLOW_EXTERNAL_MODEL_DATA || 'false' }}
+
+jobs:
+  diagnose:
+    name: Diagnose PR mechanically
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+      checks: read
+      statuses: read
+    outputs:
+      status: ${{ steps.diagnose.outputs.status }}
+      next_action: ${{ steps.diagnose.outputs.next_action }}
+      eligible_for_repair: ${{ steps.diagnose.outputs.eligible_for_repair }}
+      needs_reproduction: ${{ steps.diagnose.outputs.needs_reproduction }}
+      needs_ai: ${{ steps.diagnose.outputs.needs_ai }}
+      base_sha: ${{ steps.diagnose.outputs.base_sha }}
+      head_sha: ${{ steps.diagnose.outputs.head_sha }}
+      head_ref: ${{ steps.diagnose.outputs.head_ref }}
+      trusted_tools_available: ${{ steps.trusted_tools.outputs.available }}
+    steps:
+      - name: Check out trusted current main tools
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+          path: repo
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Verify trusted repair tooling is installed on main
+        id: trusted_tools
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [[ -f repo/.github/pr-repair/diagnose.mjs && -f repo/.github/pr-repair/publish-gate.mjs ]]; then
+            echo 'available=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ "$EVENT_NAME" == 'workflow_dispatch' ]]; then
+            echo '::error::Trusted PR Repair tooling is not installed on main; refusing a manual repair dispatch.'
+            exit 1
+          fi
+
+          echo 'available=false' >> "$GITHUB_OUTPUT"
+          echo 'PR Repair is not installed on main yet; skipping this bootstrap pull-request run.' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Diagnose without executing PR code
+        id: diagnose
+        if: steps.trusted_tools.outputs.available == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ env.PR_NUMBER }}
+          REPAIR_REPOSITORY: ${{ github.workspace }}/repo
+          REPORT_PATH: ${{ github.workspace }}/pr-repair-diagnosis.json
+        run: node repo/.github/pr-repair/diagnose.mjs
+
+      - name: Upload mechanical diagnosis
+        if: always() && steps.trusted_tools.outputs.available == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-repair-diagnosis-${{ env.PR_NUMBER }}
+          path: pr-repair-diagnosis.json
+          if-no-files-found: error
+          retention-days: 7
+
+  reproduce:
+    name: Reproduce PR and current-main tests
+    needs: diagnose
+    if: >-
+      needs.diagnose.outputs.eligible_for_repair == 'true' &&
+      needs.diagnose.outputs.next_action == 'reproduce_tests'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    outputs:
+      relation: ${{ steps.reproduce.outputs.relation }}
+    steps:
+      - name: Check out current main baseline
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.diagnose.outputs.base_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: baseline
+
+      - name: Check out isolated PR test workspace
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.diagnose.outputs.base_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: merged
+
+      - name: Check out trusted repair tools from main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+          path: tools
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Download mechanical diagnosis
+        uses: actions/download-artifact@v4
+        with:
+          name: pr-repair-diagnosis-${{ env.PR_NUMBER }}
+          path: evidence
+
+      - name: Run baseline and merged tests without secrets
+        id: reproduce
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ env.PR_NUMBER }}
+          BASE_SHA: ${{ needs.diagnose.outputs.base_sha }}
+          HEAD_SHA: ${{ needs.diagnose.outputs.head_sha }}
+          MERGED_CWD: ${{ github.workspace }}/merged
+          BASELINE_CWD: ${{ github.workspace }}/baseline
+          DIAGNOSIS_PATH: ${{ github.workspace }}/evidence/pr-repair-diagnosis.json
+          REPRODUCTION_REPORT_PATH: ${{ github.workspace }}/pr-repair-reproduction.json
+        run: node tools/.github/pr-repair/reproduce.mjs
+
+      - name: Upload reproduction evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-repair-reproduction-${{ env.PR_NUMBER }}
+          path: pr-repair-reproduction.json
+          if-no-files-found: error
+          retention-days: 7
+
+  deterministic_plan:
+    name: Build deterministic repair plan
+    needs: diagnose
+    if: >-
+      needs.diagnose.outputs.eligible_for_repair == 'true' &&
+      needs.diagnose.outputs.next_action == 'deterministic_diff_check'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Check out PR head in an isolated workspace
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.diagnose.outputs.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: repair
+
+      - name: Check out trusted repair tools from main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+          path: tools
+
+      - name: Download diagnosis
+        uses: actions/download-artifact@v4
+        with:
+          name: pr-repair-diagnosis-${{ env.PR_NUMBER }}
+          path: evidence
+
+      - name: Build whitespace-only deterministic plan
+        env:
+          DIAGNOSIS_PATH: ${{ github.workspace }}/evidence/pr-repair-diagnosis.json
+          REPAIR_WORKTREE: ${{ github.workspace }}/repair
+          REPAIR_PLAN_PATH: ${{ github.workspace }}/pr-repair-plan.json
+        run: node tools/.github/pr-repair/deterministic.mjs
+
+      - name: Upload deterministic plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-repair-deterministic-plan-${{ env.PR_NUMBER }}
+          path: pr-repair-plan.json
+          if-no-files-found: error
+          retention-days: 7
+
+  ai_plan:
+    name: Ask GLM for a bounded repair plan
+    needs: [diagnose, reproduce]
+    if: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      pull-requests: read
+    env:
+      ZAI_BASE_URL: ${{ vars.ZAI_BASE_URL || 'https://api.z.ai/api/paas/v4' }}
+      ZAI_MODEL: ${{ vars.ZAI_MODEL || 'glm-4.7-flash' }}
+      ZAI_MAX_TOKENS: ${{ vars.ZAI_MAX_TOKENS || '16000' }}
+      ZAI_TIMEOUT_MS: ${{ vars.ZAI_TIMEOUT_MS || '120000' }}
+      ZAI_THINKING: ${{ vars.ZAI_THINKING || '' }}
+    steps:
+      - name: Check out trusted repair tools from main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+          path: tools
+
+      - name: Check out PR source as data only
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.diagnose.outputs.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: source
+
+      - name: Download diagnosis
+        uses: actions/download-artifact@v4
+        with:
+          name: pr-repair-diagnosis-${{ env.PR_NUMBER }}
+          path: evidence/diagnosis
+
+      - name: Download reproduction evidence when available
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: pr-repair-reproduction-${{ env.PR_NUMBER }}
+          path: evidence/reproduction
+
+      - name: Smoke-test Z.AI access without PR data
+        id: zai_handshake
+        env:
+          ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
+        run: node tools/.github/pr-repair/handshake.mjs
+
+      - name: Build minimal model context
+        env:
+          DIAGNOSIS_PATH: ${{ github.workspace }}/evidence/diagnosis/pr-repair-diagnosis.json
+          REPRODUCTION_PATH: ${{ github.workspace }}/evidence/reproduction/pr-repair-reproduction.json
+          CONTEXT_CWD: ${{ github.workspace }}/source
+          CONTEXT_PATH: ${{ github.workspace }}/repair-input.json
+          ALLOW_EXTERNAL_MODEL_DATA: ${{ env.MODEL_ALLOWED }}
+        run: node tools/.github/pr-repair/context.mjs
+
+      - name: Call Z.AI GLM-4.7-Flash round 1 (secret isolated to this step)
+        id: zai_round1
+        env:
+          ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
+          REPAIR_INPUT_PATH: ${{ github.workspace }}/repair-input.json
+          REPAIR_PLAN_PATH: ${{ github.workspace }}/pr-repair-plan-1.json
+          REPAIR_ROUND: 1
+        run: node tools/.github/pr-repair/zai.mjs
+
+      - name: Apply candidate repair round 1
+        id: apply1
+        if: steps.zai_round1.outcome == 'success'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ env.PR_NUMBER }}
+          REPAIR_WORKTREE: ${{ github.workspace }}/source
+          DIAGNOSIS_PATH: ${{ github.workspace }}/evidence/diagnosis/pr-repair-diagnosis.json
+          REPRODUCTION_PATH: ${{ github.workspace }}/evidence/reproduction/pr-repair-reproduction.json
+          REPAIR_PLAN_PATH: ${{ github.workspace }}/pr-repair-plan-1.json
+          REPAIR_RESULT_PATH: ${{ github.workspace }}/pr-repair-result-1.json
+        run: node tools/.github/pr-repair/apply.mjs
+
+      - name: Verify candidate repair round 1 without secrets
+        id: verify1
+        if: steps.apply1.outputs.status == 'repair_success'
+        continue-on-error: true
+        env:
+          RUNNER_TEMP: ${{ runner.temp }}
+          TEST_CWD: ${{ github.workspace }}/source
+          TEST_REPORT_PATH: ${{ runner.temp }}/pr-repair-ai-test-1/pr-repair-test.json
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pr-repair-ai-test-1" "$RUNNER_TEMP/pr-repair-ai-home-1"
+          INSTALL_CWD="$RUNNER_TEMP/pr-repair-ai-install-1"
+          rm -rf "$INSTALL_CWD"
+          mkdir -p "$INSTALL_CWD"
+          cp -a "$TEST_CWD/package.json" "$TEST_CWD/package-lock.json" "$INSTALL_CWD/"
+          if [[ "$(node -p "require('$INSTALL_CWD/package.json').scripts?.preinstall || ''")" == "node scripts/check-node-version.js" && ! -L "$TEST_CWD/scripts" && -f "$TEST_CWD/scripts/check-node-version.js" ]]; then
+            mkdir -p "$INSTALL_CWD/scripts"
+            cp -a "$TEST_CWD/scripts/check-node-version.js" "$INSTALL_CWD/scripts/"
+          fi
+          if ! docker run --rm --init --user "$(id -u):$(id -g)" \
+            -v "$INSTALL_CWD:/install:rw" -w /install \
+            -e HOME=/tmp -e npm_config_cache=/tmp/npm-cache \
+            -e GITHUB_TOKEN= -e GH_TOKEN= -e ZAI_API_KEY= -e NPM_TOKEN= -e NODE_AUTH_TOKEN= \
+            -e ACTIONS_RUNTIME_TOKEN= -e ACTIONS_ID_TOKEN_REQUEST_TOKEN= \
+            node:22-bookworm npm ci --ignore-scripts --no-audit --no-fund; then
+            node -e "require('fs').writeFileSync(process.env.TEST_REPORT_PATH, JSON.stringify({command:'npm test',exitCode:1,timedOut:false,result:{total:1,passed:0,failed:1,failures:[{name:'npm ci',error:'依赖安装失败'}]},stderr:'',passed:false}))"
+            exit 1
+          fi
+          docker run --rm --init --user "$(id -u):$(id -g)" \
+            -v "$INSTALL_CWD:/install:rw" -w /install \
+            -e HOME=/tmp -e npm_config_cache=/tmp/npm-cache \
+            node:22-bookworm npm rebuild better-sqlite3 --no-audit --no-fund
+          rm -rf "$TEST_CWD/node_modules"
+          cp -a "$INSTALL_CWD/node_modules" "$TEST_CWD/"
+          docker run --rm --init --network none --user "$(id -u):$(id -g)" \
+            -v "$TEST_CWD:/work:rw" \
+            -v "${{ runner.temp }}/pr-repair-tools:/tools:ro" \
+            -v "$RUNNER_TEMP/pr-repair-ai-test-1:/out:rw" \
+            -w /work -e HOME=/tmp \
+            -e GITHUB_TOKEN= -e GH_TOKEN= -e ZAI_API_KEY= -e NPM_TOKEN= -e NODE_AUTH_TOKEN= \
+            -e ACTIONS_RUNTIME_TOKEN= -e ACTIONS_ID_TOKEN_REQUEST_TOKEN= \
+            -e TEST_CWD=/work -e TEST_REPORT_PATH=/out/pr-repair-test.json \
+            node:22-bookworm node /tools/test-runner.mjs
+
+      - name: Record repair feedback round 1
+        if: steps.apply1.outcome == 'success'
+        env:
+          REPAIR_PLAN_PATH: ${{ github.workspace }}/pr-repair-plan-1.json
+          REPAIR_RESULT_PATH: ${{ github.workspace }}/pr-repair-result-1.json
+          TEST_REPORT_PATH: ${{ runner.temp }}/pr-repair-ai-test-1/pr-repair-test.json
+          FEEDBACK_PATH: ${{ github.workspace }}/pr-repair-feedback-1.json
+        run: node tools/.github/pr-repair/feedback.mjs
+
+      - name: Reset candidate workspace for repair round 2
+        if: steps.apply1.outputs.status == 'repair_success' && steps.verify1.outcome != 'success'
+        env:
+          HEAD_SHA: ${{ needs.diagnose.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          git -C source reset --hard "$HEAD_SHA"
+          git -C source clean -fdx
+
+      - name: Build model context for repair round 2
+        id: context2
+        if: steps.apply1.outputs.status == 'repair_success' && steps.verify1.outcome != 'success'
+        env:
+          DIAGNOSIS_PATH: ${{ github.workspace }}/evidence/diagnosis/pr-repair-diagnosis.json
+          REPRODUCTION_PATH: ${{ github.workspace }}/evidence/reproduction/pr-repair-reproduction.json
+          FEEDBACK_PATH: ${{ github.workspace }}/pr-repair-feedback-1.json
+          CONTEXT_CWD: ${{ github.workspace }}/source
+          CONTEXT_PATH: ${{ github.workspace }}/repair-input-2.json
+          ALLOW_EXTERNAL_MODEL_DATA: ${{ env.MODEL_ALLOWED }}
+        run: node tools/.github/pr-repair/context.mjs
+
+      - name: Call Z.AI GLM-4.7-Flash round 2 (secret isolated to this step)
+        id: zai_round2
+        if: steps.apply1.outputs.status == 'repair_success' && steps.verify1.outcome != 'success' && steps.context2.outcome == 'success'
+        env:
+          ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
+          REPAIR_INPUT_PATH: ${{ github.workspace }}/repair-input-2.json
+          REPAIR_PLAN_PATH: ${{ github.workspace }}/pr-repair-plan-2.json
+          REPAIR_ROUND: 2
+        run: node tools/.github/pr-repair/zai.mjs
+
+      - name: Apply candidate repair round 2
+        id: apply2
+        if: steps.apply1.outputs.status == 'repair_success' && steps.verify1.outcome != 'success' && steps.zai_round2.outcome == 'success'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ env.PR_NUMBER }}
+          REPAIR_WORKTREE: ${{ github.workspace }}/source
+          DIAGNOSIS_PATH: ${{ github.workspace }}/evidence/diagnosis/pr-repair-diagnosis.json
+          REPRODUCTION_PATH: ${{ github.workspace }}/evidence/reproduction/pr-repair-reproduction.json
+          REPAIR_PLAN_PATH: ${{ github.workspace }}/pr-repair-plan-2.json
+          REPAIR_RESULT_PATH: ${{ github.workspace }}/pr-repair-result-2.json
+        run: node tools/.github/pr-repair/apply.mjs
+
+      - name: Verify candidate repair round 2 without secrets
+        id: verify2
+        if: steps.apply2.outputs.status == 'repair_success'
+        continue-on-error: true
+        env:
+          RUNNER_TEMP: ${{ runner.temp }}
+          TEST_CWD: ${{ github.workspace }}/source
+          TEST_REPORT_PATH: ${{ runner.temp }}/pr-repair-ai-test-2/pr-repair-test.json
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pr-repair-ai-test-2"
+          INSTALL_CWD="$RUNNER_TEMP/pr-repair-ai-install-2"
+          rm -rf "$INSTALL_CWD"
+          mkdir -p "$INSTALL_CWD"
+          cp -a "$TEST_CWD/package.json" "$TEST_CWD/package-lock.json" "$INSTALL_CWD/"
+          if [[ "$(node -p "require('$INSTALL_CWD/package.json').scripts?.preinstall || ''")" == "node scripts/check-node-version.js" && ! -L "$TEST_CWD/scripts" && -f "$TEST_CWD/scripts/check-node-version.js" ]]; then
+            mkdir -p "$INSTALL_CWD/scripts"
+            cp -a "$TEST_CWD/scripts/check-node-version.js" "$INSTALL_CWD/scripts/"
+          fi
+          if ! docker run --rm --init --user "$(id -u):$(id -g)" \
+            -v "$INSTALL_CWD:/install:rw" -w /install \
+            -e HOME=/tmp -e npm_config_cache=/tmp/npm-cache \
+            -e GITHUB_TOKEN= -e GH_TOKEN= -e ZAI_API_KEY= -e NPM_TOKEN= -e NODE_AUTH_TOKEN= \
+            -e ACTIONS_RUNTIME_TOKEN= -e ACTIONS_ID_TOKEN_REQUEST_TOKEN= \
+            node:22-bookworm npm ci --ignore-scripts --no-audit --no-fund; then
+            node -e "require('fs').writeFileSync(process.env.TEST_REPORT_PATH, JSON.stringify({command:'npm test',exitCode:1,timedOut:false,result:{total:1,passed:0,failed:1,failures:[{name:'npm ci',error:'依赖安装失败'}]},stderr:'',passed:false}))"
+            exit 1
+          fi
+          docker run --rm --init --user "$(id -u):$(id -g)" \
+            -v "$INSTALL_CWD:/install:rw" -w /install \
+            -e HOME=/tmp -e npm_config_cache=/tmp/npm-cache \
+            node:22-bookworm npm rebuild better-sqlite3 --no-audit --no-fund
+          rm -rf "$TEST_CWD/node_modules"
+          cp -a "$INSTALL_CWD/node_modules" "$TEST_CWD/"
+          docker run --rm --init --network none --user "$(id -u):$(id -g)" \
+            -v "$TEST_CWD:/work:rw" \
+            -v "${{ runner.temp }}/pr-repair-tools:/tools:ro" \
+            -v "$RUNNER_TEMP/pr-repair-ai-test-2:/out:rw" \
+            -w /work -e HOME=/tmp \
+            -e GITHUB_TOKEN= -e GH_TOKEN= -e ZAI_API_KEY= -e NPM_TOKEN= -e NODE_AUTH_TOKEN= \
+            -e ACTIONS_RUNTIME_TOKEN= -e ACTIONS_ID_TOKEN_REQUEST_TOKEN= \
+            -e TEST_CWD=/work -e TEST_REPORT_PATH=/out/pr-repair-test.json \
+            node:22-bookworm node /tools/test-runner.mjs
+
+      - name: Record repair feedback round 2
+        if: steps.apply2.outcome == 'success'
+        env:
+          REPAIR_PLAN_PATH: ${{ github.workspace }}/pr-repair-plan-2.json
+          REPAIR_RESULT_PATH: ${{ github.workspace }}/pr-repair-result-2.json
+          TEST_REPORT_PATH: ${{ runner.temp }}/pr-repair-ai-test-2/pr-repair-test.json
+          FEEDBACK_PATH: ${{ github.workspace }}/pr-repair-feedback-2.json
+        run: node tools/.github/pr-repair/feedback.mjs
+
+      - name: Reset candidate workspace for repair round 3
+        if: steps.apply2.outputs.status == 'repair_success' && steps.verify2.outcome != 'success'
+        env:
+          HEAD_SHA: ${{ needs.diagnose.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          git -C source reset --hard "$HEAD_SHA"
+          git -C source clean -fdx
+
+      - name: Build model context for repair round 3
+        id: context3
+        if: steps.apply2.outputs.status == 'repair_success' && steps.verify2.outcome != 'success'
+        env:
+          DIAGNOSIS_PATH: ${{ github.workspace }}/evidence/diagnosis/pr-repair-diagnosis.json
+          REPRODUCTION_PATH: ${{ github.workspace }}/evidence/reproduction/pr-repair-reproduction.json
+          FEEDBACK_PATH: ${{ github.workspace }}/pr-repair-feedback-2.json
+          CONTEXT_CWD: ${{ github.workspace }}/source
+          CONTEXT_PATH: ${{ github.workspace }}/repair-input-3.json
+          ALLOW_EXTERNAL_MODEL_DATA: ${{ env.MODEL_ALLOWED }}
+        run: node tools/.github/pr-repair/context.mjs
+
+      - name: Call Z.AI GLM-4.7-Flash round 3 (secret isolated to this step)
+        id: zai_round3
+        if: steps.apply2.outputs.status == 'repair_success' && steps.verify2.outcome != 'success' && steps.context3.outcome == 'success'
+        env:
+          ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
+          REPAIR_INPUT_PATH: ${{ github.workspace }}/repair-input-3.json
+          REPAIR_PLAN_PATH: ${{ github.workspace }}/pr-repair-plan-3.json
+          REPAIR_ROUND: 3
+        run: node tools/.github/pr-repair/zai.mjs
+
+      - name: Apply candidate repair round 3
+        id: apply3
+        if: steps.apply2.outputs.status == 'repair_success' && steps.verify2.outcome != 'success' && steps.zai_round3.outcome == 'success'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ env.PR_NUMBER }}
+          REPAIR_WORKTREE: ${{ github.workspace }}/source
+          DIAGNOSIS_PATH: ${{ github.workspace }}/evidence/diagnosis/pr-repair-diagnosis.json
+          REPRODUCTION_PATH: ${{ github.workspace }}/evidence/reproduction/pr-repair-reproduction.json
+          REPAIR_PLAN_PATH: ${{ github.workspace }}/pr-repair-plan-3.json
+          REPAIR_RESULT_PATH: ${{ github.workspace }}/pr-repair-result-3.json
+        run: node tools/.github/pr-repair/apply.mjs
+
+      - name: Verify candidate repair round 3 without secrets
+        id: verify3
+        if: steps.apply3.outputs.status == 'repair_success'
+        continue-on-error: true
+        env:
+          RUNNER_TEMP: ${{ runner.temp }}
+          TEST_CWD: ${{ github.workspace }}/source
+          TEST_REPORT_PATH: ${{ runner.temp }}/pr-repair-ai-test-3/pr-repair-test.json
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pr-repair-ai-test-3"
+          INSTALL_CWD="$RUNNER_TEMP/pr-repair-ai-install-3"
+          rm -rf "$INSTALL_CWD"
+          mkdir -p "$INSTALL_CWD"
+          cp -a "$TEST_CWD/package.json" "$TEST_CWD/package-lock.json" "$INSTALL_CWD/"
+          if [[ "$(node -p "require('$INSTALL_CWD/package.json').scripts?.preinstall || ''")" == "node scripts/check-node-version.js" && ! -L "$TEST_CWD/scripts" && -f "$TEST_CWD/scripts/check-node-version.js" ]]; then
+            mkdir -p "$INSTALL_CWD/scripts"
+            cp -a "$TEST_CWD/scripts/check-node-version.js" "$INSTALL_CWD/scripts/"
+          fi
+          if ! docker run --rm --init --user "$(id -u):$(id -g)" \
+            -v "$INSTALL_CWD:/install:rw" -w /install \
+            -e HOME=/tmp -e npm_config_cache=/tmp/npm-cache \
+            -e GITHUB_TOKEN= -e GH_TOKEN= -e ZAI_API_KEY= -e NPM_TOKEN= -e NODE_AUTH_TOKEN= \
+            -e ACTIONS_RUNTIME_TOKEN= -e ACTIONS_ID_TOKEN_REQUEST_TOKEN= \
+            node:22-bookworm npm ci --ignore-scripts --no-audit --no-fund; then
+            node -e "require('fs').writeFileSync(process.env.TEST_REPORT_PATH, JSON.stringify({command:'npm test',exitCode:1,timedOut:false,result:{total:1,passed:0,failed:1,failures:[{name:'npm ci',error:'依赖安装失败'}]},stderr:'',passed:false}))"
+            exit 1
+          fi
+          docker run --rm --init --user "$(id -u):$(id -g)" \
+            -v "$INSTALL_CWD:/install:rw" -w /install \
+            -e HOME=/tmp -e npm_config_cache=/tmp/npm-cache \
+            node:22-bookworm npm rebuild better-sqlite3 --no-audit --no-fund
+          rm -rf "$TEST_CWD/node_modules"
+          cp -a "$INSTALL_CWD/node_modules" "$TEST_CWD/"
+          docker run --rm --init --network none --user "$(id -u):$(id -g)" \
+            -v "$TEST_CWD:/work:rw" \
+            -v "${{ runner.temp }}/pr-repair-tools:/tools:ro" \
+            -v "$RUNNER_TEMP/pr-repair-ai-test-3:/out:rw" \
+            -w /work -e HOME=/tmp \
+            -e GITHUB_TOKEN= -e GH_TOKEN= -e ZAI_API_KEY= -e NPM_TOKEN= -e NODE_AUTH_TOKEN= \
+            -e ACTIONS_RUNTIME_TOKEN= -e ACTIONS_ID_TOKEN_REQUEST_TOKEN= \
+            -e TEST_CWD=/work -e TEST_REPORT_PATH=/out/pr-repair-test.json \
+            node:22-bookworm node /tools/test-runner.mjs
+
+      - name: Select final bounded repair plan
+        id: select_plan
+        if: >-
+          always() &&
+          hashFiles('pr-repair-plan-1.json', 'pr-repair-plan-2.json', 'pr-repair-plan-3.json') != ''
+        run: |
+          set -euo pipefail
+          if [[ "${{ steps.verify1.outcome }}" == "success" ]]; then
+            cp pr-repair-plan-1.json pr-repair-plan.json
+          elif [[ "${{ steps.verify2.outcome }}" == "success" ]]; then
+            cp pr-repair-plan-2.json pr-repair-plan.json
+          elif [[ "${{ steps.verify3.outcome }}" == "success" ]]; then
+            cp pr-repair-plan-3.json pr-repair-plan.json
+          elif [[ -f pr-repair-plan-3.json ]]; then
+            cp pr-repair-plan-3.json pr-repair-plan.json
+          elif [[ -f pr-repair-plan-2.json ]]; then
+            cp pr-repair-plan-2.json pr-repair-plan.json
+          else
+            cp pr-repair-plan-1.json pr-repair-plan.json
+          fi
+
+      - name: Upload bounded repair plan
+        if: steps.select_plan.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-repair-ai-plan-${{ env.PR_NUMBER }}
+          path: |
+            repair-input.json
+            pr-repair-plan.json
+          if-no-files-found: error
+          retention-days: 7
+
+  ai_agent:
+    name: Run bounded GLM-4.5-Flash ReAct repair
+    needs: [diagnose, reproduce]
+    if: >-
+      always() &&
+      (inputs.allow_external_model_data == true || vars.PR_REPAIR_ALLOW_EXTERNAL_MODEL_DATA == 'true') &&
+      needs.diagnose.outputs.eligible_for_repair == 'true' &&
+      (
+        needs.diagnose.outputs.next_action == 'ai_conflict' ||
+        (needs.diagnose.outputs.next_action == 'reproduce_tests' &&
+        needs.reproduce.result == 'success' &&
+        needs.reproduce.outputs.relation == 'pr_related_failure')
+      )
+    concurrency:
+      group: stone-memory-pr-repair-zai
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      pull-requests: read
+    env:
+      ZAI_BASE_URL: ${{ vars.ZAI_BASE_URL || 'https://api.z.ai/api/paas/v4' }}
+      ZAI_MODEL: glm-4.5-flash
+      ZAI_TIMEOUT_MS: '120000'
+      ZAI_RETRY_DELAY_MS: '60000'
+    steps:
+      - name: Check out trusted repair tools from main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+          path: tools
+
+      - name: Check out PR repair workspace
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.diagnose.outputs.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: repair
+
+      - name: Download diagnosis
+        uses: actions/download-artifact@v4
+        with:
+          name: pr-repair-diagnosis-${{ env.PR_NUMBER }}
+          path: evidence/diagnosis
+
+      - name: Download reproduction evidence when available
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: pr-repair-reproduction-${{ env.PR_NUMBER }}
+          path: evidence/reproduction
+
+      - name: Smoke-test Z.AI access without PR data
+        env:
+          ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
+        run: node tools/.github/pr-repair/handshake.mjs
+
+      - name: Prepare current-main merge workspace
+        env:
+          BASE_SHA: ${{ needs.diagnose.outputs.base_sha }}
+          HEAD_SHA: ${{ needs.diagnose.outputs.head_sha }}
+        working-directory: ${{ github.workspace }}/repair
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$BASE_SHA"
+          git switch --detach "$HEAD_SHA"
+          set +e
+          git -c user.name='Stone Memory PR Repair' -c user.email='pr-repair@stone-memory.invalid' merge --no-commit --no-ff "$BASE_SHA"
+          merge_code=$?
+          set -e
+          if [[ "$merge_code" -ne 0 ]]; then
+            conflicts="$(git diff --name-only --diff-filter=U)"
+            if [[ -z "$conflicts" ]]; then
+              echo 'current-main merge failed without a resolvable conflict' >&2
+              exit "$merge_code"
+            fi
+          fi
+
+      - name: Run bounded ReAct coding agent
+        id: agent
+        continue-on-error: true
+        env:
+          ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
+          DIAGNOSIS_PATH: ${{ github.workspace }}/evidence/diagnosis/pr-repair-diagnosis.json
+          REPRODUCTION_PATH: ${{ github.workspace }}/evidence/reproduction/pr-repair-reproduction.json
+          REPAIR_WORKTREE: ${{ github.workspace }}/repair
+          AGENT_RESULT_PATH: ${{ github.workspace }}/pr-repair-agent-result.json
+          AGENT_AUDIT_PATH: ${{ github.workspace }}/pr-repair-agent-audit.jsonl
+        run: node tools/.github/pr-repair/agent-runtime.mjs
+
+      - name: Commit verified agent workspace
+        id: agent_commit
+        if: always() && hashFiles('pr-repair-agent-result.json') != ''
+        continue-on-error: true
+        env:
+          PR_NUMBER: ${{ env.PR_NUMBER }}
+          DIAGNOSIS_PATH: ${{ github.workspace }}/evidence/diagnosis/pr-repair-diagnosis.json
+          REPRODUCTION_PATH: ${{ github.workspace }}/evidence/reproduction/pr-repair-reproduction.json
+          REPAIR_WORKTREE: ${{ github.workspace }}/repair
+          AGENT_RESULT_PATH: ${{ github.workspace }}/pr-repair-agent-result.json
+          REPAIR_RESULT_PATH: ${{ github.workspace }}/pr-repair-result.json
+          ZAI_MODEL: glm-4.5-flash
+        run: node tools/.github/pr-repair/agent-commit.mjs
+
+      - name: Create verified repair bundle
+        if: always() && hashFiles('pr-repair-result.json') != ''
+        working-directory: ${{ github.workspace }}/repair
+        run: |
+          set -euo pipefail
+          status="$(node -e "console.log(JSON.parse(require('fs').readFileSync('$GITHUB_WORKSPACE/pr-repair-result.json','utf8')).status || '')")"
+          if [[ "$status" == "repair_success" ]]; then
+            git bundle create "$GITHUB_WORKSPACE/repair.bundle" HEAD
+          fi
+
+      - name: Upload ReAct repair artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-repair-ai-plan-${{ env.PR_NUMBER }}
+          path: |
+            pr-repair-agent-result.json
+            pr-repair-agent-audit.jsonl
+            pr-repair-result.json
+            repair.bundle
+          if-no-files-found: warn
+          retention-days: 7
+
+  apply_and_verify:
+    name: Apply repair and verify without secrets
+    needs: [diagnose, reproduce, deterministic_plan, ai_plan, ai_agent]
+    if: >-
+      always() &&
+      needs.diagnose.outputs.eligible_for_repair == 'true' &&
+      (
+        (needs.diagnose.outputs.next_action == 'deterministic_diff_check' && needs.deterministic_plan.result == 'success') ||
+        (needs.diagnose.outputs.next_action == 'ai_conflict' && needs.ai_agent.result == 'success') ||
+        (needs.diagnose.outputs.next_action == 'reproduce_tests' && needs.ai_agent.result == 'success' && needs.reproduce.outputs.relation == 'pr_related_failure')
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      status: ${{ steps.finalize.outputs.status }}
+      commit_sha: ${{ steps.finalize.outputs.commit_sha }}
+      original_head: ${{ steps.finalize.outputs.original_head }}
+    steps:
+      - name: Check out PR head repair workspace
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.diagnose.outputs.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: repair
+
+      - name: Check out trusted repair tools from main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+          path: tools
+
+      - name: Download diagnosis
+        uses: actions/download-artifact@v4
+        with:
+          name: pr-repair-diagnosis-${{ env.PR_NUMBER }}
+          path: evidence/diagnosis
+
+      - name: Download reproduction evidence when available
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: pr-repair-reproduction-${{ env.PR_NUMBER }}
+          path: evidence/reproduction
+
+      - name: Download deterministic plan when available
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: pr-repair-deterministic-plan-${{ env.PR_NUMBER }}
+          path: evidence/deterministic
+
+      - name: Download AI plan when available
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: pr-repair-ai-plan-${{ env.PR_NUMBER }}
+          path: evidence/ai
+
+      - name: Select plan without invoking a model
+        env:
+          NEXT_ACTION: ${{ needs.diagnose.outputs.next_action }}
+        run: |
+          set -euo pipefail
+          if [[ "$NEXT_ACTION" == "deterministic_diff_check" ]]; then
+            cp evidence/deterministic/pr-repair-plan.json pr-repair-plan.json
+          elif [[ -f evidence/ai/pr-repair-result.json ]]; then
+            echo 'Using the already committed ReAct workspace result.'
+          else
+            cp evidence/ai/pr-repair-plan.json pr-repair-plan.json
+          fi
+
+      - name: Apply append-only repair commit
+        id: apply
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ env.PR_NUMBER }}
+          REPAIR_WORKTREE: ${{ github.workspace }}/repair
+          DIAGNOSIS_PATH: ${{ github.workspace }}/evidence/diagnosis/pr-repair-diagnosis.json
+          REPRODUCTION_PATH: ${{ github.workspace }}/evidence/reproduction/pr-repair-reproduction.json
+          REPAIR_PLAN_PATH: ${{ github.workspace }}/pr-repair-plan.json
+          REPAIR_RESULT_PATH: ${{ github.workspace }}/pr-repair-result.json
+        run: |
+          set -euo pipefail
+          agent_result="$GITHUB_WORKSPACE/evidence/ai/pr-repair-result.json"
+          if [[ -f "$agent_result" ]]; then
+            cp "$agent_result" "$REPAIR_RESULT_PATH"
+            status="$(node -e "console.log(JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')).status || '')" "$REPAIR_RESULT_PATH")"
+            if [[ "$status" == "repair_success" ]]; then
+              bundle="$GITHUB_WORKSPACE/evidence/ai/repair.bundle"
+              commit_sha="$(node -e "console.log(JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')).commitSha || '')" "$REPAIR_RESULT_PATH")"
+              git -C repair bundle verify "$bundle"
+              git -C repair fetch "$bundle" "$commit_sha"
+              git -C repair checkout --detach "$commit_sha"
+            fi
+            echo "status=$status" >> "$GITHUB_OUTPUT"
+            echo "commit_sha=$(node -e "console.log(JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')).commitSha || '')" "$REPAIR_RESULT_PATH")" >> "$GITHUB_OUTPUT"
+            echo "original_head=$(node -e "console.log(JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')).originalHead || '')" "$REPAIR_RESULT_PATH")" >> "$GITHUB_OUTPUT"
+          else
+            node tools/.github/pr-repair/apply.mjs
+          fi
+
+      - name: Stage trusted finalizer before validation cleanup
+        if: always()
+        env:
+          RUNNER_TEMP: ${{ runner.temp }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/pr-repair-tools"
+          cp tools/.github/pr-repair/finalize.mjs "$RUNNER_TEMP/pr-repair-tools/" 2>/dev/null || true
+
+      - name: Move trusted files and PR source out of validation boundary
+        if: steps.apply.outputs.status == 'repair_success'
+        env:
+          RUNNER_TEMP: ${{ runner.temp }}
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pr-repair-validation" "$RUNNER_TEMP/pr-repair-tools"
+          cp -a repair/. "$RUNNER_TEMP/pr-repair-validation/"
+          cp tools/.github/pr-repair/test-runner.mjs "$RUNNER_TEMP/pr-repair-tools/"
+          cp tools/.github/pr-repair/contract.mjs tools/.github/pr-repair/git.mjs tools/.github/pr-repair/tap.mjs "$RUNNER_TEMP/pr-repair-tools/"
+          cp tools/.github/pr-repair/finalize.mjs "$RUNNER_TEMP/pr-repair-tools/"
+          chmod -R a-w "$RUNNER_TEMP/pr-repair-tools"
+          git -C repair bundle create "$RUNNER_TEMP/repair.bundle" HEAD
+
+      - name: Save verified inputs before untrusted validation
+        if: steps.apply.outputs.status == 'repair_success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-repair-prevalidation-${{ env.PR_NUMBER }}
+          path: |
+            ${{ runner.temp }}/repair.bundle
+            pr-repair-result.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Remove private evidence before untrusted validation
+        if: steps.apply.outputs.status == 'repair_success'
+        env:
+          RUNNER_TEMP: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          rm -rf repair tools evidence pr-repair-diagnosis.json pr-repair-plan.json pr-repair-result.json
+          rm -f "$RUNNER_TEMP/repair.bundle"
+
+      - name: Install and verify repaired workspace without secrets
+        id: verify
+        if: steps.apply.outputs.status == 'repair_success'
+        continue-on-error: true
+        working-directory: ${{ runner.temp }}/pr-repair-validation
+        env:
+          GITHUB_TOKEN: ''
+          GH_TOKEN: ''
+          ZAI_API_KEY: ''
+          NPM_TOKEN: ''
+          NODE_AUTH_TOKEN: ''
+          ACTIONS_RUNTIME_TOKEN: ''
+          ACTIONS_ID_TOKEN_REQUEST_TOKEN: ''
+          HOME: ${{ runner.temp }}/pr-repair-home
+          TEST_CWD: ${{ runner.temp }}/pr-repair-validation
+          TEST_REPORT_PATH: ${{ runner.temp }}/pr-repair-test-output/pr-repair-test.json
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pr-repair-test-output" "$HOME"
+          INSTALL_CWD="$RUNNER_TEMP/pr-repair-install"
+          rm -rf "$INSTALL_CWD"
+          mkdir -p "$INSTALL_CWD"
+          cp -a "$TEST_CWD/package.json" "$TEST_CWD/package-lock.json" "$INSTALL_CWD/"
+          if [[ "$(node -p "require('$INSTALL_CWD/package.json').scripts?.preinstall || ''")" == "node scripts/check-node-version.js" && ! -L "$TEST_CWD/scripts" && -f "$TEST_CWD/scripts/check-node-version.js" ]]; then
+            mkdir -p "$INSTALL_CWD/scripts"
+            cp -a "$TEST_CWD/scripts/check-node-version.js" "$INSTALL_CWD/scripts/"
+          fi
+          if ! docker run --rm --init --user "$(id -u):$(id -g)" \
+            -v "$INSTALL_CWD:/install:rw" -w /install \
+            -e HOME=/tmp -e npm_config_cache=/tmp/npm-cache \
+            -e GITHUB_TOKEN= -e GH_TOKEN= -e ZAI_API_KEY= -e NPM_TOKEN= -e NODE_AUTH_TOKEN= \
+            -e ACTIONS_RUNTIME_TOKEN= -e ACTIONS_ID_TOKEN_REQUEST_TOKEN= \
+            node:22-bookworm npm ci --ignore-scripts --no-audit --no-fund; then
+            node -e "require('fs').writeFileSync(process.env.TEST_REPORT_PATH, JSON.stringify({command:'npm test',exitCode:1,timedOut:false,result:{total:1,passed:0,failed:1,failures:[{name:'npm ci',error:'依赖安装失败'}]},stderr:'',passed:false}))"
+            exit 1
+          fi
+          docker run --rm --init --user "$(id -u):$(id -g)" \
+            -v "$INSTALL_CWD:/install:rw" -w /install \
+            -e HOME=/tmp -e npm_config_cache=/tmp/npm-cache \
+            node:22-bookworm npm rebuild better-sqlite3 --no-audit --no-fund
+          rm -rf "$TEST_CWD/node_modules"
+          cp -a "$INSTALL_CWD/node_modules" "$TEST_CWD/"
+          docker run --rm --init --network none --user "$(id -u):$(id -g)" \
+            -v "$TEST_CWD:/work:rw" \
+            -v "$RUNNER_TEMP/pr-repair-tools:/tools:ro" \
+            -v "$RUNNER_TEMP/pr-repair-test-output:/out:rw" \
+            -w /work -e HOME=/tmp \
+            -e GITHUB_TOKEN= -e GH_TOKEN= -e ZAI_API_KEY= -e NPM_TOKEN= -e NODE_AUTH_TOKEN= \
+            -e ACTIONS_RUNTIME_TOKEN= -e ACTIONS_ID_TOKEN_REQUEST_TOKEN= \
+            -e TEST_CWD=/work -e TEST_REPORT_PATH=/out/pr-repair-test.json \
+            node:22-bookworm node /tools/test-runner.mjs
+
+      - name: Restore trusted reports after validation
+        if: always() && steps.apply.outputs.status == 'repair_success'
+        env:
+          RUNNER_TEMP: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          cp "$RUNNER_TEMP/pr-repair-test-output/pr-repair-test.json" pr-repair-test.json 2>/dev/null || true
+
+      - name: Download verified inputs after validation
+        if: always() && steps.apply.outputs.status == 'repair_success'
+        uses: actions/download-artifact@v4
+        with:
+          name: pr-repair-prevalidation-${{ env.PR_NUMBER }}
+          path: restore
+
+      - name: Restore verified inputs after validation
+        if: always() && steps.apply.outputs.status == 'repair_success'
+        run: |
+          set -euo pipefail
+          # upload-artifact preserves the least-common-ancestor of absolute
+          # paths.  Resolve the trusted files by basename instead of assuming
+          # that the action materialises them directly below restore/.
+          bundle_path="$(find restore -type f -name repair.bundle -print -quit)"
+          result_path="$(find restore -type f -name pr-repair-result.json -print -quit)"
+          test -n "$bundle_path" && test -n "$result_path"
+          cp "$bundle_path" repair.bundle
+          cp "$result_path" pr-repair-result.json
+
+      - name: Finalize report
+        id: finalize
+        if: always()
+        env:
+          APPLY_RESULT_PATH: ${{ github.workspace }}/pr-repair-result.json
+          TEST_RESULT_PATH: ${{ github.workspace }}/pr-repair-test.json
+          FINAL_RESULT_PATH: ${{ github.workspace }}/pr-repair-final.json
+        run: node ${{ runner.temp }}/pr-repair-tools/finalize.mjs
+
+      - name: Upload repair artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-repair-result-${{ env.PR_NUMBER }}
+          path: |
+            pr-repair-result.json
+            pr-repair-test.json
+            pr-repair-final.json
+            repair.bundle
+            pr-repair-plan.json
+          if-no-files-found: warn
+          retention-days: 7
+
+  publish_gate:
+    name: Evaluate verified repair publish gate
+    needs: [diagnose, apply_and_verify]
+    if: always() && needs.diagnose.outputs.trusted_tools_available == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      allowed: ${{ steps.gate.outputs.allowed }}
+    steps:
+      - name: Check out trusted repair tools from main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+          path: tools
+
+      - name: Evaluate manual publish permission
+        id: gate
+        env:
+          PUSH_REPAIR_INPUT: ${{ github.event.inputs.push_repair || '' }}
+          APPLY_JOB_RESULT: ${{ needs.apply_and_verify.result }}
+          APPLY_REPAIR_STATUS: ${{ needs.apply_and_verify.outputs.status }}
+        run: node tools/.github/pr-repair/publish-gate.mjs
+
+  publish:
+    name: Optionally push verified append-only repair
+    needs: [apply_and_verify, publish_gate]
+    if: >-
+      always() &&
+      needs.apply_and_verify.result == 'success' &&
+      needs.publish_gate.result == 'success' &&
+      needs.publish_gate.outputs.allowed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: read
+    outputs:
+      status: ${{ steps.push.outputs.status }}
+      commit_sha: ${{ steps.push.outputs.commit_sha }}
+    steps:
+      - name: Check out original PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.apply_and_verify.outputs.original_head }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: repair
+
+      - name: Check out trusted repair tools from main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+          path: tools
+
+      - name: Download verified repair bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: pr-repair-result-${{ env.PR_NUMBER }}
+          path: evidence
+
+      - name: Import verified repair commit
+        working-directory: repair
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git bundle verify ../evidence/repair.bundle
+          git fetch ../evidence/repair.bundle "${{ needs.apply_and_verify.outputs.commit_sha }}"
+
+      - name: Revalidate head and push without force
+        id: push
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ env.PR_NUMBER }}
+          ORIGINAL_HEAD: ${{ needs.apply_and_verify.outputs.original_head }}
+          REPAIR_COMMIT_SHA: ${{ needs.apply_and_verify.outputs.commit_sha }}
+          REPAIR_WORKTREE: ${{ github.workspace }}/repair
+          PUSH_RESULT_PATH: ${{ github.workspace }}/pr-repair-push.json
+        run: node tools/.github/pr-repair/push.mjs
+
+      - name: Upload push result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-repair-push-${{ env.PR_NUMBER }}
+          path: pr-repair-push.json
+          if-no-files-found: error
+          retention-days: 7
+
+  post_push:
+    name: Dispatch and poll official CI after repair push
+    needs: publish
+    if: >-
+      always() &&
+      needs.publish.result == 'success' &&
+      needs.publish.outputs.status == 'repair_success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      pull-requests: read
+      checks: read
+      statuses: read
+      actions: write
+    steps:
+      - name: Check out trusted repair tools from main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+          path: tools
+
+      - name: Download push result
+        uses: actions/download-artifact@v4
+        with:
+          name: pr-repair-push-${{ env.PR_NUMBER }}
+          path: evidence
+
+      - name: Dispatch and poll official CI
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ env.PR_NUMBER }}
+          REPAIR_COMMIT_SHA: ${{ needs.publish.outputs.commit_sha }}
+          POLL_RESULT_PATH: ${{ github.workspace }}/pr-repair-ci.json
+          CI_POLL_TIMEOUT_MS: 2400000
+        run: node tools/.github/pr-repair/poll.mjs
+
+      - name: Upload official CI result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-repair-ci-${{ env.PR_NUMBER }}
+          path: pr-repair-ci.json
+          if-no-files-found: error
+          retention-days: 7

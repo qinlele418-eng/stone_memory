@@ -1,4 +1,4 @@
-# Stone Memory（磐石记忆）
+# Stone Memory（磐石记忆）— 主线说明
 
 > 蒲苇韧如丝，磐石无转移。
 

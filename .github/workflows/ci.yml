@@ -1,6 +1,6 @@
 name: Stone Memory CI
 
-run-name: "${{ github.event_name == 'pull_request' && format('PR #{0} · {1}', github.event.pull_request.number, github.event.action) || github.event_name == 'workflow_dispatch' && format('PR #{0} · Backfill CI', inputs.pr_number) || github.event_name == 'push' && 'Backfill all open PRs' || 'Stone Memory CI' }}"
+run-name: "${{ github.event_name == 'pull_request' && format('PR #{0} · {1}', github.event.pull_request.number, github.event.action) || github.event_name == 'workflow_dispatch' && format('PR #{0} · Backfill CI', inputs.pr_number) || 'Stone Memory CI' }}"
 
 on:
   pull_request:
@@ -10,16 +10,15 @@ on:
       - reopened
       - ready_for_review
       - labeled
-  push:
-    branches:
-      - main
-    paths:
-      - .github/workflows/ci.yml
   workflow_dispatch:
     inputs:
       pr_number:
         description: Pull request number to test against current main
         required: true
+        type: string
+      expected_head_sha:
+        description: Optional PR head SHA required by a trusted repair dispatch
+        required: false
         type: string
 
 concurrency:
@@ -65,6 +64,7 @@ jobs:
           EVENT_PR_TITLE: ${{ github.event.pull_request.title }}
           EVENT_PR_URL: ${{ github.event.pull_request.html_url }}
           INPUT_PR_NUMBER: ${{ inputs.pr_number }}
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
           REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -124,6 +124,10 @@ jobs:
             echo "::error::Pull request #${pr_number} did not return usable current-main/head SHAs; refusing to test main."
             exit 1
           fi
+          if [[ -n "$EXPECTED_HEAD_SHA" && "$head_sha" != "$EXPECTED_HEAD_SHA" ]]; then
+            echo "::error::Pull request #${pr_number} head changed before CI resolution; refusing to test a different head."
+            exit 1
+          fi
 
           auth_header="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\r\n')"
           GIT_CONFIG_COUNT=1 \
@@ -173,52 +177,6 @@ jobs:
             echo "pr_title=$pr_title"
             echo "pr_url=$pr_url"
           } >> "$GITHUB_OUTPUT"
-
-  backfill:
-    name: Dispatch CI for open main PRs
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    permissions:
-      contents: read
-      pull-requests: read
-      actions: write
-
-    steps:
-      - name: Enumerate and dispatch every open main PR
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-
-          if ! pr_numbers="$(gh api --paginate \
-            --header 'Accept: application/vnd.github+json' \
-            "repos/${GITHUB_REPOSITORY}/pulls?state=open&base=main&per_page=100" \
-            --jq '.[].number')"; then
-            echo "::error::Unable to enumerate open pull requests targeting main."
-            exit 1
-          fi
-
-          dispatched=0
-          failed=0
-          while IFS= read -r pr_number; do
-            [[ -n "$pr_number" ]] || continue
-            echo "Dispatching Stone Memory CI for PR #${pr_number}"
-            if gh workflow run ci.yml \
-              --repo "$GITHUB_REPOSITORY" \
-              --ref main \
-              --field "pr_number=${pr_number}"; then
-              ((dispatched += 1))
-            else
-              echo "::error::Failed to dispatch Stone Memory CI for PR #${pr_number}; continuing."
-              ((failed += 1))
-            fi
-          done <<< "$pr_numbers"
-
-          echo "Dispatched ${dispatched} PR(s); ${failed} dispatch(es) failed."
-          if (( failed > 0 )); then
-            exit 1
-          fi
 
   test:
     name: Test / ${{ matrix.name }}
