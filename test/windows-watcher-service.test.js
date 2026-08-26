@@ -50,14 +50,18 @@ test("install creates then runs exactly one named task through argument arrays",
       projectDir: root,
       platform: "win32",
       userId: paths.userId,
-      execFile(file, args) { calls.push({ file, args }); return ""; },
+      execFile(file, args) {
+        calls.push({ file, args });
+        if (args[0] === "/Query") throw new Error("not found");
+        return "";
+      },
     });
     assert.equal(result.taskName, TASK_NAME);
-    assert.deepEqual(calls.map(call => call.args.slice(0, 2)), [["/Create", "/TN"], ["/Run", "/TN"]]);
-    assert.equal(calls[0].args[2], TASK_NAME);
+    assert.deepEqual(calls.map(call => call.args[0]), ["/Query", "/Create", "/Run"]);
     assert.equal(calls[1].args[2], TASK_NAME);
-    assert.ok(calls[0].args.includes("/XML"));
-    assert.ok(calls[0].file.endsWith("System32\\schtasks.exe"));
+    assert.equal(calls[2].args[2], TASK_NAME);
+    assert.ok(calls[1].args.includes("/XML"));
+    assert.ok(calls[1].file.endsWith("System32\\schtasks.exe"));
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -77,8 +81,17 @@ test("service status is unsupported outside Windows and repair replaces an unava
       },
     });
     assert.equal(result.taskName, TASK_NAME);
-    assert.deepEqual(calls.map(args => args[0]), ["/Query", "/Create", "/Run"]);
+    assert.deepEqual(calls.map(args => args[0]), ["/Query", "/Query", "/Create", "/Run"]);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test("install refuses to overwrite an unrelated task with the same name", () => {
+  assert.throws(() => installWindowsWatcherService({
+    projectDir,
+    platform: "win32",
+    userId: paths.userId,
+    execFile(file, args) { return args[0] === "/Query" ? "<Task><Actions><Exec><Command>other.exe</Command></Exec></Actions></Task>" : ""; },
+  }), /拒绝覆盖/);
 });
 
 test("remove deletes the task before gracefully stopping only the supervisor", () => {

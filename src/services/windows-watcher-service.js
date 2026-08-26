@@ -41,7 +41,7 @@ function servicePaths(projectDir, { userId } = {}) {
 }
 
 function schtasksPath() {
-  return path.join(process.env.SystemRoot || "C:\\Windows", "System32", "schtasks.exe");
+  return path.win32.join(process.env.SystemRoot || "C:\\Windows", "System32", "schtasks.exe");
 }
 
 function runSchtasks(args, { execFile = execFileSync } = {}) {
@@ -70,6 +70,10 @@ function installWindowsWatcherService({ projectDir, platform = process.platform,
   if (platform !== "win32") throw new Error("Windows Task Scheduler watcher service 仅支持 Windows");
   const paths = servicePaths(projectDir, options);
   if (!paths.userId) throw new Error("无法确定 Windows 当前用户，未创建 watcher 计划任务");
+  const existing = queryTask(options);
+  if (existing.available && !taskMatches(existing.xml, paths)) {
+    throw new Error("检测到同名计划任务但不属于当前 Stone Memory 安装，拒绝覆盖");
+  }
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-watcher-task-"));
   const xmlFile = path.join(tempDir, "task.xml");
   try {
