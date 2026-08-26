@@ -13,6 +13,7 @@ class NotebookService {
   query({ threadId, ...input }) { return this.withStore(threadId, store => store.query(input)); }
   read({ threadId, noteId }) { return this.withStore(threadId, store => store.readEntry(noteId)); }
   asset({ threadId, topicId, filename }) { return this.withStore(threadId, store => store.readAsset(topicId, filename)); }
+  importAsset({ threadId, ...input }) { return this.withStore(threadId, store => store.importAsset(input)); }
   list({ threadId, topicId, includeBody = false }) {
     return this.withStore(threadId, store => store.listEntries({ topicId, includeBody }));
   }

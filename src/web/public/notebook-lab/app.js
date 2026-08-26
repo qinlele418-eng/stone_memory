@@ -44,6 +44,26 @@
     target.textContent = text;
     target.hidden = !text;
   }
+  function resetImageAttachment() {
+    $("#note-image").value = "";
+    $("#note-image-alt").value = "";
+    const status = $("#image-upload-status");
+    status.textContent = "";
+    status.dataset.kind = "";
+    $("#upload-note-image").disabled = false;
+  }
+
+  function insertAtCursor(textarea, value) {
+    const start = textarea.selectionStart ?? textarea.value.length;
+    const end = textarea.selectionEnd ?? start;
+    const before = textarea.value.slice(0, start);
+    const after = textarea.value.slice(end);
+    const prefix = before && !before.endsWith("\n\n") ? (before.endsWith("\n") ? "\n" : "\n\n") : "";
+    const suffix = after && !after.startsWith("\n\n") ? (after.startsWith("\n") ? "\n" : "\n\n") : "";
+    const insertion = `${prefix}${value}${suffix}`;
+    textarea.setRangeText(insertion, start, end, "end");
+    textarea.focus();
+  }
   const coverClass = topic => String(topic.coverPath || "preset:forest").replace("preset:", "cover-");
 
   function applyPaperStyle(value, persist = true) {
@@ -237,7 +257,7 @@
   $("#new-topic").onclick = () => openTopicForm();
   $("#new-note").onclick = () => {
     const form = $("#note-form");
-    form.reset(); formError(form);
+    form.reset(); formError(form); resetImageAttachment();
     form.querySelector("h2").textContent = "写一页";
     form.elements.save.textContent = "保存 Markdown";
     form.elements.topicId.value = state.currentTopic.id;
@@ -249,7 +269,7 @@
     const note = state.currentNote;
     if (!note || note.visibility === "sealed") return;
     const form = $("#note-form");
-    form.reset(); formError(form);
+    form.reset(); formError(form); resetImageAttachment();
     form.querySelector("h2").textContent = "编辑这一页";
     form.elements.save.textContent = "保存修改";
     form.elements.topicId.value = note.topicId;
@@ -261,6 +281,52 @@
     form.elements.sealed.checked = false;
     noteDialog.showModal();
   };
+  $("#upload-note-image").addEventListener("click", async event => {
+    const button = event.currentTarget;
+    const form = $("#note-form");
+    const file = $("#note-image").files[0];
+    const status = $("#image-upload-status");
+    status.dataset.kind = "";
+    if (!file) {
+      status.textContent = "请先选择一张图片。";
+      status.dataset.kind = "error";
+      return;
+    }
+    if (file.size > 20 * 1024 * 1024) {
+      status.textContent = "这张图片超过 20 MB，请压缩后再试。";
+      status.dataset.kind = "error";
+      return;
+    }
+    const topicId = form.elements.topicId.value;
+    if (!topicId) {
+      status.textContent = "还没有确定图片所属主题，请重新打开这一页。";
+      status.dataset.kind = "error";
+      return;
+    }
+    button.disabled = true;
+    status.textContent = "正在把图片放入当前主题……";
+    try {
+      const response = await fetch(`${base}/assets/${encodeURIComponent(topicId)}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/octet-stream",
+          "x-file-name": encodeURIComponent(file.name),
+          "x-alt-text": encodeURIComponent($("#note-image-alt").value.trim() || "笔记图片"),
+        },
+        body: file,
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "图片上传失败");
+      insertAtCursor(form.elements.body, result.markdown);
+      $("#note-image").value = "";
+      status.textContent = result.deduplicated ? "这张图片已在主题中，已插入正文。" : "图片已放入当前主题，并插入正文；保存笔记后显示。";
+    } catch (error) {
+      status.textContent = error.message;
+      status.dataset.kind = "error";
+    } finally {
+      button.disabled = false;
+    }
+  });
   document.querySelectorAll("[data-close-dialog]").forEach(button => {
     button.addEventListener("click", () => { const dialog = button.closest("dialog"); if (dialog) { formError(dialog.querySelector("form")); dialog.close(); } });
   });

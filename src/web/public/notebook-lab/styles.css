@@ -214,6 +214,15 @@ dialog h2 { margin:0 0 4px; font:500 28px var(--serif); }
 dialog label { display:grid; gap:7px; color:var(--ink-soft); font-size:12px; }
 dialog .check { display:flex; grid-template-columns:auto 1fr; align-items:center; gap:10px; min-height:44px; }
 dialog .check input { width:18px; min-height:18px; }
+.image-attachment { display:grid; gap:12px; margin:0; padding:16px; border:1px solid rgba(117,105,78,.2); border-radius:9px; background:rgba(247,241,229,.5); }
+.image-attachment legend { padding:0 6px; color:var(--ink); font:500 15px var(--serif); }
+.image-fields { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.image-attachment button { justify-self:start; padding:0 16px; border:1px solid var(--forest); border-radius:8px; color:var(--forest-deep); background:rgba(231,237,225,.7); }
+.image-attachment button:hover { background:var(--sage-pale); }
+.image-attachment button:disabled { cursor:wait; opacity:.55; }
+.image-help, .image-upload-status { margin:0; color:var(--ink-soft); font-size:11px; line-height:1.65; }
+.image-upload-status:not(:empty) { padding-left:10px; border-left:3px solid var(--forest); color:var(--forest-deep); }
+.image-upload-status[data-kind="error"] { border-left-color:var(--danger); color:var(--danger); }
 .form-error { margin:0; padding:10px 12px; border-left:3px solid var(--danger); color:var(--danger); background:#f9eeee; }
 .actions { display:flex; justify-content:flex-end; gap:10px; padding-top:4px; }
 .actions button { padding:0 18px; border:1px solid var(--line); border-radius:8px; color:var(--ink); background:transparent; }
@@ -280,5 +289,7 @@ dialog .check input { width:18px; min-height:18px; }
   .reader-nav button { padding-inline:10px !important; font-size:12px; }
   #reader-index span:last-child { display:none; }
   dialog form { padding:23px 18px; }
+  .image-fields { grid-template-columns:1fr; }
+  .image-attachment button { width:100%; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior:auto !important; transition-duration:.01ms !important; animation-duration:.01ms !important; } }

@@ -256,6 +256,47 @@ class NotebookStore {
     return { absolutePath, relativePath, contentType, size: stat.size, modifiedAt: stat.mtime };
   }
 
+  importAsset({ topicId, sourcePath, filename, altText = "笔记图片" }) {
+    const topic = this.getTopic(topicId);
+    if (!topic) throw new Error(`notebook topic not found: ${topicId}`);
+    if (topic.isArchived) throw new Error(`notebook topic is archived: ${topicId}`);
+    const source = path.resolve(requiredText(sourcePath, "asset sourcePath"));
+    const stat = fs.lstatSync(source);
+    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("notebook asset source must be a regular file");
+    if (stat.size < 8) throw new Error("notebook asset is empty or incomplete");
+    if (stat.size > MAX_NOTEBOOK_ASSET_BYTES) throw new Error("notebook asset exceeds 20 MB limit");
+    const originalName = requiredSegment(path.basename(requiredText(filename, "asset filename")), "asset filename");
+    const extension = path.extname(originalName).toLowerCase();
+    const contentType = NOTEBOOK_IMAGE_TYPES.get(extension);
+    if (!contentType) throw new Error("notebook asset must be png, jpg, jpeg, webp, gif, or avif");
+    const buffer = fs.readFileSync(source);
+    if (!imageSignatureMatches(buffer, extension)) throw new Error("notebook asset content does not match its image extension");
+    const hash = crypto.createHash("sha256").update(buffer).digest("hex");
+    const stem = slugify(path.basename(originalName, extension)).slice(0, 60) || "image";
+    const storedName = `${stem}-${hash.slice(0, 10)}${extension === ".jpeg" ? ".jpg" : extension}`;
+    const relativePath = path.posix.join("topics", topic.slug, "assets", storedName);
+    const absolutePath = this.resolveRelative(relativePath);
+    fs.mkdirSync(path.dirname(absolutePath), { recursive: true, mode: 0o700 });
+    let deduplicated = false;
+    try { fs.writeFileSync(absolutePath, buffer, { flag: "wx", mode: 0o600 }); }
+    catch (error) {
+      if (error.code !== "EEXIST") throw error;
+      deduplicated = true;
+    }
+    const safeAlt = singleLine(altText).replace(/[\[\]]/g, "").slice(0, 180) || "笔记图片";
+    return {
+      threadId: this.threadId,
+      topicId: topic.id,
+      filename: storedName,
+      relativePath,
+      contentType,
+      size: buffer.length,
+      sha256: hash,
+      deduplicated,
+      markdown: `![${safeAlt}](../assets/${storedName})`,
+    };
+  }
+
   getEntryRecord(noteId) {
     const row = this.db.prepare(`SELECT e.*,t.name AS topic_name FROM notebook_entries e
       JOIN notebook_topics t ON t.id=e.topic_id WHERE e.id=? AND e.thread_id=?`)
@@ -409,6 +450,18 @@ function parseTags(value) {
 function singleLine(value) { return String(value || "").replace(/\s+/g, " ").trim(); }
 function slugify(value) { return singleLine(value).toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, ""); }
 function jsonScalar(value) { return JSON.stringify(String(value)); }
+
+function imageSignatureMatches(buffer, extension) {
+  if (extension === ".png") return buffer.subarray(0, 8).equals(Buffer.from("89504e470d0a1a0a", "hex"));
+  if (extension === ".jpg" || extension === ".jpeg") return buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+  if (extension === ".gif") return /^GIF8[79]a$/.test(buffer.subarray(0, 6).toString("ascii"));
+  if (extension === ".webp") return buffer.subarray(0, 4).toString("ascii") === "RIFF" && buffer.subarray(8, 12).toString("ascii") === "WEBP";
+  if (extension === ".avif") {
+    const header = buffer.subarray(0, 32).toString("ascii");
+    return buffer.subarray(4, 8).toString("ascii") === "ftyp" && /avif|avis/.test(header);
+  }
+  return false;
+}
 
 function snippetAround(body, query) {
   const text = String(body || "").replace(/\s+/g, " ");

@@ -43,13 +43,31 @@ test("notebook web API reads directly and routes confirmed writes through the CL
   });
   assert.equal(topic.coverPath, "preset:mist");
   assert.equal(topic.isDefault, true);
-  const topicDirectory = path.join(stoneRoot, "runtimes", "codex", "accompany", "thread-test", "memory", "notebook", "topics", topic.slug, "assets");
-  fs.writeFileSync(path.join(topicDirectory, "tiny.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
-  const imageResponse = await fetch(`${origin}/api/libraries/thread-test/notebooks/assets/${encodeURIComponent(topic.id)}/tiny.png`);
+  const imageBytes = Buffer.from("89504e470d0a1a0a0000000049454e44", "hex");
+  const uploadResponse = await fetch(`${origin}/api/libraries/thread-test/notebooks/assets/${encodeURIComponent(topic.id)}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/octet-stream",
+      "x-file-name": encodeURIComponent("雨夜.png"),
+      "x-alt-text": encodeURIComponent("江阴雨夜"),
+    },
+    body: imageBytes,
+  });
+  const uploaded = await uploadResponse.json();
+  assert.equal(uploadResponse.status, 201, JSON.stringify(uploaded));
+  assert.match(uploaded.filename, /^雨夜-[a-f0-9]{10}\.png$/u);
+  assert.equal(uploaded.markdown, `![江阴雨夜](../assets/${uploaded.filename})`);
+  const imageResponse = await fetch(`${origin}/api/libraries/thread-test/notebooks/assets/${encodeURIComponent(topic.id)}/${encodeURIComponent(uploaded.filename)}`);
   assert.equal(imageResponse.status, 200);
   assert.equal(imageResponse.headers.get("content-type"), "image/png");
   assert.equal(imageResponse.headers.get("x-content-type-options"), "nosniff");
-  assert.deepEqual(Buffer.from(await imageResponse.arrayBuffer()), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+  assert.deepEqual(Buffer.from(await imageResponse.arrayBuffer()), imageBytes);
+  const mismatchedUpload = await fetch(`${origin}/api/libraries/thread-test/notebooks/assets/${encodeURIComponent(topic.id)}`, {
+    method: "POST",
+    headers: { "content-type": "application/octet-stream", "x-file-name": encodeURIComponent("fake.png") },
+    body: Buffer.from("not really a png"),
+  });
+  assert.equal(mismatchedUpload.status, 400);
   const unsafeImageResponse = await fetch(`${origin}/api/libraries/thread-test/notebooks/assets/${encodeURIComponent(topic.id)}/unsafe.svg`);
   assert.equal(unsafeImageResponse.status, 400);
   const note = await request("/api/libraries/thread-test/notebooks/entries", {

@@ -32,6 +32,7 @@ const { compactTermTimelineReport } = require("../services/term-timeline-report"
 
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MAX_UPLOAD = 512 * 1024 * 1024;
+const MAX_NOTEBOOK_ASSET_UPLOAD = 20 * 1024 * 1024;
 const previews = new Map();
 const miningJobs = new Map();
 const compressionJobs = new Set();
@@ -1121,6 +1122,24 @@ async function handleApi(req, res, url) {
       const asset = service.asset({ threadId, topicId: parts[1], filename: parts[2] });
       if (!asset) return json(res, 404, { found: false });
       return serveNotebookAsset(req, res, asset);
+    }
+    if (req.method === "POST" && parts[0] === "assets" && parts.length === 2) {
+      const contentLength = Number(req.headers["content-length"] || 0);
+      if (contentLength > MAX_NOTEBOOK_ASSET_UPLOAD) throw new Error("notebook asset exceeds 20 MB limit");
+      const filename = safeFileName(req.headers["x-file-name"] || "image");
+      let altText = "笔记图片";
+      try { altText = decodeURIComponent(String(req.headers["x-alt-text"] || altText)); } catch {}
+      const buffer = await readBody(req, MAX_NOTEBOOK_ASSET_UPLOAD);
+      const directory = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-notebook-asset-"));
+      const sourcePath = path.join(directory, filename);
+      fs.writeFileSync(sourcePath, buffer, { mode: 0o600, flag: "wx" });
+      try {
+        return json(res, 201, runStmemBatch(["notebook", "asset-import", "--thread", threadId], {
+          topicId: parts[1], sourcePath, filename, altText,
+        }));
+      } finally {
+        fs.rmSync(directory, { recursive: true, force: true });
+      }
     }
     if (req.method === "PATCH" && parts[0] === "topics" && parts[1]) {
       const body = await readJson(req);
