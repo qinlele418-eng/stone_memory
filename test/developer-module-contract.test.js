@@ -104,17 +104,3 @@ test("developer module audit rejects undeclared Core ownership and accepts an ex
   assert.equal(declared.ok, true);
   fs.rmSync(projectRoot, { recursive: true, force: true });
 });
-
-test("developer module audit treats migration warnings as CI failures", () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-module-warning-audit-"));
-  const moduleDir = path.join(root, "warning-module");
-  fs.mkdirSync(moduleDir);
-  fs.writeFileSync(path.join(moduleDir, "module.json"), JSON.stringify({
-    id: "warning-module", version: "1.0.0", sdkVersion: 1, scope: "memory", permissions: [],
-    entry: { commands: {} }, legacy: { storage: [{ path: "old-data" }] },
-  }));
-  const report = auditDeveloperModules({ root });
-  assert.equal(report.errors, 0);
-  assert.equal(report.warnings, 1);
-  assert.equal(report.ok, false);
-});

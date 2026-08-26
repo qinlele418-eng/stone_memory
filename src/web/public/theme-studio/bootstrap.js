@@ -4,7 +4,6 @@
   const STORAGE_KEY = "stone-memory-ui-theme-v1";
   const MODULE_THEME_BRIDGE_KEY = "stone-memory-developer-semantic-theme-v1";
   const CONTRACT_URL = "/theme-studio/contract.json?v=5";
-  const STATE_URL = "/api/developer-modules/theme-studio/state";
   const ORIGINAL_THEME_NAME = "Stone Memory Original";
   const MODULE_ID = "theme-studio";
   const MODULE_ORDER = 20;
@@ -365,16 +364,6 @@
       contract = await response.json();
       currentTheme = readSavedTheme();
       applyTheme(currentTheme, themeEnabled);
-      const stateResponse = await fetch(STATE_URL);
-      if (stateResponse.ok) {
-        const serverState = await stateResponse.json();
-        if (serverState.exists && serverState.theme) {
-          currentTheme = normalizeTheme(serverState.theme);
-          themeEnabled = currentTheme.name !== ORIGINAL_THEME_NAME;
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(currentTheme));
-          applyTheme(currentTheme, themeEnabled);
-        }
-      }
       window.addEventListener("storage", handleStorage);
     } catch (error) {
       document.body?.classList.remove("stone-theme-enabled");

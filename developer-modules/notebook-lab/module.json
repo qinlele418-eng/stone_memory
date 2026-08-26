@@ -5,12 +5,15 @@
   "sdkVersion": 1,
   "scope": "memory",
   "permissions": ["core:read", "generation:use"],
-  "entry": { "frontend": "frontend/index.html", "commands": { "migrate": "migrations/migrate.js" } },
+  "entry": { "frontend": "index.html", "commands": { "notebook": "backend/commands/notebook.js" } },
   "storage": { "database": "module.sqlite", "documents": "documents", "browser": ["paper-style"] },
-  "migration": { "mode": "explicit", "receipt": "migration-receipt.json" }
-  ,"coreExtensions": [
-    { "path": "src/services/notebook-service.js", "reason": "现有主题笔记兼容服务" },
-    { "path": "src/web/public/app.js", "reason": "主前端的主题笔记兼容入口" },
-    { "path": "src/web/server.js", "reason": "主服务的主题笔记兼容 API" }
-  ]
+  "legacy": {
+    "frontend": "src/web/public/notebook-lab",
+    "commands": { "notebook": "scripts/stmem-notebook.js" },
+    "storage": [
+      { "path": "<thread-dir>/memory/memory.sqlite", "mode": "notebook_topics/notebook_entries 表" },
+      { "path": "<thread-dir>/memory/notebook/", "mode": "Markdown、附件与历史版本" },
+      { "path": "浏览器 localStorage", "mode": "纸张样式" }
+    ]
+  }
 }

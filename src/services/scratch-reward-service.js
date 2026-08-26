@@ -12,9 +12,8 @@ const {
   runConfiguredGeneration,
 } = require("./configured-generation-service");
 const { runConfiguredDeepSearch } = require("./deep-search-service");
-const { dataPathFor } = require("./developer-module-data");
 
-const MODULE_ID = "memory-scratch";
+const MODULE_ID = "my-module";
 const COLORS = ["gray", "blue", "pink", "silver", "gold"];
 const COLOR_WEIGHTS = Object.freeze({ gray: 52, blue: 23, pink: 14, silver: 8, gold: 3 });
 const COUNT_WEIGHTS = Object.freeze([
@@ -41,22 +40,14 @@ const DEFAULT_TITLES = Object.freeze({
 });
 
 class ScratchSettingsStore {
-  constructor({
-    getThreadDirImpl = getThreadDir,
-    dataDirForThread = getThreadDirImpl === getThreadDir
-      ? threadId => dataPathFor(MODULE_ID, threadId, ".")
-      : threadId => path.join(getThreadDirImpl(threadId), "developer-module-data", MODULE_ID),
-  } = {}) {
+  constructor({ getThreadDirImpl = getThreadDir } = {}) {
     this.getThreadDir = getThreadDirImpl;
-    this.dataDirForThread = dataDirForThread;
   }
 
   get(threadId) {
     const file = this.fileFor(threadId);
-    const legacy = this.legacyFileFor(threadId);
-    const readable = fs.existsSync(file) ? file : fs.existsSync(legacy) ? legacy : null;
-    if (!readable) return emptySettings();
-    return normalizeSettings(JSON.parse(fs.readFileSync(readable, "utf8")));
+    if (!fs.existsSync(file)) return emptySettings();
+    return normalizeSettings(JSON.parse(fs.readFileSync(file, "utf8")));
   }
 
   save(threadId, input) {
@@ -74,11 +65,7 @@ class ScratchSettingsStore {
   }
 
   fileFor(threadId) {
-    return path.join(this.dataDirForThread(requiredThreadId(threadId)), "settings.json");
-  }
-
-  legacyFileFor(threadId) {
-    return path.join(this.getThreadDir(requiredThreadId(threadId)), "memory", "developer-modules", "my-module.json");
+    return path.join(this.getThreadDir(requiredThreadId(threadId)), "memory", "developer-modules", `${MODULE_ID}.json`);
   }
 }
 

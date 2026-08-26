@@ -5,11 +5,13 @@
   "sdkVersion": 1,
   "scope": "global",
   "permissions": ["theme:write"],
-  "entry": { "frontend": "frontend/index.html", "commands": { "migrate": "migrations/migrate.js", "state": "backend/commands/state.js" } },
-  "storage": { "files": ["theme.json", "themes.json", "assets"], "browser": ["semantic-theme-bridge"] },
-  "migration": { "mode": "explicit", "receipt": "migration-receipt.json" }
-  ,"coreExtensions": [
-    { "path": "src/web/public/developer-kit/runtime.js", "reason": "开发者前端运行时的主题桥" },
-    { "path": "src/web/server.js", "reason": "主服务的主题工作台兼容 API" }
-  ]
+  "entry": { "frontend": "index.html", "commands": {} },
+  "storage": { "browser": ["theme", "custom-themes", "assets"] },
+  "legacy": {
+    "frontend": "src/web/public/theme-studio",
+    "storage": [
+      { "path": "浏览器 localStorage", "mode": "主题、素材和自定义主题" },
+      { "path": "浏览器 sessionStorage", "mode": "跨模块主题快照" }
+    ]
+  }
 }

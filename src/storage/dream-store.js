@@ -3,7 +3,6 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { dataPathFor } = require("../services/developer-module-data");
 
 const DREAM_TYPES = new Set([
   "beautiful",
@@ -14,12 +13,8 @@ const DREAM_TYPES = new Set([
 ]);
 
 class DreamStore {
-  constructor(options = {}) {
-    this.rootForThread = options.root
-      ? threadId => path.join(options.root, assertThreadId(threadId))
-      : threadId => dataPathFor("dream-lab", threadId, "dreams");
-    this.legacyRootForThread = options.legacyRootForThread || (threadId =>
-      path.join(os.homedir(), ".stone_memory", "dream", assertThreadId(threadId)));
+  constructor({ root = path.join(os.homedir(), ".stone_memory", "dream") } = {}) {
+    this.root = root;
   }
 
   save({ threadId, date, dreamType, title = "", body }) {
@@ -60,9 +55,7 @@ class DreamStore {
   }
 
   get(threadId, date) {
-    const primary = this.fileFor(threadId, date);
-    const legacy = this.legacyFileFor(threadId, date);
-    const file = fs.existsSync(primary) ? primary : legacy;
+    const file = this.fileFor(threadId, date);
     if (!fs.existsSync(file)) return null;
     return parseDreamFile(fs.readFileSync(file, "utf8"), { threadId, date });
   }
@@ -94,15 +87,14 @@ class DreamStore {
   }
 
   listDates(threadId) {
+    const threadRoot = path.join(this.root, assertThreadId(threadId));
     const dates = [];
-    for (const threadRoot of [this.rootForThread(threadId), this.legacyRootForThread(threadId)]) {
-      for (const year of directoryNames(threadRoot, /^\d{4}$/)) {
-        for (const month of directoryNames(path.join(threadRoot, year), /^\d{2}$/)) {
-          const directory = path.join(threadRoot, year, month);
-          for (const entry of safeReadDir(directory)) {
-            const match = entry.isFile() && entry.name.match(/^(\d{4}-\d{2}-\d{2})\.txt$/);
-            if (match) dates.push(match[1]);
-          }
+    for (const year of directoryNames(threadRoot, /^\d{4}$/)) {
+      for (const month of directoryNames(path.join(threadRoot, year), /^\d{2}$/)) {
+        const directory = path.join(threadRoot, year, month);
+        for (const entry of safeReadDir(directory)) {
+          const match = entry.isFile() && entry.name.match(/^(\d{4}-\d{2}-\d{2})\.txt$/);
+          if (match) dates.push(match[1]);
         }
       }
     }
@@ -113,13 +105,7 @@ class DreamStore {
     const normalizedThreadId = assertThreadId(threadId);
     const normalizedDate = assertDate(date);
     const [year, month] = normalizedDate.split("-");
-    return path.join(this.rootForThread(normalizedThreadId), year, month, `${normalizedDate}.txt`);
-  }
-
-  legacyFileFor(threadId, date) {
-    const normalizedDate = assertDate(date);
-    const [year, month] = normalizedDate.split("-");
-    return path.join(this.legacyRootForThread(assertThreadId(threadId)), year, month, `${normalizedDate}.txt`);
+    return path.join(this.root, normalizedThreadId, year, month, `${normalizedDate}.txt`);
   }
 }
 

@@ -26,9 +26,9 @@ test("mobile workspace navigation top-aligns wrapped labels", () => {
 test("mobile mining remains contained while input zoom overrides stay removed", () => {
   const publicDir = path.join(__dirname, "..", "src", "web", "public");
   const mainStyles = fs.readFileSync(path.join(publicDir, "styles.css"), "utf8");
-  const themeStyles = fs.readFileSync(path.join(__dirname, "..", "developer-modules", "theme-studio", "frontend", "standalone.css"), "utf8");
+  const themeStyles = fs.readFileSync(path.join(publicDir, "theme-studio", "standalone.css"), "utf8");
   const kitStyles = fs.readFileSync(path.join(publicDir, "developer-kit", "styles.css"), "utf8");
-  const reviewStyles = fs.readFileSync(path.join(__dirname, "..", "developer-modules", "review-lab", "frontend", "styles.css"), "utf8");
+  const reviewStyles = fs.readFileSync(path.join(publicDir, "review-lab", "styles.css"), "utf8");
 
   assert.match(mainStyles, /button,\s*input,\s*select,\s*textarea\s*\{[\s\S]*?color:\s*var\(--pine-950\);[\s\S]*?font:\s*inherit;/);
   assert.doesNotMatch(mainStyles, /var\(--ink\)/);
@@ -60,7 +60,7 @@ test("theme studio remains a single removable frontend integration", () => {
   assert.equal(matches.length, 1);
   assert.doesNotMatch(detachedHtml, /theme-studio/);
   assert.doesNotMatch(app, /theme-studio|stone-memory-ui-theme/);
-  assert.match(server, /resolveDeveloperModuleAsset/);
+  assert.doesNotMatch(server, /theme-studio|stone-memory-ui-theme/);
 
   const externalReferences = [];
   const externalThemePersistence = [];
@@ -90,7 +90,7 @@ test("theme studio remains a single removable frontend integration", () => {
 test("theme studio uses only the Stone Memory visual vocabulary and original presets", () => {
   const repoDir = path.join(__dirname, "..");
   const publicDir = path.join(repoDir, "src", "web", "public");
-  const themeDir = path.join(repoDir, "developer-modules", "theme-studio", "frontend");
+  const themeDir = path.join(publicDir, "theme-studio");
   const sourceFiles = [];
   const visit = directory => {
     for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
@@ -136,8 +136,8 @@ test("theme studio uses only the Stone Memory visual vocabulary and original pre
 });
 
 test("semantic theme covers mining calendar states and preserves the developer lab visual layer", () => {
-  const publicDir = path.join(__dirname, "..", "developer-modules", "theme-studio", "frontend");
-  const reviewDir = path.join(__dirname, "..", "developer-modules", "review-lab", "frontend");
+  const publicDir = path.join(__dirname, "..", "src", "web", "public", "theme-studio");
+  const reviewDir = path.join(__dirname, "..", "src", "web", "public", "review-lab");
   const developerRuntime = fs.readFileSync(path.join(__dirname, "..", "src", "web", "public", "developer-kit", "runtime.js"), "utf8");
   const contract = JSON.parse(fs.readFileSync(path.join(publicDir, "contract.json"), "utf8"));
   const legacyV1 = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "theme-studio-v1.json"), "utf8"));

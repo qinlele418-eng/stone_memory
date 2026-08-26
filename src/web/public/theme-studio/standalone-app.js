@@ -18,8 +18,6 @@
   const MAX_LOGO_FILE_SIZE = 200 * 1024;
   const LOGO_TYPES = new Set(["image/png", "image/webp"]);
   const CONTRACT_URL = "./contract.json?v=5";
-  const STATE_URL = "/api/developer-modules/theme-studio/state";
-  const MIGRATE_URL = "/api/developer-modules/theme-studio/migrate";
   const state = { contract: null, theme: null, customThemes: [] };
   const RETIRED_THEME_FINGERPRINTS = new Set(["362qx4", "scef1"]);
   const BUILTIN_PRESETS = {
@@ -475,7 +473,7 @@
       tokens: { colors: preset.colors, shadows: preset.shadows },
     }));
     applyTheme();
-    persistOrReport();
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state.theme));
     renderFields();
     status(`已切换到“${preset.name}” · 贡献人：${preset.contributor}`);
   }
@@ -509,32 +507,6 @@
 
   function writeCustomThemes() {
     localStorage.setItem(CUSTOM_THEMES_KEY, JSON.stringify(state.customThemes));
-  }
-
-  function cacheState() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state.theme));
-    writeCustomThemes();
-  }
-
-  async function requestJson(url, options) {
-    const response = await fetch(url, options);
-    if (!response.ok) throw new Error(`主题数据服务请求失败 (${response.status})`);
-    return response.json();
-  }
-
-  async function persistServerState() {
-    cacheState();
-    const saved = await requestJson(STATE_URL, {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ theme: state.theme, customThemes: state.customThemes }),
-    });
-    if (!saved.exists) throw new Error("主题数据服务未确认写入");
-    return saved;
-  }
-
-  function persistOrReport() {
-    void persistServerState().catch(error => status(`保存失败：${error.message}`, true));
   }
 
   function status(message, error = false) {
@@ -684,7 +656,8 @@
     const existingIndex = state.customThemes.findIndex(item => item.name === entry.name);
     if (existingIndex >= 0) state.customThemes.splice(existingIndex, 1, entry);
     else state.customThemes.push(entry);
-    persistOrReport();
+    writeCustomThemes();
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state.theme));
     renderFields();
     status(`“${state.theme.name}”已保存，已加入主题列表`);
   }
@@ -727,7 +700,7 @@
     state.theme = name === "original" ? normalize(state.contract.defaults) : buildBuiltinTheme(name);
     if (!state.theme) return;
     applyTheme();
-    persistOrReport();
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state.theme));
     renderFields();
     status(`已切换到“${state.theme.name}”`);
   }
@@ -749,7 +722,7 @@
   async function init() {
     try {
       state.contract = await fetch(CONTRACT_URL).then(response => { if (!response.ok) throw new Error(`主题契约加载失败 (${response.status})`); return response.json(); });
-      const cachedThemes = readCustomThemes();
+      state.customThemes = readCustomThemes();
       let saved = localStorage.getItem(STORAGE_KEY);
       let parsedSaved = saved ? JSON.parse(saved) : state.contract.defaults;
       if (isRetiredBuiltinTheme(parsedSaved)) {
@@ -757,21 +730,11 @@
         saved = null;
         parsedSaved = state.contract.defaults;
       }
-      let serverState = await requestJson(STATE_URL);
-      if (!serverState.exists && (saved || cachedThemes.length)) {
-        const browserState = { theme: normalize(parsedSaved), customThemes: cachedThemes };
-        const migration = await requestJson(MIGRATE_URL, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ browserState }),
-        });
-        if (!migration.applied || !migration.verified) throw new Error("浏览器主题数据迁移未通过校验");
-        serverState = await requestJson(STATE_URL);
-        if (!serverState.exists) throw new Error("浏览器主题数据迁移后无法读取目标数据");
+      state.theme = normalize(parsedSaved);
+      if (saved && Number(parsedSaved.version || 1) !== state.contract.version) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state.theme));
       }
-      state.theme = normalize(serverState.exists && serverState.theme ? serverState.theme : parsedSaved);
-      state.customThemes = serverState.exists && Array.isArray(serverState.customThemes) ? serverState.customThemes : cachedThemes;
-      cacheState();
+      writeCustomThemes();
       applyTheme();
       render();
 
@@ -849,7 +812,7 @@
           const index = Number(deleteButton.dataset.deleteCustomThemeIndex);
           if (!state.customThemes[index]) return;
           state.customThemes.splice(index, 1);
-          persistOrReport();
+          writeCustomThemes();
           renderThemePalette();
           status("已删除自定义主题");
           return;
@@ -860,13 +823,13 @@
         if (!entry) return;
         state.theme = normalize(entry.theme);
         applyTheme();
-        persistOrReport();
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state.theme));
         renderFields();
         status(`已切换到“${state.theme.name}”`);
       });
       $("#save-theme").onclick = save;
       $("#export-theme").onclick = exportTheme;
-      $("#reset-theme").onclick = () => { state.theme = normalize(state.contract.defaults); applyTheme(); renderFields(); persistOrReport(); status("已恢复磐石记忆原版主题"); };
+      $("#reset-theme").onclick = () => { state.theme = normalize(state.contract.defaults); applyTheme(); renderFields(); localStorage.removeItem(STORAGE_KEY); status("已恢复磐石记忆原版主题"); };
       $("#import-theme").onchange = event => { importTheme(event.target.files?.[0]); event.target.value = ""; };
       $("#import-theme-logo").onchange = event => { chooseLogo(event.target.files?.[0]); event.target.value = ""; };
       $("#more-theme-images").onclick = () => {

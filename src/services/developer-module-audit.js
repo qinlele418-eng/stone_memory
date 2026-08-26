@@ -8,14 +8,6 @@ const {
   validateManifest,
 } = require("./developer-module-contract");
 
-const COMPATIBILITY_SCRIPTS = new Map([
-  ["dream-lab", "scripts/stmem-dream.js"],
-  ["memory-scratch", "scripts/stmem-scratch.js"],
-  ["notebook-lab", "scripts/stmem-notebook.js"],
-  ["review-lab", "scripts/stmem-mine-review.js"],
-  ["extended-mining-workbench", "scripts/stmem-mine-batch.js"],
-]);
-
 function finding(severity, code, moduleId, message, file = null) {
   return { severity, code, moduleId, message, file };
 }
@@ -58,14 +50,8 @@ function auditCoreOwnership(moduleDir, manifest, findings, projectRoot) {
   if (manifest.legacy) return;
   const declared = declaredCoreExtensions(manifest, moduleDir, findings, projectRoot);
   const roots = [path.join(projectRoot, "bin"), path.join(projectRoot, "scripts"), path.join(projectRoot, "src")];
-  const governanceFiles = new Set([
-    path.join(projectRoot, "src/services/developer-module-audit.js"),
-    path.join(projectRoot, "src/services/developer-module-migrations.js"),
-    ...COMPATIBILITY_SCRIPTS.values().map(relative => path.join(projectRoot, relative)),
-  ]);
   const pattern = new RegExp(`(?:^|[^a-z0-9-])${escapedPattern(manifest.id)}(?:$|[^a-z0-9-])`, "iu");
   for (const file of roots.flatMap(walk).filter(item => /\.(?:js|mjs|cjs|ts)$/u.test(item) || path.basename(item) === "stmem")) {
-    if (governanceFiles.has(file)) continue;
     if (!pattern.test(fs.readFileSync(file, "utf8"))) continue;
     if (!declared.has(file)) {
       findings.push(finding("error", "core-extension-undeclared", manifest.id,
@@ -115,10 +101,9 @@ function auditModule(moduleDir, { projectRoot = PROJECT_ROOT } = {}) {
         ? path.resolve(projectRoot, legacy.commands[action])
         : resolveInside(moduleDir, relative, `command ${action}`);
       if (!legacy.commands?.[action]) {
-        const allowedRoot = action === "migrate" ? path.join(moduleDir, "migrations") : path.join(moduleDir, "backend", "commands");
-        const commandRelative = path.relative(allowedRoot, target);
+        const commandRelative = path.relative(path.join(moduleDir, "backend", "commands"), target);
         if (commandRelative.startsWith("..") || path.isAbsolute(commandRelative)) {
-          findings.push(finding("error", "command-location", id, `命令 ${action} 必须位于 ${action === "migrate" ? "migrations/" : "backend/commands/"}`, target));
+          findings.push(finding("error", "command-location", id, `命令 ${action} 必须位于 backend/commands/`, target));
         }
       }
       if (!fs.existsSync(target)) findings.push(finding("error", "command-missing", id, `命令 ${action} 不存在`, target));
@@ -132,12 +117,8 @@ function auditModule(moduleDir, { projectRoot = PROJECT_ROOT } = {}) {
   const canonicalSource = walk(moduleDir)
     .filter(file => /\.(?:js|mjs|cjs|ts)$/u.test(file))
     .map(file => fs.readFileSync(file, "utf8")).join("\n");
-  const usesCoreThreadPath = /getThreadDir\s*\(|openDatabase\s*\([^)]*(?:memoryDir|getThreadDir)/u.test(canonicalSource);
-  if (/\.stone_memory/u.test(canonicalSource) || (usesCoreThreadPath && !manifest.permissions?.includes("core:read"))) {
+  if (/getThreadDir\s*\(|\.stone_memory|openDatabase\s*\([^)]*(?:memoryDir|getThreadDir)/u.test(canonicalSource)) {
     findings.push(finding("error", "storage-core-path", id, "模块代码直接定位 Core/线程数据目录；应使用 SDK 提供的 moduleDataDir", manifestFile));
-  }
-  if (usesCoreThreadPath && manifest.permissions?.includes("core:read") && !/dataDirFor\s*\(|moduleDataDir/u.test(canonicalSource)) {
-    findings.push(finding("error", "storage-module-path-missing", id, "模块读取 Core 数据，但运行数据未接入 moduleDataDir", manifestFile));
   }
   if (/localStorage\.(?:getItem|setItem|removeItem)\s*\(/u.test(canonicalSource) && !manifest.storage?.browser) {
     findings.push(finding("error", "storage-browser-undeclared", id, "模块使用浏览器持久化但未声明 storage.browser", manifestFile));
@@ -152,15 +133,6 @@ function auditModule(moduleDir, { projectRoot = PROJECT_ROOT } = {}) {
     findings.push(finding("warning", "process-undeclared", id, "检测到子进程或 watcher 逻辑，但未声明权限/插件", manifestFile));
   }
   auditCoreOwnership(moduleDir, manifest, findings, projectRoot);
-  const compatibilityScript = COMPATIBILITY_SCRIPTS.get(id);
-  if (compatibilityScript) {
-    const file = path.join(PROJECT_ROOT, compatibilityScript);
-    const wrapper = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
-    const executableLines = wrapper.split(/\r?\n/u).filter(line => line.trim() && !line.trim().startsWith("//") && !line.trim().startsWith('"use strict"'));
-    if (!/developer-modules/u.test(wrapper) || executableLines.length !== 1) {
-      findings.push(finding("error", "legacy-wrapper-regressed", id, "旧 CLI 必须只是转发到模块目录的单行兼容包装，不得承载业务实现", file));
-    }
-  }
   return findings;
 }
 
@@ -168,9 +140,7 @@ function auditDeveloperModules({ root = MODULE_ROOT, projectRoot = PROJECT_ROOT 
   const findings = listModuleDirectories(root).flatMap(moduleDir => auditModule(moduleDir, { projectRoot }));
   const errors = findings.filter(item => item.severity === "error").length;
   const warnings = findings.filter(item => item.severity === "warning").length;
-  // The migration programme is complete only when the report is clean.  A
-  // warning is therefore a CI failure, not a merge-time reminder.
-  return { ok: errors === 0 && warnings === 0, root, modules: listModuleDirectories(root).length, errors, warnings, findings };
+  return { ok: errors === 0, root, modules: listModuleDirectories(root).length, errors, warnings, findings };
 }
 
 module.exports = { auditDeveloperModules };

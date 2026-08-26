@@ -2,8 +2,6 @@ const path = require("path");
 const { loadModules, findModule, moduleDataDir, resolveInside } = require("../src/services/developer-module-contract");
 const { createModuleContext } = require("../src/services/developer-module-runtime");
 const { auditDeveloperModules } = require("../src/services/developer-module-audit");
-const { runModuleAction } = require("../src/services/developer-module-runtime");
-const fs = require("node:fs");
 
 function valueAfter(args, flag) {
   const index = args.indexOf(flag);
@@ -76,16 +74,14 @@ async function runModuleCommand(args = process.argv.slice(3)) {
   const commandFile = resolveInside(loaded.moduleDir, relative, `module command ${moduleAction}`);
   const implementation = require(commandFile);
   if (typeof implementation.run !== "function") throw new Error(`模块命令 ${moduleAction} 未导出 run(context,input)`);
-  const batchFile = valueAfter(args, "--batch-file");
-  const input = batchFile ? JSON.parse(fs.readFileSync(batchFile, "utf8")) : commandInput(args.slice(1), moduleAction);
-  if (args.includes("--apply")) input.apply = true;
-  if (args.includes("--dry-run")) input.apply = false;
+  const input = commandInput(args.slice(1), moduleAction);
   if (moduleAction === "hook") {
     try { input.stdin = await readStdin(); }
     catch { return console.log("{}"); }
   }
-  const output = await runModuleAction({ moduleId: loaded.id, action: moduleAction, threadId: input.threadId, input });
-  fs.writeSync(1, `${JSON.stringify(output ?? {}, null, moduleAction === "hook" ? 0 : 2)}\n`);
+  const context = createModuleContext(loaded.manifest, { threadId: input.threadId });
+  const output = await implementation.run(context, input);
+  console.log(JSON.stringify(output ?? {}, null, moduleAction === "hook" ? 0 : 2));
   return output;
 }
 

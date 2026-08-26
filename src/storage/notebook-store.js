@@ -4,22 +4,19 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { openDatabase } = require("./database");
-const { openNotebookDatabase } = require("./notebook-database");
 
 const VISIBILITIES = new Set(["visible", "sealed"]);
 const COVER_PRESETS = new Set(["", "preset:forest", "preset:mist", "preset:amber", "preset:berry", "preset:night"]);
 
 class NotebookStore {
-  constructor({ threadId, root, memoryDir = root, databaseFile = null } = {}) {
+  constructor({ threadId, root, memoryDir = root } = {}) {
     this.threadId = requiredSegment(threadId, "threadId");
     if (!root) throw new Error("notebook root is required");
     this.root = path.resolve(root);
-    this.db = databaseFile ? openNotebookDatabase(databaseFile) : openDatabase(memoryDir || this.root);
-    if (!databaseFile) {
-      const now = new Date().toISOString();
-      this.db.prepare("INSERT OR IGNORE INTO threads(id,created_at,updated_at) VALUES (?,?,?)")
-        .run(this.threadId, now, now);
-    }
+    this.db = openDatabase(memoryDir || this.root);
+    const now = new Date().toISOString();
+    this.db.prepare("INSERT OR IGNORE INTO threads(id,created_at,updated_at) VALUES (?,?,?)")
+      .run(this.threadId, now, now);
   }
 
   close() { this.db.close(); }
