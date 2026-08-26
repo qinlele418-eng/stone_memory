@@ -361,7 +361,7 @@ stmem db status --thread <线程ID>            # 数据库维护
 
 ### watcher 管理
 
-安装阶段负责让唯一 watcher supervisor 常驻并自愈（Linux 走 systemd，Windows 走 supervisor 自愈）；init 与 watcher CLI 都不负责拉起进程。只有 `watcherEnabled=ON` 的记忆体才会拥有 worker；某个记忆体的开关不影响其他记忆体。
+安装阶段负责让唯一 watcher supervisor 常驻并自愈（Linux 走 systemd，Windows 走 Task Scheduler）；init 与 watcher CLI 都不负责拉起裸进程。只有 `watcherEnabled=ON` 的记忆体才会拥有 worker；某个记忆体的开关不影响其他记忆体。
 
 线程文件变化后约 300ms 防抖增量同步到 archive；正常追加只读取每个记忆体 `.sync-state.json` 游标后的新字节。若线程经 rebuild 缩短、被替换，或游标前内容被改写，则自动执行一次全量幂等校验并重建游标，不会用"每次完整重读线程"冒充增量。后台仍低频巡检，作为文件系统漏事件时的兜底，并负责自动挖掘和摘要维护。
 
@@ -373,6 +373,9 @@ stmem watcher set --thread <id> --archive on # 开启对话录入插件
 stmem watcher set --thread <id> --miner off  # 关闭摘要挖掘插件
 stmem watcher set --thread <id> --compression on # 开启自动压缩（默认关闭）
 stmem watcher set --thread <id> --dream on   # 开启织梦插件
+stmem watcher service status                  # Windows：检查 Task Scheduler 服务与 supervisor
+stmem watcher service repair                  # Windows：重建漂移或未运行的服务
+stmem watcher service remove                  # Windows：移除任务后正常停止 supervisor，不删除记忆数据
 stmem watcher set --thread <id> --dev-<name> on # 开发者插件必须使用 dev- 前缀
 ```
 
@@ -601,7 +604,7 @@ memory/topics/
 
 常驻 watcher 使用唯一 supervisor + per-thread worker：supervisor 动态读取 `stmem.json`，只为至少开启一项自动化的 thread ID 保证恰好一个 `watcher.js --thread <id>`。单个线程同步、挖掘或模型调用卡住时，不会阻塞其他线程；新增、删除或关闭线程自动化无需重启整个 watcher，下一次配置巡检会自动增减 worker。worker 不负责自我重启，崩溃恢复只由 supervisor 管理，避免双重拉起。
 
-`stmem watcher` 只修改 `stmem.json`，不启动、不停止也不重启进程。每个记忆体保存 `watcherEnabled` 总期望状态与 `watcherModules` 插件开关；supervisor 周期读取配置，使实际 worker 数量收敛为 ON=1、OFF=0。旧版 `automaticFullMining`、`automaticMemoryMaintenance`、`automaticCompression`、`automaticDream` 会兼容映射到对应插件。PID、启动时间等瞬时信息不写入配置，而是原子覆盖到该记忆体目录的 `watcher-state.json`。
+`stmem watcher on/off/set` 只修改 `stmem.json`，不启动、不停止也不重启进程；Windows 的 `watcher service` 仅管理唯一 supervisor 计划任务。每个记忆体保存 `watcherEnabled` 总期望状态与 `watcherModules` 插件开关；supervisor 周期读取配置，使实际 worker 数量收敛为 ON=1、OFF=0。旧版 `automaticFullMining`、`automaticMemoryMaintenance`、`automaticCompression`、`automaticDream` 会兼容映射到对应插件。PID、启动时间等瞬时信息不写入配置，而是原子覆盖到该记忆体目录的 `watcher-state.json`。
 
 当前版本的正式线程共享 `~/.stone_memory/stone-memory.db`，仍通过 `thread_id` 隔离；兼容 fork 依靠同库递归读取父子关系，不复制记忆。目标版本将把稳定的 `memoryId` 与可替换的 Binding 分开。SQLite 继续使用 WAL 和 30 秒 busy timeout，不同 worker 可以并发调用模型，实际短写事务由 SQLite 串行提交。
 

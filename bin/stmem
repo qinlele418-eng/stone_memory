@@ -59,6 +59,7 @@ if (!cmd || cmd === "--help" || cmd === "-h") {
   stmem rules list|import|update|delete|enable|disable --thread <id>  管理人设/规则
   stmem memory update|anchor --thread <id> --batch-file <json>  编辑摘要与锚点
   stmem watcher [status|on|off] --thread <id>   查看/修改该记忆体 watcher 期望状态
+  stmem watcher service install|status|repair|remove  管理 Windows Task Scheduler watcher 服务
   stmem watcher set --thread <id> --archive|--miner|--compression|--dream on|off  修改内置插件
   stmem watcher set --thread <id> --dev-<name> on|off  修改开发者插件（必须 dev- 前缀）
   stmem notebook status|topic-create|topic-update|write|query|read|list --thread <id>

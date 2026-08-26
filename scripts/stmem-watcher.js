@@ -10,6 +10,10 @@ const { loadConfig, listThreadIds } = require("../src/config");
 const { saveConfig } = require("../src/services/thread-setup");
 const { processMatches } = require("../src/lib/process-identity");
 const { readWatcherState, watcherActions, watcherEnabled } = require("../src/services/watcher-runtime");
+const {
+  installWindowsWatcherService, windowsWatcherServiceStatus,
+  repairWindowsWatcherService, removeWindowsWatcherService,
+} = require("../src/services/windows-watcher-service");
 
 const STONE = path.join(os.homedir(), ".stone_memory");
 const LEGACY_KEYS = {
@@ -49,6 +53,32 @@ function setModule(entry, name, enabled) {
   if (LEGACY_KEYS[name]) entry[LEGACY_KEYS[name]] = enabled;
 }
 
+if (subcmd === "service") {
+  const action = args[1];
+  if (!new Set(["install", "status", "repair", "remove"]).has(action)) {
+    throw new Error("用法：stmem watcher service <install|status|repair|remove>");
+  }
+  if (process.platform !== "win32") throw new Error("watcher service 子命令当前仅支持 Windows；Linux 请使用 systemd user service");
+  const projectDir = path.resolve(__dirname, "..");
+  if (action === "install") {
+    const result = installWindowsWatcherService({ projectDir });
+    console.log(`watcher Task Scheduler 服务已安装并启动：${result.taskName}`);
+  } else if (action === "status") {
+    const result = windowsWatcherServiceStatus({ projectDir });
+    console.log(`watcher service: ${result.healthy ? "正常" : "需要修复"}`);
+    console.log(`  task: ${result.queryError ? "无法查询" : result.installed ? (result.expected ? "已安装" : "定义漂移") : "未安装"}`);
+    if (result.queryError) console.log(`  query: ${result.queryError}`);
+    console.log(`  supervisor: ${result.running ? `运行中 (pid ${result.pid})` : "未运行"}`);
+  } else if (action === "repair") {
+    const result = repairWindowsWatcherService({ projectDir });
+    console.log(result.repaired === false ? "watcher service 已正常" : `watcher service 已修复：${result.taskName}`);
+  } else {
+    const result = removeWindowsWatcherService({ projectDir });
+    console.log(`watcher service 已移除${result.stopped === true ? "，supervisor 已停止" : result.stopped === false ? "；supervisor 在截止时间后仍运行，请手动检查" : "；未发现运行中的 supervisor"}`);
+  }
+  return;
+}
+
 if (subcmd === "on" || subcmd === "off") {
   const enabled = subcmd === "on";
   saveExpectedState(entry => { entry.watcherEnabled = enabled; });
@@ -79,7 +109,7 @@ if (subcmd === "set") {
   return;
 }
 
-if (subcmd !== "status") throw new Error("用法：stmem watcher [status|on|off|set] --thread <id>");
+if (subcmd !== "status") throw new Error("用法：stmem watcher [status|on|off|set|service] --thread <id>");
 
 let supervisorPid = null;
 try { supervisorPid = Number(fs.readFileSync(path.join(STONE, "watcher.pid"), "utf8")); } catch {}
