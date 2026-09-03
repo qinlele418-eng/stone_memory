@@ -43,9 +43,11 @@ const STMEM_BIN = path.join(PROJECT_ROOT, "bin", "stmem");
 function safeStmemFailure(stderr, command, status) {
   const lines = String(stderr || "").split(/\r?\n/).map(line => line.trim()).filter(Boolean);
   const marked = lines.reverse().find(line =>
-    /^\[(?:memory-miner|memory-compressor)\]\s+(?:subagent\s+)?error:/i.test(line));
+    /^\[(?:memory-miner|memory-compressor)\]\s+(?:subagent\s+)?error:/i.test(line)
+    || /^\[tool-policy\]\s+error:/i.test(line));
   if (marked) {
-    return marked.replace(/^\[(?:memory-miner|memory-compressor)\]\s+/i, "").slice(0, 500);
+    return marked.replace(/^\[(?:memory-miner|memory-compressor)\]\s+/i, "")
+      .replace(/^\[tool-policy\]\s+/i, "").slice(0, 500);
   }
   // 不把任意 stderr（可能包含私密对话或模型原文）直接回显给前端；
   // 只提取脚本明确标记的错误或常见系统错误。
@@ -1322,6 +1324,23 @@ async function handleApi(req, res, url) {
       if(date){const total=store.db.prepare("SELECT COUNT(*) count FROM messages WHERE thread_id=? AND source_date=?").get(threadId,date).count;let page=Math.max(1,Number(url.searchParams.get("page"))||1);if(focus){const position=store.db.prepare("SELECT COUNT(*) count FROM messages WHERE thread_id=? AND source_date=? AND timestamp<=?").get(threadId,date,focus).count;if(position)page=Math.ceil(position/pageSize);}const totalPages=Math.max(1,Math.ceil(total/pageSize));page=Math.min(page,totalPages);const rows=store.db.prepare("SELECT timestamp,source_date sourceDate,role,text FROM messages WHERE thread_id=? AND source_date=? ORDER BY timestamp ASC,message_seq ASC LIMIT ? OFFSET ?").all(threadId,date,pageSize,(page-1)*pageSize);return json(res,200,{mode:"date",date,focus,calendar,rows:{page,pageSize,total,totalPages,rows}});}
       return json(res,200,{mode:"calendar",calendar});
     } finally { store.close(); }
+  }
+
+  const toolPolicyMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/tool-policy$/);
+  if (toolPolicyMatch) {
+    const threadId=decodeURIComponent(toolPolicyMatch[1]);
+    publicThreadSettings(threadId);
+    if(req.method==="GET") {
+      const action=url.searchParams.get("action")==="detect"?"detect":url.searchParams.get("action")==="filtered"?"filtered":"status";
+      const args=["tool-policy",action,"--thread",threadId];
+      if(action==="filtered"){args.push("--limit",String(url.searchParams.get("limit")||100),"--offset",String(url.searchParams.get("offset")||0));}
+      return json(res,200,JSON.parse(runStmem(args,{maxBuffer:64*1024*1024})));
+    }
+    if(req.method==="POST") {
+      const requested=url.searchParams.get("action");
+      const action=requested==="plan"?"plan":requested==="unfilter-preview"?"unfilter-preview":requested==="unfilter"?"unfilter":"apply";
+      return json(res,200,runStmemBatch(["tool-policy",action,"--thread",threadId],await readJson(req)));
+    }
   }
 
   const timelineMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/timeline$/);

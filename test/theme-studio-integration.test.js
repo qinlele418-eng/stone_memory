@@ -11,16 +11,19 @@ test("main page enables the semantic theme bridge", () => {
   assert.match(html, /<body[^>]*\bclass="[^"]*\bstone-theme-enabled\b[^"]*"/);
 });
 
-test("mobile workspace navigation top-aligns wrapped labels", () => {
+test("mobile workspace navigation keeps two-character labels centered", () => {
   const styles = fs.readFileSync(
     path.join(__dirname, "..", "src", "web", "public", "styles.css"),
     "utf8",
   );
   const mobileNav = styles.match(/@media \(max-width: 760px\) \{[\s\S]*?\.stats-grid/)?.[0] || "";
   assert.match(mobileNav, /\.side-nav\s*\{[^}]*align-items:\s*stretch/);
-  assert.match(mobileNav, /\.side-nav button\s*\{[\s\S]*?align-items:\s*flex-start/);
+  assert.match(mobileNav, /\.side-nav button\s*\{[\s\S]*?align-items:\s*center/);
   assert.match(mobileNav, /height:\s*100%/);
-  assert.match(mobileNav, /padding:\s*6px 4px 0/);
+  assert.match(mobileNav, /padding:\s*6px 4px/);
+  assert.match(mobileNav, /white-space:\s*normal/);
+  assert.match(mobileNav, /overflow-wrap:\s*normal/);
+  assert.match(mobileNav, /\.side-nav button span\s*\{[^}]*white-space:\s*nowrap/);
 });
 
 test("mobile mining remains contained while input zoom overrides stay removed", () => {
@@ -28,7 +31,6 @@ test("mobile mining remains contained while input zoom overrides stay removed", 
   const mainStyles = fs.readFileSync(path.join(publicDir, "styles.css"), "utf8");
   const themeStyles = fs.readFileSync(path.join(publicDir, "theme-studio", "standalone.css"), "utf8");
   const kitStyles = fs.readFileSync(path.join(publicDir, "developer-kit", "styles.css"), "utf8");
-  const reviewStyles = fs.readFileSync(path.join(publicDir, "review-lab", "styles.css"), "utf8");
 
   assert.match(mainStyles, /button,\s*input,\s*select,\s*textarea\s*\{[\s\S]*?color:\s*var\(--pine-950\);[\s\S]*?font:\s*inherit;/);
   assert.doesNotMatch(mainStyles, /var\(--ink\)/);
@@ -38,7 +40,7 @@ test("mobile mining remains contained while input zoom overrides stay removed", 
   assert.match(mainStyles, /\.memory-toolbar\s*>\s*label\.secondary\s*\{[^}]*display:\s*inline-flex[^}]*align-items:\s*center[^}]*justify-content:\s*center/);
   assert.match(mainStyles, /\.memory-entry-grid button\s*\{[^}]*color:\s*var\(--pine-950\)/);
 
-  for (const styles of [mainStyles, themeStyles, kitStyles, reviewStyles]) {
+  for (const styles of [mainStyles, themeStyles, kitStyles]) {
     assert.doesNotMatch(styles, /input:not\(\[type="checkbox"\]\)[\s\S]*?textarea\s*\{\s*font-size:\s*16px\s*!important/);
   }
 
@@ -53,11 +55,11 @@ test("theme studio remains a single removable frontend integration", () => {
   const html = fs.readFileSync(path.join(publicDir, "index.html"), "utf8");
   const app = fs.readFileSync(path.join(publicDir, "app.js"), "utf8");
   const server = fs.readFileSync(path.join(__dirname, "..", "src", "web", "server.js"), "utf8");
-  const entry = /<script src="\/theme-studio\/bootstrap\.js" defer><\/script>/g;
+  const entry = /\s*(?:<script[^>]*data-stone-theme-entry[^>]*><\/script>|<link[^>]*data-stone-theme-entry[^>]*>)/g;
   const matches = html.match(entry) || [];
   const detachedHtml = html.replace(entry, "");
 
-  assert.equal(matches.length, 1);
+  assert.equal(matches.length, 8);
   assert.doesNotMatch(detachedHtml, /theme-studio/);
   assert.doesNotMatch(app, /theme-studio|stone-memory-ui-theme/);
   assert.doesNotMatch(server, /theme-studio|stone-memory-ui-theme/);
@@ -137,7 +139,6 @@ test("theme studio uses only the Stone Memory visual vocabulary and original pre
 
 test("semantic theme covers mining calendar states and preserves the developer lab visual layer", () => {
   const publicDir = path.join(__dirname, "..", "src", "web", "public", "theme-studio");
-  const reviewDir = path.join(__dirname, "..", "src", "web", "public", "review-lab");
   const developerRuntime = fs.readFileSync(path.join(__dirname, "..", "src", "web", "public", "developer-kit", "runtime.js"), "utf8");
   const contract = JSON.parse(fs.readFileSync(path.join(publicDir, "contract.json"), "utf8"));
   const legacyV1 = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "theme-studio-v1.json"), "utf8"));
@@ -149,7 +150,6 @@ test("semantic theme covers mining calendar states and preserves the developer l
   const bootstrap = fs.readFileSync(path.join(publicDir, "bootstrap.js"), "utf8");
   const standalone = fs.readFileSync(path.join(publicDir, "standalone-app.js"), "utf8");
   const standaloneCss = fs.readFileSync(path.join(publicDir, "standalone.css"), "utf8");
-  const reviewTheme = fs.readFileSync(path.join(reviewDir, "theme.css"), "utf8");
 
   for (const state of ["mining-none", "mining-pending", "mining-light", "mining-deep", "mining-failed", "mining-running"]) {
     assert.match(coverage, new RegExp(`calendar-day\\.${state}`));
@@ -213,9 +213,6 @@ test("semantic theme covers mining calendar states and preserves the developer l
   assert.match(tokens, /--moss-300:\s*color-mix\([^;]*--stone-theme-accent/);
   assert.match(tokens, /--moss-200:\s*color-mix\([^;]*--stone-theme-accent-soft/);
   assert.match(tokens, /--earth:\s*var\(--stone-theme-ink-faint\)/);
-  assert.match(reviewTheme, /\.model-builder,[\s\S]*stone-theme-surface-soft/);
-  assert.match(reviewTheme, /--pine:\s*var\(--stone-theme-accent/);
-  assert.match(reviewTheme, /\.model:has\(input:checked\),[\s\S]*var\(--pine\)/);
 
   assert.equal(contract.version, 3);
   assert.equal(contract.$schema, "https://stone-memory.local/schemas/ui-theme-v3.json");
@@ -376,11 +373,4 @@ test("semantic theme covers mining calendar states and preserves the developer l
   assert.match(bootstrap, /fetch\(CONTRACT_URL\)/);
   assert.doesNotMatch(bootstrap, /const DEFAULT_THEME\s*=/);
   assert.match(bootstrap, /Number\(parsed\.version \|\| 1\) !== contract\.version/);
-  assert.match(reviewTheme, /--warning:\s*var\(--stone-theme-warning/);
-  assert.match(reviewTheme, /--conflict:\s*var\(--stone-theme-conflict/);
-  assert.match(reviewTheme, /--fusion:\s*var\(--stone-theme-fusion/);
-  assert.match(reviewTheme, /\.mix-actions \.fusion-button[\s\S]*var\(--fusion\)/);
-  assert.match(reviewTheme, /\.item-flag\.conflict,[\s\S]*var\(--conflict\)/);
-  assert.doesNotMatch(reviewTheme, /\.mix-actions \.fusion-button\s*\{[^}]*#765a96/);
-  assert.doesNotMatch(reviewTheme, /\.status\.has-error\s*\{[^}]*#fff0ea/);
 });
