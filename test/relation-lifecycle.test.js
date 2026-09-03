@@ -92,3 +92,23 @@ test("relation signatures never take over an explicitly work-only term", () => {
   const result = buildRelationLifecycles({ termTimelines: rows, intersections });
   assert.equal(result.terms.some(row => row.term === "材料"), false);
 });
+
+test("relation pair evidence accepts streamed message counts without message bodies", () => {
+  const feelings = Array.from({ length: 5 }, (_, index) => ({
+    id: `pair-stream-${index}`, source_date: `2026-06-0${index + 1}`, importance: 4, content: "少爷和女仆",
+  }));
+  const rows = buildTermTimeline({
+    requestedTerms: ["少爷", "女仆"],
+    extractedTerms: [
+      { normalizedTerm: "少爷", category: "relation", featureIds: [] },
+      { normalizedTerm: "女仆", category: "relation", featureIds: [] },
+    ],
+    messages: [], feelings, from: "2026-06-01", to: "2026-06-10",
+  });
+  const counts = new Map([["女仆\u0000少爷", 37]]);
+  const intersections = buildCooccurrenceSignatures({ termTimelines: rows, messages: [], feelings, messageCounts: counts });
+  assert.equal(intersections[0].sameMessages.length, 0);
+  assert.equal(intersections[0].sameMessageCount, 37);
+  const result = buildRelationLifecycles({ termTimelines: rows, intersections });
+  assert.equal(result.pairs[0].evidence.sameMessages, 37);
+});

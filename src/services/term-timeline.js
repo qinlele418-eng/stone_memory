@@ -3,7 +3,10 @@ const { normalizeTerm } = require("./feature-phrase-extractor");
 function buildTermTimeline({ requestedTerms, extractedTerms, feelings, messages, dailyStats = null, anchors = {}, from = null, to = null }) {
   const eventAnchors = new Set(Object.keys(anchors.eventAnchors || {}));
   const retainAnchors = new Set(Object.keys(anchors.retain || {}));
-  const allDates = messages.map(row => row.date).filter(Boolean).sort();
+  const allDates = [
+    ...(messages || []).map(row => row.date),
+    ...(dailyStats || []).map(row => row.sourceDate || row.date),
+  ].filter(Boolean).sort();
   const rangeStart = from || allDates[0] || null;
   const rangeEnd = to || allDates.at(-1) || null;
   return (requestedTerms || []).map(requested => {
@@ -77,15 +80,18 @@ function buildTermTimeline({ requestedTerms, extractedTerms, feelings, messages,
   });
 }
 
-function buildCooccurrenceSignatures({ termTimelines, messages, feelings, anchors = {}, from = null, to = null }) {
+function buildCooccurrenceSignatures({
+  termTimelines, messages, feelings, anchors = {}, from = null, to = null, focusTerms = null, messageCounts = null,
+}) {
   const terms = deduplicateTerms(termTimelines || []);
   if (terms.length < 2) return [];
   const rangeStart = from || terms[0].from;
   const rangeEnd = to || terms[0].to;
   const eventAnchors = new Set(Object.keys(anchors.eventAnchors || {}));
   const retainAnchors = new Set(Object.keys(anchors.retain || {}));
-  const combinations = pairCombinations(terms);
-  if (terms.length > 2) combinations.push(terms);
+  const focus = focusTerms ? new Set(focusTerms.map(normalizeTerm).filter(Boolean)) : null;
+  const combinations = pairCombinations(terms).filter(rows => !focus || rows.some(row => focus.has(row.normalizedTerm)));
+  if (terms.length > 2 && (!focus || terms.some(row => focus.has(row.normalizedTerm)))) combinations.push(terms);
   return combinations.map(rows => {
     const normalizedTerms = rows.map(row => row.normalizedTerm);
     const labels = rows.map(row => row.term);
@@ -94,9 +100,14 @@ function buildCooccurrenceSignatures({ termTimelines, messages, feelings, anchor
       date,
       terms: rows.map((row, index) => ({ term: row.term, occurrenceCount: dates[index].get(date).occurrenceCount })),
     }));
-    const sameMessages = (messages || []).filter(message => inRange(message.date, rangeStart, rangeEnd))
-      .filter(message => containsAll(message.text, normalizedTerms))
-      .map(message => ({ date: message.date, timestamp: message.timestamp || null, text: message.text }));
+    const countedMessages = messageCounts instanceof Map
+      ? Number(messageCounts.get(cooccurrenceKey(normalizedTerms)) || 0)
+      : null;
+    const sameMessages = countedMessages == null
+      ? (messages || []).filter(message => inRange(message.date, rangeStart, rangeEnd))
+        .filter(message => containsAll(message.text, normalizedTerms))
+        .map(message => ({ date: message.date, timestamp: message.timestamp || null, text: message.text }))
+      : [];
     const sameWindows = localCooccurrenceWindows(messages, normalizedTerms, rangeStart, rangeEnd);
     const sameFeelings = (feelings || []).filter(feeling => inRange(feeling.source_date || feeling.sourceDate, rangeStart, rangeEnd))
       .filter(feeling => containsAll(feeling.content, normalizedTerms))
@@ -111,7 +122,7 @@ function buildCooccurrenceSignatures({ termTimelines, messages, feelings, anchor
         terms: rows.map(row => ({ term: row.term, categories: row.categories })),
         content: feeling.content,
       }));
-    return { terms: labels, normalizedTerms, sameDays, sameMessages, sameWindows, sameFeelings };
+    return { terms: labels, normalizedTerms, sameDays, sameMessages, sameMessageCount: countedMessages, sameWindows, sameFeelings };
   });
 }
 
@@ -154,6 +165,10 @@ function pairCombinations(rows) {
 function containsAll(text, normalizedTerms) {
   const normalized = normalizeTerm(text);
   return normalizedTerms.every(term => normalized.includes(term));
+}
+
+function cooccurrenceKey(terms) {
+  return [...terms].map(normalizeTerm).sort().join("\u0000");
 }
 
 function inRange(date, from, to) {

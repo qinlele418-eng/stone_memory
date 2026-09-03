@@ -260,6 +260,16 @@ class MemoryStore {
       ORDER BY source_date, COALESCE(event_time,''), order_key, id`).all(...params);
   }
 
+  iterateFeelingEvidence({ from = null, to = null } = {}) {
+    const clauses = ["thread_id=?"];
+    const params = [this.threadId];
+    if (from) { clauses.push("source_date>=?"); params.push(from); }
+    if (to) { clauses.push("source_date<=?"); params.push(to); }
+    return this.db.prepare(`SELECT id,source_date,event_time,importance,summary_mode,content
+      FROM feelings WHERE ${clauses.join(" AND ")}
+      ORDER BY source_date,COALESCE(event_time,''),order_key,id`).iterate(...params);
+  }
+
   listFeatures({ date } = {}) {
     return date
       ? this.db.prepare("SELECT * FROM features WHERE thread_id=? AND source_date=? ORDER BY category,id").all(this.threadId, date)

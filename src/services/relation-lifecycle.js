@@ -189,9 +189,14 @@ function classifyRelationPair(signature, byTerm) {
     normalizedTerms: signature.normalizedTerms,
     state,
     shape,
-    evidence: { sameDays: dates.length, sameMessages: signature.sameMessages.length,
+    evidence: { sameDays: dates.length, sameMessages: evidenceCount(signature, "sameMessages"),
       sameFeelings: signature.sameFeelings.length, firstSeen: dates[0] || null, lastSeen, spanDays },
   };
+}
+
+function evidenceCount(signature, field) {
+  const explicit = signature?.[`${field.slice(0, -1)}Count`];
+  return Number.isFinite(explicit) ? explicit : (signature?.[field]?.length || 0);
 }
 
 function splitEpisodes(dates, maxGapDays) {

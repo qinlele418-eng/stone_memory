@@ -4,8 +4,9 @@ const path = require("path");
 const { getThreadDir, listThreadIds } = require("../src/config");
 const { MemoryStore } = require("../src/storage/memory-store");
 const { extractFeatureTerms, normalizeTerm } = require("../src/services/feature-phrase-extractor");
-const { readUserArchive } = require("../src/services/feature-term-evidence");
 const { buildTermTimeline, buildCooccurrenceSignatures } = require("../src/services/term-timeline");
+const { readMatchingFeelings, countMessageCooccurrences } = require("../src/services/term-evidence-reader");
+const { compactTermTimelineReport } = require("../src/services/term-timeline-report");
 const { buildRelationLifecycles } = require("../src/services/relation-lifecycle");
 const { findRelationSignaturePeers } = require("../src/services/relation-signature-context");
 const { buildRelationCompressionPlan, summarizeRelationCompressionPlan } = require("../src/services/relation-compression-plan");
@@ -22,29 +23,29 @@ if (!requestedTerms.length) throw new Error("请使用 --terms 词1,词2 指定�
 const memoryDir = path.join(getThreadDir(threadId), "memory");
 const store = new MemoryStore({ memoryDir, threadId });
 const features = store.listFeatures();
-const feelings = store.listFeelings();
 let anchors = { retain: {}, eventAnchors: {} };
 try { anchors = JSON.parse(fs.readFileSync(path.join(memoryDir, "retain-config.json"), "utf8")); } catch {}
-let messages = store.listMessages().filter(row => row.type === "user")
-  .map(row => ({ date: row.sourceDate, timestamp: row.timestamp, text: row.text }));
-if (!messages.length) messages = readUserArchive(path.join(memoryDir, "archive"));
 const from = value("--from");
 const to = value("--to");
 const extractedTerms = extractFeatureTerms(features);
 updateTermEvidenceCache({ store, terms: requestedTerms });
 const dailyStats = store.listTermDailyStats(requestedTerms.map(normalizeTerm), { from, to });
+const feelings = readMatchingFeelings({ store, terms: requestedTerms, from, to });
+const messageCounts = countMessageCooccurrences({ store, terms: requestedTerms, from, to });
 store.close();
 const report = buildTermTimeline({
   requestedTerms,
   extractedTerms,
   feelings,
-  messages,
+  messages: [],
   dailyStats,
   anchors,
   from,
   to,
 });
-const intersections = buildCooccurrenceSignatures({ termTimelines: report, messages, feelings, anchors, from, to });
+const intersections = buildCooccurrenceSignatures({
+  termTimelines: report, messages: [], messageCounts, feelings, anchors, from, to,
+});
 const signaturePeers = findRelationSignaturePeers({ requestedTerms, extractedTerms, feelings });
 const requestedNormalized = new Set(requestedTerms.map(normalizeTerm));
 const auxiliaryTerms = signaturePeers.filter(row => !requestedNormalized.has(row.normalizedTerm)).map(row => row.term);
@@ -57,6 +58,7 @@ const relationIntersections = buildCooccurrenceSignatures({
   // 辅助词只为补全摘要共同签名；不重复扫描 archive 的局部消息窗口。
   // 用户显式查询词的同消息证据仍由上方 intersections 完整计算。
   termTimelines: relationTimelines, messages: [], feelings, anchors, from, to,
+  focusTerms: requestedTerms,
 });
 const relation = buildRelationLifecycles({ termTimelines: relationTimelines, intersections: relationIntersections });
 relation.analysisPeers = signaturePeers;
@@ -70,7 +72,9 @@ work.compressionPlan = buildWorkCompressionPlan({
 work.compressionSummary = summarizeWorkCompressionPlan(work.compressionPlan);
 
 if (args.includes("--json")) {
-  fs.writeFileSync(1, `${JSON.stringify({ threadId, report, intersections, relation, work }, null, 2)}\n`);
+  const result = { threadId, report, intersections, relation, work };
+  const output = args.includes("--compact-json") ? compactTermTimelineReport(result) : result;
+  fs.writeFileSync(1, `${JSON.stringify(output, null, 2)}\n`);
   process.exit(0);
 }
 

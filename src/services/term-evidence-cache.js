@@ -6,30 +6,35 @@ function updateTermEvidenceCache({ store, terms }) {
     normalizeTerm(typeof term === "string" ? term : term.normalizedTerm || term.term)
   ).filter(Boolean))];
   const dates = store.listMessageDates();
-  const messagesByDate = new Map();
   const latestCached = store.latestTermEvidenceDates(normalizedTerms);
   const rows = [];
   const scanned = [];
 
-  for (const term of normalizedTerms) {
+  const pendingByTerm = new Map(normalizedTerms.map(term => {
     const lastDate = latestCached.get(term) || null;
-    const pendingDates = dates.filter(date => !lastDate || date > lastDate);
-    if (!pendingDates.length) continue;
-    for (const date of pendingDates) {
-      if (!messagesByDate.has(date)) {
-        messagesByDate.set(date, store.listMessages({ date }).filter(row => row.type === "user"));
-      }
-      let userMessageCount = 0;
-      let occurrenceCount = 0;
-      for (const message of messagesByDate.get(date)) {
-        const count = countOccurrences(normalizeTerm(message.text), term);
+    return [term, dates.filter(date => !lastDate || date > lastDate)];
+  }));
+  const pendingSets = new Map([...pendingByTerm].map(([term, pending]) => [term, new Set(pending)]));
+
+  for (const date of dates) {
+    const termsForDate = normalizedTerms.filter(term => pendingSets.get(term).has(date));
+    if (!termsForDate.length) continue;
+    const counts = new Map(termsForDate.map(term => [term, { userMessageCount: 0, occurrenceCount: 0 }]));
+    for (const message of store.listMessages({ date })) {
+      if (message.type !== "user") continue;
+      const text = normalizeTerm(message.text);
+      for (const term of termsForDate) {
+        const count = countOccurrences(text, term);
         if (!count) continue;
-        userMessageCount++;
-        occurrenceCount += count;
+        const result = counts.get(term);
+        result.userMessageCount++;
+        result.occurrenceCount += count;
       }
-      rows.push({ normalizedTerm: term, sourceDate: date, userMessageCount, occurrenceCount });
     }
-    scanned.push({ normalizedTerm: term, from: pendingDates[0], to: pendingDates.at(-1), dates: pendingDates.length });
+    for (const term of termsForDate) rows.push({ normalizedTerm: term, sourceDate: date, ...counts.get(term) });
+  }
+  for (const [term, pendingDates] of pendingByTerm) {
+    if (pendingDates.length) scanned.push({ normalizedTerm: term, from: pendingDates[0], to: pendingDates.at(-1), dates: pendingDates.length });
   }
 
   store.upsertTermDailyStats(rows);
