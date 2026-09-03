@@ -190,7 +190,7 @@
     if (/请重新选择有效的挖掘通道|请先选择有效的挖掘通道/.test(source)) return "请重新选择 Subagent 或 API 挖掘通道。";
     if (/\d{4}-\d{2}-\d{2}.*(?:已经变化|不符合一键维护条件|不能由小助理挖掘)|没有可以执行的挖掘日期/.test(source)) return safe;
     if (/原来的挖掘任务已经结束或发生变化/.test(source)) return "原来的挖掘任务已经结束或发生变化，没有发送停止请求。";
-    if (/记忆体不存在|缺少.*(?:threadId|记忆体标识)/i.test(source)) return "无法找到当前记忆体，请从记忆体的开发者模式重新进入。";
+    if (/记忆体不存在|缺少.*(?:threadId|记忆体标识)/i.test(source)) return "无法找到当前记忆体，请从记忆体的插件工坊重新进入。";
     if (/(?:API|接口).*(?:Key|密钥|配置|不可用|失败)|(?:Key|密钥).*(?:缺少|无效)/i.test(source)) return "所选 API 通道暂不可用，请在正式设置页检查配置，或改用 Subagent。";
     if (/failed to fetch|network|econnrefused|socket|本地服务/i.test(source)) return "无法连接 Stone Memory 本地服务，请确认服务正在运行后重试。";
     return "操作暂时没有完成，请检查 Stone Memory 本地服务或前往正式工作台查看。";

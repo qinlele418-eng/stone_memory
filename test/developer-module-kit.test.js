@@ -18,28 +18,30 @@ test("developer kit consumes an optional semantic snapshot without reading theme
   assert.match(runtime, /window\.StoneDeveloperModule/);
   assert.match(runtime, /threadId/);
   assert.match(runtime, /stone-memory-developer-thread/);
-  assert.deepEqual(contract.requiredFiles, ["module.json", "index.html", "app.js", "styles.css"]);
+  assert.deepEqual(contract.requiredFiles, ["module.json", "README.md"]);
+  assert.equal(contract.moduleRoot, "developer-modules/<module-id>");
   assert.equal(contract.developerContract, "developer-modules/DEVELOPMENT.md");
   assert.ok(contract.rules.some(rule => rule.includes("audit:developer-modules")));
   assert.match(index, /<stone-module-page/);
   assert.doesNotMatch(index, /stone-module-context/);
   assert.doesNotMatch(index, /data-stone-library/);
   assert.match(index, /stone-memory-maintainer\/SKILL\.md/);
+  assert.match(index, /sm-developer-docs\/AGENTS\.md/);
+  assert.match(index, /自动注册/);
+  assert.match(index, /无需修改核心/);
+  assert.match(index, /插件工坊/);
+  assert.match(index, /CLI · 正式写入/);
+  assert.match(index, /MCP · Agent 能力/);
+  assert.match(index, /Watcher · 后台自动化/);
+  assert.match(index, /SQLite · 独立数据/);
+  assert.match(index, /默认仅作独立模块分发/);
   assert.match(app, /stone-memory-maintainer\/SKILL\.md/);
+  assert.match(app, /sm-developer-docs\/AGENTS\.md/);
+  assert.match(app, /\/api\/developer-modules 自动发现/);
+  assert.match(app, /npm run audit:developer-modules/);
+  assert.match(app, /建议合并/);
+  assert.match(app, /CI 通过只代表满足基础技术规范/);
   assert.doesNotMatch(index, /theme-studio/);
-});
-
-test("review lab uses the shared developer module shell before its styles paint", () => {
-  const html = fs.readFileSync(path.join(publicDir, "review-lab", "index.html"), "utf8");
-  const app = fs.readFileSync(path.join(publicDir, "review-lab", "app.js"), "utf8");
-  const runtimeAt = html.indexOf("developer-kit/runtime.js");
-  const stylesAt = html.indexOf("review-lab-v2");
-  assert.ok(runtimeAt > 0 && runtimeAt < stylesAt);
-  assert.match(html, /<stone-module-page/);
-  assert.doesNotMatch(html, /data-smart-back/);
-  assert.doesNotMatch(html, /theme-studio\/bootstrap\.js/);
-  assert.doesNotMatch(html, /stone-module-context/);
-  assert.doesNotMatch(app, /smartBackLink|data-smart-back/);
 });
 
 test("extended mining workbench stays detachable and uses the shared module contract", () => {
@@ -56,6 +58,8 @@ test("extended mining workbench stays detachable and uses the shared module cont
   assert.doesNotMatch(html, /PERSONAL REVIEW WORKBENCH|宁的记忆工作台/);
   assert.match(app, /StoneDeveloperModule/);
   assert.match(app, /review-lab\/api\/batches/);
+  const manifest = JSON.parse(fs.readFileSync(path.join(dir, "module.json"), "utf8"));
+  assert.equal(manifest.order, 2);
   assert.doesNotMatch(app, /conversationLevel|miningLevel|renderCalendarLegend/);
   assert.doesNotMatch(html, /calendar-legend/);
   assert.doesNotMatch(app, /class="day-count"/);
@@ -84,6 +88,9 @@ test("main developer mode lazy-loads the module workshop entry", () => {
   assert.doesNotMatch(html, /developer-kit\/bootstrap\.js/);
   assert.match(app, /loadOptionalScript\("\/developer-kit\/bootstrap\.js(?:\?v=\d+)?"\)/);
   assert.match(app, /loadOptionalScript\("\/developer-modules\/stone-memory-assistant\/bootstrap\.js"\)/);
+  assert.doesNotMatch(app, /loadOptionalScript\("\/review-lab\/bootstrap\.js"\)/);
+  const bootstrap = fs.readFileSync(path.join(publicDir, "developer-kit", "bootstrap.js"), "utf8");
+  assert.match(bootstrap, /MODULE_ORDER = 1/);
 });
 
 test("theme studio applies the saved theme before standalone CSS paints", () => {

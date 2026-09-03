@@ -106,7 +106,7 @@
           h1 { font-size:34px; }
           .description { margin-top:13px; font-size:13px; line-height:1.65; }
         }
-      </style><main><header><a href="/">← 返回开发者模块</a><p class="eyebrow"></p><h1></h1><p class="description"></p><div class="meta"><slot name="meta"></slot></div></header><slot></slot></main>`;
+      </style><main><header><a href="/">← 返回插件工坊</a><p class="eyebrow"></p><h1></h1><p class="description"></p><div class="meta"><slot name="meta"></slot></div></header><slot></slot></main>`;
       root.querySelector(".eyebrow").textContent = eyebrow;
       root.querySelector("h1").textContent = title;
       const descriptionNode = root.querySelector(".description");

@@ -216,7 +216,7 @@
   }
 
   async function refresh() {
-    if (!threadId) throw new Error("缺少当前记忆体，请从开发者模式进入");
+    if (!threadId) throw new Error("缺少当前记忆体，请从插件工坊进入");
     const [bindings, batches] = await Promise.all([
       runtime.api(`/api/libraries/${encodeURIComponent(threadId)}/bindings`),
       runtime.api(`/api/libraries/${encodeURIComponent(threadId)}/binding-imports`),

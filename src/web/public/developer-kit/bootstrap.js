@@ -1,7 +1,7 @@
 (() => {
   "use strict";
   const MODULE_ID = "developer-kit";
-  const MODULE_ORDER = 30;
+  const MODULE_ORDER = 1;
   let modulesPromise = null;
 
   function sortModules(host) {
@@ -19,7 +19,7 @@
     card.className = "developer-experiment-card";
     card.dataset.developerModule = MODULE_ID;
     card.dataset.moduleOrder = String(MODULE_ORDER);
-    card.innerHTML = `<div class="developer-experiment-glow" aria-hidden="true"></div><div class="developer-experiment-copy"><div class="developer-experiment-meta"><span class="developer-status active">官方施工通道</span><span class="developer-contributor">Stone Memory Module Contract v1</span></div><p class="eyebrow">Module workshop · Build inside the boundary</p><h2>自制开发者模块</h2><p>给贡献者和她们的 Agent 一套统一模块外壳：复用主题、当前记忆体、导航与移动端规范，在独立目录里开发实验功能。</p><div class="developer-experiment-features"><span>可拆卸边界</span><span>AI 施工单</span><span>统一验收</span></div></div><div class="developer-experiment-action"><div class="developer-memory-stack" aria-hidden="true"><i></i><i></i><i></i><b>模块工坊</b></div><button class="developer-enter" type="button"><span>Contract · v1</span><strong>开始创建 →</strong></button></div>`;
+    card.innerHTML = `<div class="developer-experiment-glow" aria-hidden="true"></div><div class="developer-experiment-copy"><div class="developer-experiment-meta"><span class="developer-status active">官方施工通道</span><span class="developer-contributor">Stone Memory Plugin Contract v1</span></div><p class="eyebrow">Plugin workshop · Build inside the boundary</p><h2>插件制作台</h2><p>查看可复用的 CLI、MCP、Watcher 与 SQLite 能力，把想法生成一份带数据边界、测试和 PR 规则的 Agent 工单。</p><div class="developer-experiment-features"><span>能力地图</span><span>AI 工单</span><span>PR / CI 验收</span></div></div><div class="developer-experiment-action"><div class="developer-memory-stack" aria-hidden="true"><i></i><i></i><i></i><b>施工规范</b></div><button class="developer-enter" type="button"><span>Contract · v1</span><strong>进入制作台 →</strong></button></div>`;
     card.querySelector(".developer-enter").onclick = () => {
       const threadId = document.querySelector(".workspace")?.dataset.threadId || "";
       location.href = `/developer-kit/?threadId=${encodeURIComponent(threadId)}`;

@@ -51,7 +51,7 @@
   paperStyleSelect.addEventListener("change", event => applyPaperStyle(event.currentTarget.value));
 
   async function loadStatus() {
-    if (!threadId) throw new Error("缺少当前记忆体，请返回开发者模块重新进入");
+    if (!threadId) throw new Error("缺少当前记忆体，请返回插件工坊重新进入");
     const data = await api.api(base);
     state.topics = data.topics || [];
     $("#topic-count").textContent = `/ ${data.topicCount}`;

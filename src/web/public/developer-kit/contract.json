@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "moduleRoot": "src/web/public/developer-modules/<module-id>",
+  "moduleRoot": "developer-modules/<module-id>",
   "developerContract": "developer-modules/DEVELOPMENT.md",
-  "requiredFiles": ["module.json", "index.html", "app.js", "styles.css"],
+  "requiredFiles": ["module.json", "README.md"],
   "requiredRuntime": "/developer-kit/runtime.js",
   "requiredComponent": "stone-module-page",
   "rules": [
@@ -12,6 +12,7 @@
     "不得硬编码 HOME、端口、threadId、模型名和 Provider",
     "颜色、字体、圆角和阴影必须使用 Stone Memory 主题变量",
     "必须使用 stone-module-page，移动端和返回入口由统一组件提供",
-    "开工前必须完整阅读 developer-modules/DEVELOPMENT.md，并通过 npm run audit:developer-modules"
+    "开工前必须完整阅读 developer-modules/DEVELOPMENT.md，并通过 npm run audit:developer-modules",
+    "提交 PR 时必须标注功能修复、独立模块分发或建议合并；未标注的非修复提交默认不合并主线"
   ]
 }

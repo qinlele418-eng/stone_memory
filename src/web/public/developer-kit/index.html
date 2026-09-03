@@ -3,49 +3,74 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <title>Stone Memory · 自制开发者模块</title>
-  <script src="/developer-kit/runtime.js?v=5"></script>
-  <link rel="stylesheet" href="/developer-kit/styles.css?v=2">
+  <title>Stone Memory · 插件工坊</title>
+  <script src="/developer-kit/runtime.js?v=6"></script>
+  <link rel="stylesheet" href="/developer-kit/styles.css?v=3">
 </head>
 <body class="stone-theme-enabled">
-  <stone-module-page eyebrow="STONE MODULE WORKSHOP · CONTRACT v1" title="自制开发者模块" description="让你的 Agent 在可拆卸边界内开发实验功能。统一主题、记忆体、返回入口和移动端外壳由 Stone Memory 提供。">
-    <section class="kit-grid">
+  <stone-module-page eyebrow="STONE PLUGIN WORKSHOP · CONTRACT v1" title="插件制作台" description="先看 Stone Memory 已经提供什么，再让 Agent 在统一的数据、运行与提交边界内施工。">
+    <section class="kit-grid principles-grid">
       <article class="kit-card">
-        <span>01 · 边界</span><h2>只写自己的模块</h2>
-        <p>不得直接修改核心 <code>app.js</code>，不得另建数据库写入链，也不得硬编码用户路径、端口或线程标识。</p>
+        <span>01 · 隔离</span><h2>代码只住在模块里</h2>
+        <p>新模块统一放在 <code>developer-modules/&lt;module-id&gt;/</code>，入口由 <code>module.json</code> 自动注册，无需修改核心 <code>app.js</code>。</p>
       </article>
       <article class="kit-card">
-        <span>02 · 复用</span><h2>核心能力走正式接口</h2>
-        <p>主题、当前记忆体、导航和请求由模块运行时提供；业务写入复用 SM 的 API、CLI 或服务层。</p>
+        <span>02 · 复用</span><h2>正式能力不重写</h2>
+        <p>读取走授权接口，写入走 CLI；前端、MCP 与自动任务共用同一条业务通道，不为模块另开 companion server。</p>
       </article>
       <article class="kit-card">
-        <span>03 · 验收</span><h2>桌面与移动端同验</h2>
-        <p>模块必须在自定义主题、窄屏、接口失败和未绑定记忆体状态下保持可理解、可退出。</p>
+        <span>03 · 归属</span><h2>数据边界可解释</h2>
+        <p>模块数据按记忆体或全局作用域隔离。候选、草稿与缓存不混入正式记忆库，卸载模块不破坏 Core。</p>
       </article>
     </section>
 
+    <section class="capability-card">
+      <div class="section-head"><div><p class="eyebrow">REUSABLE CAPABILITIES</p><h2>可以直接复用的能力</h2></div><span>先复用，再扩展</span></div>
+      <div class="capability-grid">
+        <article><b>CLI · 正式写入</b><p><code>stmem module &lt;id&gt; &lt;action&gt;</code> 执行模块命令；已有挖掘、记忆编辑、规则、重建等写能力应调用对应正式 CLI。</p><details><summary>常用入口</summary><code>stmem mine</code><code>stmem memory update|anchor</code><code>stmem rules</code><code>stmem rebuild</code><code>stmem notebook</code><code>stmem module list|inspect|paths|audit</code></details></article>
+        <article><b>MCP · Agent 能力</b><p>可复用状态、搜索、深度搜索、审计、Notebook、梦境等工具。只读能力可直接调用；写操作仍回到 CLI。</p><details><summary>现有工具族</summary><code>stmem_memory_status</code><code>stmem_memory_search</code><code>stmem_memory_deep_search</code><code>stmem_memory_audit_*</code><code>stmem_notebook_*</code><code>stmem_dream_*</code></details></article>
+        <article><b>Watcher · 后台自动化</b><p>在 manifest 注册插件并使用 <code>dev-</code> 前缀，由唯一 supervisor 负责启停与自愈，模块不得常驻第二套进程。</p><details><summary>标准开关</summary><code>stmem watcher set --thread &lt;id&gt; --dev-&lt;name&gt; on|off</code><small>状态写入正式配置；实际 worker 由 supervisor 收敛为 ON=1、OFF=0。</small></details></article>
+        <article><b>SQLite · 独立数据</b><p>结构化数据使用模块自己的 <code>module.sqlite</code> 和 migrations，通过上下文解析路径，禁止直接给 Core 数据库加表。</p><details><summary>标准落点</summary><code>context.resolveDataPath("module.sqlite")</code><small><code>scope: memory</code> 按记忆体隔离，<code>scope: global</code> 全局共享；表迁移放入模块 <code>migrations/</code>。</small></details></article>
+      </div>
+      <p class="capability-note">此外可直接获得当前记忆体、统一主题、页面外壳、返回导航、移动端尺寸和模块数据目录。能力不够时先提 Issue / proposal，不要用旁路代码假装完成。</p>
+    </section>
+
     <section class="builder-card">
-      <div class="section-head"><div><p class="eyebrow">SCAFFOLD</p><h2>生成给 Agent 的施工单</h2></div><span>不会改写项目文件</span></div>
-      <p class="skill-notice">开工前，请先让 Agent 阅读 <code>sm-developer-docs/skills/stone-memory-maintainer/SKILL.md</code>。</p>
+      <div class="section-head"><div><p class="eyebrow">WORK ORDER</p><h2>生成给 Agent 的开发工单</h2></div><span>只生成说明，不改项目文件</span></div>
+      <p class="skill-notice">开工前，Agent 必须完整阅读 <code>sm-developer-docs/AGENTS.md</code>、<code>developer-modules/DEVELOPMENT.md</code> 与 <code>sm-developer-docs/skills/stone-memory-maintainer/SKILL.md</code>。</p>
       <div class="builder-grid">
         <label>模块 ID<input id="module-id" value="my-module" maxlength="48"></label>
         <label>模块名称<input id="module-title" value="我的实验模块" maxlength="60"></label>
         <label>贡献人<input id="module-contributor" value="@" maxlength="60"></label>
-        <label>功能简介<input id="module-summary" value="说明这个模块解决什么问题。" maxlength="180"></label>
+        <label>数据作用域<select id="module-scope"><option value="memory">按记忆体隔离</option><option value="global">全局共享</option></select></label>
+        <label class="wide-field">功能简介<textarea id="module-summary" maxlength="500">说明这个模块解决什么问题、谁会使用，以及什么不在本次范围内。</textarea></label>
+        <label>提交意图<select id="submission-intent"><option value="community">独立模块分发（默认不合并）</option><option value="merge">建议合并至官方主线</option><option value="fix">功能修复</option></select></label>
       </div>
-      <div class="builder-actions"><button id="generate" type="button">生成施工单</button><button id="copy-prompt" class="secondary" type="button">复制给 Agent</button></div>
+      <fieldset class="capability-picker">
+        <legend>计划复用的能力</legend>
+        <label><input type="checkbox" value="cli" checked>CLI 正式写入</label>
+        <label><input type="checkbox" value="mcp">MCP / Agent 工具</label>
+        <label><input type="checkbox" value="watcher">Watcher 自动任务</label>
+        <label><input type="checkbox" value="sqlite">独立 SQLite</label>
+      </fieldset>
+      <div class="builder-actions"><button id="generate" type="button">生成开发工单</button><button id="copy-prompt" class="secondary" type="button">复制给 Agent</button></div>
       <pre id="agent-prompt"></pre>
     </section>
 
     <section class="check-card">
-      <div><p class="eyebrow">ACCEPTANCE</p><h2>提交前检查</h2></div>
+      <div><p class="eyebrow">PR &amp; CI</p><h2>提交与分发规则</h2></div>
       <ul>
-        <li>模块目录外没有改动</li><li>没有重复实现核心写入逻辑</li><li>没有固定用户名、AI 名、路径或模型</li>
-        <li>主题首帧无闪版</li><li>移动端可正常使用</li><li>失败时给用户可执行的说明</li>
+        <li>提交 PR 到项目仓库并说明模块目的、权限、数据位置与回滚方式</li>
+        <li>运行 <code>npm run audit:developer-modules</code> 与模块相关测试</li>
+        <li>新模块不得携带真实对话、threadId、路径、密钥或服务器地址</li>
+        <li>桌面端、移动端、自定义主题、无记忆体和接口失败状态均需验收</li>
+        <li>功能修复应提供复现步骤和回归测试</li>
+        <li>非功能修复且未明确标注“建议合并”的 PR，默认仅作独立模块分发</li>
       </ul>
+      <p class="distribution-note">CI 通过只表示满足基础技术契约，不等于官方背书、安全认证或长期维护承诺。</p>
     </section>
     <p id="kit-status" role="status"></p>
   </stone-module-page>
-  <script src="/developer-kit/app.js?v=2"></script>
+  <script src="/developer-kit/app.js?v=3"></script>
 </body>
 </html>

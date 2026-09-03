@@ -38,7 +38,7 @@
     return `${(Number(value) * 100).toFixed(2)}%`;
   }
   function failClosed(message) {
-    if (!threadId) throw new Error("缺少当前记忆体，请返回开发者模块重新进入");
+    if (!threadId) throw new Error("缺少当前记忆体，请返回插件工坊重新进入");
     if (message) throw new Error(message);
   }
 

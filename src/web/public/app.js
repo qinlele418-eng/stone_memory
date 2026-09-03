@@ -94,7 +94,6 @@ function loadOptionalScript(src) {
 
 function loadDeveloperModules() {
   return Promise.all([
-    loadOptionalScript("/review-lab/bootstrap.js"),
     loadOptionalScript("/developer-modules/stone-memory-assistant/bootstrap.js"),
     loadOptionalScript("/developer-kit/bootstrap.js?v=2"),
     loadOptionalScript("/dream-lab/bootstrap.js"),
@@ -293,7 +292,7 @@ function workspace(data) {
 function renderDeveloperMode(library) {
   document.querySelectorAll(".side-nav button").forEach(button => button.classList.toggle("active", button.dataset.view === "developer"));
   const main=document.querySelector("#workspace-main");
-  main.innerHTML=`<div class="dashboard-head developer-mode-head"><div><p class="eyebrow">Stone Memory Lab</p><h1>开发者模式</h1><p class="lead">这里不是档案柜，是 Stone Memory 正在生长的实验室。</p></div><div class="developer-orbit" aria-hidden="true"><span></span><i></i></div></div><section class="developer-lab-intro"><span class="developer-live-dot"></span><p>体验已经通过原型验证、但仍需要真实使用反馈的新能力。实验功能可能调整参数与行为，进入正式栏目之前不会改变默认流程。</p></section><div id="developer-module-host" class="developer-module-host" aria-live="polite"></div>`;
+  main.innerHTML=`<div class="dashboard-head developer-mode-head"><div><p class="eyebrow">Stone Memory Workshop</p><h1>插件工坊</h1><p class="lead">体验社区实验，也把新的想法装进可拆卸、可审计的插件。</p></div><div class="developer-orbit" aria-hidden="true"><span></span><i></i></div></div><section class="developer-lab-intro"><span class="developer-live-dot"></span><p>实验能力与正式记忆相互隔离。插件可以复用 Stone Memory 的 CLI、MCP、Watcher 与独立数据空间；进入主线前不会改变默认流程。</p></section><div id="developer-module-host" class="developer-module-host" aria-live="polite"></div>`;
   loadDeveloperModules();
 }
 

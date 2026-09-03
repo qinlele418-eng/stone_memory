@@ -1103,7 +1103,7 @@
     bindEvents();
     drawFallback();
     if (!stoneModule?.threadId) {
-      showUnavailable("此地址没有携带真实 threadId。请从某个记忆体的开发者模式打开 Stone Memory 小助理。");
+      showUnavailable("此地址没有携带真实 threadId。请从某个记忆体的插件工坊打开 Stone Memory 小助理。");
       return;
     }
     try {

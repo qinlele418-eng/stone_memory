@@ -97,7 +97,7 @@
     loadSessionState();
     bindEvents();
     if (!threadId) {
-      setStatus("缺少当前记忆体，请返回开发者模块后重新进入。", true);
+      setStatus("缺少当前记忆体，请返回插件工坊后重新进入。", true);
       disableTicket(true);
       return;
     }

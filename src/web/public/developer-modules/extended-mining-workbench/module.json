@@ -8,6 +8,6 @@
   "actionLabel": "打开工作台 →",
   "metaLabel": "Workbench · v2",
   "features": ["多日期批量候选", "中断续跑", "采用前审阅"],
-  "order": 45,
+  "order": 2,
   "entry": "/developer-modules/extended-mining-workbench/"
 }

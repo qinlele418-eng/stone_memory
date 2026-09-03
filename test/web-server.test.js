@@ -421,15 +421,13 @@ test("developer experiments register through removable bootstraps instead of app
   const publicDir = path.join(__dirname, "..", "src", "web", "public");
   const appSource = fs.readFileSync(path.join(publicDir, "app.js"), "utf8");
   const indexSource = fs.readFileSync(path.join(publicDir, "index.html"), "utf8");
-  const reviewBootstrap = fs.readFileSync(path.join(publicDir, "review-lab", "bootstrap.js"), "utf8");
   const themeBootstrap = fs.readFileSync(path.join(publicDir, "theme-studio", "bootstrap.js"), "utf8");
 
   assert.match(appSource, /id="developer-module-host"/);
   assert.doesNotMatch(appSource, /enter-review-lab|贡献人：@小思飞刀/);
   assert.doesNotMatch(indexSource, /\/review-lab\/bootstrap\.js/);
-  assert.match(appSource, /loadOptionalScript\("\/review-lab\/bootstrap\.js"\)/);
+  assert.doesNotMatch(appSource, /loadOptionalScript\("\/review-lab\/bootstrap\.js"\)/);
   assert.match(indexSource, /\/theme-studio\/bootstrap\.js/);
-  assert.match(reviewBootstrap, /dataModule = MODULE_ID|dataset\.developerModule = MODULE_ID/);
   assert.match(themeBootstrap, /dataModule = MODULE_ID|dataset\.developerModule = MODULE_ID/);
 });
 

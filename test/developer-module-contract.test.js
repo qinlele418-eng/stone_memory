@@ -14,7 +14,7 @@ const { auditDeveloperModules } = require("../src/services/developer-module-audi
 
 test("registered developer modules satisfy the v1 manifest contract", () => {
   const modules = loadModules(MODULE_ROOT);
-  assert.ok(modules.length >= 8);
+  assert.ok(modules.length >= 7);
   assert.ok(modules.some(module => module.id === "continuity-lab"));
   for (const module of modules) assert.deepEqual(module.errors, [], module.id);
 });

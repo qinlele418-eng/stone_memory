@@ -482,7 +482,7 @@ function wireUi() {
 }
 
 async function init() {
-  if (!state.threadId) throw new Error("缺少当前记忆体标识，请从 Stone Memory 开发者模式进入。");
+  if (!state.threadId) throw new Error("缺少当前记忆体标识，请从 Stone Memory 插件工坊进入。");
   wireUi();
   const libraryResult = await api(`/review-lab/api/libraries?threadId=${encodeURIComponent(state.threadId)}`);
   state.library = libraryResult.libraries?.[0] || null;
