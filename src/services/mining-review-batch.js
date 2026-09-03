@@ -2,6 +2,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { normalizeMiningApiProfile } = require("./mining-api-profile");
+const { normalizeModelName } = require("../lib/model-name");
 
 const ALLOWED_GROUP_DAYS = new Set([2, 3]);
 const ALLOWED_CHUNK_KB = new Set([50, 100, 150, 200]);
@@ -45,11 +46,7 @@ function configuredRuntimeIds(config = {}, threadId = "") {
 }
 
 function safeModel(value) {
-  const model = String(value || "").trim();
-  if (model && !/^[A-Za-z0-9._:/+-]{1,128}$/.test(model)) {
-    throw new Error("batch model name contains unsupported characters");
-  }
-  return model || null;
+  return normalizeModelName(value, { label: "batch model name" });
 }
 
 function normalizeProfile(profile, { config = {}, threadId = "" } = {}) {

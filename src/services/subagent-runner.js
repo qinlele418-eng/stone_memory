@@ -25,6 +25,7 @@ const os = require("os");
 const { execFileSync } = require("child_process");
 const { loadConfig, getCfg, getThreadDir } = require("../config");
 const { commandInvocation, appendOption, resolveExecutableInvocation } = require("../lib/command-invocation");
+const { normalizeModelName } = require("../lib/model-name");
 
 const CODEX_AUTO_APPROVED_MCP_TOOLS = Object.freeze({
   stone_memory_search: Object.freeze([
@@ -113,10 +114,7 @@ function buildStdinCmd(runtimeName, opts = {}) {
     cmd += ` ${flags.mcpConfig} "${opts.mcpConfig}"`;
   }
   if (opts.model && flags.model) {
-    if (!/^[A-Za-z0-9._:/+-]{1,128}$/.test(String(opts.model))) {
-      throw new Error("model name contains unsupported characters");
-    }
-    cmd += ` ${flags.model} ${opts.model}`;
+    cmd += ` ${flags.model} ${normalizeModelName(opts.model, { required: true })}`;
   }
   if (opts.reasoning) {
     if (runtimeName !== "codex") throw new Error("reasoning effort is only supported by the Codex subagent");
@@ -192,10 +190,7 @@ function buildStdinInvocation(runtimeName, opts = {}) {
     invocation.args.push(`--allowedTools=${opts.allowedTools.join(",")}`);
   }
   if (opts.model && flags.model) {
-    if (!/^[A-Za-z0-9._:/+-]{1,128}$/.test(String(opts.model))) {
-      throw new Error("model name contains unsupported characters");
-    }
-    appendOption(invocation.args, flags.model, opts.model);
+    appendOption(invocation.args, flags.model, normalizeModelName(opts.model, { required: true }));
   }
   if (opts.reasoning) {
     if (runtimeName !== "codex") throw new Error("reasoning effort is only supported by the Codex subagent");

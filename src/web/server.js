@@ -23,6 +23,7 @@ const { DreamReader } = require("../services/dream-reader");
 const { NotebookService } = require("../services/notebook-service");
 const { watcherActions, watcherEnabled } = require("../services/watcher-runtime");
 const { normalizeMiningApiProfile } = require("../services/mining-api-profile");
+const { normalizeModelName } = require("../lib/model-name");
 const { configuredRuntimeIds, MiningReviewBatchStore } = require("../services/mining-review-batch");
 const { buildFeelingPrompt, buildFeaturePrompt } = require("../services/memory-miner");
 const { normalizeRebuildRequest, rebuildRequestCliArgs } = require("../services/rebuild-request");
@@ -173,7 +174,7 @@ function reviewProviders(threadId) {
 function reviewProfileFromInput(threadId, input = {}) {
   const channel = String(input.channel || "");
   const model = String(input.model || "").trim();
-  if (!/^[A-Za-z0-9._:/+-]{1,128}$/.test(model)) throw new Error("请填写实际可用的模型名");
+  normalizeModelName(model, { required: true, label: "模型名" });
   if (channel === "subagent") {
     const runtime = String(input.runtime || "");
     const config = loadConfig();

@@ -50,6 +50,14 @@ test("batch plan accepts one explicit API or CLI profile without hidden fallback
   assert.throws(() => buildReviewBatchPlan({ dates: ["2026-06-01"], chunkKb: 300, profile: cli.profile }, { config, threadId: "thread" }), /chunkKb/);
 });
 
+test("batch profiles accept provider model identifiers with context suffixes", () => {
+  const plan = buildReviewBatchPlan({
+    dates: ["2026-06-01", "2026-06-02"],
+    profile: { channel: "api", provider: "deepseek", model: "deepseek-v4-flash[1m]", apiProfile: "optimized" },
+  }, { config, threadId: "thread" });
+  assert.equal(plan.profile.model, "deepseek-v4-flash[1m]");
+});
+
 test("batch runner respects concurrency, continues failures and retries only failures", async t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-review-batch-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));

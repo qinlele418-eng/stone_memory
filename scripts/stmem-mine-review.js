@@ -16,6 +16,7 @@ const { resolveMiningApiCredentials } = require("../src/services/mining-engine-c
 const { normalizeMiningApiProfile, buildMiningApiBody } = require("../src/services/mining-api-profile");
 const { archiveFingerprint } = require("../src/services/mining-state");
 const { isInjectedMemoryBlock } = require("../src/lib/system-injection");
+const { normalizeModelName } = require("../src/lib/model-name");
 const {
   MiningReviewBatchStore,
   prepareReviewBatchRetry,
@@ -279,8 +280,7 @@ function resolveProfile(threadId, requested = {}) {
   if (channel === "api") {
     if (requested.reasoning) throw new Error("reasoning effort is only supported by the Codex subagent");
     const provider = String(requested.provider || thread.apiProvider || "deepseek");
-    const model = String(requested.model || config.apiKeys?.[provider]?.model || "").trim();
-    if (model && !/^[A-Za-z0-9._:/+-]{1,128}$/.test(model)) throw new Error("review model name contains unsupported characters");
+    const model = normalizeModelName(requested.model || config.apiKeys?.[provider]?.model, { label: "review model name" });
     const deepseekConfig = resolveMiningApiCredentials({
       config, threadId, provider, model,
     });
@@ -302,8 +302,7 @@ function resolveProfile(threadId, requested = {}) {
   if (!["subagent", "configured"].includes(channel)) throw new Error(`unsupported review channel: ${channel}`);
   const runtime = String(requested.runtime || thread.runtime || "claude");
   if (!["claude", "codex"].includes(runtime)) throw new Error(`unsupported review runtime: ${runtime}`);
-  const model = requested.model ? String(requested.model) : null;
-  if (model && !/^[A-Za-z0-9._:/+-]{1,128}$/.test(model)) throw new Error("review model name contains unsupported characters");
+  const model = normalizeModelName(requested.model, { label: "review model name" });
   const reasoning = requested.reasoning ? String(requested.reasoning) : null;
   if (reasoning && runtime !== "codex") throw new Error("reasoning effort is only supported by Codex");
   if (reasoning && !["minimal", "low", "medium", "high", "xhigh"].includes(reasoning)) {
