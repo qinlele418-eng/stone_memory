@@ -577,7 +577,7 @@ function serveCanonicalDeveloperModule(req, res, pathname) {
   const file = path.resolve(frontendRoot, requested);
   const relative = path.relative(frontendRoot, file);
   if (relative.startsWith("..") || path.isAbsolute(relative) || !fs.existsSync(file) || !fs.statSync(file).isFile()) return false;
-  const types = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".json": "application/json; charset=utf-8", ".svg": "image/svg+xml" };
+  const types = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".json": "application/json; charset=utf-8", ".webmanifest": "application/manifest+json", ".svg": "image/svg+xml", ".png": "image/png" };
   const stat = fs.statSync(file);
   res.writeHead(200, {
     "content-type": types[path.extname(file)] || "application/octet-stream",
@@ -612,7 +612,7 @@ function serveStatic(req, res, pathname) {
   if (!file.startsWith(PUBLIC_DIR) || !fs.existsSync(file)) return false;
   const stat = fs.statSync(file);
   if (stat.isDirectory()) return false;
-  const types = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".json": "application/json; charset=utf-8", ".svg": "image/svg+xml" };
+  const types = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".json": "application/json; charset=utf-8", ".webmanifest": "application/manifest+json", ".svg": "image/svg+xml", ".png": "image/png" };
   const extension = path.extname(file);
   const gzip = /\bgzip\b/.test(req.headers["accept-encoding"] || "") && new Set([".html", ".css", ".js", ".json", ".svg"]).has(extension);
   const etag = `W/"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}${gzip ? "-gz" : ""}"`;

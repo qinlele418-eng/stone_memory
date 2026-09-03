@@ -6,6 +6,74 @@ const state = {
   form: { libraryName: "", threadId: "", ai: "", user: "", userGender: "unspecified", runtime: "codex", purpose: "accompany", sessionDir: "", minerMode: "subagent", apiProvider: "", apiKey: "", baseUrl: "", model: "", windowDays: 3, keepToolPairs: 30, automaticFullMining: true, automaticMemoryMaintenance: true, automaticCompression: false },
 };
 
+// 正式发布前在这里补齐公共账号；空值会显示为“待配置”，不会跳往错误地址。
+const projectContact = {
+  github: "https://github.com/stone-memory-empire",
+  xiaohongshu: "",
+  qqGroup: "",
+  email: "",
+  supportImage: "",
+};
+
+let deferredPwaInstall = null;
+
+function isPwaStandalone() {
+  return window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone === true;
+}
+
+function currentBrandLogo() {
+  const value=getComputedStyle(document.documentElement).getPropertyValue("--stone-theme-logo").trim();
+  if(!value.startsWith("url("))return "/stone-memory-logo.png";
+  return value.slice(4,-1).trim().replace(/^(["'])|(["'])$/g,"")||"/stone-memory-logo.png";
+}
+
+function loadPwaImage(source) {
+  return new Promise((resolve,reject)=>{const image=new Image();image.onload=()=>resolve(image);image.onerror=reject;image.src=source;});
+}
+
+async function squarePwaIcon(source,size) {
+  const image=await loadPwaImage(source),canvas=document.createElement("canvas"),context=canvas.getContext("2d");
+  canvas.width=size;canvas.height=size;
+  const background=getComputedStyle(document.documentElement).getPropertyValue("--stone-theme-canvas").trim();
+  context.fillStyle=/^(#|rgb|hsl)/i.test(background)?background:"#f4f1e8";context.fillRect(0,0,size,size);
+  const scale=Math.min(size*.82/image.naturalWidth,size*.82/image.naturalHeight),width=image.naturalWidth*scale,height=image.naturalHeight*scale;
+  context.drawImage(image,(size-width)/2,(size-height)/2,width,height);
+  return new Promise(resolve=>canvas.toBlob(resolve,"image/png"));
+}
+
+async function syncPwaIcons() {
+  if (!("caches" in window)) return;
+  const cache=await caches.open("stone-memory-pwa-v2"),source=currentBrandLogo();
+  for (const size of [192,512]) {
+    const blob=await squarePwaIcon(source,size);
+    if (blob) await cache.put(`/pwa-icon-${size}.png`,new Response(blob,{headers:{"content-type":"image/png"}}));
+  }
+  let apple=document.querySelector('link[rel="apple-touch-icon"]');
+  if(!apple){apple=document.createElement("link");apple.rel="apple-touch-icon";document.head.append(apple);}
+  apple.href="/pwa-icon-192.png";
+}
+
+function refreshPwaInstallUi() {
+  const button=document.querySelector("#install-stone-memory"),hint=document.querySelector("#pwa-install-hint");
+  if(!button)return;
+  if(isPwaStandalone()){button.disabled=true;button.textContent="已添加到桌面";if(hint)hint.textContent="当前正在以桌面应用方式运行。";return;}
+  button.disabled=false;button.textContent="添加到桌面主页";
+  if(hint)hint.textContent=deferredPwaInstall?"点击后由系统确认安装。":/iphone|ipad|ipod/i.test(navigator.userAgent)?"iPhone 请使用 Safari 的分享按钮，再选择“添加到主屏幕”。":"如果没有弹出确认，请从浏览器菜单选择“安装应用”或“添加到主屏幕”。";
+}
+
+window.addEventListener("beforeinstallprompt",event=>{event.preventDefault();deferredPwaInstall=event;refreshPwaInstallUi();});
+window.addEventListener("appinstalled",()=>{deferredPwaInstall=null;refreshPwaInstallUi();showToast("Stone Memory 已添加到桌面");});
+
+async function preparePwa() {
+  if (!("serviceWorker" in navigator)) return;
+  try {
+    await navigator.serviceWorker.register("/service-worker.js");
+    await navigator.serviceWorker.ready;
+    await syncPwaIcons();
+    if(!document.querySelector('link[rel="manifest"]')){const link=document.createElement("link");link.rel="manifest";link.href="/manifest.webmanifest";document.head.append(link);}
+  } catch {}
+}
+
 function resetCreateForm() {
   state.step = 1; state.imports = [];
   state.form = { libraryName: "", threadId: "", ai: "", user: "", userGender: "unspecified", runtime: "codex", purpose: "accompany", sessionDir: "", minerMode: "subagent", apiProvider: "", apiKey: "", baseUrl: "", model: "", windowDays: 3, keepToolPairs: 30, automaticFullMining: true, automaticMemoryMaintenance: true, automaticCompression: false };
@@ -960,6 +1028,7 @@ async function checkAndRepair(library) {
   await showIntegrity(library, true); button.disabled = false; button.innerHTML = original;
 }
 
+preparePwa();
 loadLibraries().then(async () => {
   if (!state.libraries.length) {
     welcome();
