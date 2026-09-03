@@ -136,7 +136,7 @@ test("web timeline reuses the read-only CLI report and limits comparison terms",
   assert.deepEqual(timelineCommandArgs("thread-1", ["老公", "论文"], {
     from: "2026-07-01", to: "2026-07-20",
   }), [
-    "term-timeline", "--thread", "thread-1", "--terms", "老公,论文", "--json",
+    "term-timeline", "--thread", "thread-1", "--terms", "老公,论文", "--json", "--compact-json",
     "--from", "2026-07-01", "--to", "2026-07-20",
   ]);
   assert.throws(() => timelineCommandArgs("thread-1", ["一", "二", "三", "四"]), /1～3/);

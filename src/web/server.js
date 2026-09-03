@@ -27,6 +27,7 @@ const { configuredRuntimeIds, MiningReviewBatchStore } = require("../services/mi
 const { buildFeelingPrompt, buildFeaturePrompt } = require("../services/memory-miner");
 const { normalizeRebuildRequest, rebuildRequestCliArgs } = require("../services/rebuild-request");
 const { loadModules, resolveInside } = require("../services/developer-module-contract");
+const { compactTermTimelineReport } = require("../services/term-timeline-report");
 
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MAX_UPLOAD = 512 * 1024 * 1024;
@@ -310,7 +311,7 @@ function timelineCommandArgs(threadId, terms, { from = "", to = "" } = {}) {
   const validDate = value => !value || /^\d{4}-\d{2}-\d{2}$/.test(value);
   if (!validDate(from) || !validDate(to)) throw new Error("时间范围格式无效");
   if (from && to && from > to) throw new Error("开始日期不能晚于结束日期");
-  const args = ["term-timeline", "--thread", threadId, "--terms", cleaned.join(","), "--json"];
+  const args = ["term-timeline", "--thread", threadId, "--terms", cleaned.join(","), "--json", "--compact-json"];
   if (from) args.push("--from", from);
   if (to) args.push("--to", to);
   return args;
@@ -332,45 +333,7 @@ function compressionCommandArgs(threadId, { kind = "compact", apply = false, mod
 }
 
 function compactTimelineReport(data) {
-  return {
-    threadId: data.threadId,
-    report: (data.report || []).map(row => ({
-      term: row.term, normalizedTerm: row.normalizedTerm, categories: row.categories || [],
-      categorySupport: row.categorySupport || {}, from: row.from, to: row.to,
-      messageCount: row.messageCount, occurrenceCount: row.occurrenceCount, activeDays: row.activeDays,
-      firstSeen: row.firstSeen, lastSeen: row.lastSeen, baseline: row.baseline,
-      timeline: row.timeline || [], feelings: row.feelings || [],
-    })),
-    intersections: (data.intersections || []).map(row => ({
-      terms: row.terms || [],
-      sameDayCount: row.sameDays?.length || 0,
-      sameMessageCount: row.sameMessages?.length || 0,
-      sameFeelingCount: row.sameFeelings?.length || 0,
-    })),
-    relation: {
-      terms: (data.relation?.terms || []).map(row => ({
-        term: row.term, normalizedTerm: row.normalizedTerm, state: row.state,
-        shape: row.shape, confidence: row.confidence, reasons: row.reasons || [],
-        signature: row.signature ? {
-          term: row.signature.term, normalizedTerm: row.signature.normalizedTerm,
-          sameFeelings: row.signature.sameFeelings, sameDays: row.signature.sameDays,
-          strength: row.signature.strength,
-        } : null,
-      })),
-      pairs: (data.relation?.pairs || []).map(row => ({
-        terms: row.terms || [], normalizedTerms: row.normalizedTerms || [],
-        state: row.state, shape: row.shape, evidence: row.evidence || {},
-      })),
-    },
-    work: {
-      groups: (data.work?.groups || []).map(row => ({
-        id: row.id, state: row.state, shape: row.shape, firstSeen: row.firstSeen,
-        lastSeen: row.lastSeen, members: (row.members || []).map(member => ({
-          term: member.term, normalizedTerm: member.normalizedTerm,
-        })),
-      })),
-    },
-  };
+  return compactTermTimelineReport(data);
 }
 
 async function executeMiningJob(job) {
