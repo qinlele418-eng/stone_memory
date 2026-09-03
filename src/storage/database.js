@@ -4,7 +4,7 @@ const Database = require("better-sqlite3");
 const { resolveDatabasePath } = require("./database-location");
 const { messageIdentity } = require("../lib/message-identity");
 
-const SCHEMA_VERSION = 14;
+const SCHEMA_VERSION = 15;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -36,6 +36,17 @@ CREATE TABLE IF NOT EXISTS messages (
   source_occurred_at TEXT,
   created_at TEXT NOT NULL,
   UNIQUE(thread_id, message_id)
+);
+CREATE TABLE IF NOT EXISTS conversation_filter_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  thread_id TEXT NOT NULL,
+  timestamp TEXT NOT NULL,
+  category TEXT NOT NULL,
+  rule_id TEXT,
+  original_text TEXT NOT NULL,
+  retained_text TEXT,
+  created_at TEXT NOT NULL,
+  UNIQUE(thread_id,timestamp,category,rule_id,original_text)
 );
 CREATE TABLE IF NOT EXISTS memory_bindings (
   id TEXT PRIMARY KEY,
@@ -192,6 +203,8 @@ CREATE INDEX IF NOT EXISTS idx_jobs_thread_date
   ON mining_jobs(thread_id, source_date, created_at);
 CREATE INDEX IF NOT EXISTS idx_messages_thread_date
   ON messages(thread_id, source_date, timestamp);
+CREATE INDEX IF NOT EXISTS idx_conversation_filter_log_thread
+  ON conversation_filter_log(thread_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_notifications_thread_read
   ON notifications(thread_id, is_read, created_at);
 CREATE INDEX IF NOT EXISTS idx_term_daily_stats_thread_date

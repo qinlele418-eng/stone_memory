@@ -8,7 +8,7 @@
  */
 const fs = require("fs");
 const path = require("path");
-const { ingestMessages } = require("../src/services/thread-ingest");
+const { ingestMessages, stripCodexForkSnapshot } = require("../src/services/thread-ingest");
 const { readThreadDelta, commitThreadCursor } = require("../src/services/thread-sync-cursor");
 const { findThreadSessionFile } = require("../src/lib/thread-session-file");
 
@@ -33,6 +33,7 @@ if (!threadFile) {
 
 const memoryDir = path.join(threadDir, "memory");
 const syncFile = path.join(threadDir, ".sync-state.json");
+const previousState = (() => { try { return JSON.parse(fs.readFileSync(syncFile, "utf8")); } catch { return null; } })();
 const delta = readThreadDelta(threadFile, syncFile);
 if (!delta.messages.length) {
   if (delta.nextState) commitThreadCursor(syncFile, delta.nextState);
@@ -41,11 +42,14 @@ if (!delta.messages.length) {
 }
 
 // 统一 ingest 服务负责格式解析、北京时间分日、稳定哈希去重和乱序重排。
+const sourceChanged = previousState?.file && path.resolve(previousState.file) !== path.resolve(threadFile);
+const prepared = sourceChanged ? stripCodexForkSnapshot(delta.messages) : { messages: delta.messages, skipped: 0 };
 const store = new MemoryStore({ memoryDir, threadId: tid });
-const ingestResult = ingestMessages(delta.messages, { memoryStore: store });
+const ingestResult = ingestMessages(prepared.messages, { memoryStore: store });
 store.close();
-const fullBacked = new FullArchive(memoryDir).archiveNewFullBatch(delta.messages);
+const fullBacked = new FullArchive(memoryDir).archiveNewFullBatch(prepared.messages);
 commitThreadCursor(syncFile, delta.nextState);
 const total = ingestResult.imported;
 
-console.log(`同步完成: ${delta.mode} 读取 ${delta.bytesRead} bytes，archive +${total} 条，full +${fullBacked} 条（${ingestResult.dates} 天）`);
+const skipped = prepared.skipped ? `，跳过后继文件的继承前缀 ${prepared.skipped} 条` : "";
+console.log(`同步完成: ${delta.mode} 读取 ${delta.bytesRead} bytes，archive +${total} 条，full +${fullBacked} 条（${ingestResult.dates} 天）${skipped}`);

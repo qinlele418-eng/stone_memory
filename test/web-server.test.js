@@ -5,7 +5,7 @@ const { buildStdinCmd } = require("../src/services/subagent-runner");
 const { itemKey, inspectClaude, inspectCodex, conversationWindow, latestConversationDate, trimRows } = require("../src/services/rebuild-workbench");
 const { validateThreadInput, validateSessionBinding } = require("../src/services/thread-setup");
 const { INIT_SCHEMA, buildInitTemplate } = require("../src/services/init-contract");
-const { findThreadSessionFile } = require("../src/lib/thread-session-file");
+const { findThreadSessionFile, resolveThreadSession } = require("../src/lib/thread-session-file");
 const { usageFromRow } = require("../src/lib/thread-context-usage");
 const { MemoryStore } = require("../src/storage/memory-store");
 const fs = require("node:fs");
@@ -355,6 +355,44 @@ test("session lookup recursively finds a Codex dated session directory", t => {
   fs.writeFileSync(file, "{}\n");
   assert.equal(findThreadSessionFile(root, "thread-1"), file);
   assert.equal(findThreadSessionFile(root, "missing-thread"), null);
+});
+
+test("session lookup follows a Codex forked_from_id lineage to the newest rollout", t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-session-lineage-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const parentId = "019f648b-c71a-7783-8155-67206bc9eab3";
+  const childId = "01a0565c-21a2-7461-bcda-4448938a1985";
+  const parentDir = path.join(root, "2026", "07", "15"), childDir = path.join(root, "2026", "08", "31");
+  fs.mkdirSync(parentDir, { recursive: true }); fs.mkdirSync(childDir, { recursive: true });
+  const parent = path.join(parentDir, `rollout-${parentId}.jsonl`), child = path.join(childDir, `rollout-${childId}.jsonl`);
+  fs.writeFileSync(parent, `${JSON.stringify({ type: "session_meta", payload: { session_id: parentId } })}\n`);
+  fs.writeFileSync(child, `${JSON.stringify({ type: "session_meta", payload: { session_id: childId, forked_from_id: parentId } })}\n`);
+  const later = new Date(Date.now() + 1000); fs.utimesSync(child, later, later);
+  assert.equal(findThreadSessionFile(root, `rollout-2026-07-15T14-51-49-${parentId}`), child);
+});
+
+test("runtime session resolver reports a Claude branch without replacing its parent", t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-claude-lineage-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const parentId = "2cf80f4c-5e95-4b86-b395-82454e597d10";
+  const childId = "dc8ba8dd-d38a-43eb-a79e-243d09c192af";
+  const parent = path.join(root, `${parentId}.jsonl`), child = path.join(root, `${childId}.jsonl`);
+  fs.writeFileSync(parent, `${JSON.stringify({ type: "user", sessionId: parentId, uuid: "message-1" })}\n`);
+  fs.writeFileSync(child, [
+    JSON.stringify({ type: "user", sessionId: childId, uuid: "message-1", forkedFrom: { sessionId: parentId, messageUuid: "message-1" } }),
+    JSON.stringify({ type: "user", sessionId: childId, uuid: "message-2", message: { role: "user", content: "branch local" } }),
+  ].join("\n") + "\n");
+
+  const parentResult = resolveThreadSession({ root, threadId: parentId, runtime: "claude" });
+  assert.equal(parentResult.file, parent);
+  assert.equal(parentResult.strategy, "branch-set");
+  assert.deepEqual(parentResult.branches.map(item => item.threadId), [childId]);
+
+  const childResult = resolveThreadSession({ root, threadId: childId, runtime: "cc" });
+  assert.equal(childResult.file, child);
+  assert.equal(childResult.parentThreadId, parentId);
+  assert.equal(childResult.inheritedPrefix.inheritedRecords, 1);
+  assert.ok(childResult.inheritedPrefix.incrementalStartByte > 0);
 });
 
 test("strict init binding rejects a display name used as thread id", t => {

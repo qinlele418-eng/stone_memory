@@ -32,6 +32,7 @@ if (!cmd || cmd === "--help" || cmd === "-h") {
   stmem term-timeline --thread <id> --terms <词列表>  archive 曲线与 feeling 小点
   stmem import --source <json|jsonl|sqlite>       预览导入映射（加 --apply 写入）
   stmem import --dir <path> [--thread <id>]       递归预览目录中的对话数据
+  stmem tool-policy status|detect|filtered|preview|apply|unfilter-preview|unfilter|reset-cleaning|rollback-formatting --thread <id>  检测并配置全量对话清洗
   stmem binding list|add|import|batches|revert    实验性多端绑定与可逆对话导入
   stmem module <模块ID> <action>                运行 manifest 登记的开发者模块命令
   stmem mine [--thread <id>] --all                  挖掘全部未处理日期，生成feelings + features
@@ -169,6 +170,10 @@ switch (cmd) {
     break;
   case "import":
     require(path.join(SCRIPTS, "stmem-import"));
+    break;
+  case "tool-policy":
+    try { console.log(JSON.stringify(require(path.join(SCRIPTS, "stmem-tool-policy")).runToolPolicy(process.argv.slice(3)), null, 2)); }
+    catch (error) { console.error(error.message); process.exit(1); }
     break;
   case "binding":
     try {

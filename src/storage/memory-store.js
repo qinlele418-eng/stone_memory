@@ -111,6 +111,40 @@ class MemoryStore {
       FROM messages WHERE ${clauses.join(" AND ")} ORDER BY timestamp,message_seq`).all(...params);
   }
 
+  logConversationFilters(rows) {
+    const insert = this.db.prepare(`INSERT OR IGNORE INTO conversation_filter_log
+      (thread_id,timestamp,category,rule_id,original_text,retained_text,created_at)
+      VALUES (?,?,?,?,?,?,?)`);
+    const now = new Date().toISOString();
+    return this.db.transaction(items => {
+      let inserted = 0;
+      for (const row of items || []) {
+        if (!row?.timestamp || !row?.category || !row?.originalText) continue;
+        inserted += insert.run(this.threadId, row.timestamp, row.category, row.ruleId || null,
+          row.originalText, row.retainedText || null, row.createdAt || now).changes;
+      }
+      return inserted;
+    })(rows);
+  }
+
+  listConversationFilterLog({ limit = 100, offset = 0 } = {}) {
+    const total = this.db.prepare("SELECT COUNT(*) count FROM conversation_filter_log WHERE thread_id=?").get(this.threadId).count;
+    const groups = this.db.prepare(`SELECT log.category,log.rule_id AS ruleId,COUNT(*) count,
+      MIN(log.timestamp) AS firstTimestamp,MAX(log.timestamp) AS lastTimestamp,
+      (SELECT recent.original_text FROM conversation_filter_log recent
+        WHERE recent.thread_id=log.thread_id AND recent.category=log.category
+          AND COALESCE(recent.rule_id,'')=COALESCE(log.rule_id,'')
+        ORDER BY recent.id DESC LIMIT 1) AS sample
+      FROM conversation_filter_log log WHERE log.thread_id=?
+      GROUP BY log.category,COALESCE(log.rule_id,'')
+      ORDER BY MAX(log.id) DESC`).all(this.threadId);
+    const rows = this.db.prepare(`SELECT id,timestamp,category,rule_id AS ruleId,original_text AS originalText,
+      retained_text AS retainedText,created_at AS createdAt FROM conversation_filter_log
+      WHERE thread_id=? ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?`)
+      .all(this.threadId, Math.max(1, Math.min(200, Number(limit) || 100)), Math.max(0, Number(offset) || 0));
+    return { total, groups, rows };
+  }
+
   removeInjectedMemoryBlocks() {
     const polluted = this.db.prepare("SELECT message_seq AS messageSeq,text FROM messages WHERE thread_id=? AND text LIKE '%<memory_context>%'")
       .all(this.threadId)

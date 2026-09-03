@@ -97,7 +97,7 @@ test("schema migration preserves old rows and allows distinct messages at one ti
     ["user", "first"],
     ["assistant", "second"],
   ]);
-  assert.equal(store.db.prepare("SELECT MAX(version) version FROM schema_migrations").get().version, 14);
+  assert.equal(store.db.prepare("SELECT MAX(version) version FROM schema_migrations").get().version, 15);
   const migratedMessage = store.db.prepare("SELECT binding_id,source_message_id,import_batch_id,source_occurred_at FROM messages WHERE text='first'").get();
   assert.deepEqual(migratedMessage, { binding_id: null, source_message_id: null, import_batch_id: null, source_occurred_at: null });
   assert.ok(store.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='memory_bindings'").get());

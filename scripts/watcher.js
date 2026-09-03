@@ -278,24 +278,22 @@ function watchThreadFile(tid) {
     log(`[${tid}] 无法实时监听：sessionDir 不存在 (${sessionDir || "未配置"})`);
     return null;
   }
-  const targetFile = findThreadSessionFile(sessionDir, tid);
-  if (!targetFile) {
-    log(`[${tid}] 无法实时监听：在 ${sessionDir} 中没有递归找到绑定线程文件`);
-    return null;
-  }
-  const targetDir = path.dirname(targetFile), targetName = path.basename(targetFile);
-  try {
-    // 监听父目录而不是文件本身，兼容 rebuild/编辑器用 rename 原子替换文件。
-    const watcher = fs.watch(targetDir, { persistent: true }, (_eventType, filename) => {
-      if (!filename || path.basename(String(filename)) === targetName) scheduleSync(tid);
-    });
-    watcher.on("error", err => log(`[${tid}] 文件监听异常，将依靠巡检兜底: ${err.message}`));
-    log(`[${tid}] 实时监听: ${targetFile}`);
-    return watcher;
-  } catch (err) {
-    log(`[${tid}] 文件监听启动失败，将依靠巡检兜底: ${err.message}`);
-    return null;
-  }
+  let currentFile=null,currentWatcher=null;
+  const attach=()=>{
+    const targetFile=findThreadSessionFile(sessionDir,tid);
+    if(!targetFile){if(!currentFile)log(`[${tid}] 无法实时监听：在 ${sessionDir} 中没有递归找到绑定线程文件`);return;}
+    if(targetFile===currentFile)return;
+    currentWatcher?.close();currentFile=targetFile;
+    const targetDir=path.dirname(targetFile),targetName=path.basename(targetFile);
+    try{
+      currentWatcher=fs.watch(targetDir,{persistent:true},(_eventType,filename)=>{if(!filename||path.basename(String(filename))===targetName)scheduleSync(tid);});
+      currentWatcher.on("error",err=>log(`[${tid}] 文件监听异常，将依靠巡检兜底: ${err.message}`));
+      log(`[${tid}] 实时监听: ${targetFile}`);scheduleSync(tid,0);
+    }catch(err){currentWatcher=null;log(`[${tid}] 文件监听启动失败，将依靠巡检兜底: ${err.message}`);}
+  };
+  attach();
+  const lineageTimer=setInterval(attach,5000);lineageTimer.unref();
+  return {close(){clearInterval(lineageTimer);currentWatcher?.close();}};
 }
 
 async function checkAndMine(tid) {
