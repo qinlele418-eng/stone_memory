@@ -41,6 +41,7 @@ async function runMiningSelection(input, { threadId, mode, apiProfile = "optimiz
       parallel: input.parallel ?? 2,
       profile,
       autoApply: true,
+      mergeDates: false,
     }, { config });
   }
   let cancelled = false;
@@ -119,6 +120,7 @@ async function handleMiningBatch(args, { threadId }) {
       parallel: input.parallel ?? 2,
       profile,
       autoApply: true,
+      mergeDates: false,
     }, { config });
   }
   if (action === "list") return { threadId, batches: batches.list().filter(row => row.autoApply) };

@@ -58,6 +58,44 @@ test("batch profiles accept provider model identifiers with context suffixes", (
   assert.equal(plan.profile.model, "deepseek-v4-flash[1m]");
 });
 
+test("formal batch keeps every date independent while workers remain concurrent", () => {
+  const plan = buildReviewBatchPlan({
+    dates: ["2026-07-13", "2026-07-14", "2026-07-15"],
+    groupDays: 3,
+    parallel: 2,
+    mergeDates: false,
+    profile: { channel: "subagent", runtime: "claude" },
+  }, { config, threadId: "thread" });
+  assert.deepEqual(plan.groups, [["2026-07-13"], ["2026-07-14"], ["2026-07-15"]]);
+  assert.deepEqual(plan.tasks.map(task => task.action), ["preview", "preview", "preview"]);
+});
+
+test("retry upgrades failed merged formal tasks without replaying completed dates", t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-formal-batch-retry-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const store = new MiningReviewBatchStore({ memoryDir: dir, threadId: "thread" });
+  const batch = store.create({
+    dates: ["2026-07-09", "2026-07-13", "2026-07-14"],
+    groupDays: 2,
+    parallel: 2,
+    autoApply: true,
+    profile: { channel: "subagent", runtime: "claude" },
+  }, { config });
+  store.update(batch.id, row => {
+    row.tasks[0].status = "completed";
+    row.tasks[0].candidateIds = ["candidate-existing"];
+    row.tasks[1].status = "failed";
+  });
+  const retried = prepareReviewBatchRetry(store, batch.id);
+  assert.deepEqual(retried.tasks.map(task => task.dates), [
+    ["2026-07-09"], ["2026-07-13"], ["2026-07-14"],
+  ]);
+  assert.equal(retried.tasks[0].status, "completed");
+  assert.deepEqual(retried.tasks[0].candidateIds, ["candidate-existing"]);
+  assert.deepEqual(retried.tasks.slice(1).map(task => task.action), ["preview", "preview"]);
+  assert.deepEqual(retried.tasks.slice(1).map(task => task.status), ["queued", "queued"]);
+});
+
 test("batch runner respects concurrency, continues failures and retries only failures", async t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-review-batch-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));

@@ -97,7 +97,11 @@ function buildReviewBatchPlan(input, { config = {}, threadId = "" } = {}) {
     throw new Error("chunkKb must be auto or one of 50, 100, 150 or 200");
   }
   if (!ALLOWED_PARALLEL.has(parallel)) throw new Error("parallel must be 1, 2 or 3");
-  const groups = groupReviewDates(input?.dates, groupDays);
+  // Formal mining is concurrent, but each day remains an independent model
+  // unit. Merged date ranges are reserved for explicit review experiments.
+  const groups = input?.mergeDates === false
+    ? [...new Set((input?.dates || []).map(normalizeDate))].sort().map(date => [date])
+    : groupReviewDates(input?.dates, groupDays);
   if (!groups.length) throw new Error("batch requires at least one date");
   const profile = normalizeProfile(input?.profile, { config, threadId });
   const tasks = groups.map((dates, groupIndex) => {
@@ -152,6 +156,7 @@ class MiningReviewBatchStore {
       ruleIds: [...new Set((input.ruleIds || []).map(String))],
       additionalInstruction: String(input.additionalInstruction || "").trim().slice(0, 4000),
       autoApply: input.autoApply === true,
+      mergeDates: input.mergeDates !== false,
     };
     this.write(record);
     return record;
@@ -269,6 +274,25 @@ async function runReviewBatch(store, batchId, executeTask) {
 
 function prepareReviewBatchRetry(store, id) {
   return store.update(id, row => {
+    if (row.autoApply && row.tasks.some(task => task.dates.length > 1)) {
+      row.tasks = row.tasks.flatMap(task => {
+        if (task.dates.length === 1 || !["failed", "running"].includes(task.status)) return [task];
+        return task.dates.map((date, index) => ({
+          ...task,
+          id: `${task.id}-day-${index + 1}`,
+          groupIndex: task.groupIndex + index / 100,
+          dates: [date],
+          action: "preview",
+          status: "queued",
+          error: null,
+          candidateIds: [],
+          startedAt: null,
+          completedAt: null,
+        }));
+      });
+      row.groups = row.tasks.map(task => task.dates);
+      row.mergeDates = false;
+    }
     for (const task of row.tasks) {
       if (task.status === "failed" || task.status === "running") {
         Object.assign(task, {
