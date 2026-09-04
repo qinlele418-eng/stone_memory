@@ -129,6 +129,7 @@
     render("#merged-prs", data.mergedPrs, "暂无匹配到的已合并 PR", item => `<article><b>PR #${item.number} ${escapeHtml(item.title)}</b><small>@${escapeHtml(item.author)} · ${escapeHtml(item.mergedAt)}</small></article>`);
   }
   async function loadLocalOverview() { try { renderLocalOverview(await command("local-overview")); } catch (error) { $("#local-state").innerHTML=`<p class="notice danger">${escapeHtml(error.message)}</p>`; } }
+  async function loadContributions() { try { const data=await command("my-contributions"); const rows=[...(data.pullRequests||[]),...(data.issues||[])]; const node=$("#my-contributions"); node.innerHTML=rows.length?rows.map(item=>`<button class="card contribution-card" data-kind="${item.kind}" data-number="${item.number}"><strong>${item.kind.toUpperCase()} #${item.number} · ${escapeHtml(item.title)}</strong><span>${new Date(item.updatedAt).toLocaleString("zh-CN")} · ${item.comments} 条讨论 ${item.hasReplies?" · <b class=reply-hint>有回复</b>":""}</span></button>`).join(""):"<p class=muted>还没有找到你提交的 PR / Issue</p>"; node.querySelectorAll("[data-kind]").forEach(item=>item.addEventListener("click",()=>openDossier(item.dataset.kind,Number(item.dataset.number)))); } catch(error) { $("#my-contributions").innerHTML=`<p class="notice danger">${escapeHtml(error.message)}</p>`; } }
 
   function renderTracked(items) {
     $("#tracked").classList.toggle("empty", !items.length);
@@ -178,13 +179,14 @@
     try {
       const flow = await command("oauth-start");
       $("#oauth-code").textContent = flow.userCode; $("#oauth-state").textContent = "等待你在 GitHub 确认授权…";
-      $("#oauth-link").href = flow.verificationUri; $("#oauth-dialog").showModal();
+      $("#oauth-link").href = flow.verificationUri; $("#oauth-url").value = flow.verificationUri; $("#oauth-dialog").showModal();
       await copyText(flow.userCode, "验证码");
       window.open(flow.verificationUri, "_blank", "noopener,noreferrer");
       pollOAuth(flow.flowId, flow.interval);
     } catch (error) { toast(error.message); }
   });
   $("#oauth-code").addEventListener("click", async () => { if (await copyText($("#oauth-code").textContent, "验证码")) toast("验证码已复制"); });
+  $("#copy-oauth-url").addEventListener("click", async () => { if (await copyText($("#oauth-url").value, "授权地址")) toast("授权地址已复制"); });
   $("#close-oauth").addEventListener("click", () => { clearTimeout(oauthTimer); $("#oauth-dialog").close(); });
   $("#star").addEventListener("click", async () => { try { await command("star"); toast("项目已经点亮 ✦"); await loadStatus(); } catch (error) { toast(error.message); } });
   $("#save-settings").addEventListener("click", async () => {
@@ -208,6 +210,7 @@
   $("#copy-workbench").addEventListener("click", async () => { const items=state.workbench||[]; if(!items.length)return toast("工作台还是空的"); const repo=state.status?.repository?.slug||"项目"; const refs=items.map(item=>`#${item.number} ${item.kind.toUpperCase()}`).join("、"); if(await copyText(`请查看 ${repo} 的 ${refs}。`, "Agent 任务")) toast("已复制给 Agent 的任务信息"); });
   $("#refresh-tracked").addEventListener("click", loadTracked);
   $("#refresh-local").addEventListener("click", loadLocalOverview);
+  $("#refresh-contributions").addEventListener("click", loadContributions);
   $("#update-official").addEventListener("click", async () => {
     if (!confirm("确认从官方仓库默认分支拉取新版并合入当前本地分支？发生冲突会自动停止，不会 push。")) return;
     try {
@@ -219,4 +222,5 @@
   $("#restart").addEventListener("click", async () => { try { const plan=await command("restart-plan"); if(await copyText(plan.command, "重启命令")) toast("正式重启命令已复制，请在终端执行"); } catch(error){toast(error.message);} });
   loadStatus();
   loadLocalOverview();
+  loadContributions();
 })();

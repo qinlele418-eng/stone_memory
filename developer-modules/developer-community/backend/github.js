@@ -62,7 +62,10 @@ function authStatus(token = "") {
   }
 }
 
+function requireToken(token) { if (!token) throw new Error("请先通过琢石坊登录 GitHub"); }
+
 function listDossiers(repository, token = "", page = 1, pageSize = 10, kind = "all") {
+  requireToken(token);
   const repo = repositorySlug(repository);
   const currentPage = Math.max(1, Math.min(1000, Number.parseInt(page, 10) || 1));
   const size = Math.max(1, Math.min(30, Number.parseInt(pageSize, 10) || 10));
@@ -80,9 +83,21 @@ function listDossiers(repository, token = "", page = 1, pageSize = 10, kind = "a
 }
 
 function recentCommits(repository, token = "") {
+  requireToken(token);
   const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const rows = ghJson(["api", `repos/${repositorySlug(repository)}/commits?since=${encodeURIComponent(since)}&per_page=30`], { token }) || [];
   return rows.map(item => ({ sha:item.sha, message:item.commit?.message?.split("\n")[0] || "", author:item.author?.login || item.commit?.author?.name || "", date:item.commit?.author?.date || "", url:item.html_url }));
+}
+
+function myContributions(repository, token = "") {
+  requireToken(token);
+  const repo = repositorySlug(repository);
+  const user = ghJson(["api", "user"], { token })?.login || "";
+  if (!user) throw new Error("无法确认当前 GitHub 身份");
+  const pulls = ghJson(["api", `repos/${repo}/pulls?state=all&sort=updated&direction=desc&per_page=30`], { token }) || [];
+  const issues = (ghJson(["api", `repos/${repo}/issues?state=all&sort=updated&direction=desc&per_page=30`], { token }) || []).filter(item => !item.pull_request);
+  const map = (item, kind) => ({ kind, number:item.number, title:item.title, author:item.user?.login || "", updatedAt:item.updated_at || "", comments:Number(item.comments || 0), hasReplies:Number(item.comments || 0) > 0, url:item.html_url });
+  return { pullRequests:pulls.filter(item => item.user?.login === user).map(item => map(item, "pr")), issues:issues.filter(item => item.user?.login === user).map(item => map(item, "issue")), login:user };
 }
 
 function checks(repository, number, token = "") {
@@ -95,6 +110,7 @@ function checks(repository, number, token = "") {
 }
 
 function detail(repository, kind, number, token = "") {
+  requireToken(token);
   const repo = repositorySlug(repository);
   const value = Number(number);
   if (!Number.isInteger(value) || value < 1) throw new Error("编号无效");
@@ -155,6 +171,7 @@ function isStarred(repository, token = "") {
 }
 
 function comment(repository, number, body, token = "") {
+  requireToken(token);
   const issueNumber = Number(number);
   if (!Number.isInteger(issueNumber) || issueNumber < 1) throw new Error("编号无效");
   const value = String(body || "").trim();
@@ -162,4 +179,4 @@ function comment(repository, number, body, token = "") {
   return ghJson(["api", "--method", "POST", `repos/${repositorySlug(repository)}/issues/${issueNumber}/comments`, "-f", `body=${value}`], { token });
 }
 
-module.exports = { repositorySlug, branchName, run, ghJson, authStatus, listDossiers, recentCommits, detail, star, isStarred, comment };
+module.exports = { repositorySlug, branchName, run, ghJson, authStatus, listDossiers, recentCommits, myContributions, detail, star, isStarred, comment };

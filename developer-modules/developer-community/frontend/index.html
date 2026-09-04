@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>琢石坊</title>
+  <script src="/theme-studio/first-frame.js?v=1"></script>
   <script src="/developer-kit/runtime.js"></script>
   <link rel="stylesheet" href="styles.css">
   <script src="app.js" defer></script>
@@ -58,6 +59,8 @@
       </div>
     </section>
 
+    <section class="panel contributions"><div class="section-head"><div><p class="eyebrow">MY CONTRIBUTIONS</p><h2>我提交过的 PR / Issue</h2></div><button id="refresh-contributions" class="secondary" type="button">刷新</button></div><div id="my-contributions" class="contribution-grid"><p class="muted">正在读取…</p></div></section>
+
     <section class="grid-two lower">
       <article class="panel">
         <div class="section-head"><div><p class="eyebrow">给 AGENT 的案头</p><h2>工作台</h2></div><button id="copy-workbench" class="secondary" type="button">一键复制</button></div>
@@ -98,6 +101,8 @@
       <p id="oauth-state" class="muted">正在创建安全登录流程…</p>
       <p class="scope-warning"><strong>授权范围：repo</strong><br>琢石坊需要读取和协作当前可能为私有的 Stone Memory Core。OAuth 的 repo scope 会授权访问该账号可访问的仓库，请确认后再继续。</p>
       <a id="oauth-link" class="primary oauth-link" href="https://github.com/login/device" target="_blank" rel="noreferrer">前往 GitHub 授权</a>
+      <label class="oauth-url-label">授权地址（打不开时复制到普通浏览器）<input id="oauth-url" type="text" readonly value="https://github.com/login/device"></label>
+      <button id="copy-oauth-url" class="secondary" type="button">复制授权地址</button>
     </article>
   </dialog>
   <div id="toast" role="status"></div>

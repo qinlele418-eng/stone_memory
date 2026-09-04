@@ -191,6 +191,7 @@ test("frontend uses the shared shell, theme contract, mobile layout and confirma
   const css = fs.readFileSync(path.join(root, "frontend", "styles.css"), "utf8");
   const app = fs.readFileSync(path.join(root, "frontend", "app.js"), "utf8");
   assert.match(html, /\/developer-kit\/runtime\.js/);
+  assert.ok(html.indexOf("/theme-studio/first-frame.js") < html.indexOf("/developer-kit/runtime.js"));
   assert.equal((html.match(/<stone-module-page\b/gu) || []).length, 1);
   assert.match(css, /--stone-theme-/);
   assert.match(css, /@media\(max-width:720px\)/);
