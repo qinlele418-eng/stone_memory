@@ -11,6 +11,13 @@ test("main page enables the semantic theme bridge", () => {
   assert.match(html, /<body[^>]*\bclass="[^"]*\bstone-theme-enabled\b[^"]*"/);
 });
 
+test("PWA icon sync reads the saved custom theme logo before CSS bootstrap", () => {
+  const app = fs.readFileSync(path.join(__dirname, "..", "src", "web", "public", "app.js"), "utf8");
+  assert.match(app, /localStorage\.getItem\(BRAND_LOGO_STORAGE_KEY\)/);
+  assert.match(app, /stone-memory-brand-logo-v1/);
+  assert.match(app, /data:image\\\/\(\?:png\|webp\)/);
+});
+
 test("mobile workspace navigation keeps two-character labels centered", () => {
   const styles = fs.readFileSync(
     path.join(__dirname, "..", "src", "web", "public", "styles.css"),

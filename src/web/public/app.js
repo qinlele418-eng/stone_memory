@@ -16,12 +16,17 @@ const projectContact = {
 };
 
 let deferredPwaInstall = null;
+const BRAND_LOGO_STORAGE_KEY = "stone-memory-brand-logo-v1";
 
 function isPwaStandalone() {
   return window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone === true;
 }
 
 function currentBrandLogo() {
+  try {
+    const source=localStorage.getItem(BRAND_LOGO_STORAGE_KEY)||"";
+    if(/^data:image\/(?:png|webp);base64,/i.test(source)||source==="/stone-memory-logo.png")return source;
+  } catch {}
   const value=getComputedStyle(document.documentElement).getPropertyValue("--stone-theme-logo").trim();
   if(!value.startsWith("url("))return "/stone-memory-logo.png";
   return value.slice(4,-1).trim().replace(/^(["'])|(["'])$/g,"")||"/stone-memory-logo.png";

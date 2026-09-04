@@ -3,6 +3,7 @@
 
   const STORAGE_KEY = "stone-memory-ui-theme-v1";
   const MODULE_THEME_BRIDGE_KEY = "stone-memory-developer-semantic-theme-v1";
+  const BRAND_LOGO_STORAGE_KEY = "stone-memory-brand-logo-v1";
   const PROPERTY_GROUPS = {
     colors: {
       canvas: "--stone-theme-canvas",
@@ -72,6 +73,9 @@
       }
       document.documentElement.dataset.stoneTheme = String(theme.name || "Custom").slice(0, 60);
       sessionStorage.setItem(MODULE_THEME_BRIDGE_KEY, JSON.stringify({ version: 1, name: String(theme.name || "Custom").slice(0, 60), properties }));
+      const logo = theme.assets?.logo;
+      const source = typeof logo?.dataUrl === "string" && /^data:image\/(?:png|webp);base64,/i.test(logo.dataUrl) ? logo.dataUrl : logo?.builtinUrl === "/stone-memory-logo.png" ? logo.builtinUrl : "";
+      if (source) localStorage.setItem(BRAND_LOGO_STORAGE_KEY, source); else localStorage.removeItem(BRAND_LOGO_STORAGE_KEY);
     }
   } catch {}
   document.documentElement.classList.add("stone-theme-first-frame-ready");

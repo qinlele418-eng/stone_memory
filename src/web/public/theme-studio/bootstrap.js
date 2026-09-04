@@ -3,6 +3,7 @@
 
   const STORAGE_KEY = "stone-memory-ui-theme-v1";
   const MODULE_THEME_BRIDGE_KEY = "stone-memory-developer-semantic-theme-v1";
+  const BRAND_LOGO_STORAGE_KEY = "stone-memory-brand-logo-v1";
   const CONTRACT_URL = "/theme-studio/contract.json?v=5";
   const ORIGINAL_THEME_NAME = "Stone Memory Original";
   const MODULE_ID = "theme-studio";
@@ -148,10 +149,12 @@
     if (!source) {
       root.style.removeProperty("--stone-theme-logo");
       document.body?.classList.remove("stone-custom-logo");
+      try { localStorage.removeItem(BRAND_LOGO_STORAGE_KEY); } catch {}
       return;
     }
     root.style.setProperty("--stone-theme-logo", `url("${source}")`);
     document.body?.classList.add("stone-custom-logo");
+    try { localStorage.setItem(BRAND_LOGO_STORAGE_KEY, source); } catch {}
   }
 
   function applyTheme(theme, enabled = themeEnabled) {
