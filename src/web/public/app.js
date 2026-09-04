@@ -49,13 +49,17 @@ async function squarePwaIcon(source,size) {
 async function syncPwaIcons() {
   if (!("caches" in window)) return;
   const cache=await caches.open("stone-memory-pwa-v2"),source=currentBrandLogo();
+  let desktopIcon="";
   for (const size of [192,512]) {
     const blob=await squarePwaIcon(source,size);
-    if (blob) await cache.put(`/pwa-icon-${size}.png`,new Response(blob,{headers:{"content-type":"image/png"}}));
+    if (blob) {
+      await cache.put(`/pwa-icon-${size}.png`,new Response(blob,{headers:{"content-type":"image/png"}}));
+      if(size===192)desktopIcon=await new Promise(resolve=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result||""));reader.onerror=()=>resolve("");reader.readAsDataURL(blob);});
+    }
   }
-  let apple=document.querySelector('link[rel="apple-touch-icon"]');
-  if(!apple){apple=document.createElement("link");apple.rel="apple-touch-icon";document.head.append(apple);}
-  apple.href="/pwa-icon-192.png";
+  if(desktopIcon){
+    document.querySelectorAll('link[rel="icon"],link[rel="shortcut icon"],link[rel="apple-touch-icon"]').forEach(link=>{link.href=desktopIcon;});
+  }
 }
 
 function refreshPwaInstallUi() {
