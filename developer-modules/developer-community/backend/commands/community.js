@@ -145,7 +145,7 @@ async function generate(settings, prompt, dossier) {
       headers: { "content-type": "application/json", authorization: `Bearer ${settings.api.apiKey}` },
       body: JSON.stringify({
         model: settings.api.model,
-        messages: [{ role: "system", content: dossier.kind === "issue" ? `${prompt}\n\n当前输入是 Issue。返回 JSON 字段 summary（大概讲了什么）与 value（有什么值得做的地方）。` : prompt }, { role: "user", content: JSON.stringify(dossier) }],
+        messages: [{ role: "system", content: dossier.kind === "issue" ? `${prompt}\n\n当前输入是 Issue。返回 JSON 字段 summary（大概讲了什么）与 value（有什么值得做的地方）。` : dossier.kind === "commit" ? `${prompt}\n\n当前输入是官方提交。返回 JSON 字段 summary（提交实现了什么）、impact（影响范围）与 risks（潜在风险或注意事项）。` : prompt }, { role: "user", content: JSON.stringify(dossier) }],
       }),
       signal: AbortSignal.timeout(90_000),
     });
@@ -381,7 +381,13 @@ async function run(context, input) {
     }
     if (input.action === "local-overview") return localOverview(db, settings);
     const repository = requiredRepository(settings);
-    if (input.action === "official-commit") return github.commitDetail(repository, payload.sha, githubToken(settings));
+    if (input.action === "official-commit") {
+      const dossier = github.commitDetail(repository, payload.sha, githubToken(settings));
+      const cached = !payload.refreshAnalysis ? db.prepare("SELECT report_json FROM ai_reports WHERE repository=? AND kind=? AND number=? AND version=?").get(repository, "commit", 0, dossier.sha) : null;
+      const report = cached ? JSON.parse(cached.report_json) : await generate(settings, promptText(context), { ...dossier, kind:"commit" });
+      if (!cached && report) db.prepare("INSERT INTO ai_reports(repository,kind,number,version,report_json,generated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(repository,kind,number,version) DO UPDATE SET report_json=excluded.report_json,generated_at=excluded.generated_at").run(repository, "commit", 0, dossier.sha, JSON.stringify(report), new Date().toISOString());
+      return { dossier, report:report || null, source:report ? (cached ? "api-cache" : "api") : "original" };
+    }
     if (input.action === "my-contributions") return github.myContributions(repository, githubToken(settings), payload.page, 6);
     if (input.action === "refresh") {
       const kind = new Set(["pr", "issue"]).has(payload.kind) ? payload.kind : "all";
