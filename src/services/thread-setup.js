@@ -6,7 +6,7 @@ const { MemoryStore } = require("../storage/memory-store");
 const { findThreadSessionFile } = require("../lib/thread-session-file");
 
 const STONE = path.join(os.homedir(), ".stone_memory");
-const GLOBAL_KEYS = new Set(["runtimes", "threadId", "apiKeys"]);
+const GLOBAL_KEYS = new Set(["runtimes", "threadId", "apiKeys", "web"]);
 
 function normalizeName(value) {
   return String(value || "").trim().normalize("NFKC").toLocaleLowerCase();

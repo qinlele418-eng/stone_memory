@@ -28,7 +28,7 @@ function getThreadDir(threadId) {
 }
 
 /** 列出所有已配置的线程 ID */
-const GLOBAL_KEYS = new Set(["runtimes", "threadId", "apiKeys"]);
+const GLOBAL_KEYS = new Set(["runtimes", "threadId", "apiKeys", "web"]);
 
 function listThreadIds() {
   const cfg = loadConfig();
