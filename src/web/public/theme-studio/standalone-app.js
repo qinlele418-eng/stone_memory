@@ -14,6 +14,7 @@
   const STORAGE_KEY = "stone-memory-ui-theme-v1";
   const CUSTOM_THEMES_KEY = "stone-memory-ui-themes-v1";
   const MODULE_THEME_BRIDGE_KEY = "stone-memory-developer-semantic-theme-v1";
+  const BRAND_LOGO_STORAGE_KEY = "stone-memory-brand-logo-v1";
   const MAX_FILE_SIZE = 320 * 1024;
   const MAX_LOGO_FILE_SIZE = 200 * 1024;
   const LOGO_TYPES = new Set(["image/png", "image/webp"]);
@@ -384,6 +385,19 @@
     }
   }
 
+  function persistActiveTheme() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state.theme));
+    const logo = state.theme.assets?.logo;
+    const source = logo?.builtinUrl || logo?.dataUrl || "";
+    if (source) localStorage.setItem(BRAND_LOGO_STORAGE_KEY, source);
+    else localStorage.removeItem(BRAND_LOGO_STORAGE_KEY);
+  }
+
+  function clearActiveTheme() {
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(BRAND_LOGO_STORAGE_KEY);
+  }
+
   function normalize(input) {
     const defaults = state.contract.defaults;
     if (isRetiredBuiltinTheme(input)) throw new Error("该历史内置主题已停止支持，请选择新的磐石主题");
@@ -473,7 +487,7 @@
       tokens: { colors: preset.colors, shadows: preset.shadows },
     }));
     applyTheme();
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state.theme));
+    persistActiveTheme();
     renderFields();
     status(`已切换到“${preset.name}” · 贡献人：${preset.contributor}`);
   }
@@ -657,7 +671,7 @@
     if (existingIndex >= 0) state.customThemes.splice(existingIndex, 1, entry);
     else state.customThemes.push(entry);
     writeCustomThemes();
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state.theme));
+    persistActiveTheme();
     renderFields();
     status(`“${state.theme.name}”已保存，已加入主题列表`);
   }
@@ -700,7 +714,7 @@
     state.theme = name === "original" ? normalize(state.contract.defaults) : buildBuiltinTheme(name);
     if (!state.theme) return;
     applyTheme();
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state.theme));
+    persistActiveTheme();
     renderFields();
     status(`已切换到“${state.theme.name}”`);
   }
@@ -726,13 +740,13 @@
       let saved = localStorage.getItem(STORAGE_KEY);
       let parsedSaved = saved ? JSON.parse(saved) : state.contract.defaults;
       if (isRetiredBuiltinTheme(parsedSaved)) {
-        localStorage.removeItem(STORAGE_KEY);
+        clearActiveTheme();
         saved = null;
         parsedSaved = state.contract.defaults;
       }
       state.theme = normalize(parsedSaved);
       if (saved && Number(parsedSaved.version || 1) !== state.contract.version) {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(state.theme));
+        persistActiveTheme();
       }
       writeCustomThemes();
       applyTheme();
@@ -823,13 +837,13 @@
         if (!entry) return;
         state.theme = normalize(entry.theme);
         applyTheme();
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(state.theme));
+        persistActiveTheme();
         renderFields();
         status(`已切换到“${state.theme.name}”`);
       });
       $("#save-theme").onclick = save;
       $("#export-theme").onclick = exportTheme;
-      $("#reset-theme").onclick = () => { state.theme = normalize(state.contract.defaults); applyTheme(); renderFields(); localStorage.removeItem(STORAGE_KEY); status("已恢复磐石记忆原版主题"); };
+      $("#reset-theme").onclick = () => { state.theme = normalize(state.contract.defaults); applyTheme(); renderFields(); clearActiveTheme(); status("已恢复磐石记忆原版主题"); };
       $("#import-theme").onchange = event => { importTheme(event.target.files?.[0]); event.target.value = ""; };
       $("#import-theme-logo").onchange = event => { chooseLogo(event.target.files?.[0]); event.target.value = ""; };
       $("#more-theme-images").onclick = () => {
@@ -860,7 +874,7 @@
     try {
       const incoming = event.newValue ? JSON.parse(event.newValue) : state.contract.defaults;
       if (isRetiredBuiltinTheme(incoming)) {
-        localStorage.removeItem(STORAGE_KEY);
+        clearActiveTheme();
         state.theme = normalize(state.contract.defaults);
       } else {
         state.theme = normalize(incoming);

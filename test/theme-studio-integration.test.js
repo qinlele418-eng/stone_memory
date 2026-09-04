@@ -18,6 +18,13 @@ test("PWA icon sync reads the saved custom theme logo before CSS bootstrap", () 
   assert.match(app, /data:image\\\/\(\?:png\|webp\)/);
 });
 
+test("theme studio persists the active logo for add-to-desktop", () => {
+  const studio = fs.readFileSync(path.join(__dirname, "..", "src", "web", "public", "theme-studio", "standalone-app.js"), "utf8");
+  assert.match(studio, /function persistActiveTheme\(\)/);
+  assert.match(studio, /localStorage\.setItem\(BRAND_LOGO_STORAGE_KEY, source\)/);
+  assert.match(studio, /localStorage\.removeItem\(BRAND_LOGO_STORAGE_KEY\)/);
+});
+
 test("add-to-desktop updates browser shortcut icon from the active logo", () => {
   const app = fs.readFileSync(path.join(__dirname, "..", "src", "web", "public", "app.js"), "utf8");
   assert.match(app, /link\[rel="icon"\].*link\[rel="shortcut icon"\].*link\[rel="apple-touch-icon"\]/);
