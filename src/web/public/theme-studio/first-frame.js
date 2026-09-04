@@ -60,21 +60,19 @@
 
   try {
     const theme = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
-    if (!theme?.tokens || typeof theme.tokens !== "object") return;
-    const properties = {};
-    for (const [group, names] of Object.entries(PROPERTY_GROUPS)) {
-      for (const [name, property] of Object.entries(names)) {
-        const value = clean(theme.tokens?.[group]?.[name]);
-        if (!value) continue;
-        document.documentElement.style.setProperty(property, value);
-        properties[property] = value;
+    if (theme?.tokens && typeof theme.tokens === "object") {
+      const properties = {};
+      for (const [group, names] of Object.entries(PROPERTY_GROUPS)) {
+        for (const [name, property] of Object.entries(names)) {
+          const value = clean(theme.tokens?.[group]?.[name]);
+          if (!value) continue;
+          document.documentElement.style.setProperty(property, value);
+          properties[property] = value;
+        }
       }
+      document.documentElement.dataset.stoneTheme = String(theme.name || "Custom").slice(0, 60);
+      sessionStorage.setItem(MODULE_THEME_BRIDGE_KEY, JSON.stringify({ version: 1, name: String(theme.name || "Custom").slice(0, 60), properties }));
     }
-    document.documentElement.dataset.stoneTheme = String(theme.name || "Custom").slice(0, 60);
-    sessionStorage.setItem(MODULE_THEME_BRIDGE_KEY, JSON.stringify({
-      version: 1,
-      name: String(theme.name || "Custom").slice(0, 60),
-      properties,
-    }));
   } catch {}
+  document.documentElement.classList.add("stone-theme-first-frame-ready");
 })();
