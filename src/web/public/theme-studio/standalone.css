@@ -306,6 +306,7 @@ h3 {
 
 .theme-logo-status:empty { display: none; }
 .theme-logo-status.error { color: var(--stone-theme-danger); }
+.token-group-desktop-icon .theme-logo-preview { max-width: 132px; }
 
 .community-assets {
   display: grid;

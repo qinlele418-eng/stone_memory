@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320" role="img" aria-label="Stone Memory 石头小花">
+  <rect width="320" height="320" rx="64" fill="#f4f1e8"/>
+  <path d="M72 259c-3-31 7-79 27-108 15-22 37-34 67-31 35 3 61 25 73 55 13 32 14 62 7 84z" fill="#89998a" stroke="#667666" stroke-width="4"/>
+  <path d="M89 197c12-5 19-21 34-24 18-4 24 14 41 8 18-6 26-28 44-24 13 3 19 15 25 27-7-36-31-62-66-65-31-3-53 10-69 33-10 15-17 30-21 47z" fill="#769267"/>
+  <circle cx="127" cy="158" r="8" fill="#b8ce98"/><circle cx="210" cy="183" r="7" fill="#9fbe83"/>
+  <path d="M163 122c0-22 3-37 13-51" fill="none" stroke="#5d8056" stroke-width="5" stroke-linecap="round"/>
+  <path d="M175 84c-17-4-24-14-19-26 15 1 24 10 19 26z" fill="#7da46d"/>
+  <g transform="translate(178 67)"><ellipse rx="13" ry="8" transform="translate(13)" fill="#f4d5c4"/><ellipse rx="13" ry="8" transform="rotate(72) translate(13)" fill="#f0c7b4"/><ellipse rx="13" ry="8" transform="rotate(144) translate(13)" fill="#f4d5c4"/><ellipse rx="13" ry="8" transform="rotate(216) translate(13)" fill="#f0c7b4"/><ellipse rx="13" ry="8" transform="rotate(288) translate(13)" fill="#f4d5c4"/><circle r="7" fill="#d6a84e"/></g>
+</svg>

@@ -11,22 +11,26 @@ test("main page enables the semantic theme bridge", () => {
   assert.match(html, /<body[^>]*\bclass="[^"]*\bstone-theme-enabled\b[^"]*"/);
 });
 
-test("PWA icon sync reads the saved custom theme logo before CSS bootstrap", () => {
+test("desktop shortcut reads its independent custom icon", () => {
   const app = fs.readFileSync(path.join(__dirname, "..", "src", "web", "public", "app.js"), "utf8");
-  assert.match(app, /localStorage\.getItem\(BRAND_LOGO_STORAGE_KEY\)/);
-  assert.match(app, /stone-memory-brand-logo-v1/);
+  assert.match(app, /localStorage\.getItem\(DESKTOP_ICON_STORAGE_KEY\)/);
+  assert.match(app, /stone-memory-desktop-icon-v1/);
+  assert.match(app, /DEFAULT_DESKTOP_ICON = "\/desktop-icon-default\.svg"/);
   assert.match(app, /data:image\\\/\(\?:png\|webp\)/);
 });
 
-test("theme studio persists the active logo for add-to-desktop", () => {
+test("theme studio offers a real independent desktop icon picker", () => {
   const studio = fs.readFileSync(path.join(__dirname, "..", "src", "web", "public", "theme-studio", "standalone-app.js"), "utf8");
-  assert.match(studio, /function persistActiveTheme\(\)/);
-  assert.match(studio, /localStorage\.setItem\(BRAND_LOGO_STORAGE_KEY, source\)/);
-  assert.match(studio, /localStorage\.removeItem\(BRAND_LOGO_STORAGE_KEY\)/);
+  assert.match(studio, /id="import-desktop-icon"/);
+  assert.match(studio, /function chooseDesktopIcon\(file\)/);
+  assert.match(studio, /localStorage\.setItem\(DESKTOP_ICON_STORAGE_KEY, dataUrl\)/);
+  assert.match(studio, /id="use-brand-desktop-icon"/);
+  assert.match(studio, /id="reset-desktop-icon"/);
 });
 
 test("add-to-desktop updates browser shortcut icon from the active logo", () => {
   const app = fs.readFileSync(path.join(__dirname, "..", "src", "web", "public", "app.js"), "utf8");
+  assert.match(app, /function currentDesktopIcon\(\)/);
   assert.match(app, /link\[rel="icon"\].*link\[rel="shortcut icon"\].*link\[rel="apple-touch-icon"\]/);
   assert.match(app, /link\.href=desktopIcon/);
   assert.match(app, /reader\.readAsDataURL\(blob\)/);
@@ -303,7 +307,7 @@ test("semantic theme covers mining calendar states and preserves the developer l
   assert.match(standalone, /theme-card-meta[\s\S]*theme-credit[\s\S]*theme-file-badge/);
   assert.match(standalone, /createUtilityGroup\("主题",\s*"命名、保存、导入与切换主题"/);
   assert.match(standalone, /createUtilityGroup\("品牌图标"/);
-  assert.match(standalone, /originalTokenStack\.append\(themeGroup\.section,\s*logoGroup\.section,\s*tokenFields\)/);
+  assert.match(standalone, /originalTokenStack\.append\(themeGroup\.section,\s*logoGroup\.section,\s*desktopIconGroup\.section,\s*tokenFields\)/);
   assert.match(standalone, /topbar\.remove\(\)/);
   assert.doesNotMatch(standalone.match(/const FIELD_GROUPS = \[[\s\S]*?\];/)?.[0] || "", /\border\s*:/);
   assert.match(standalone, /\$\("#save-theme"\)\.after\(\$\("#reset-theme"\)\)/);

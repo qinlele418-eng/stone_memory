@@ -16,20 +16,19 @@ const projectContact = {
 };
 
 let deferredPwaInstall = null;
-const BRAND_LOGO_STORAGE_KEY = "stone-memory-brand-logo-v1";
+const DESKTOP_ICON_STORAGE_KEY = "stone-memory-desktop-icon-v1";
+const DEFAULT_DESKTOP_ICON = "/desktop-icon-default.svg";
 
 function isPwaStandalone() {
   return window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone === true;
 }
 
-function currentBrandLogo() {
+function currentDesktopIcon() {
   try {
-    const source=localStorage.getItem(BRAND_LOGO_STORAGE_KEY)||"";
+    const source=localStorage.getItem(DESKTOP_ICON_STORAGE_KEY)||"";
     if(/^data:image\/(?:png|webp);base64,/i.test(source)||source==="/stone-memory-logo.png")return source;
   } catch {}
-  const value=getComputedStyle(document.documentElement).getPropertyValue("--stone-theme-logo").trim();
-  if(!value.startsWith("url("))return "/stone-memory-logo.png";
-  return value.slice(4,-1).trim().replace(/^(["'])|(["'])$/g,"")||"/stone-memory-logo.png";
+  return DEFAULT_DESKTOP_ICON;
 }
 
 function loadPwaImage(source) {
@@ -48,7 +47,7 @@ async function squarePwaIcon(source,size) {
 
 async function syncPwaIcons() {
   if (!("caches" in window)) return;
-  const cache=await caches.open("stone-memory-pwa-v2"),source=currentBrandLogo();
+  const cache=await caches.open("stone-memory-pwa-v2"),source=currentDesktopIcon();
   let desktopIcon="";
   for (const size of [192,512]) {
     const blob=await squarePwaIcon(source,size);

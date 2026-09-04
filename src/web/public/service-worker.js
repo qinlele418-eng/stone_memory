@@ -1,5 +1,5 @@
 const CACHE = "stone-memory-pwa-v2";
-const FALLBACKS = ["/", "/manifest.webmanifest", "/pwa-icon-192.png", "/pwa-icon-512.png"];
+const FALLBACKS = ["/", "/manifest.webmanifest", "/desktop-icon-default.svg", "/pwa-icon-192.png", "/pwa-icon-512.png"];
 
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(FALLBACKS)).then(() => self.skipWaiting()));
