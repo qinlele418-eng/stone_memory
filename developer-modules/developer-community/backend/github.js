@@ -69,14 +69,16 @@ function listDossiers(repository, token = "", page = 1, pageSize = 10, kind = "a
   const repo = repositorySlug(repository);
   const currentPage = Math.max(1, Math.min(1000, Number.parseInt(page, 10) || 1));
   const size = Math.max(1, Math.min(30, Number.parseInt(pageSize, 10) || 10));
-  const pulls = kind === "issue" ? [] : ghJson(["api", `repos/${repo}/pulls?state=open&sort=updated&direction=desc&per_page=${size}&page=${currentPage}`], { token }) || [];
-  const rawIssues = kind === "pr" ? [] : ghJson(["api", `repos/${repo}/issues?state=open&sort=updated&direction=desc&per_page=${size}&page=${currentPage}`], { token }) || [];
-  const issues = rawIssues
-    .filter(item => !item.pull_request);
+  const search = (type) => ghJson(["api", `search/issues?q=${encodeURIComponent(`repo:${repo} is:${type} is:open`)}&sort=updated&order=desc&per_page=${size}&page=${currentPage}`], { token }) || { total_count:0, items:[] };
+  const pullSearch = kind === "issue" ? { total_count:0, items:[] } : search("pr");
+  const issueSearch = kind === "pr" ? { total_count:0, items:[] } : search("issue");
+  const pulls = pullSearch.items || [];
+  const issues = issueSearch.items || [];
   return {
     page: currentPage,
     pageSize: size,
-    hasMore: { pullRequests: kind !== "issue" && pulls.length === size, issues: kind !== "pr" && rawIssues.length === size },
+    totalCount: { pullRequests:Number(pullSearch.total_count)||0, issues:Number(issueSearch.total_count)||0 },
+    hasMore: { pullRequests: kind !== "issue" && currentPage * size < (Number(pullSearch.total_count)||0), issues: kind !== "pr" && currentPage * size < (Number(issueSearch.total_count)||0) },
     pullRequests: pulls.map(item => ({ number: item.number, title: item.title, author: item.user?.login || "", updatedAt: item.updated_at, draft: Boolean(item.draft), url: item.html_url })),
     issues: issues.map(item => ({ number: item.number, title: item.title, author: item.user?.login || "", updatedAt: item.updated_at, url: item.html_url })),
   };
@@ -89,15 +91,19 @@ function recentCommits(repository, token = "") {
   return rows.map(item => ({ sha:item.sha, message:item.commit?.message?.split("\n")[0] || "", author:item.author?.login || item.commit?.author?.name || "", date:item.commit?.author?.date || "", url:item.html_url }));
 }
 
-function myContributions(repository, token = "") {
+function myContributions(repository, token = "", page = 1, pageSize = 6) {
   requireToken(token);
   const repo = repositorySlug(repository);
   const user = ghJson(["api", "user"], { token })?.login || "";
   if (!user) throw new Error("无法确认当前 GitHub 身份");
+  const currentPage = Math.max(1, Math.min(100, Number.parseInt(page, 10) || 1));
+  const size = Math.max(1, Math.min(6, Number.parseInt(pageSize, 10) || 6));
   const pulls = ghJson(["api", `repos/${repo}/pulls?state=all&sort=updated&direction=desc&per_page=30`], { token }) || [];
   const issues = (ghJson(["api", `repos/${repo}/issues?state=all&sort=updated&direction=desc&per_page=30`], { token }) || []).filter(item => !item.pull_request);
   const map = (item, kind) => ({ kind, number:item.number, title:item.title, author:item.user?.login || "", updatedAt:item.updated_at || "", comments:Number(item.comments || 0), hasReplies:Number(item.comments || 0) > 0, url:item.html_url });
-  return { pullRequests:pulls.filter(item => item.user?.login === user).map(item => map(item, "pr")), issues:issues.filter(item => item.user?.login === user).map(item => map(item, "issue")), login:user };
+  const rows = [...pulls.filter(item => item.user?.login === user).map(item => map(item, "pr")), ...issues.filter(item => item.user?.login === user).map(item => map(item, "issue"))].sort((a,b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+  const start = (currentPage - 1) * size;
+  return { pullRequests:rows.slice(start, start + size).filter(item => item.kind === "pr"), issues:rows.slice(start, start + size).filter(item => item.kind === "issue"), page:currentPage, pageSize:size, hasMore:start + size < rows.length, login:user };
 }
 
 function checks(repository, number, token = "") {

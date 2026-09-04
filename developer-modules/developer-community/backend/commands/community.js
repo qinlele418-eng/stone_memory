@@ -372,7 +372,7 @@ async function run(context, input) {
     }
     if (input.action === "local-overview") return localOverview(db, settings);
     const repository = requiredRepository(settings);
-    if (input.action === "my-contributions") return github.myContributions(repository, githubToken(settings));
+    if (input.action === "my-contributions") return github.myContributions(repository, githubToken(settings), payload.page, 6);
     if (input.action === "refresh") {
       const kind = new Set(["pr", "issue"]).has(payload.kind) ? payload.kind : "all";
       return { repository, ...github.listDossiers(repository, githubToken(settings), payload.page, 10, kind), workbench: workbench(db, repository, { mode: "list" }) };

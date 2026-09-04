@@ -206,10 +206,10 @@ test("frontend uses the shared shell, theme contract, mobile layout and confirma
   assert.match(app, /filesBlock\(dossier\.files\)/);
   assert.match(app, /value == null \? "" : value/);
   assert.match(html, /三项全部留空＝原文模式/);
-  assert.match(app, /command\("refresh", \{ kind, page:/);
-  assert.match(html, /id="more-pr"/);
-  assert.match(html, /id="more-issue"/);
+  assert.match(app, /command\("refresh", \{ kind, page \}/);
+  assert.match(html, /id="next-pr"/);
+  assert.match(html, /id="next-issue"/);
   const githubSource = fs.readFileSync(path.join(root, "backend", "github.js"), "utf8");
-  assert.match(githubSource, /pulls\?state=open[^`]*per_page=\$\{size\}[^`]*page=\$\{currentPage\}/);
-  assert.doesNotMatch(githubSource, /pulls\?state=open&per_page=100/);
+  assert.match(githubSource, /search\/issues\?q=\$\{encodeURIComponent/);
+  assert.match(githubSource, /totalCount/);
 });

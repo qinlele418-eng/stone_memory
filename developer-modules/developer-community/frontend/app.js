@@ -2,7 +2,7 @@
   "use strict";
   const runtime = window.StoneDeveloperModule;
   const $ = selector => document.querySelector(selector);
-  let state = { status: null, dossiers: { pullRequests:[], issues:[] }, pages:{ pr:0, issue:0 }, hasMore:{ pr:false, issue:false }, active: null };
+  let state = { status: null, dossiers: { pullRequests:[], issues:[] }, pages:{ pr:0, issue:0 }, totalCount:{pr:0,issue:0}, hasMore:{ pr:false, issue:false }, active: null };
   let oauthTimer = null;
 
   function toast(message) {
@@ -63,18 +63,23 @@
     if (!appendKind) {
       state.dossiers = { pullRequests:data.pullRequests || [], issues:data.issues || [] };
       state.pages = { pr:data.page || 1, issue:data.page || 1 };
+      state.totalCount = { pr:data.totalCount?.pullRequests || 0, issue:data.totalCount?.issues || 0 };
     } else {
       const key = appendKind === "pr" ? "pullRequests" : "issues";
-      state.dossiers[key] = state.dossiers[key].concat(data[key] || []);
+      state.dossiers[key] = data[key] || [];
       state.pages[appendKind] = data.page;
+      state.totalCount[appendKind] = data.totalCount?.[appendKind === "pr" ? "pullRequests" : "issues"] || 0;
     }
     if (!appendKind || appendKind === "pr") state.hasMore.pr = Boolean(data.hasMore?.pullRequests);
     if (!appendKind || appendKind === "issue") state.hasMore.issue = Boolean(data.hasMore?.issues);
     for (const [kind, rows, target, count, more] of [["pr",state.dossiers.pullRequests,"#pr-list","#pr-count","#more-pr"],["issue",state.dossiers.issues,"#issue-list","#issue-count","#more-issue"]]) {
-      $(count).textContent = rows.length;
+      const total = state.totalCount[kind];
+      $(count).textContent = `${total == null ? rows.length : total} 个开放${kind === "pr" ? " PR" : " Issue"}`;
       $(target).classList.toggle("empty", !rows.length);
       $(target).innerHTML = rows.length ? rows.map(row => dossierCard(row, kind)).join("") : "这里暂时没有待处理项目";
-      $(more).hidden = !state.hasMore[kind];
+      const page = state.pages[kind] || 1;
+      const prev = $(kind === "pr" ? "#prev-pr" : "#prev-issue"), next = $(kind === "pr" ? "#next-pr" : "#next-issue"), label = $(kind === "pr" ? "#page-pr" : "#page-issue");
+      prev.disabled = page <= 1; next.disabled = !state.hasMore[kind]; label.textContent = `第 ${page} 页`;
     }
     document.querySelectorAll("[data-kind][data-number]").forEach(node => node.addEventListener("click", () => openDossier(node.dataset.kind, Number(node.dataset.number))));
     renderWorkbench(data.workbench || []);
@@ -129,7 +134,8 @@
     render("#merged-prs", data.mergedPrs, "暂无匹配到的已合并 PR", item => `<article><b>PR #${item.number} ${escapeHtml(item.title)}</b><small>@${escapeHtml(item.author)} · ${escapeHtml(item.mergedAt)}</small></article>`);
   }
   async function loadLocalOverview() { try { renderLocalOverview(await command("local-overview")); } catch (error) { $("#local-state").innerHTML=`<p class="notice danger">${escapeHtml(error.message)}</p>`; } }
-  async function loadContributions() { try { const data=await command("my-contributions"); const rows=[...(data.pullRequests||[]),...(data.issues||[])]; const node=$("#my-contributions"); node.innerHTML=rows.length?rows.map(item=>`<button class="card contribution-card" data-kind="${item.kind}" data-number="${item.number}"><strong>${item.kind.toUpperCase()} #${item.number} · ${escapeHtml(item.title)}</strong><span>${new Date(item.updatedAt).toLocaleString("zh-CN")} · ${item.comments} 条讨论 ${item.hasReplies?" · <b class=reply-hint>有回复</b>":""}</span></button>`).join(""):"<p class=muted>还没有找到你提交的 PR / Issue</p>"; node.querySelectorAll("[data-kind]").forEach(item=>item.addEventListener("click",()=>openDossier(item.dataset.kind,Number(item.dataset.number)))); } catch(error) { $("#my-contributions").innerHTML=`<p class="notice danger">${escapeHtml(error.message)}</p>`; } }
+  let contributionPage = 1;
+  async function loadContributions(page = 1) { try { const data=await command("my-contributions", { page }); const rows=[...(data.pullRequests||[]),...(data.issues||[])]; const node=$("#my-contributions"); node.innerHTML=rows.length?rows.map(item=>`<button class="card contribution-card" data-kind="${item.kind}" data-number="${item.number}"><strong>${item.kind.toUpperCase()} #${item.number} · ${escapeHtml(item.title)}</strong><span>${new Date(item.updatedAt).toLocaleString("zh-CN")} · ${item.comments} 条讨论 ${item.hasReplies?" · <b class=reply-hint>有回复</b>":""}</span></button>`).join(""):"<p class=muted>还没有找到你提交的 PR / Issue</p>"; contributionPage=page; $("#more-contributions").hidden=!data.hasMore; node.querySelectorAll("[data-kind]").forEach(item=>item.addEventListener("click",()=>openDossier(item.dataset.kind,Number(item.dataset.number)))); } catch(error) { $("#my-contributions").innerHTML=`<p class="notice danger">${escapeHtml(error.message)}</p>`; } }
 
   function renderTracked(items) {
     $("#tracked").classList.toggle("empty", !items.length);
@@ -144,12 +150,9 @@
   async function loadTracked() { try { renderTracked((await command("tracked")).tracked); } catch (error) { toast(error.message); } }
   async function loadStatus() { try { renderStatus(await command("status")); } catch (error) { toast(error.message); } }
 
-  async function loadMore(kind) {
-    const button = $(kind === "pr" ? "#more-pr" : "#more-issue");
-    button.disabled = true; button.textContent = "正在加载…";
-    try { renderDossiers(await command("refresh", { kind, page:(state.pages[kind] || 1) + 1 }), kind); }
+  async function loadPage(kind, page) {
+    try { renderDossiers(await command("refresh", { kind, page }), kind); }
     catch (error) { toast(error.message); }
-    finally { button.disabled = false; button.textContent = kind === "pr" ? "加载更多 PR" : "加载更多 Issue"; }
   }
 
   async function pollOAuth(flowId, waitSeconds) {
@@ -200,8 +203,8 @@
     } catch (error) { toast(error.message); }
   });
   $("#refresh").addEventListener("click", async () => { try { $("#load-error").hidden=true; renderDossiers(await command("refresh", { page:1 })); } catch (error) { $("#load-error").hidden=false; $("#load-error").textContent=error.message; } });
-  $("#more-pr").addEventListener("click", () => loadMore("pr"));
-  $("#more-issue").addEventListener("click", () => loadMore("issue"));
+  $("#prev-pr").addEventListener("click", () => loadPage("pr", state.pages.pr - 1)); $("#next-pr").addEventListener("click", () => loadPage("pr", state.pages.pr + 1));
+  $("#prev-issue").addEventListener("click", () => loadPage("issue", state.pages.issue - 1)); $("#next-issue").addEventListener("click", () => loadPage("issue", state.pages.issue + 1));
   $("#close-dialog").addEventListener("click", () => $("#dossier-dialog").close());
   $("#reanalyze").addEventListener("click", async () => { if (!state.active) return; try { await openDossier(state.active.kind, state.active.number, true); } catch (error) { toast(error.message); } });
   $("#send-reply").addEventListener("click", async () => { if (!state.active || !confirm("确认把这条回复正式发布到 GitHub？")) return; try { await command("comment", { number:state.active.number, body:$("#reply").value }); toast("回复已发布"); await openDossier(state.active.kind,state.active.number); } catch(error){toast(error.message);} });
@@ -210,7 +213,8 @@
   $("#copy-workbench").addEventListener("click", async () => { const items=state.workbench||[]; if(!items.length)return toast("工作台还是空的"); const repo=state.status?.repository?.slug||"项目"; const refs=items.map(item=>`#${item.number} ${item.kind.toUpperCase()}`).join("、"); if(await copyText(`请查看 ${repo} 的 ${refs}。`, "Agent 任务")) toast("已复制给 Agent 的任务信息"); });
   $("#refresh-tracked").addEventListener("click", loadTracked);
   $("#refresh-local").addEventListener("click", loadLocalOverview);
-  $("#refresh-contributions").addEventListener("click", loadContributions);
+  $("#refresh-contributions").addEventListener("click", () => loadContributions(1));
+  $("#more-contributions").addEventListener("click", () => loadContributions(contributionPage + 1));
   $("#update-official").addEventListener("click", async () => {
     if (!confirm("确认从官方仓库默认分支拉取新版并合入当前本地分支？发生冲突会自动停止，不会 push。")) return;
     try {
