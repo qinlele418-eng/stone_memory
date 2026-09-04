@@ -1,0 +1,63 @@
+{
+  "id": "developer-community",
+  "title": "琢石坊",
+  "version": "0.1.0",
+  "sdkVersion": 1,
+  "scope": "global",
+  "permissions": ["process:spawn", "generation:use"],
+  "entry": {
+    "frontend": "frontend/index.html",
+    "commands": {
+      "status": "backend/commands/community.js",
+      "local-overview": "backend/commands/community.js",
+      "oauth-start": "backend/commands/community.js",
+      "oauth-poll": "backend/commands/community.js",
+      "logout": "backend/commands/community.js",
+      "configure": "backend/commands/community.js",
+      "refresh": "backend/commands/community.js",
+      "detail": "backend/commands/community.js",
+      "star": "backend/commands/community.js",
+      "comment": "backend/commands/community.js",
+      "workbench": "backend/commands/community.js",
+      "apply-pr": "backend/commands/community.js",
+      "tracked": "backend/commands/community.js",
+      "update-official": "backend/commands/community.js",
+      "remove-change": "backend/commands/community.js",
+      "restart-plan": "backend/commands/community.js"
+    }
+  },
+  "storage": {
+    "database": "module.sqlite",
+    "files": ["settings.json", "oauth-pending"]
+  },
+  "coreExtensions": [
+    {
+      "path": "scripts/stmem-module.js",
+      "reason": "为所有开发者模块提供受限 JSON batch 输入，避免秘密和正文进入 argv"
+    },
+    {
+      "path": "src/web/server.js",
+      "reason": "为所有 global/memory 开发者模块提供统一 POST 到 stmem module 的 Web 适配"
+    },
+    {
+      "path": "bin/stmem",
+      "reason": "在通用 CLI 帮助中公开 module batch 契约"
+    },
+    {
+      "path": "test/developer-module-contract.test.js",
+      "reason": "验证通用 module batch 契约"
+    },
+    {
+      "path": "test/web-server.test.js",
+      "reason": "验证 global 模块 POST 仍经正式 CLI"
+    }
+  ],
+  "contributor": "@wanyu445",
+  "summary": "面向项目协作者的 GitHub 合作社区：读矿、议矿、收入工作台，并把选中的 PR 安全合入自己的分支。",
+  "status": "社区协作实验",
+  "eyebrow": "DEVELOPER COMMUNITY · STONE WORKSHOP",
+  "actionLabel": "进入琢石坊 →",
+  "metaLabel": "Global · v0.1",
+  "features": ["PR · 精矿", "Issue · 采石场", "协作者工作台", "分支试炼"],
+  "order": 12
+}

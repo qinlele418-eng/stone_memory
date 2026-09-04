@@ -45,10 +45,10 @@ function safeStmemFailure(stderr, command, status) {
   const lines = String(stderr || "").split(/\r?\n/).map(line => line.trim()).filter(Boolean);
   const marked = lines.reverse().find(line =>
     /^\[(?:memory-miner|memory-compressor)\]\s+(?:subagent\s+)?error:/i.test(line)
-    || /^\[tool-policy\]\s+error:/i.test(line));
+    || /^\[(?:tool-policy|module)\]\s+error:/i.test(line));
   if (marked) {
     return marked.replace(/^\[(?:memory-miner|memory-compressor)\]\s+/i, "")
-      .replace(/^\[tool-policy\]\s+/i, "").slice(0, 500);
+      .replace(/^\[(?:tool-policy|module)\]\s+/i, "").slice(0, 800);
   }
   // 不把任意 stderr（可能包含私密对话或模型原文）直接回显给前端；
   // 只提取脚本明确标记的错误或常见系统错误。
@@ -736,16 +736,22 @@ async function handleApi(req, res, url) {
   }
 
   const moduleCommandMatch = url.pathname.match(/^\/api\/developer-modules\/([^/]+)\/commands\/([^/]+)$/);
-  if (moduleCommandMatch && req.method === "GET") {
+  if (moduleCommandMatch && (req.method === "GET" || req.method === "POST")) {
     const moduleId = decodeURIComponent(moduleCommandMatch[1]);
     const action = decodeURIComponent(moduleCommandMatch[2]);
+    const loaded = loadModules().find(item => item.id === moduleId && !item.errors.length);
+    if (!loaded) throw new Error("开发者模块不存在或 manifest 无效");
+    if (!loaded.manifest.entry?.commands?.[action]) throw new Error("开发者模块命令未登记");
     const threadId = String(url.searchParams.get("thread") || "");
     const bindingId = String(url.searchParams.get("binding") || "");
-    if (!threadId) throw new Error("缺少当前记忆体");
-    publicThreadSettings(threadId);
+    if (loaded.manifest.scope === "memory" && !threadId) throw new Error("缺少当前记忆体");
+    if (threadId) publicThreadSettings(threadId);
     const args = ["module", moduleId, action, "--thread", threadId];
     if (bindingId) args.push("--binding", bindingId);
-    return json(res, 200, JSON.parse(runStmem(args)));
+    const output = req.method === "POST"
+      ? runStmemBatch(args, await readJson(req))
+      : JSON.parse(runStmem(args));
+    return json(res, 200, output);
   }
 
   const bindingBatchesMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/binding-imports$/);

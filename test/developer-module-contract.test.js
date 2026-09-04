@@ -11,6 +11,7 @@ const {
   resolveInside,
 } = require("../src/services/developer-module-contract");
 const { auditDeveloperModules } = require("../src/services/developer-module-audit");
+const { readBatchFile } = require("../scripts/stmem-module");
 
 test("registered developer modules satisfy the v1 manifest contract", () => {
   const modules = loadModules(MODULE_ROOT);
@@ -35,6 +36,19 @@ test("module data is isolated by memory or global scope", () => {
 test("module paths cannot escape their code directory", () => {
   assert.throws(() => resolveInside("/tmp/module", "../core.js"), /escapes/);
   assert.equal(resolveInside("/tmp/module", "backend/run.js"), path.resolve("/tmp/module/backend/run.js"));
+});
+
+test("module commands accept a bounded JSON object batch without exposing values in argv", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-module-batch-"));
+  const file = path.join(root, "input.json");
+  fs.writeFileSync(file, JSON.stringify({ comment: "synthetic review", nested: { apply: true } }), { mode: 0o600 });
+  assert.deepEqual(readBatchFile(["--batch-file", file]), {
+    comment: "synthetic review",
+    nested: { apply: true },
+  });
+  fs.writeFileSync(file, JSON.stringify(["not", "an", "object"]), { mode: 0o600 });
+  assert.throws(() => readBatchFile(["--batch-file", file]), /顶层必须是 JSON 对象/);
+  fs.rmSync(root, { recursive: true, force: true });
 });
 
 test("developer module audit rejects missing entries without touching user data", () => {

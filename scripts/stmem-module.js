@@ -1,3 +1,4 @@
+const fs = require("fs");
 const path = require("path");
 const { loadModules, findModule, moduleDataDir, resolveInside } = require("../src/services/developer-module-contract");
 const { createModuleContext } = require("../src/services/developer-module-runtime");
@@ -30,6 +31,19 @@ function readStdin() {
   });
 }
 
+function readBatchFile(args) {
+  const file = valueAfter(args, "--batch-file");
+  if (!file) return {};
+  const stat = fs.statSync(file);
+  if (!stat.isFile()) throw new Error("模块 batch-file 必须是普通文件");
+  if (stat.size > 1024 * 1024) throw new Error("模块 batch-file 不能超过 1MB");
+  const payload = JSON.parse(fs.readFileSync(file, "utf8"));
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error("模块 batch-file 顶层必须是 JSON 对象");
+  }
+  return payload;
+}
+
 function commandInput(args, action) {
   return {
     action,
@@ -38,6 +52,7 @@ function commandInput(args, action) {
     summaryLimit: valueAfter(args, "--summary-limit"),
     minImportance: valueAfter(args, "--min-importance"),
     maxChars: valueAfter(args, "--max-chars"),
+    payload: readBatchFile(args),
   };
 }
 
@@ -89,4 +104,4 @@ if (require.main === module) {
   runModuleCommand().catch(error => { console.error(`[module] error: ${error.message}`); process.exitCode = 1; });
 }
 
-module.exports = { runModuleCommand };
+module.exports = { runModuleCommand, commandInput, readBatchFile };

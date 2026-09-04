@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>琢石坊</title>
+  <script src="/developer-kit/runtime.js"></script>
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <stone-module-page eyebrow="DEVELOPER COMMUNITY · STONE WORKSHOP" title="琢石坊" description="给 Stone Memory 协作者的项目合作社区：从采石、读矿、讨论，到把精矿放进自己的分支试炼。">
+    <span slot="meta" class="chip">Global · 所有记忆体共享</span>
+
+    <section class="hero grid-two">
+      <article class="panel identity">
+        <div class="identity-copy"><img id="auth-avatar" alt="" hidden><div><p class="eyebrow">GITHUB 身份</p><h2 id="auth-title">正在验明身份…</h2><p id="auth-copy" class="muted"></p></div></div>
+        <button id="login" class="secondary" type="button">通过 GitHub 登录</button>
+      </article>
+      <article class="panel repository">
+        <div><p class="eyebrow">项目矿脉</p><h2 id="repo-title">尚未配置仓库</h2><a id="repo-link" target="_blank" rel="noreferrer"></a></div>
+        <button id="star" class="primary" type="button" disabled>为项目点星</button>
+      </article>
+    </section>
+
+    <details class="panel settings">
+      <summary><span><b>AI 读矿助手（可选）</b><small>把 PR / Issue 翻译成人话，并给出具体审阅建议</small></span><span>配置 API</span></summary>
+      <div class="api-explainer">
+        <strong>这个 API 用来做什么？</strong>
+        <p>配置后，AI 会阅读 PR/Issue 的正文、文件列表、提交记录和 CI，告诉你它实现了什么、改了哪些地方、有什么值得做，以及有哪些修改建议。AI 只负责阅读和建议，不会替你 Star、回复、合并或修改代码。</p>
+        <p><b>三项全部留空＝原文模式；要启用 AI，接口地址、模型和 Key 必须全部填写。</b>原文模式仍会展示 GitHub 返回的 PR/Issue 原文、文件增删、提交记录、讨论和 CI。</p>
+      </div>
+      <p id="api-status" class="api-status"></p>
+      <label class="api-toggle"><input id="api-enabled" type="checkbox"> 启用 AI 读矿</label>
+      <div class="settings-grid">
+        <label>API 接口地址<input id="api-endpoint" placeholder="服务根地址、/v1 或完整 /chat/completions 地址"></label>
+        <label>模型名称<input id="api-model" placeholder="启用 AI 时必填"></label>
+        <label class="wide">API Key<input id="api-key" type="password" placeholder="启用 AI 时必填，仅保存在本机模块私有目录"></label>
+        <details class="advanced wide"><summary>高级：分支试炼使用其他本地仓库</summary><label>本地 Git 仓库路径<input id="local-repo" placeholder="默认使用当前 Stone Memory Core"></label></details>
+      </div>
+      <p class="privacy-note">内置阅读规则由琢石坊维护，不需要手工填写 Prompt。API Key 不会进入 GitHub、命令行参数、SQLite、浏览器存储或日志。</p>
+      <div class="actions"><button id="save-settings" class="primary" type="button">保存配置</button></div>
+    </details>
+
+    <section class="panel local-overview">
+      <div class="section-head"><div><p class="eyebrow">LOCAL BRANCH</p><h2>我的改动</h2></div><button id="refresh-local" class="secondary" type="button">刷新状态</button></div>
+      <div id="local-state" class="overview-grid"><p class="muted">正在读取本地分支状态…</p></div>
+      <div class="overview-columns"><div><h3>官方近期提交 <span class="count">7天</span></h3><div id="official-commits" class="compact-list empty">暂无</div></div><div><h3>本地未提交改动</h3><div id="local-changes" class="compact-list empty">暂无</div></div><div><h3>已提交至 Fork</h3><div id="pushed-commits" class="compact-list empty">暂无</div></div><div><h3>已合并的精矿</h3><div id="merged-prs" class="compact-list empty">暂无</div></div></div>
+      <div class="actions"><button id="update-official" class="secondary" type="button">拉取官方更新</button><button id="restart" class="restart" type="button">一键重启以应用改动</button></div>
+    </section>
+
+    <section class="panel mine">
+      <div class="section-head"><div><p class="eyebrow">矿脉总览</p><h2>协作现场</h2></div><button id="refresh" class="secondary" type="button">刷新</button></div>
+      <div id="load-error" class="notice danger" hidden></div>
+      <div class="dossier-columns">
+        <div><h3>PR · 精矿 <span id="pr-count" class="count">0</span></h3><div id="pr-list" class="cards dossier-list empty">尚未刷新</div><button id="more-pr" class="secondary load-more" type="button" hidden>加载更多 PR</button></div>
+        <div><h3>Issue · 采石场 <span id="issue-count" class="count">0</span></h3><div id="issue-list" class="cards dossier-list empty">尚未刷新</div><button id="more-issue" class="secondary load-more" type="button" hidden>加载更多 Issue</button></div>
+      </div>
+    </section>
+
+    <section class="grid-two lower">
+      <article class="panel">
+        <div class="section-head"><div><p class="eyebrow">给 AGENT 的案头</p><h2>工作台</h2></div><button id="copy-workbench" class="secondary" type="button">一键复制</button></div>
+        <div id="workbench" class="cards empty">还没有收入项目</div>
+      </article>
+      <article class="panel">
+        <div class="section-head"><div><p class="eyebrow">RECORDED PR</p><h2>琢石坊记录</h2></div><button id="refresh-tracked" class="secondary" type="button">检查动态</button></div>
+        <div id="tracked" class="cards empty">还没有通过琢石坊合入的 PR</div>
+      </article>
+    </section>
+  </stone-module-page>
+
+  <dialog id="dossier-dialog">
+    <article class="dialog-card">
+      <button id="close-dialog" class="close" aria-label="关闭">×</button>
+      <p id="dialog-kind" class="eyebrow"></p>
+      <h2 id="dialog-title"></h2>
+      <p id="dialog-author" class="author"></p>
+      <button id="reanalyze" class="secondary" type="button">重新分析</button>
+      <div id="report"></div>
+      <section><h3>提交记录</h3><div id="commits" class="timeline"></div></section>
+      <section><h3>CI 报告</h3><div id="checks" class="checks"></div></section>
+      <section><h3>讨论区</h3><div id="comments" class="comments"></div><textarea id="reply" rows="4" placeholder="写下回复，确认后将发布到 GitHub"></textarea></section>
+      <div class="dialog-actions">
+        <button id="send-reply" class="secondary" type="button">回复讨论</button>
+        <button id="add-workbench" class="secondary" type="button">拉入工作台</button>
+        <button id="apply-pr" class="primary" type="button">合并入我的分支</button>
+      </div>
+    </article>
+  </dialog>
+  <dialog id="oauth-dialog">
+    <article class="dialog-card oauth-card">
+      <button id="close-oauth" class="close" aria-label="关闭">×</button>
+      <p class="eyebrow">GITHUB DEVICE AUTHORIZATION</p>
+      <h2>在 GitHub 完成登录</h2>
+      <p>已打开 GitHub 官方授权页。复制下面的一次性验证码并粘贴到 GitHub：</p>
+      <button id="oauth-code" class="device-code" type="button">----</button>
+      <p id="oauth-state" class="muted">正在创建安全登录流程…</p>
+      <p class="scope-warning"><strong>授权范围：repo</strong><br>琢石坊需要读取和协作当前可能为私有的 Stone Memory Core。OAuth 的 repo scope 会授权访问该账号可访问的仓库，请确认后再继续。</p>
+      <a id="oauth-link" class="primary oauth-link" href="https://github.com/login/device" target="_blank" rel="noreferrer">前往 GitHub 授权</a>
+    </article>
+  </dialog>
+  <div id="toast" role="status"></div>
+</body>
+</html>
