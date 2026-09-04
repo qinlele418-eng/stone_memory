@@ -120,6 +120,14 @@ function requiredRepository(settings) {
   return github.repositorySlug(settings.repository);
 }
 
+function gitRemoteForRepository(localRepo, repository) {
+  try {
+    const remote = github.run("git", ["remote", "get-url", "origin"], { cwd:localRepo });
+    if (github.repositorySlug(remote) === repository) return remote;
+  } catch {}
+  return `git@github.com:${repository}.git`;
+}
+
 function promptText(context) {
   return fs.readFileSync(DEFAULT_PROMPT, "utf8");
 }
@@ -230,7 +238,7 @@ function applyPullRequest(db, settings, payload) {
     .get(repository, number, dossier.headSha);
   if (existing) return { applied: true, duplicate: true, mergeCommit: existing.mergeCommit, headSha: dossier.headSha, targetBranch: target };
   const ref = `refs/stmem/developer-community/pr-${number}`;
-  github.run("git", ["fetch", `https://github.com/${repository}.git`, `pull/${number}/head:${ref}`], { cwd: localRepo });
+  github.run("git", ["fetch", gitRemoteForRepository(localRepo, repository), `pull/${number}/head:${ref}`], { cwd: localRepo });
   try {
     github.run("git", ["merge", "--no-ff", ref, "-m", `merge: try ${repository} PR #${number}`], { cwd: localRepo });
   } catch (error) {
@@ -276,7 +284,8 @@ function localOverview(db, settings) {
     try { defaultBranch = github.run("git", ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], { cwd:localRepo }).replace(/^origin\//u, ""); } catch {}
   }
   defaultBranch = github.branchName(defaultBranch || "main");
-  const officialRef = `origin/${defaultBranch}`;
+  const officialRef = `refs/stmem/developer-community/official-${defaultBranch.replaceAll("/", "-")}`;
+  try { github.run("git", ["fetch", gitRemoteForRepository(localRepo, repository), `${defaultBranch}:${officialRef}`], { cwd:localRepo }); } catch {}
   let behind = null, ahead = null;
   try {
     const counts = github.run("git", ["rev-list", "--left-right", "--count", `${officialRef}...HEAD`], { cwd:localRepo }).split(/\s+/u).map(Number);
@@ -338,7 +347,7 @@ function updateOfficial(db, settings) {
   const defaultBranch = github.branchName(metadata?.default_branch || "");
   const ref = `refs/stmem/developer-community/official-${defaultBranch.replaceAll("/", "-")}`;
   const before = github.run("git", ["rev-parse", "HEAD"], { cwd: localRepo });
-  github.run("git", ["fetch", `https://github.com/${repository}.git`, `${defaultBranch}:${ref}`], { cwd: localRepo });
+  github.run("git", ["fetch", gitRemoteForRepository(localRepo, repository), `${defaultBranch}:${ref}`], { cwd: localRepo });
   const officialHead = github.run("git", ["rev-parse", ref], { cwd: localRepo });
   try {
     github.run("git", ["merge", "--no-edit", ref], { cwd: localRepo });
