@@ -229,8 +229,6 @@ function applyPullRequest(db, settings, payload) {
   const number = Number(payload.number);
   if (!Number.isInteger(number) || number < 1) throw new Error("PR 编号无效");
   const target = github.branchName(payload.targetBranch);
-  const status = github.run("git", ["status", "--porcelain"], { cwd: localRepo });
-  if (status) throw new Error("本地工作区有未提交改动，不能合并 PR");
   const current = github.run("git", ["branch", "--show-current"], { cwd: localRepo });
   if (current !== target) throw new Error(`请先切换到目标分支 ${target}`);
   const dossier = github.detail(repository, "pr", number, githubToken(settings));
@@ -243,6 +241,9 @@ function applyPullRequest(db, settings, payload) {
     github.run("git", ["merge", "--no-ff", ref, "-m", `merge: try ${repository} PR #${number}`], { cwd: localRepo });
   } catch (error) {
     try { github.run("git", ["merge", "--abort"], { cwd: localRepo }); } catch {}
+    if (/local changes|working tree files|would be overwritten/iu.test(String(error?.message || ""))) {
+      throw new Error("PR 改动会覆盖同一路径的本地未提交文件，已停止合并；无关本地文件不会触发此限制");
+    }
     throw new Error("PR 合并发生冲突，已中止本次 merge；本地分支未产生合并提交");
   }
   const mergeCommit = github.run("git", ["rev-parse", "HEAD"], { cwd: localRepo });
@@ -338,9 +339,6 @@ function updateOfficial(db, settings) {
   const repository = requiredRepository(settings);
   const localRepo = path.resolve(String(settings.localRepoPath || ""));
   if (!settings.localRepoPath || !fs.existsSync(path.join(localRepo, ".git"))) throw new Error("请先配置有效的本地仓库路径");
-  if (github.run("git", ["status", "--porcelain"], { cwd: localRepo })) {
-    throw new Error("本地工作区有未提交改动，已停止更新；请先自行处理");
-  }
   const currentBranch = github.run("git", ["branch", "--show-current"], { cwd: localRepo });
   if (!currentBranch) throw new Error("当前处于 detached HEAD，已停止更新；请先切换到自己的分支");
   const metadata = github.ghJson(["api", `repos/${repository}`], { token:githubToken(settings) });
@@ -351,8 +349,11 @@ function updateOfficial(db, settings) {
   const officialHead = github.run("git", ["rev-parse", ref], { cwd: localRepo });
   try {
     github.run("git", ["merge", "--no-edit", ref], { cwd: localRepo });
-  } catch {
+  } catch (error) {
     try { github.run("git", ["merge", "--abort"], { cwd: localRepo }); } catch {}
+    if (/local changes|working tree files|would be overwritten/iu.test(String(error?.message || ""))) {
+      throw new Error(`官方 ${defaultBranch} 的改动会覆盖同一路径的本地未提交文件，已停止更新；无关文件和独立插件不会阻止更新`);
+    }
     throw new Error(`官方 ${defaultBranch} 与当前分支存在冲突，已停止并撤销本次自动合并；请协作者手工处理`);
   }
   const after = github.run("git", ["rev-parse", "HEAD"], { cwd: localRepo });
@@ -430,4 +431,4 @@ async function run(context, input) {
   } finally { db.close(); }
 }
 
-module.exports = { run, loadSettings, publicSettings, fallbackReport, workbench, updateOfficial, oauthStart, oauthPoll, configure, generate, DEFAULT_REPOSITORY, GITHUB_CLIENT_ID };
+module.exports = { run, loadSettings, publicSettings, fallbackReport, workbench, applyPullRequest, updateOfficial, oauthStart, oauthPoll, configure, generate, DEFAULT_REPOSITORY, GITHUB_CLIENT_ID };

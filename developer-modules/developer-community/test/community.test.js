@@ -8,7 +8,7 @@ const test = require("node:test");
 const { openDatabase } = require("../backend/db");
 const { repositorySlug, branchName } = require("../backend/github");
 const github = require("../backend/github");
-const { fallbackReport, workbench, updateOfficial, loadSettings, oauthStart, oauthPoll, configure, generate, DEFAULT_REPOSITORY, GITHUB_CLIENT_ID } = require("../backend/commands/community");
+const { fallbackReport, workbench, applyPullRequest, updateOfficial, loadSettings, oauthStart, oauthPoll, configure, generate, DEFAULT_REPOSITORY, GITHUB_CLIENT_ID } = require("../backend/commands/community");
 
 function temporaryContext() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "developer-community-"));
@@ -135,7 +135,7 @@ test("star uses GitHub REST with the module token and explains inaccessible repo
   } finally { global.fetch = originalFetch; }
 });
 
-test("official update fetches the default branch, merges locally and never pushes", () => {
+test("official update preserves unrelated dirty files, merges locally and never pushes", () => {
   const fixture = temporaryContext();
   fs.mkdirSync(path.join(fixture.root, "repo", ".git"), { recursive:true });
   const db = openDatabase(fixture.context);
@@ -144,7 +144,7 @@ test("official update fetches the default branch, merges locally and never pushe
   github.ghJson = () => ({ default_branch:"main" });
   github.run = (file, args) => {
     calls.push([file, ...args]);
-    if (args[0] === "status") return "";
+    if (args[0] === "status") return "?? notes.md";
     if (args[0] === "branch") return "community/test";
     if (args[0] === "rev-parse" && args[1] === "HEAD") return calls.filter(row => row[1] === "rev-parse" && row[2] === "HEAD").length === 1 ? "before" : "after";
     if (args[0] === "rev-parse") return "official";
@@ -158,6 +158,30 @@ test("official update fetches the default branch, merges locally and never pushe
     assert.equal(calls.some(row => row[1] === "push"), false);
   } finally {
     github.run = originalRun; github.ghJson = originalGhJson; db.close(); fs.rmSync(fixture.root,{recursive:true,force:true});
+  }
+});
+
+test("PR apply preserves unrelated dirty files and lets git decide whether paths overlap", () => {
+  const fixture = temporaryContext();
+  fs.mkdirSync(path.join(fixture.root, "repo", ".git"), { recursive:true });
+  const db = openDatabase(fixture.context);
+  const originalRun = github.run, originalDetail = github.detail;
+  const calls = [];
+  github.detail = () => ({ headSha:"abc123", title:"Synthetic PR" });
+  github.run = (file, args) => {
+    calls.push([file, ...args]);
+    if (args[0] === "status") throw new Error("blanket dirty-worktree check must not run");
+    if (args[0] === "branch") return "community/test";
+    if (args[0] === "rev-parse") return "merge123";
+    return "";
+  };
+  try {
+    const result = applyPullRequest(db, { repository:"example/stone-memory", localRepoPath:path.join(fixture.root,"repo") }, { number:7, targetBranch:"community/test" });
+    assert.equal(result.applied, true);
+    assert.ok(calls.some(row => row[1] === "merge" && row.includes("--no-ff")));
+    assert.equal(calls.some(row => row[1] === "status"), false);
+  } finally {
+    github.run = originalRun; github.detail = originalDetail; db.close(); fs.rmSync(fixture.root,{recursive:true,force:true});
   }
 });
 
