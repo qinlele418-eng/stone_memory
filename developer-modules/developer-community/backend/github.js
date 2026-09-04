@@ -91,6 +91,14 @@ function recentCommits(repository, token = "") {
   return rows.map(item => ({ sha:item.sha, message:item.commit?.message?.split("\n")[0] || "", author:item.author?.login || item.commit?.author?.name || "", date:item.commit?.author?.date || "", url:item.html_url }));
 }
 
+function commitDetail(repository, sha, token = "") {
+  requireToken(token);
+  const repo = repositorySlug(repository);
+  if (!/^[0-9a-f]{7,40}$/iu.test(String(sha || ""))) throw new Error("提交编号无效");
+  const item = ghJson(["api", `repos/${repo}/commits/${sha}`], { token });
+  return { sha:item.sha, message:item.commit?.message || "", author:item.author?.login || item.commit?.author?.name || "", date:item.commit?.author?.date || "", url:item.html_url, files:(item.files || []).map(file => ({ path:file.filename, status:file.status, additions:file.additions, deletions:file.deletions, changes:file.changes })) };
+}
+
 function myContributions(repository, token = "", page = 1, pageSize = 6) {
   requireToken(token);
   const repo = repositorySlug(repository);
@@ -185,4 +193,4 @@ function comment(repository, number, body, token = "") {
   return ghJson(["api", "--method", "POST", `repos/${repositorySlug(repository)}/issues/${issueNumber}/comments`, "-f", `body=${value}`], { token });
 }
 
-module.exports = { repositorySlug, branchName, run, ghJson, authStatus, listDossiers, recentCommits, myContributions, detail, star, isStarred, comment };
+module.exports = { repositorySlug, branchName, run, ghJson, authStatus, listDossiers, recentCommits, commitDetail, myContributions, detail, star, isStarred, comment };

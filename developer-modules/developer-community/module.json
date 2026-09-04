@@ -11,6 +11,7 @@
       "status": "backend/commands/community.js",
       "local-overview": "backend/commands/community.js",
       "my-contributions": "backend/commands/community.js",
+      "official-commit": "backend/commands/community.js",
       "oauth-start": "backend/commands/community.js",
       "oauth-poll": "backend/commands/community.js",
       "logout": "backend/commands/community.js",

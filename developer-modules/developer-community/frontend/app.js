@@ -109,7 +109,7 @@
       $("#commits").innerHTML = (dossier.commits || []).length ? dossier.commits.map(item => `<article><b>${escapeHtml(item.message.split("\n")[0])}</b><br><small>@${escapeHtml(item.author)} · ${escapeHtml(item.date)} · ${escapeHtml(item.sha.slice(0,7))}</small></article>`).join("") : "<p class=\"muted\">Issue 没有提交记录</p>";
       $("#checks").innerHTML = (dossier.checks || []).length ? dossier.checks.map(item => `<article><b>${escapeHtml(item.name)}</b><br><small>${escapeHtml(item.state || item.bucket || item.detail)}</small></article>`).join("") : "<p class=\"muted\">没有 CI 报告</p>";
       $("#comments").innerHTML = (dossier.comments || []).length ? dossier.comments.map(item => `<article><b>@${escapeHtml(item.author)}</b><p>${escapeHtml(item.body)}</p><small>${new Date(item.createdAt).toLocaleString("zh-CN")}</small></article>`).join("") : "<p class=\"muted\">还没有讨论</p>";
-      $("#apply-pr").hidden = kind !== "pr"; $("#reply").value = ""; $("#dossier-dialog").showModal();
+      $("#send-reply").hidden = false; $("#add-workbench").hidden = false; $("#apply-pr").hidden = kind !== "pr"; $("#reply").value = ""; $("#dossier-dialog").showModal();
     } catch (error) { toast(error.message); }
   }
 
@@ -128,12 +128,14 @@
     ];
     $("#local-state").innerHTML = stats.map(([value,label]) => `<article class="overview-stat"><b>${escapeHtml(value)}</b><span>${label}</span></article>`).join("");
     const render = (selector, rows, empty, mapper) => { const node=$(selector); node.classList.toggle("empty", !rows.length); node.innerHTML=rows.length ? rows.map(mapper).join("") : empty; };
-    render("#official-commits", data.officialCommits, "近 7 天没有新提交，或暂时无法读取", item => `<article><b>${escapeHtml(item.message)}</b><small>@${escapeHtml(item.author)} · ${escapeHtml(item.date)}</small></article>`);
+    render("#official-commits", data.officialCommits, "近 7 天没有新提交，或暂时无法读取", item => `<button class="official-commit-card" data-sha="${escapeHtml(item.sha)}"><b>${escapeHtml(item.message)}</b><small>@${escapeHtml(item.author)} · ${escapeHtml(item.date)}</small></button>`);
+    $("#official-commits").querySelectorAll("[data-sha]").forEach(item => item.addEventListener("click", () => openOfficialCommit(item.dataset.sha)));
     render("#local-changes", data.changes, "暂无未提交改动", item => `<article><code>${escapeHtml(item.code)} ${escapeHtml(item.path)}</code></article>`);
     render("#pushed-commits", data.pushedCommits, "暂无已推送提交", item => `<article><b>${escapeHtml(item.message)}</b><small>${escapeHtml(item.date)} · ${escapeHtml(item.sha.slice(0,7))}</small></article>`);
     render("#merged-prs", data.mergedPrs, "暂无匹配到的已合并 PR", item => `<article><b>PR #${item.number} ${escapeHtml(item.title)}</b><small>@${escapeHtml(item.author)} · ${escapeHtml(item.mergedAt)}</small></article>`);
   }
   async function loadLocalOverview() { try { renderLocalOverview(await command("local-overview")); } catch (error) { $("#local-state").innerHTML=`<p class="notice danger">${escapeHtml(error.message)}</p>`; } }
+  async function openOfficialCommit(sha) { try { const commit=await command("official-commit", { sha }); $("#dialog-kind").textContent="官方提交 · Core"; $("#dialog-title").textContent=commit.message.split("\n")[0]; $("#dialog-author").textContent=`提交者：@${commit.author} · ${commit.date}`; $("#report").innerHTML=filesBlock(commit.files); $("#commits").innerHTML=`<p><code>${escapeHtml(commit.sha.slice(0,12))}</code></p>`; $("#checks").innerHTML="<p class=muted>官方单次提交没有独立 CI 汇总</p>"; $("#comments").innerHTML=`<p><a href="${escapeHtml(commit.url)}" target="_blank" rel="noreferrer">在 GitHub 查看提交</a></p>`; $("#reply").value=""; $("#send-reply").hidden=true; $("#add-workbench").hidden=true; $("#apply-pr").hidden=true; $("#dossier-dialog").showModal(); } catch(error) { toast(error.message); } }
   let contributionPage = 1;
   async function loadContributions(page = 1) { try { const data=await command("my-contributions", { page }); const rows=[...(data.pullRequests||[]),...(data.issues||[])]; const node=$("#my-contributions"); node.innerHTML=rows.length?rows.map(item=>`<button class="card contribution-card" data-kind="${item.kind}" data-number="${item.number}"><strong>${item.kind.toUpperCase()} #${item.number} · ${escapeHtml(item.title)}</strong><span>${new Date(item.updatedAt).toLocaleString("zh-CN")} · ${item.comments} 条讨论 ${item.hasReplies?" · <b class=reply-hint>有回复</b>":""}</span></button>`).join(""):"<p class=muted>还没有找到你提交的 PR / Issue</p>"; contributionPage=page; $("#prev-contributions").disabled=page<=1; $("#next-contributions").disabled=!data.hasMore; $("#page-contributions").textContent=`第 ${page} 页`; node.querySelectorAll("[data-kind]").forEach(item=>item.addEventListener("click",()=>openDossier(item.dataset.kind,Number(item.dataset.number)))); } catch(error) { $("#my-contributions").innerHTML=`<p class="notice danger">${escapeHtml(error.message)}</p>`; } }
 
