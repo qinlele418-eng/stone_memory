@@ -12,6 +12,7 @@
     "preinstall": "node scripts/check-node-version.js",
     "start": "node bin/stmem web",
     "web": "node bin/stmem web",
+    "dev": "node bin/stmem web dev",
     "test": "node --test",
     "test:supervisor": "node --test test/process-identity.test.js test/process-lock.test.js test/systemd-watcher-service.test.js test/watcher-runtime-state.test.js test/watcher-runtime.test.js test/watcher-supervisor-integration.test.js",
     "audit:developer-modules": "node bin/stmem module audit --strict"

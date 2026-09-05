@@ -4,6 +4,7 @@
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
+const { spawn } = require("node:child_process");
 const { startWebServer } = require("../src/web/server");
 const { loadConfig } = require("../src/config");
 const { saveConfig } = require("../src/services/thread-setup");
@@ -12,10 +13,11 @@ const { readManagedPid, startManagedProcess, stopManagedProcess } = require("../
 const STONE = path.join(os.homedir(), ".stone_memory");
 const PID_FILE = path.join(STONE, "web.pid");
 const LOG_FILE = path.join(STONE, "web.log");
-const MARKER = ["stmem-web.js", "stmem web"];
+const WATCH_SCRIPT = path.join(__dirname, "stmem-web-watch.js");
+const MARKER = ["stmem-web-watch.js", "stmem-web.js", "stmem web"];
 const invokedThroughCli = path.basename(process.argv[1] || "") === "stmem";
 const args = process.argv.slice(invokedThroughCli ? 3 : 2);
-const actions = new Set(["start", "stop", "restart", "status", "config", "serve"]);
+const actions = new Set(["start", "stop", "restart", "status", "config", "dev", "serve"]);
 const action = actions.has(args[0]) ? args.shift() : "serve";
 const value = name => {
   const index = args.indexOf(name);
@@ -46,26 +48,29 @@ function webConfig({ persistFlags = false } = {}) {
 function startBackground() {
   const config = webConfig({ persistFlags: true });
   return startManagedProcess({
-    script: __filename,
+    script: WATCH_SCRIPT,
     pidFile: PID_FILE,
     marker: MARKER,
-    args: ["serve", "--host", config.host, "--port", String(config.port)],
+    args: ["--host", config.host, "--port", String(config.port)],
     logFile: LOG_FILE,
   });
 }
 
 async function serve() {
   const config = webConfig();
-  const existing = readManagedPid(PID_FILE, MARKER);
-  if (existing && existing !== process.pid) throw new Error(`Stone Memory 前端已运行 (pid ${existing})`);
-  fs.mkdirSync(STONE, { recursive: true });
-  fs.writeFileSync(PID_FILE, String(process.pid));
-  const cleanup = () => {
-    try {
-      if (Number(fs.readFileSync(PID_FILE, "utf8")) === process.pid) fs.rmSync(PID_FILE, { force: true });
-    } catch {}
-  };
-  process.once("exit", cleanup);
+  const watchChild = args.includes("--watch-child");
+  if (!watchChild) {
+    const existing = readManagedPid(PID_FILE, MARKER);
+    if (existing && existing !== process.pid) throw new Error(`Stone Memory 前端已运行 (pid ${existing})`);
+    fs.mkdirSync(STONE, { recursive: true });
+    fs.writeFileSync(PID_FILE, String(process.pid));
+    const cleanup = () => {
+      try {
+        if (Number(fs.readFileSync(PID_FILE, "utf8")) === process.pid) fs.rmSync(PID_FILE, { force: true });
+      } catch {}
+    };
+    process.once("exit", cleanup);
+  }
   const server = await startWebServer({ host: config.host, port: config.port });
   const shutdown = () => server.close(() => process.exit(0));
   process.once("SIGTERM", shutdown);
@@ -76,8 +81,39 @@ async function serve() {
   console.log("按 Ctrl+C 停止。");
 }
 
+function startDevelopmentServer() {
+  const config = webConfig({ persistFlags: true });
+  const existing = readManagedPid(PID_FILE, MARKER);
+  if (existing) throw new Error(`后台 Web 正在运行 (pid ${existing})；请先执行 stmem web stop，再启动 dev`);
+  console.log(`Stone Memory dev：http://${config.host}:${config.port}`);
+  console.log("后端 JS 变化会自动重启；HTML/CSS/前端 JS 无需重启，刷新浏览器即可读取最新文件。");
+  const child = spawn(process.execPath, [WATCH_SCRIPT, "--foreground", "--host", config.host, "--port", String(config.port)], {
+    stdio: "inherit",
+    env: process.env,
+  });
+  return new Promise((resolve, reject) => {
+    let stopping = false;
+    const forward = signal => {
+      stopping = true;
+      if (!child.killed) child.kill(signal);
+    };
+    const onSigint = () => forward("SIGINT");
+    const onSigterm = () => forward("SIGTERM");
+    process.once("SIGINT", onSigint);
+    process.once("SIGTERM", onSigterm);
+    child.once("error", reject);
+    child.once("exit", (code, signal) => {
+      process.removeListener("SIGINT", onSigint);
+      process.removeListener("SIGTERM", onSigterm);
+      if (code && !stopping) reject(new Error(`Stone Memory dev 退出（${signal || `code ${code}`}）`));
+      else resolve();
+    });
+  });
+}
+
 async function main() {
   if (action === "serve") return serve();
+  if (action === "dev") return startDevelopmentServer();
   if (action === "config") {
     const config = webConfig({ persistFlags: true });
     console.log(JSON.stringify(config, null, 2));

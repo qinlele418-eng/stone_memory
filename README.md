@@ -209,6 +209,17 @@ stmem web --port 4173   # 或 npm run web
 
 所有正式写入仍经过 `stmem` CLI；HTTP 层只做本地参数适配和结果展示，不另建第二套写逻辑。
 
+### Web 开发模式
+
+```bash
+stmem web stop                 # 后台 Web 已运行时先停止
+stmem web dev                  # 或 npm run dev
+```
+
+开发模式在前台运行，并使用 Node.js 22 内置的 watch 能力。修改后端 JS 后 Web 会自动重启；HTML、CSS 和前端 JS 本来就从磁盘按请求读取且禁用浏览器强缓存，修改后直接刷新页面即可，不需要重启服务。按 `Ctrl+C` 退出开发模式。它与后台 `stmem web start/restart` 使用同一个端口和 PID 防重机制，不会同时启动两个 Web 实例。
+
+后台的 `stmem web start` 与 `stmem web restart` 使用同一套 Web 专属 watch 管理器，只是把日志写入 `~/.stone_memory/web.log`。因此协作者首次用新版执行一次 `stmem web restart` 后，后续 Web 后端源码更新会自动重启；watcher supervisor、前端静态文件和用户数据不在这条进程管理链中。
+
 ### 关联 fork 线程（兼容入口）
 
 ```bash
