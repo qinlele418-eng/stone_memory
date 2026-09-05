@@ -21,6 +21,7 @@ const { editFusionCandidate } = require("../services/review-fusion");
 const { isArchiveConversation } = require("../services/thread-ingest");
 const { DreamReader } = require("../services/dream-reader");
 const { NotebookService } = require("../services/notebook-service");
+const { planDreamDistribution } = require("../services/dream-policy");
 const { watcherActions, watcherEnabled } = require("../services/watcher-runtime");
 const { normalizeMiningApiProfile } = require("../services/mining-api-profile");
 const { normalizeModelName } = require("../lib/model-name");
@@ -658,7 +659,9 @@ async function handleDreamSettings(req, url, threadId, resource) {
   }
   if (resource === "guard" && req.method === "PUT") {
     const body = await readJson(req);
-    return JSON.parse(runStmem(["dream", "guard", "--thread", threadId, body.enabled ? "on" : "off"]));
+    const args = ["dream", "guard", "--thread", threadId];
+    for (const type of (body.excludedTypes || [])) args.push("--exclude", String(type));
+    return JSON.parse(runStmem(args));
   }
   if (resource === "multiplier" && req.method === "PUT") {
     const body = await readJson(req);
@@ -1074,6 +1077,21 @@ async function handleApi(req, res, url) {
           job.completedAt = new Date().toISOString();
         });
       return json(res, 202, { success: true, job });
+    }
+  }
+
+  const dreamPreviewMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/dreams\/policy-preview$/);
+  if (dreamPreviewMatch && req.method === "POST") {
+    const threadId = decodeURIComponent(dreamPreviewMatch[1]);
+    const body = await readJson(req);
+    try {
+      return json(res, 200, planDreamDistribution({
+        multipliers: body.multipliers || {},
+        excludedTypes: body.excludedTypes || [],
+      }));
+    } catch (error) {
+      if (error.code === "DREAM_NO_CANDIDATE") return json(res, 200, { valid: false, error: error.message });
+      throw error;
     }
   }
 

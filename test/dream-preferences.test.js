@@ -17,18 +17,18 @@ function makeStore(t) {
 test("missing preferences fall back to defaults", t => {
   const store = makeStore(t);
   const prefs = store.read("thread-a");
-  assert.equal(prefs.guard, false);
+  assert.deepEqual(prefs.excludedTypes, []);
   assert.deepEqual(prefs.multipliers, { beautiful: 1, nightmare: 1, erotic: 1, beautiful_erotic: 1, nightmare_erotic: 1 });
   assert.equal(prefs.oneShot, null);
 });
 
 test("preferences round-trip per thread without cross-contamination", t => {
   const store = makeStore(t);
-  store.setGuard("thread-a", true);
+  store.setExclusions("thread-a", ["nightmare", "nightmare_erotic"]);
   store.setMultipliers("thread-a", { beautiful: 0.5, nightmare: 1, erotic: 1, beautiful_erotic: 1, nightmare_erotic: 1 });
-  assert.equal(store.read("thread-a").guard, true);
+  assert.deepEqual(store.read("thread-a").excludedTypes, ["nightmare", "nightmare_erotic"]);
   assert.equal(store.read("thread-a").multipliers.beautiful, 0.5);
-  assert.equal(store.read("thread-b").guard, false);
+  assert.deepEqual(store.read("thread-b").excludedTypes, []);
   assert.equal(store.read("thread-b").multipliers.beautiful, 1);
 });
 
@@ -75,10 +75,32 @@ test("multipliers that zero out every candidate are rejected", t => {
   );
 });
 
-test("guard rejects a combination that leaves no eligible random type", t => {
+test("exclusions that leave no reachable random type are rejected", t => {
   const store = makeStore(t);
   store.setMultipliers("thread-a", { beautiful: 0, nightmare: 1, erotic: 0, beautiful_erotic: 0, nightmare_erotic: 0 });
-  assert.throws(() => store.setGuard("thread-a", true), error => error.code === "DREAM_NO_CANDIDATE");
+  assert.throws(() => store.setExclusions("thread-a", ["nightmare"]), error => error.code === "DREAM_NO_CANDIDATE");
+});
+
+test("setExclusions stores valid types and deduplicates", t => {
+  const store = makeStore(t);
+  store.setExclusions("thread-a", ["nightmare", "nightmare_erotic", "nightmare"]);
+  assert.deepEqual(store.read("thread-a").excludedTypes, ["nightmare", "nightmare_erotic"]);
+});
+
+test("v1 guard=true migrates to nightmare exclusions", t => {
+  const store = makeStore(t);
+  const file = store.preferencesFileFor("thread-a");
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, guard: true, multipliers: { beautiful: 1, nightmare: 1, erotic: 1, beautiful_erotic: 1, nightmare_erotic: 1 }, oneShot: null }));
+  assert.deepEqual(store.read("thread-a").excludedTypes, ["nightmare", "nightmare_erotic"]);
+});
+
+test("v1 guard=false migrates to empty exclusions", t => {
+  const store = makeStore(t);
+  const file = store.preferencesFileFor("thread-a");
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, guard: false, multipliers: { beautiful: 1, nightmare: 1, erotic: 1, beautiful_erotic: 1, nightmare_erotic: 1 }, oneShot: null }));
+  assert.deepEqual(store.read("thread-a").excludedTypes, []);
 });
 
 test("prompt override write, read, and reset with thread isolation", t => {

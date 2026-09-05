@@ -4,12 +4,12 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 const { getThreadDir } = require("../config");
-const { DREAM_TYPE_ORDER, assertDreamType, normalizeMultipliers, normalizedProbabilities, MULTIPLIER_STEPS } = require("./dream-policy");
+const { DREAM_TYPE_ORDER, assertDreamType, normalizeMultipliers, planDreamDistribution, MULTIPLIER_STEPS } = require("./dream-policy");
 
 // 每记忆体织梦偏好与 Prompt override 的正式用户数据层。
 // 全部通过 stmem CLI 写入，Web/HTTP 不得直接触碰这些文件。
 const DEFAULT_PREFERENCES = Object.freeze({
-  schemaVersion: 1,
+  schemaVersion: 2,
   multipliers: Object.freeze({
     beautiful: 1,
     nightmare: 1,
@@ -17,7 +17,7 @@ const DEFAULT_PREFERENCES = Object.freeze({
     beautiful_erotic: 1,
     nightmare_erotic: 1,
   }),
-  guard: false,
+  excludedTypes: Object.freeze([]),
   oneShot: null,
 });
 
@@ -59,9 +59,9 @@ class DreamPreferences {
       throw error;
     }
     return {
-      schemaVersion: 1,
+      schemaVersion: 2,
       multipliers: normalizeMultipliers(parsed?.multipliers),
-      guard: parsed?.guard === true,
+      excludedTypes: migrateExcludedTypes(parsed),
       oneShot: normalizeOneShot(parsed?.oneShot),
     };
   }
@@ -69,9 +69,9 @@ class DreamPreferences {
   write(threadId, preferences) {
     const file = this.preferencesFileFor(threadId);
     const document = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       multipliers: normalizeMultipliers(preferences?.multipliers),
-      guard: preferences?.guard === true,
+      excludedTypes: normalizeExcludedTypes(preferences?.excludedTypes),
       oneShot: normalizeOneShot(preferences?.oneShot),
     };
     fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
@@ -109,11 +109,12 @@ class DreamPreferences {
     return true;
   }
 
-  setGuard(threadId, enabled) {
+  setExclusions(threadId, excludedTypes) {
     const current = this.read(threadId);
-    current.guard = enabled === true;
-    // 与现有倍率组合后仍需存在可选随机类型，否则拒绝。
-    normalizedProbabilities({ multipliers: current.multipliers, guard: current.guard });
+    const normalized = normalizeExcludedTypes(excludedTypes);
+    // 排除集合与现有倍率组合后仍需存在可达随机类型，否则拒绝。
+    planDreamDistribution({ multipliers: current.multipliers, excludedTypes: normalized });
+    current.excludedTypes = normalized;
     this.write(threadId, current);
     return current;
   }
@@ -126,8 +127,8 @@ class DreamPreferences {
     for (const type of DREAM_TYPE_ORDER) {
       assertMultiplierStep(normalized[type]);
     }
-    // 与当前安梦守护组合后仍需存在可选随机类型，否则拒绝。
-    normalizedProbabilities({ multipliers: normalized, guard: current.guard });
+    // 与当前安梦守护组合后仍需存在可达随机类型，否则拒绝。
+    planDreamDistribution({ multipliers: normalized, excludedTypes: current.excludedTypes });
     current.multipliers = normalized;
     this.write(threadId, current);
     return current;
@@ -190,9 +191,9 @@ class DreamPreferences {
 
 function defaultPreferences() {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     multipliers: { ...DEFAULT_PREFERENCES.multipliers },
-    guard: false,
+    excludedTypes: [],
     oneShot: null,
   };
 }
@@ -206,6 +207,19 @@ function normalizeOneShot(value) {
     token: typeof value.token === "string" ? value.token : null,
     requestedAt: typeof value.requestedAt === "string" ? value.requestedAt : null,
   };
+}
+
+function normalizeExcludedTypes(excludedTypes) {
+  const set = new Set();
+  for (const type of (excludedTypes || [])) set.add(assertDreamType(type));
+  return [...set];
+}
+
+// v1 旧数据迁移：guard=true 等价于排除噩梦与噩梦染春梦；guard=false 等价于空集。
+function migrateExcludedTypes(parsed) {
+  if (Array.isArray(parsed?.excludedTypes)) return normalizeExcludedTypes(parsed.excludedTypes);
+  if (parsed?.guard === true) return ["nightmare", "nightmare_erotic"];
+  return [];
 }
 
 function assertPromptFile(fileName) {

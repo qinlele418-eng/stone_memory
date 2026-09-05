@@ -5,7 +5,7 @@ const path = require("node:path");
 
 const { DreamService, validateDreamPromptOverride } = require("../src/services/dream-service");
 const { DreamPreferences, PROMPT_FILES } = require("../src/services/dream-preferences");
-const { DREAM_TYPE_ORDER, normalizedProbabilities } = require("../src/services/dream-policy");
+const { DREAM_TYPE_ORDER, planDreamDistribution } = require("../src/services/dream-policy");
 
 const BUNDLED_PROMPT_DIRECTORY = path.join(__dirname, "..", "operations", "dream");
 
@@ -63,8 +63,8 @@ function runDreamConfigCommand(args, { preferencesFactory, writeLine }) {
       return summary;
     }
     case "guard": {
-      const enabled = onOffValue(args);
-      preferences.setGuard(threadId, enabled);
+      const excludedTypes = parseExclusions(args);
+      preferences.setExclusions(threadId, excludedTypes);
       const summary = preferencesSummary(threadId, preferences);
       writeLine(JSON.stringify(summary));
       return summary;
@@ -133,10 +133,10 @@ function preferencesSummary(threadId, preferences) {
   return {
     threadId,
     multipliers: prefs.multipliers,
-    guard: prefs.guard,
+    excludedTypes: prefs.excludedTypes,
     oneShot: prefs.oneShot,
     promptOverrides: overrides,
-    probabilities: normalizedProbabilities({ multipliers: prefs.multipliers, guard: prefs.guard }),
+    distribution: planDreamDistribution({ multipliers: prefs.multipliers, excludedTypes: prefs.excludedTypes }),
   };
 }
 
@@ -160,11 +160,18 @@ function parseMultipliers(args) {
   return multipliers;
 }
 
-function onOffValue(args) {
-  const index = args.indexOf("on");
-  if (index >= 0) return true;
-  if (args.indexOf("off") >= 0) return false;
-  throw new Error("guard requires on or off");
+function parseExclusions(args) {
+  const excluded = [];
+  for (let index = 1; index < args.length; index++) {
+    if (args[index] !== "--exclude") continue;
+    const type = args[index + 1];
+    if (!type || !DREAM_TYPE_ORDER.includes(type)) {
+      throw new Error("guard --exclude requires a valid dream type");
+    }
+    excluded.push(type);
+    index += 1;
+  }
+  return excluded;
 }
 
 function requiredOption(args, name) {

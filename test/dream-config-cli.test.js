@@ -21,13 +21,13 @@ function run(args, t) {
   return { result, preferences, lines };
 }
 
-test("dream preferences reports defaults and normalized probabilities", t => {
+test("dream preferences reports defaults and the two-stage distribution", t => {
   const { result, lines } = run(["preferences", "--thread", "thread-a"], t);
   assert.equal(result.threadId, "thread-a");
-  assert.equal(result.guard, false);
+  assert.deepEqual(result.excludedTypes, []);
   assert.equal(result.oneShot, null);
   assert.equal(result.multipliers.beautiful, 1);
-  assert.ok(result.probabilities.beautiful > 0.63 && result.probabilities.beautiful < 0.65);
+  assert.ok(result.distribution.final.beautiful > 0.63 && result.distribution.final.beautiful < 0.65);
   assert.deepEqual(JSON.parse(lines[0]), result);
 });
 
@@ -39,14 +39,14 @@ test("dream pin sets a one-shot override and unpin clears it", t => {
   assert.equal(second.result.oneShot, null);
 });
 
-test("dream guard flips the nightmare guard", t => {
-  const on = run(["guard", "--thread", "thread-a", "on"], t);
-  assert.equal(on.result.guard, true);
-  assert.equal(on.result.probabilities.nightmare, 0);
-  assert.equal(on.result.probabilities.nightmare_erotic, 0);
+test("dream guard sets a custom exclusion set and clears it", t => {
+  const on = run(["guard", "--thread", "thread-a", "--exclude", "nightmare", "--exclude", "nightmare_erotic"], t);
+  assert.deepEqual(on.result.excludedTypes, ["nightmare", "nightmare_erotic"]);
+  assert.equal(on.result.distribution.final.nightmare, 0);
+  assert.equal(on.result.distribution.final.nightmare_erotic, 0);
 
-  const off = run(["guard", "--thread", "thread-a", "off"], t);
-  assert.equal(off.result.guard, false);
+  const off = run(["guard", "--thread", "thread-a"], t);
+  assert.deepEqual(off.result.excludedTypes, []);
 });
 
 test("dream multiplier updates weights and rejects unknown steps", t => {
