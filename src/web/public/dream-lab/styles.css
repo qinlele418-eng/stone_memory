@@ -232,18 +232,32 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 
 .advanced-settings {
   margin-top: 20px;
-  border-top: 1px solid var(--stone-tide-line, #dce6d7);
-  padding-top: 14px;
 }
 .advanced-settings summary {
-  display: inline-flex;
-  min-height: 36px;
+  display: flex;
+  width: 100%;
+  min-height: 48px;
   align-items: center;
-  color: var(--stone-tide-ink-soft, #69756d);
-  font-size: 13px;
+  justify-content: space-between;
+  padding: 0 14px;
+  border: 1px solid var(--stone-tide-line, #dce6d7);
+  border-radius: 10px;
+  background: var(--stone-tide-surface-soft, #f5f8f1);
+  color: var(--stone-tide-ink, #18372b);
+  font-size: 15px;
   font-weight: 800;
   cursor: pointer;
+  box-sizing: border-box;
 }
+.advanced-settings summary::marker { content: ""; }
+.advanced-settings summary::-webkit-details-marker { display: none; }
+.advanced-settings summary::after {
+  content: "展开  ▾";
+  color: var(--stone-tide-accent-strong, #295540);
+  font-size: 13px;
+}
+.advanced-settings[open] summary::after { content: "收起  ▴"; }
+.advanced-settings[open] summary { margin-bottom: 14px; }
 .nsfw-mode { margin: 8px 0 0; padding: 0; border: 0; }
 .nsfw-mode legend { color: var(--stone-tide-ink, #18372b); font-size: 15px; font-weight: 800; }
 .nsfw-mode > small { display: block; margin-top: 4px; color: var(--stone-tide-ink-soft, #69756d); font-size: 12px; line-height: 1.5; }
