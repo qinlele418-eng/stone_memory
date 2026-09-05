@@ -61,16 +61,51 @@ async function syncPwaIcons() {
   }
 }
 
+let pwaInstallPending = false;
+let pwaInstalled = false;
+
+function pwaInstallHelp() {
+  if (!window.isSecureContext) return "当前地址使用非安全连接，请通过 HTTPS 地址访问后安装；普通 HTTP 域名和 Tailscale HTTP IP 不支持应用内安装。";
+  if (/iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)) return "请在 Safari 中点击分享按钮，再选择“添加到主屏幕”。";
+  return "浏览器暂未提供安装提示（可能尚未就绪、已安装或此前取消过）。请从浏览器菜单选择“安装应用”或“添加到主屏幕”；也可稍后再次尝试。";
+}
+
+async function installStoneMemory() {
+  if (pwaInstallPending || pwaInstalled || isPwaStandalone()) return;
+  if (!window.isSecureContext || !deferredPwaInstall) {
+    showToast(pwaInstallHelp());
+    refreshPwaInstallUi();
+    return;
+  }
+  const event = deferredPwaInstall;
+  deferredPwaInstall = null;
+  pwaInstallPending = true;
+  try {
+    // Invoke before any await: browsers require the original click activation.
+    const prompting = event.prompt();
+    refreshPwaInstallUi();
+    await prompting;
+    const choice = await event.userChoice;
+    showToast(choice.outcome === "accepted" ? "已确认安装，请等待浏览器完成。" : "已取消安装。下次可通过浏览器菜单安装，或等待新的安装提示。");
+  } catch {
+    showToast("未能打开系统安装提示。请从浏览器菜单选择“安装应用”或“添加到主屏幕”。", "error");
+  } finally {
+    pwaInstallPending = false;
+    refreshPwaInstallUi();
+  }
+}
+
 function refreshPwaInstallUi() {
   const button=document.querySelector("#install-stone-memory"),hint=document.querySelector("#pwa-install-hint");
   if(!button)return;
-  if(isPwaStandalone()){button.disabled=true;button.textContent="已添加到桌面";if(hint)hint.textContent="当前正在以桌面应用方式运行。";return;}
+  if(pwaInstalled || isPwaStandalone()){button.disabled=true;button.textContent="已添加到桌面";if(hint)hint.textContent="Stone Memory 已安装为桌面应用。";return;}
+  if(pwaInstallPending){button.disabled=true;button.textContent="等待安装确认…";return;}
   button.disabled=false;button.textContent="添加到桌面主页";
-  if(hint)hint.textContent=deferredPwaInstall?"点击后由系统确认安装。":/iphone|ipad|ipod/i.test(navigator.userAgent)?"iPhone 请使用 Safari 的分享按钮，再选择“添加到主屏幕”。":"如果没有弹出确认，请从浏览器菜单选择“安装应用”或“添加到主屏幕”。";
+  if(hint)hint.textContent=window.isSecureContext && deferredPwaInstall?"当前网站可安装，点击后弹出系统安装确认。":pwaInstallHelp();
 }
 
 window.addEventListener("beforeinstallprompt",event=>{event.preventDefault();deferredPwaInstall=event;refreshPwaInstallUi();});
-window.addEventListener("appinstalled",()=>{deferredPwaInstall=null;refreshPwaInstallUi();showToast("Stone Memory 已添加到桌面");});
+window.addEventListener("appinstalled",()=>{deferredPwaInstall=null;pwaInstalled=true;refreshPwaInstallUi();showToast("Stone Memory 已添加到桌面");});
 
 async function preparePwa() {
   if (!("serviceWorker" in navigator)) return;
@@ -374,11 +409,8 @@ function renderAbout(library) {
     try{await navigator.clipboard.writeText(projectContact.email);showToast("官方邮箱已复制");}
     catch{showToast("复制失败，请手动复制邮箱","error");}
   });
-  main.querySelector("#install-stone-memory")?.addEventListener("click",async()=>{
-    await syncPwaIcons().catch(()=>{});
-    if(deferredPwaInstall){deferredPwaInstall.prompt();const choice=await deferredPwaInstall.userChoice;if(choice.outcome==="accepted")deferredPwaInstall=null;refreshPwaInstallUi();return;}
-    showToast(/iphone|ipad|ipod/i.test(navigator.userAgent)?"请点 Safari 分享按钮，再选择“添加到主屏幕”":"请从浏览器菜单选择“安装应用”或“添加到主屏幕”");
-  });
+  void syncPwaIcons().catch(()=>{});
+  main.querySelector("#install-stone-memory")?.addEventListener("click",installStoneMemory);
   refreshPwaInstallUi();
 }
 
