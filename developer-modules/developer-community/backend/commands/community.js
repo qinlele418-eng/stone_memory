@@ -103,8 +103,8 @@ async function oauthPoll(context, settings, flowId) {
   if (result.error === "expired_token") { fs.rmSync(file,{force:true}); return { status:"expired" }; }
   if (result.error) throw new Error("GitHub 登录失败，请重新发起授权");
   if (!result.access_token) throw new Error("GitHub 登录响应缺少 access token");
-  const identity = github.authStatus(result.access_token);
-  if (!identity.authenticated) throw new Error("GitHub 登录令牌无法验证身份");
+  const identity = await github.verifyToken(result.access_token);
+  if (!identity.authenticated) throw new Error(`GitHub 登录令牌无法验证身份：${identity.reason || "未知原因"}`);
   settings.github = { accessToken:result.access_token, scope:String(result.scope||""), tokenType:String(result.token_type||"bearer"), login:identity.login };
   saveSettings(context, settings);
   fs.rmSync(file,{force:true});
@@ -625,7 +625,7 @@ async function run(context, input) {
     if (input.action === "logout") return logout(context, settings);
     if (input.action === "status") {
       const repository = settings.repository ? github.repositorySlug(settings.repository) : "";
-      const auth = github.authStatus(githubToken(settings));
+      const auth = await github.verifyToken(githubToken(settings));
       return {
         auth, settings: publicSettings(settings),
         repository: repository ? { slug: repository, url: `https://github.com/${repository}`, starred: auth.authenticated ? github.isStarred(repository, githubToken(settings)) : false } : null,
@@ -662,7 +662,8 @@ async function run(context, input) {
       return { dossier, report: report || fallbackReport(dossier), source: report ? (cached ? "api-cache" : "api") : "original" };
     }
     if (input.action === "star") {
-      if (!github.authStatus(githubToken(settings)).authenticated) throw new Error("请先通过 GitHub 登录");
+      const auth = await github.verifyToken(githubToken(settings));
+      if (!auth.authenticated) throw new Error(`请先通过 GitHub 登录${auth.reason ? `：${auth.reason}` : ""}`);
       const result = await github.star(repository, githubToken(settings)); receipt(db, "star", repository, result); return result;
     }
     if (input.action === "comment") {

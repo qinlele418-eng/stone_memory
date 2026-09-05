@@ -92,16 +92,16 @@ test("AI reader normalizes a provider base URL and exposes safe provider errors"
 
 test("GitHub device flow keeps device and access tokens out of browser results", async () => {
   const fixture = temporaryContext();
-  const originalFetch = global.fetch, originalAuthStatus = github.authStatus;
+  const originalFetch = global.fetch, originalVerifyToken = github.verifyToken;
   const responses = [
     { device_code:"synthetic-device", user_code:"ABCD-EFGH", verification_uri:"https://github.com/login/device", interval:5, expires_in:900 },
     { access_token:"synthetic-access", token_type:"bearer", scope:"repo" },
+    { login:"synthetic-user", avatar_url:"https://avatars.example/user" },
   ];
-  global.fetch = async (url, options) => ({ ok:true, json:async () => {
-    assert.equal(options.body.get("client_id"), GITHUB_CLIENT_ID);
+  global.fetch = async (url, options) => ({ ok:true, status:200, json:async () => {
+    if (options.body) assert.equal(options.body.get("client_id"), GITHUB_CLIENT_ID);
     return responses.shift();
   } });
-  github.authStatus = token => ({ authenticated:token === "synthetic-access", login:"synthetic-user", avatarUrl:"https://avatars.example/user" });
   try {
     const started = await oauthStart(fixture.context);
     assert.equal(started.userCode, "ABCD-EFGH");
@@ -115,7 +115,7 @@ test("GitHub device flow keeps device and access tokens out of browser results",
     assert.equal(loadSettings(fixture.context).github.accessToken, "synthetic-access");
     assert.equal(fs.existsSync(pendingFile), false);
   } finally {
-    global.fetch = originalFetch; github.authStatus = originalAuthStatus; fs.rmSync(fixture.root,{recursive:true,force:true});
+    global.fetch = originalFetch; github.verifyToken = originalVerifyToken; fs.rmSync(fixture.root,{recursive:true,force:true});
   }
 });
 

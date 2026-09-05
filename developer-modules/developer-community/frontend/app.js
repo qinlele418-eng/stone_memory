@@ -38,7 +38,7 @@
   function renderStatus(data) {
     state.status = data;
     $("#auth-title").textContent = data.auth.authenticated ? `@${data.auth.login}` : "尚未登录 GitHub";
-    $("#auth-copy").textContent = data.auth.authenticated ? "身份已由本机 GitHub CLI 验证。" : "琢石坊不保存 Token，登录凭据由 GitHub CLI 管理。";
+    $("#auth-copy").textContent = data.auth.authenticated ? "身份已由 GitHub API 验证。" : data.auth.reason || "尚未完成 GitHub 身份验证。";
     $("#login").textContent = data.auth.authenticated ? "退出登录" : "通过 GitHub 登录";
     const avatar = $("#auth-avatar"); avatar.hidden = !data.auth.avatarUrl; avatar.src = data.auth.avatarUrl || "";
     const repo = data.repository;

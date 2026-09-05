@@ -62,6 +62,25 @@ function authStatus(token = "") {
   }
 }
 
+async function verifyToken(token = "") {
+  if (!token) return { authenticated:false, login:"", reason:"令牌为空" };
+  try {
+    const response = await fetch("https://api.github.com/user", {
+      headers: { accept:"application/vnd.github+json", authorization:`Bearer ${token}`, "x-github-api-version":"2022-11-28", "user-agent":"Stone-Memory-Developer-Community" },
+      signal: AbortSignal.timeout(30_000),
+    });
+    let body = {};
+    try { body = await response.json(); } catch {}
+    if (response.status === 401) return { authenticated:false, login:"", reason:"GitHub 拒绝了令牌（HTTP 401），令牌可能已过期或已被撤销" };
+    if (response.status === 403) return { authenticated:false, login:"", reason:"GitHub 暂时拒绝身份校验（HTTP 403），请检查组织 OAuth App 限制" };
+    if (!response.ok) return { authenticated:false, login:"", reason:`GitHub 身份校验失败（HTTP ${response.status}）` };
+    if (!body.login) return { authenticated:false, login:"", reason:"GitHub 返回的身份信息不完整" };
+    return { authenticated:true, login:body.login, avatarUrl:body.avatar_url || "" };
+  } catch (error) {
+    return { authenticated:false, login:"", reason:`无法连接 GitHub 校验服务：${error.message || "网络错误"}` };
+  }
+}
+
 function requireToken(token) { if (!token) throw new Error("请先通过琢石坊登录 GitHub"); }
 
 function listDossiers(repository, token = "", page = 1, pageSize = 10, kind = "all") {
@@ -193,4 +212,4 @@ function comment(repository, number, body, token = "") {
   return ghJson(["api", "--method", "POST", `repos/${repositorySlug(repository)}/issues/${issueNumber}/comments`, "-f", `body=${value}`], { token });
 }
 
-module.exports = { repositorySlug, branchName, run, ghJson, authStatus, listDossiers, recentCommits, commitDetail, myContributions, detail, star, isStarred, comment };
+module.exports = { repositorySlug, branchName, run, ghJson, authStatus, verifyToken, listDossiers, recentCommits, commitDetail, myContributions, detail, star, isStarred, comment };
