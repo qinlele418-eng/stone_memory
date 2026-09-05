@@ -244,7 +244,21 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
   font-weight: 800;
   cursor: pointer;
 }
-.advanced-settings .switch-row { margin-top: 8px; }
+.nsfw-mode { margin: 8px 0 0; padding: 0; border: 0; }
+.nsfw-mode legend { color: var(--stone-tide-ink, #18372b); font-size: 15px; font-weight: 800; }
+.nsfw-mode > small { display: block; margin-top: 4px; color: var(--stone-tide-ink-soft, #69756d); font-size: 12px; line-height: 1.5; }
+.nsfw-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+.nsfw-options label {
+  display: flex; min-height: 42px; align-items: center; justify-content: center; gap: 8px;
+  border: 1px solid var(--stone-tide-line, #dce6d7); border-radius: 10px;
+  color: var(--stone-tide-ink-soft, #69756d); font-size: 13px; font-weight: 800; cursor: pointer;
+}
+.nsfw-options label:has(input:checked) {
+  border-color: var(--stone-tide-accent, #397052);
+  background: color-mix(in srgb, var(--stone-tide-accent, #397052) 9%, transparent);
+  color: var(--stone-tide-accent-strong, #295540);
+}
+.nsfw-options input { accent-color: var(--stone-tide-accent, #397052); }
 .advanced-settings .status:empty { display: none; }
 
 .guard-preview { margin-top: 20px; padding: 16px; border-radius: var(--stone-tide-radius-md, 14px); background: var(--stone-tide-surface-soft, #f5f8f1); }

@@ -585,6 +585,7 @@
 
   function renderGuardDetail() {
     const excluded = new Set(pendingExcluded || prefs.excludedTypes || []);
+    const openNsfwSettings = location.hash.replace(/\/$/, "").endsWith("/tuning/guard/nsfw");
     root.innerHTML = `
       <div class="module-back"><a href="#/tuning">← 返回织梦调律</a></div>
       <section class="card">
@@ -600,12 +601,16 @@
                 </label>`).join("")}
             </div>`).join("")}
         </div>
-        <details class="advanced-settings">
+        <details class="advanced-settings" ${openNsfwSettings ? "open" : ""}>
           <summary>高级设置</summary>
-          <label class="switch-row nsfw-switch">
-            <span><strong>NSFW 内容</strong><small id="nsfw-description">启用后解锁含成年亲密主题的绮梦及相关调律。</small></span>
-            <input id="nsfw-enabled" type="checkbox" aria-describedby="nsfw-description" ${nsfwEnabled() ? "checked" : ""}>
-          </label>
+          <fieldset class="nsfw-mode" aria-describedby="nsfw-description">
+            <legend>NSFW 模式</legend>
+            <small id="nsfw-description">开启后解锁含成年亲密主题的绮梦及相关调律。</small>
+            <div class="nsfw-options">
+              <label><input type="radio" name="nsfw-mode" value="off" ${nsfwEnabled() ? "" : "checked"}> OFF</label>
+              <label><input type="radio" name="nsfw-mode" value="on" ${nsfwEnabled() ? "checked" : ""}> ON</label>
+            </div>
+          </fieldset>
           <div id="nsfw-status" class="status" aria-live="polite"></div>
         </details>
         <div class="guard-preview">
@@ -620,6 +625,7 @@
       </section>
     `;
     bindGuardDetail();
+    if (openNsfwSettings) root.querySelector(".nsfw-mode")?.scrollIntoView({ block: "center" });
   }
 
   function renderSpectrumDetail() {
@@ -696,25 +702,30 @@
     const errorBox = root.querySelector("#guard-error");
     const saveBtn = root.querySelector("#guard-save");
     const list = root.querySelector("#guard-preview-list");
-    const nsfwToggle = root.querySelector("#nsfw-enabled");
+    const nsfwOptions = [...root.querySelectorAll('input[name="nsfw-mode"]')];
     const nsfwStatus = root.querySelector("#nsfw-status");
 
-    nsfwToggle.onchange = async () => {
-      nsfwToggle.disabled = true;
-      nsfwStatus.textContent = "正在保存……";
-      try {
-        await api(`/api/libraries/${encodeURIComponent(threadId)}/dreams/nsfw`, {
-          method: "PUT",
-          body: JSON.stringify({ enabled: nsfwToggle.checked }),
-        });
-        await loadAll();
-        renderGuardDetail();
-      } catch (error) {
-        nsfwToggle.checked = !nsfwToggle.checked;
-        nsfwToggle.disabled = false;
-        nsfwStatus.textContent = error.message;
-      }
-    };
+    for (const option of nsfwOptions) {
+      option.onchange = async () => {
+        if (!option.checked) return;
+        nsfwOptions.forEach(input => { input.disabled = true; });
+        nsfwStatus.textContent = "正在保存……";
+        try {
+          await api(`/api/libraries/${encodeURIComponent(threadId)}/dreams/nsfw`, {
+            method: "PUT",
+            body: JSON.stringify({ enabled: option.value === "on" }),
+          });
+          await loadAll();
+          renderGuardDetail();
+        } catch (error) {
+          nsfwOptions.forEach(input => {
+            input.checked = input.value === (nsfwEnabled() ? "on" : "off");
+            input.disabled = false;
+          });
+          nsfwStatus.textContent = error.message;
+        }
+      };
+    }
 
     inputs.forEach(input => {
       input.onchange = () => {

@@ -1086,6 +1086,7 @@ async function handleApi(req, res, url) {
   const dreamPreviewMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/dreams\/policy-preview$/);
   if (dreamPreviewMatch && req.method === "POST") {
     const threadId = decodeURIComponent(dreamPreviewMatch[1]);
+    publicThreadSettings(threadId);
     const body = await readJson(req);
     const prefs = new DreamPreferences().read(threadId);
     try {
@@ -1103,6 +1104,7 @@ async function handleApi(req, res, url) {
   const dreamSettingsMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/dreams\/(preferences|pin|guard|multiplier|nsfw|prompt)$/);
   if (dreamSettingsMatch) {
     const threadId = decodeURIComponent(dreamSettingsMatch[1]);
+    publicThreadSettings(threadId);
     return json(res, 200, await handleDreamSettings(req, url, threadId, dreamSettingsMatch[2]));
   }
 

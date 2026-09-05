@@ -94,6 +94,13 @@ test("dream prompt reads bundled, writes override, and resets", t => {
   assert.equal(reset.result.custom, false);
 });
 
+test("safe bundled prompts do not disclose NSFW dream capabilities", t => {
+  for (const type of ["common-core", "beautiful", "nightmare"]) {
+    const { result } = run(["prompt", "--thread", "thread-a", "--type", type], t);
+    assert.doesNotMatch(result.content, /绮梦|绮染|亲密内容|欲望/u, `${type} should remain safe while NSFW is off`);
+  }
+});
+
 test("prompt write rejects a common rule that drops the type slot", t => {
   const file = path.join(os.tmpdir(), `stmem-dream-common-${process.pid}.md`);
   fs.writeFileSync(file, "没有占位符的公共规则");

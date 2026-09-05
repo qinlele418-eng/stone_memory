@@ -23,7 +23,9 @@ class DreamReader {
 
   get(threadId, date) {
     const dream = this.dreamStore.get(threadId, date);
-    return this.isVisible(threadId, dream) ? dream : null;
+    if (!dream) return null;
+    const nsfwEnabled = this.preferences.read(threadId).nsfwEnabled;
+    return nsfwEnabled || !isNsfwDreamType(dream.dreamType) ? dream : null;
   }
 
   latest(threadId) {
@@ -36,12 +38,8 @@ class DreamReader {
   }
 
   list(threadId) {
-    return this.dreamStore.list(threadId).filter(dream => this.isVisible(threadId, dream));
-  }
-
-  isVisible(threadId, dream) {
-    if (!dream) return false;
-    return this.preferences.read(threadId).nsfwEnabled || !isNsfwDreamType(dream.dreamType);
+    const nsfwEnabled = this.preferences.read(threadId).nsfwEnabled;
+    return this.dreamStore.list(threadId).filter(dream => nsfwEnabled || !isNsfwDreamType(dream.dreamType));
   }
 
   eligibleDates(threadId) {
