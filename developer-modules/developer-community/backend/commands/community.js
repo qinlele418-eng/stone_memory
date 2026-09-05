@@ -305,7 +305,11 @@ function applyPullRequest(db, settings, payload) {
   const dossier = github.detail(repository, "pr", number, githubToken(settings));
   const existing = db.prepare("SELECT merge_commit mergeCommit FROM tracked_changes WHERE repository=? AND number=? AND head_sha=? AND removed_at IS NULL")
     .get(repository, number, dossier.headSha);
-  if (existing) return { applied: true, duplicate: true, mergeCommit: existing.mergeCommit, headSha: dossier.headSha, targetBranch: target };
+  if (existing) {
+    const predecessor = removedPredecessor(db, repository, number, dossier.headSha, target, existing.mergeCommit);
+    if (predecessor) return restoreRemovedPullRequest(db, { repository, number, title:dossier.title, targetBranch:target, headSha:dossier.headSha, localRepo, phantomMergeCommit:existing.mergeCommit, ...predecessor });
+    return { applied: true, duplicate: true, mergeCommit: existing.mergeCommit, headSha: dossier.headSha, targetBranch: target };
+  }
   const removed = db.prepare(`SELECT merge_commit mergeCommit,revert_commit revertCommit FROM tracked_changes
     WHERE repository=? AND number=? AND head_sha=? AND target_branch=? AND removed_at IS NOT NULL
     ORDER BY removed_at DESC LIMIT 1`).get(repository, number, dossier.headSha, target);
@@ -328,7 +332,16 @@ function applyPullRequest(db, settings, payload) {
   return recordAppliedPullRequest(db, { repository, number, title:dossier.title, targetBranch:target, headSha:dossier.headSha, mergeCommit });
 }
 
-function restoreRemovedPullRequest(db, { repository, number, title, targetBranch, headSha, localRepo, mergeCommit, revertCommit }) {
+function removedPredecessor(db, repository, number, headSha, targetBranch, phantomMergeCommit = "") {
+  const suffix = phantomMergeCommit ? " AND revert_commit=?" : "";
+  const args = [repository, number, headSha, targetBranch];
+  if (phantomMergeCommit) args.push(phantomMergeCommit);
+  return db.prepare(`SELECT merge_commit mergeCommit,revert_commit revertCommit FROM tracked_changes
+    WHERE repository=? AND number=? AND head_sha=? AND target_branch=? AND removed_at IS NOT NULL${suffix}
+    ORDER BY removed_at DESC LIMIT 1`).get(...args);
+}
+
+function restoreRemovedPullRequest(db, { repository, number, title, targetBranch, headSha, localRepo, mergeCommit, revertCommit, phantomMergeCommit = "" }) {
   github.run("git", ["cat-file", "-e", `${revertCommit}^{commit}`], { cwd:localRepo });
   try {
     github.run("git", ["revert", "--no-edit", revertCommit], { cwd:localRepo });
@@ -341,9 +354,12 @@ function restoreRemovedPullRequest(db, { repository, number, title, targetBranch
   }
   const restoreCommit = github.run("git", ["rev-parse", "HEAD"], { cwd:localRepo });
   const now = new Date().toISOString();
-  db.prepare(`UPDATE tracked_changes SET title=?,applied_at=?,last_remote_sha=?,last_checked_at=?,removed_at=NULL,revert_commit=NULL
-    WHERE repository=? AND number=? AND merge_commit=?`).run(title, now, headSha, now, repository, number, mergeCommit);
-  const result = { applied:true, duplicate:false, restored:true, mergeCommit, restoreCommit, headSha, targetBranch };
+  db.transaction(() => {
+    if (phantomMergeCommit) db.prepare("DELETE FROM tracked_changes WHERE repository=? AND number=? AND merge_commit=?").run(repository, number, phantomMergeCommit);
+    db.prepare(`UPDATE tracked_changes SET title=?,applied_at=?,last_remote_sha=?,last_checked_at=?,removed_at=NULL,revert_commit=NULL
+      WHERE repository=? AND number=? AND merge_commit=?`).run(title, now, headSha, now, repository, number, mergeCommit);
+  })();
+  const result = { applied:true, duplicate:false, restored:true, repairedPhantom:Boolean(phantomMergeCommit), mergeCommit, restoreCommit, headSha, targetBranch };
   receipt(db, "apply-pr", `${repository}#${number}`, result);
   return result;
 }
@@ -431,6 +447,15 @@ function removeChange(db, settings, payload) {
     FROM tracked_changes WHERE repository=? AND number=? AND merge_commit=?`).get(repository, Number(payload.number), String(payload.mergeCommit || ""));
   if (!record) throw new Error("没有找到由琢石坊记录的 PR 合并");
   if (record.removedAt) return { removed: true, duplicate: true, revertCommit: record.revertCommit };
+  const predecessor = db.prepare(`SELECT merge_commit mergeCommit,revert_commit revertCommit FROM tracked_changes
+    WHERE repository=? AND number=? AND removed_at IS NOT NULL AND revert_commit=? ORDER BY removed_at DESC LIMIT 1`)
+    .get(repository, record.number, record.mergeCommit);
+  if (predecessor) {
+    db.prepare("DELETE FROM tracked_changes WHERE repository=? AND number=? AND merge_commit=?").run(repository, record.number, record.mergeCommit);
+    const result = { removed:true, duplicate:false, repairedPhantom:true, revertCommit:predecessor.revertCommit };
+    receipt(db, "remove-change", `${repository}#${record.number}`, result);
+    return result;
+  }
   if (github.run("git", ["status", "--porcelain"], { cwd: localRepo })) throw new Error("本地工作区有未提交改动，不能移除 PR 更改");
   const current = github.run("git", ["branch", "--show-current"], { cwd: localRepo });
   if (current !== record.targetBranch) throw new Error(`请先切换到原目标分支 ${record.targetBranch}`);
@@ -650,4 +675,4 @@ async function run(context, input) {
   } finally { db.close(); }
 }
 
-module.exports = { run, loadSettings, publicSettings, fallbackReport, workbench, applyPullRequest, resolvePullRequest, updateOfficial, resolveOfficialUpdate, restartPlan, classifyChangedFiles, supervisorControl, oauthStart, oauthPoll, configure, generate, DEFAULT_REPOSITORY, GITHUB_CLIENT_ID };
+module.exports = { run, loadSettings, publicSettings, fallbackReport, workbench, applyPullRequest, resolvePullRequest, removeChange, updateOfficial, resolveOfficialUpdate, restartPlan, classifyChangedFiles, supervisorControl, oauthStart, oauthPoll, configure, generate, DEFAULT_REPOSITORY, GITHUB_CLIENT_ID };

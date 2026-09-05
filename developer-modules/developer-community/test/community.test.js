@@ -8,7 +8,7 @@ const test = require("node:test");
 const { openDatabase } = require("../backend/db");
 const { repositorySlug, branchName } = require("../backend/github");
 const github = require("../backend/github");
-const { fallbackReport, workbench, applyPullRequest, resolvePullRequest, updateOfficial, resolveOfficialUpdate, classifyChangedFiles, supervisorControl, loadSettings, oauthStart, oauthPoll, configure, generate, DEFAULT_REPOSITORY, GITHUB_CLIENT_ID } = require("../backend/commands/community");
+const { fallbackReport, workbench, applyPullRequest, resolvePullRequest, removeChange, updateOfficial, resolveOfficialUpdate, classifyChangedFiles, supervisorControl, loadSettings, oauthStart, oauthPoll, configure, generate, DEFAULT_REPOSITORY, GITHUB_CLIENT_ID } = require("../backend/commands/community");
 
 function temporaryContext() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "developer-community-"));
@@ -211,6 +211,43 @@ test("reapplying a removed PR reverts its removal instead of reporting an empty 
     assert.equal(row.revertCommit, null);
     assert.equal(row.title, "Module restored");
   } finally { github.run=originalRun; github.detail=originalDetail; db.close(); fs.rmSync(fixture.root,{recursive:true,force:true}); }
+});
+
+test("reapplying repairs the phantom active record created by the old empty-merge bug", () => {
+  const fixture = temporaryContext();
+  fs.mkdirSync(path.join(fixture.root, "repo", ".git"), { recursive:true });
+  const db = openDatabase(fixture.context);
+  const originalRun = github.run, originalDetail = github.detail;
+  db.prepare(`INSERT INTO tracked_changes(repository,number,title,target_branch,head_sha,merge_commit,applied_at,last_remote_sha,last_checked_at,removed_at,revert_commit)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?)`).run("example/stone-memory", 116, "Original", "community/test", "pr-head", "merge-old", "2026-01-01", "pr-head", "2026-01-01", "2026-01-02", "revert-old");
+  db.prepare(`INSERT INTO tracked_changes(repository,number,title,target_branch,head_sha,merge_commit,applied_at,last_remote_sha,last_checked_at)
+    VALUES(?,?,?,?,?,?,?,?,?)`).run("example/stone-memory", 116, "Phantom", "community/test", "pr-head", "revert-old", "2026-01-03", "pr-head", "2026-01-03");
+  github.detail = () => ({ headSha:"pr-head", title:"Restored" });
+  github.run = (file, args) => args[0] === "branch" ? "community/test" : args[0] === "rev-parse" ? "restore-new" : "";
+  try {
+    const result = applyPullRequest(db, { repository:"example/stone-memory", localRepoPath:path.join(fixture.root,"repo") }, { number:116, targetBranch:"community/test" });
+    assert.equal(result.restored, true);
+    assert.equal(result.repairedPhantom, true);
+    const rows = db.prepare("SELECT merge_commit mergeCommit,removed_at removedAt FROM tracked_changes WHERE repository=? AND number=?").all("example/stone-memory", 116);
+    assert.deepEqual(rows, [{ mergeCommit:"merge-old", removedAt:null }]);
+  } finally { github.run=originalRun; github.detail=originalDetail; db.close(); fs.rmSync(fixture.root,{recursive:true,force:true}); }
+});
+
+test("removing a phantom active record repairs tracking without reverting a non-merge commit", () => {
+  const fixture = temporaryContext();
+  fs.mkdirSync(path.join(fixture.root, "repo", ".git"), { recursive:true });
+  const db = openDatabase(fixture.context);
+  const originalRun = github.run;
+  db.prepare(`INSERT INTO tracked_changes(repository,number,title,target_branch,head_sha,merge_commit,applied_at,last_remote_sha,last_checked_at,removed_at,revert_commit)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?)`).run("example/stone-memory", 116, "Original", "community/test", "pr-head", "merge-old", "2026-01-01", "pr-head", "2026-01-01", "2026-01-02", "revert-old");
+  db.prepare(`INSERT INTO tracked_changes(repository,number,title,target_branch,head_sha,merge_commit,applied_at,last_remote_sha,last_checked_at)
+    VALUES(?,?,?,?,?,?,?,?,?)`).run("example/stone-memory", 116, "Phantom", "community/test", "pr-head", "revert-old", "2026-01-03", "pr-head", "2026-01-03");
+  github.run = () => { throw new Error("phantom cleanup must not invoke git"); };
+  try {
+    const result = removeChange(db, { repository:"example/stone-memory", localRepoPath:path.join(fixture.root,"repo") }, { number:116, mergeCommit:"revert-old" });
+    assert.equal(result.repairedPhantom, true);
+    assert.equal(db.prepare("SELECT COUNT(*) count FROM tracked_changes WHERE merge_commit='revert-old'").get().count, 0);
+  } finally { github.run=originalRun; db.close(); fs.rmSync(fixture.root,{recursive:true,force:true}); }
 });
 
 test("PR conflicts return a selectable file plan after aborting the first merge", () => {
