@@ -151,7 +151,7 @@ test("dream service generates once from published same-thread feelings and saves
   const result = service.generate({ threadId, date: "2026-07-29" });
 
   assert.equal(result.status, "completed");
-  assert.equal(result.dream.dreamType, "erotic");
+  assert.equal(result.dream.dreamType, "nightmare");
   assert.equal(result.dream.title, "Bridge：still open?");
   assert.equal(calls.length, 1);
   assert.equal(calls[0].options.threadId, threadId);
