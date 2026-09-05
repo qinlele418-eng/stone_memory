@@ -8,7 +8,7 @@ const test = require("node:test");
 const { openDatabase } = require("../backend/db");
 const { repositorySlug, branchName } = require("../backend/github");
 const github = require("../backend/github");
-const { fallbackReport, workbench, applyPullRequest, updateOfficial, resolveOfficialUpdate, classifyChangedFiles, supervisorControl, loadSettings, oauthStart, oauthPoll, configure, generate, DEFAULT_REPOSITORY, GITHUB_CLIENT_ID } = require("../backend/commands/community");
+const { fallbackReport, workbench, applyPullRequest, resolvePullRequest, updateOfficial, resolveOfficialUpdate, classifyChangedFiles, supervisorControl, loadSettings, oauthStart, oauthPoll, configure, generate, DEFAULT_REPOSITORY, GITHUB_CLIENT_ID } = require("../backend/commands/community");
 
 function temporaryContext() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "developer-community-"));
@@ -185,6 +185,55 @@ test("PR apply preserves unrelated dirty files and lets git decide whether paths
   }
 });
 
+test("PR conflicts return a selectable file plan after aborting the first merge", () => {
+  const fixture = temporaryContext();
+  fs.mkdirSync(path.join(fixture.root, "repo", ".git"), { recursive:true });
+  const db = openDatabase(fixture.context);
+  const originalRun = github.run, originalDetail = github.detail;
+  const calls = [];
+  github.detail = () => ({ headSha:"pr-head", title:"Synthetic PR" });
+  github.run = (file, args) => {
+    calls.push([file, ...args]);
+    if (args[0] === "branch") return "community/test";
+    if (args[0] === "rev-parse") return "before";
+    if (args[0] === "merge" && args[1] !== "--abort") throw new Error("conflict");
+    if (args[0] === "diff") return "src/a.js\0src/b.js\0";
+    return "";
+  };
+  try {
+    const result = applyPullRequest(db, { repository:"example/stone-memory", localRepoPath:path.join(fixture.root,"repo") }, { number:7, targetBranch:"community/test" });
+    assert.equal(result.conflict, true);
+    assert.deepEqual(result.conflicts, ["src/a.js", "src/b.js"]);
+    assert.equal(result.headSha, "pr-head");
+    assert.ok(calls.some(row => row[1] === "merge" && row[2] === "--abort"));
+  } finally { github.run=originalRun; github.detail=originalDetail; db.close(); fs.rmSync(fixture.root,{recursive:true,force:true}); }
+});
+
+test("selected PR conflict resolution takes PR files and preserves unselected local files", () => {
+  const fixture = temporaryContext();
+  fs.mkdirSync(path.join(fixture.root, "repo", ".git"), { recursive:true });
+  const db = openDatabase(fixture.context);
+  const originalRun = github.run, originalDetail = github.detail;
+  const calls = []; let headReads=0, diffReads=0;
+  github.detail = () => ({ headSha:"pr-head", title:"Synthetic PR" });
+  github.run = (file, args) => {
+    calls.push([file, ...args]);
+    if (args[0] === "branch") return "community/test";
+    if (args[0] === "rev-parse" && args[1] === "HEAD") return headReads++ ? "merge-commit" : "before";
+    if (args[0] === "rev-parse") return "pr-head";
+    if (args[0] === "merge" && args[1] !== "--abort") throw new Error("conflict");
+    if (args[0] === "diff") return diffReads++ ? "" : "src/a.js\0src/b.js\0";
+    if (args[0] === "ls-files") return `100644 aaa 2\t${args.at(-1)}\n100644 bbb 3\t${args.at(-1)}`;
+    return "";
+  };
+  try {
+    const result = resolvePullRequest(db, { repository:"example/stone-memory", localRepoPath:path.join(fixture.root,"repo") }, { number:7, strategy:"selected", files:["src/a.js"], targetBranch:"community/test", before:"before", headSha:"pr-head" });
+    assert.equal(result.applied, true);
+    assert.ok(calls.some(row => row[1] === "checkout" && row[2] === "--theirs" && row.at(-1) === "src/a.js"));
+    assert.ok(calls.some(row => row[1] === "checkout" && row[2] === "--ours" && row.at(-1) === "src/b.js"));
+  } finally { github.run=originalRun; github.detail=originalDetail; db.close(); fs.rmSync(fixture.root,{recursive:true,force:true}); }
+});
+
 test("official update aborts an automatic merge when a conflict is detected", () => {
   const fixture = temporaryContext();
   fs.mkdirSync(path.join(fixture.root, "repo", ".git"), { recursive:true });
@@ -289,6 +338,7 @@ test("frontend uses the shared shell, theme contract, mobile layout and confirma
   assert.match(app, /发生冲突时会让你选择处理方式，不会 push/);
   assert.match(html, /id="official-conflict-dialog"/);
   assert.match(app, /resolve-official-update/);
+  assert.match(app, /resolve-pr/);
   assert.match(html, /id="restart-dialog"/);
   assert.match(html, /data-supervisor="restart"/);
   assert.match(app, /supervisor-control/);

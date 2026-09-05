@@ -2,7 +2,7 @@
   "use strict";
   const runtime = window.StoneDeveloperModule;
   const $ = selector => document.querySelector(selector);
-  let state = { status: null, dossiers: { pullRequests:[], issues:[] }, pages:{ pr:0, issue:0 }, totalCount:{pr:0,issue:0}, hasMore:{ pr:false, issue:false }, active: null, officialConflict:null };
+  let state = { status: null, dossiers: { pullRequests:[], issues:[] }, pages:{ pr:0, issue:0 }, totalCount:{pr:0,issue:0}, hasMore:{ pr:false, issue:false }, active: null, mergeConflict:null };
   let oauthTimer = null;
 
   function toast(message) {
@@ -152,24 +152,33 @@
   async function loadTracked() { try { renderTracked((await command("tracked")).tracked); } catch (error) { toast(error.message); } }
   async function loadStatus() { try { renderStatus(await command("status")); } catch (error) { toast(error.message); } }
 
-  function showOfficialConflict(result) {
-    state.officialConflict = result;
-    $("#official-conflict-files").innerHTML = result.conflicts.map((file, index) => `<label class="conflict-file"><input type="checkbox" data-conflict-index="${index}"><span><code>${escapeHtml(file)}</code><small>勾选后采用官方版本</small></span></label>`).join("");
+  function showMergeConflict(result, kind) {
+    state.mergeConflict = { ...result, kind };
+    const incoming = kind === "pr" ? `PR #${result.number}` : "官方";
+    $("#merge-conflict-title").textContent = `${incoming}更新与本地分支存在冲突`;
+    $("#merge-conflict-copy").textContent = `勾选的文件采用${incoming}版本；未勾选的冲突文件保留本地版本。确认后会完成一次合并提交，不会推送远端。`;
+    $("#official-conflict-files").innerHTML = result.conflicts.map((file, index) => `<label class="conflict-file"><input type="checkbox" data-conflict-index="${index}"><span><code>${escapeHtml(file)}</code><small>勾选后采用${escapeHtml(incoming)}版本</small></span></label>`).join("");
     $("#official-conflict-dialog").showModal();
   }
 
-  async function resolveOfficialConflict(strategy) {
-    const conflict = state.officialConflict;
+  async function resolveMergeConflict(mode) {
+    const conflict = state.mergeConflict;
     if (!conflict) return;
     const files = [...document.querySelectorAll("[data-conflict-index]:checked")].map(node => conflict.conflicts[Number(node.dataset.conflictIndex)]);
-    const message = strategy === "official-all"
-      ? `确认让全部 ${conflict.conflicts.length} 个冲突文件采用官方版本并完成合并？本地冲突内容会被覆盖。`
-      : `确认完成合并？${files.length} 个勾选文件采用官方版本，其余冲突文件保留本地版本。`;
+    const incoming = conflict.kind === "pr" ? `PR #${conflict.number}` : "官方";
+    const strategy = mode === "all" ? (conflict.kind === "pr" ? "pr-all" : "official-all") : "selected";
+    const message = mode === "all"
+      ? `确认让全部 ${conflict.conflicts.length} 个冲突文件采用${incoming}版本并完成合并？本地冲突内容会被覆盖。`
+      : `确认完成合并？${files.length} 个勾选文件采用${incoming}版本，其余冲突文件保留本地版本。`;
     if (!confirm(message)) return;
     try {
-      await command("resolve-official-update", { strategy, files, currentBranch:conflict.currentBranch, before:conflict.before, officialHead:conflict.officialHead, defaultBranch:conflict.defaultBranch });
-      $("#official-conflict-dialog").close(); state.officialConflict = null;
-      toast("官方更新已按所选方案合入当前分支");
+      const action = conflict.kind === "pr" ? "resolve-pr" : "resolve-official-update";
+      const payload = conflict.kind === "pr"
+        ? { strategy, files, number:conflict.number, targetBranch:conflict.targetBranch, before:conflict.before, headSha:conflict.headSha }
+        : { strategy, files, currentBranch:conflict.currentBranch, before:conflict.before, officialHead:conflict.officialHead, defaultBranch:conflict.defaultBranch };
+      await command(action, payload);
+      $("#official-conflict-dialog").close(); state.mergeConflict = null;
+      toast(`${incoming}更新已按所选方案合入当前分支`);
       await Promise.all([loadLocalOverview(), loadTracked()]);
     } catch (error) { toast(error.message); }
   }
@@ -252,7 +261,7 @@
   $("#reanalyze").addEventListener("click", async () => { if (!state.active) return; try { await openDossier(state.active.kind, state.active.number, true); } catch (error) { toast(error.message); } });
   $("#send-reply").addEventListener("click", async () => { if (!state.active || !confirm("确认把这条回复正式发布到 GitHub？")) return; try { await command("comment", { number:state.active.number, body:$("#reply").value }); toast("回复已发布"); await openDossier(state.active.kind,state.active.number); } catch(error){toast(error.message);} });
   $("#add-workbench").addEventListener("click", async () => { if (!state.active) return; try { const result=await command("workbench",{mode:"add",kind:state.active.kind,number:state.active.number,title:state.active.title,author:state.active.author}); renderWorkbench(result.workbench); toast("已收入工作台"); } catch(error){toast(error.message);} });
-  $("#apply-pr").addEventListener("click", async () => { if (!state.active) return; const targetBranch=prompt("请输入当前本地目标分支名"); if(!targetBranch||!confirm(`确认把 PR #${state.active.number} 合并到本地分支 ${targetBranch}？`))return; try{await command("apply-pr",{number:state.active.number,targetBranch});toast("PR 已合入本地分支");$("#dossier-dialog").close();await loadTracked();}catch(error){toast(error.message);} });
+  $("#apply-pr").addEventListener("click", async () => { if (!state.active) return; const targetBranch=prompt("请输入当前本地目标分支名"); if(!targetBranch||!confirm(`确认把 PR #${state.active.number} 合并到本地分支 ${targetBranch}？`))return; try{const result=await command("apply-pr",{number:state.active.number,targetBranch});$("#dossier-dialog").close();if(result.conflict){showMergeConflict(result,"pr");return;}toast("PR 已合入本地分支");await loadTracked();}catch(error){toast(error.message);} });
   $("#copy-workbench").addEventListener("click", async () => { const items=state.workbench||[]; if(!items.length)return toast("工作台还是空的"); const repo=state.status?.repository?.slug||"项目"; const refs=items.map(item=>`#${item.number} ${item.kind.toUpperCase()}`).join("、"); if(await copyText(`请查看 ${repo} 的 ${refs}。`, "Agent 任务")) toast("已复制给 Agent 的任务信息"); });
   $("#refresh-tracked").addEventListener("click", loadTracked);
   $("#refresh-local").addEventListener("click", loadLocalOverview);
@@ -262,15 +271,15 @@
     if (!confirm("确认从官方仓库默认分支拉取新版并合入当前本地分支？发生冲突时会让你选择处理方式，不会 push。")) return;
     try {
       const result = await command("update-official");
-      if (result.conflict) { showOfficialConflict(result); return; }
+      if (result.conflict) { showMergeConflict(result, "official"); return; }
       toast(result.updated ? "官方新版已合入当前分支" : "当前分支已经包含官方最新版");
       await Promise.all([loadLocalOverview(), loadTracked()]);
     } catch (error) { toast(error.message); }
   });
-  $("#close-official-conflict").addEventListener("click", () => { $("#official-conflict-dialog").close(); state.officialConflict=null; });
-  $("#cancel-official-merge").addEventListener("click", () => { $("#official-conflict-dialog").close(); state.officialConflict=null; });
-  $("#merge-selected-official").addEventListener("click", () => resolveOfficialConflict("selected"));
-  $("#merge-all-official").addEventListener("click", () => resolveOfficialConflict("official-all"));
+  $("#close-official-conflict").addEventListener("click", () => { $("#official-conflict-dialog").close(); state.mergeConflict=null; });
+  $("#cancel-official-merge").addEventListener("click", () => { $("#official-conflict-dialog").close(); state.mergeConflict=null; });
+  $("#merge-selected-official").addEventListener("click", () => resolveMergeConflict("selected"));
+  $("#merge-all-official").addEventListener("click", () => resolveMergeConflict("all"));
   $("#restart").addEventListener("click", openRestartAssistant);
   $("#close-restart-dialog").addEventListener("click", () => $("#restart-dialog").close());
   $("#copy-restart-commands").addEventListener("click", async () => { const commands=state.restartPlan?.commands||[]; if (commands.length && await copyText(commands.join(" && "), "应用改动命令")) toast("需要在终端执行的指令已复制"); });

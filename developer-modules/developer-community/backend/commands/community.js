@@ -307,21 +307,28 @@ function applyPullRequest(db, settings, payload) {
     .get(repository, number, dossier.headSha);
   if (existing) return { applied: true, duplicate: true, mergeCommit: existing.mergeCommit, headSha: dossier.headSha, targetBranch: target };
   const ref = `refs/stmem/developer-community/pr-${number}`;
+  const before = github.run("git", ["rev-parse", "HEAD"], { cwd:localRepo });
   github.run("git", ["fetch", gitRemoteForRepository(localRepo, repository), `pull/${number}/head:${ref}`], { cwd: localRepo });
   try {
     github.run("git", ["merge", "--no-ff", ref, "-m", `merge: try ${repository} PR #${number}`], { cwd: localRepo });
   } catch (error) {
+    const conflicts = unmergedFiles(localRepo);
     try { github.run("git", ["merge", "--abort"], { cwd: localRepo }); } catch {}
     if (/local changes|working tree files|would be overwritten/iu.test(String(error?.message || ""))) {
       throw new Error("PR 改动会覆盖同一路径的本地未提交文件，已停止合并；无关本地文件不会触发此限制");
     }
-    throw new Error("PR 合并发生冲突，已中止本次 merge；本地分支未产生合并提交");
+    if (conflicts.length) return { applied:false, conflict:true, conflicts, repository, number, title:dossier.title, targetBranch:target, before, headSha:dossier.headSha };
+    throw new Error("PR 合并失败，已中止本次 merge；本地分支未产生合并提交");
   }
   const mergeCommit = github.run("git", ["rev-parse", "HEAD"], { cwd: localRepo });
+  return recordAppliedPullRequest(db, { repository, number, title:dossier.title, targetBranch:target, headSha:dossier.headSha, mergeCommit });
+}
+
+function recordAppliedPullRequest(db, { repository, number, title, targetBranch, headSha, mergeCommit }) {
   const now = new Date().toISOString();
   db.prepare(`INSERT INTO tracked_changes(repository,number,title,target_branch,head_sha,merge_commit,applied_at,last_remote_sha,last_checked_at)
-    VALUES(?,?,?,?,?,?,?,?,?)`).run(repository, number, dossier.title, target, dossier.headSha, mergeCommit, now, dossier.headSha, now);
-  const result = { applied: true, duplicate: false, mergeCommit, headSha: dossier.headSha, targetBranch: target };
+    VALUES(?,?,?,?,?,?,?,?,?)`).run(repository, number, title, targetBranch, headSha, mergeCommit, now, headSha, now);
+  const result = { applied:true, duplicate:false, mergeCommit, headSha, targetBranch };
   receipt(db, "apply-pr", `${repository}#${number}`, result);
   return result;
 }
@@ -369,6 +376,14 @@ function localOverview(db, settings) {
   } catch {}
   let upstream = "";
   try { upstream = github.run("git", ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], { cwd:localRepo }); } catch {}
+  let pushedCommits = [];
+  if (upstream) {
+    try {
+      const removed = db.prepare("SELECT merge_commit mergeCommit,revert_commit revertCommit FROM tracked_changes WHERE repository=? AND removed_at IS NOT NULL").all(repository);
+      const hidden = new Set(removed.flatMap(row => [row.mergeCommit, row.revertCommit]).filter(Boolean));
+      pushedCommits = github.run("git", ["log", "--first-parent", "-20", "--format=%H%x1f%an%x1f%ad%x1f%s", "--date=short", `${officialRef}..${upstream}`], { cwd:localRepo }).split(/\r?\n/u).filter(Boolean).map(line => { const [sha,author,date,message] = line.split("\x1f"); return { sha,author,date,message }; }).filter(item => !hidden.has(item.sha));
+    } catch {}
+  }
   const merged = [];
   try {
     const mergeRows = github.run("git", ["log", "--all", "--merges", "-100", "--format=%H"], { cwd:localRepo }).split(/\r?\n/u).filter(Boolean);
@@ -379,7 +394,7 @@ function localOverview(db, settings) {
   return {
     repository, branch, defaultBranch, behind, ahead, upstream,
     dirty:statusRows.length > 0, changes:statusRows, localCommits:commits,
-    pushedCommits:upstream ? commits : [], mergedPrs:merged,
+    pushedCommits, mergedPrs:merged,
     officialCommits: (() => { try { return github.recentCommits(repository, token); } catch { return []; } })(),
   };
 }
@@ -497,6 +512,51 @@ function resolveOfficialUpdate(db, settings, payload) {
   return result;
 }
 
+function resolvePullRequest(db, settings, payload) {
+  const repository = requiredRepository(settings);
+  const localRepo = path.resolve(String(settings.localRepoPath || ""));
+  if (!settings.localRepoPath || !fs.existsSync(path.join(localRepo, ".git"))) throw new Error("请先配置有效的本地仓库路径");
+  const number = Number(payload.number);
+  if (!Number.isInteger(number) || number < 1) throw new Error("PR 编号无效");
+  const strategy = payload.strategy === "pr-all" ? "pr-all" : payload.strategy === "selected" ? "selected" : "";
+  if (!strategy) throw new Error("冲突处理策略无效");
+  const expectedBranch = github.branchName(payload.targetBranch);
+  const expectedBefore = String(payload.before || "");
+  const expectedHead = String(payload.headSha || "");
+  const requestedFiles = Array.isArray(payload.files) ? payload.files.map(String) : [];
+  if (github.run("git", ["branch", "--show-current"], { cwd:localRepo }) !== expectedBranch) throw new Error("当前分支已经变化，请重新合并 PR");
+  if (github.run("git", ["rev-parse", "HEAD"], { cwd:localRepo }) !== expectedBefore) throw new Error("本地 HEAD 已经变化，请重新合并 PR");
+  const dossier = github.detail(repository, "pr", number, githubToken(settings));
+  if (dossier.headSha !== expectedHead) throw new Error("PR 已有新提交，请重新打开后再合并");
+  const ref = `refs/stmem/developer-community/pr-${number}`;
+  github.run("git", ["fetch", gitRemoteForRepository(localRepo, repository), `pull/${number}/head:${ref}`], { cwd:localRepo });
+  if (github.run("git", ["rev-parse", ref], { cwd:localRepo }) !== expectedHead) throw new Error("本地 PR 引用与 GitHub 不一致，请重新合并");
+  try {
+    github.run("git", ["merge", "--no-ff", ref, "-m", `merge: try ${repository} PR #${number}`], { cwd:localRepo });
+  } catch (error) {
+    const conflicts = unmergedFiles(localRepo);
+    if (!conflicts.length) {
+      try { github.run("git", ["merge", "--abort"], { cwd:localRepo }); } catch {}
+      throw error;
+    }
+    const allowed = new Set(conflicts), selected = new Set(requestedFiles);
+    if ([...selected].some(file => !allowed.has(file))) {
+      try { github.run("git", ["merge", "--abort"], { cwd:localRepo }); } catch {}
+      throw new Error("选择的冲突文件已经变化，请重新合并 PR");
+    }
+    try {
+      for (const file of conflicts) resolveUnmergedFile(localRepo, file, strategy === "pr-all" || selected.has(file) ? "theirs" : "ours");
+      if (unmergedFiles(localRepo).length) throw new Error("仍有未解决的冲突文件");
+      github.run("git", ["commit", "--no-edit"], { cwd:localRepo });
+    } catch (resolutionError) {
+      try { github.run("git", ["merge", "--abort"], { cwd:localRepo }); } catch {}
+      throw new Error(`PR 冲突处理失败，已撤销本次合并：${resolutionError.message}`);
+    }
+  }
+  const mergeCommit = github.run("git", ["rev-parse", "HEAD"], { cwd:localRepo });
+  return recordAppliedPullRequest(db, { repository, number, title:dossier.title, targetBranch:expectedBranch, headSha:expectedHead, mergeCommit });
+}
+
 async function run(context, input) {
   const payload = input.payload || {};
   const db = openDatabase(context);
@@ -555,6 +615,7 @@ async function run(context, input) {
     }
     if (input.action === "workbench") return { workbench: workbench(db, repository, payload) };
     if (input.action === "apply-pr") return applyPullRequest(db, settings, payload);
+    if (input.action === "resolve-pr") return resolvePullRequest(db, settings, payload);
     if (input.action === "tracked") return { tracked: tracked(db, settings) };
     if (input.action === "update-official") return updateOfficial(db, settings);
     if (input.action === "resolve-official-update") return resolveOfficialUpdate(db, settings, payload);
@@ -565,4 +626,4 @@ async function run(context, input) {
   } finally { db.close(); }
 }
 
-module.exports = { run, loadSettings, publicSettings, fallbackReport, workbench, applyPullRequest, updateOfficial, resolveOfficialUpdate, restartPlan, classifyChangedFiles, supervisorControl, oauthStart, oauthPoll, configure, generate, DEFAULT_REPOSITORY, GITHUB_CLIENT_ID };
+module.exports = { run, loadSettings, publicSettings, fallbackReport, workbench, applyPullRequest, resolvePullRequest, updateOfficial, resolveOfficialUpdate, restartPlan, classifyChangedFiles, supervisorControl, oauthStart, oauthPoll, configure, generate, DEFAULT_REPOSITORY, GITHUB_CLIENT_ID };

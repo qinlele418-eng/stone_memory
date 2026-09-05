@@ -22,6 +22,7 @@
       "comment": "backend/commands/community.js",
       "workbench": "backend/commands/community.js",
       "apply-pr": "backend/commands/community.js",
+      "resolve-pr": "backend/commands/community.js",
       "tracked": "backend/commands/community.js",
       "update-official": "backend/commands/community.js",
       "resolve-official-update": "backend/commands/community.js",

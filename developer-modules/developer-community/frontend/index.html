@@ -109,13 +109,13 @@
     <article class="dialog-card conflict-card">
       <button id="close-official-conflict" class="close" aria-label="关闭">×</button>
       <p class="eyebrow">MERGE CONFLICT</p>
-      <h2>官方更新与本地分支存在冲突</h2>
-      <p class="muted">勾选的文件采用官方版本；未勾选的冲突文件保留本地版本。确认后会完成一次合并提交，不会推送远端。</p>
+      <h2 id="merge-conflict-title">更新与本地分支存在冲突</h2>
+      <p id="merge-conflict-copy" class="muted">勾选采用传入版本，未勾选保留本地版本。确认后会完成一次合并提交，不会推送远端。</p>
       <div id="official-conflict-files" class="conflict-files"></div>
       <div class="dialog-actions">
         <button id="cancel-official-merge" class="secondary" type="button">不合并</button>
-        <button id="merge-selected-official" class="secondary" type="button">选择部分文件强制合并</button>
-        <button id="merge-all-official" class="primary" type="button">强制合并</button>
+        <button id="merge-selected-official" class="secondary" type="button">按选择合并</button>
+        <button id="merge-all-official" class="primary" type="button">全部强制合并</button>
       </div>
     </article>
   </dialog>
