@@ -250,6 +250,29 @@ test("removing a phantom active record repairs tracking without reverting a non-
   } finally { github.run=originalRun; db.close(); fs.rmSync(fixture.root,{recursive:true,force:true}); }
 });
 
+test("a conflicting PR removal always aborts revert and leaves tracking active", () => {
+  const fixture = temporaryContext();
+  fs.mkdirSync(path.join(fixture.root, "repo", ".git"), { recursive:true });
+  const db = openDatabase(fixture.context);
+  const originalRun = github.run;
+  const calls = [];
+  db.prepare(`INSERT INTO tracked_changes(repository,number,title,target_branch,head_sha,merge_commit,applied_at,last_remote_sha,last_checked_at)
+    VALUES(?,?,?,?,?,?,?,?,?)`).run("example/stone-memory", 116, "Module", "community/test", "pr-head", "merge-real", "2026-01-01", "pr-head", "2026-01-01");
+  github.run = (file, args) => {
+    calls.push([file, ...args]);
+    if (args[0] === "status") return "";
+    if (args[0] === "branch") return "community/test";
+    if (args[0] === "revert" && args[1] === "-m") throw new Error("conflict");
+    if (args[0] === "diff") return "bin/stmem\0src/web/server.js\0";
+    return "";
+  };
+  try {
+    assert.throws(() => removeChange(db, { repository:"example/stone-memory", localRepoPath:path.join(fixture.root,"repo") }, { number:116, mergeCommit:"merge-real" }), /已自动撤销.*未留下冲突文件/u);
+    assert.ok(calls.some(row => row[1] === "revert" && row[2] === "--abort"));
+    assert.equal(db.prepare("SELECT removed_at removedAt FROM tracked_changes WHERE merge_commit='merge-real'").get().removedAt, null);
+  } finally { github.run=originalRun; db.close(); fs.rmSync(fixture.root,{recursive:true,force:true}); }
+});
+
 test("PR conflicts return a selectable file plan after aborting the first merge", () => {
   const fixture = temporaryContext();
   fs.mkdirSync(path.join(fixture.root, "repo", ".git"), { recursive:true });

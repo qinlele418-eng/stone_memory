@@ -460,7 +460,15 @@ function removeChange(db, settings, payload) {
   const current = github.run("git", ["branch", "--show-current"], { cwd: localRepo });
   if (current !== record.targetBranch) throw new Error(`请先切换到原目标分支 ${record.targetBranch}`);
   github.run("git", ["cat-file", "-e", `${record.mergeCommit}^{commit}`], { cwd: localRepo });
-  github.run("git", ["revert", "-m", "1", record.mergeCommit, "--no-edit"], { cwd: localRepo });
+  try {
+    github.run("git", ["revert", "-m", "1", record.mergeCommit, "--no-edit"], { cwd: localRepo });
+  } catch (error) {
+    let conflicts = [];
+    try { conflicts = unmergedFiles(localRepo); } catch {}
+    try { github.run("git", ["revert", "--abort"], { cwd: localRepo }); } catch {}
+    if (conflicts.length) throw new Error(`删除 PR 改动时发生冲突，已自动撤销本次操作；未留下冲突文件：${conflicts.join("、")}`);
+    throw new Error(`删除 PR 改动失败，已自动清理 Git 操作状态：${error.message}`);
+  }
   const revertCommit = github.run("git", ["rev-parse", "HEAD"], { cwd: localRepo });
   const now = new Date().toISOString();
   db.prepare("UPDATE tracked_changes SET removed_at=?,revert_commit=? WHERE repository=? AND number=? AND merge_commit=?")
