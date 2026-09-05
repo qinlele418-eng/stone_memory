@@ -185,6 +185,34 @@ test("PR apply preserves unrelated dirty files and lets git decide whether paths
   }
 });
 
+test("reapplying a removed PR reverts its removal instead of reporting an empty merge as success", () => {
+  const fixture = temporaryContext();
+  fs.mkdirSync(path.join(fixture.root, "repo", ".git"), { recursive:true });
+  const db = openDatabase(fixture.context);
+  const originalRun = github.run, originalDetail = github.detail;
+  const calls = [];
+  db.prepare(`INSERT INTO tracked_changes(repository,number,title,target_branch,head_sha,merge_commit,applied_at,last_remote_sha,last_checked_at,removed_at,revert_commit)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?)`).run("example/stone-memory", 116, "Module", "community/test", "pr-head", "merge-old", "2026-01-01", "pr-head", "2026-01-01", "2026-01-02", "revert-old");
+  github.detail = () => ({ headSha:"pr-head", title:"Module restored" });
+  github.run = (file, args) => {
+    calls.push([file, ...args]);
+    if (args[0] === "branch") return "community/test";
+    if (args[0] === "rev-parse") return "restore-new";
+    return "";
+  };
+  try {
+    const result = applyPullRequest(db, { repository:"example/stone-memory", localRepoPath:path.join(fixture.root,"repo") }, { number:116, targetBranch:"community/test" });
+    assert.equal(result.restored, true);
+    assert.equal(result.restoreCommit, "restore-new");
+    assert.ok(calls.some(row => row[1] === "revert" && row.includes("revert-old")));
+    assert.equal(calls.some(row => row[1] === "merge"), false);
+    const row = db.prepare("SELECT removed_at removedAt,revert_commit revertCommit,title FROM tracked_changes WHERE merge_commit='merge-old'").get();
+    assert.equal(row.removedAt, null);
+    assert.equal(row.revertCommit, null);
+    assert.equal(row.title, "Module restored");
+  } finally { github.run=originalRun; github.detail=originalDetail; db.close(); fs.rmSync(fixture.root,{recursive:true,force:true}); }
+});
+
 test("PR conflicts return a selectable file plan after aborting the first merge", () => {
   const fixture = temporaryContext();
   fs.mkdirSync(path.join(fixture.root, "repo", ".git"), { recursive:true });
@@ -333,6 +361,9 @@ test("frontend uses the shared shell, theme contract, mobile layout and confirma
   assert.match(css, /--stone-theme-/);
   assert.match(css, /@media\(max-width:720px\)/);
   assert.match(css, /\.dossier-list\s*\{[^}]*max-height:[^}]*overflow-y:auto/s);
+  assert.match(css, /\.contribution-card \.contribution-title\s*\{[^}]*-webkit-line-clamp:2/s);
+  assert.match(app, /class="contribution-meta"/);
+  assert.match(app, /暂无回复/);
   assert.match(app, /confirm\("确认把这条回复正式发布到 GitHub/);
   assert.match(app, /confirm\("确认通过 revert 提交移除/);
   assert.match(app, /发生冲突时会让你选择处理方式，不会 push/);

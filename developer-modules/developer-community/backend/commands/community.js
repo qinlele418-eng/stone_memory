@@ -306,6 +306,10 @@ function applyPullRequest(db, settings, payload) {
   const existing = db.prepare("SELECT merge_commit mergeCommit FROM tracked_changes WHERE repository=? AND number=? AND head_sha=? AND removed_at IS NULL")
     .get(repository, number, dossier.headSha);
   if (existing) return { applied: true, duplicate: true, mergeCommit: existing.mergeCommit, headSha: dossier.headSha, targetBranch: target };
+  const removed = db.prepare(`SELECT merge_commit mergeCommit,revert_commit revertCommit FROM tracked_changes
+    WHERE repository=? AND number=? AND head_sha=? AND target_branch=? AND removed_at IS NOT NULL
+    ORDER BY removed_at DESC LIMIT 1`).get(repository, number, dossier.headSha, target);
+  if (removed?.revertCommit) return restoreRemovedPullRequest(db, { repository, number, title:dossier.title, targetBranch:target, headSha:dossier.headSha, localRepo, ...removed });
   const ref = `refs/stmem/developer-community/pr-${number}`;
   const before = github.run("git", ["rev-parse", "HEAD"], { cwd:localRepo });
   github.run("git", ["fetch", gitRemoteForRepository(localRepo, repository), `pull/${number}/head:${ref}`], { cwd: localRepo });
@@ -322,6 +326,26 @@ function applyPullRequest(db, settings, payload) {
   }
   const mergeCommit = github.run("git", ["rev-parse", "HEAD"], { cwd: localRepo });
   return recordAppliedPullRequest(db, { repository, number, title:dossier.title, targetBranch:target, headSha:dossier.headSha, mergeCommit });
+}
+
+function restoreRemovedPullRequest(db, { repository, number, title, targetBranch, headSha, localRepo, mergeCommit, revertCommit }) {
+  github.run("git", ["cat-file", "-e", `${revertCommit}^{commit}`], { cwd:localRepo });
+  try {
+    github.run("git", ["revert", "--no-edit", revertCommit], { cwd:localRepo });
+  } catch (error) {
+    try { github.run("git", ["revert", "--abort"], { cwd:localRepo }); } catch {}
+    if (/local changes|working tree files|would be overwritten/iu.test(String(error?.message || ""))) {
+      throw new Error("恢复 PR 会覆盖同一路径的本地未提交文件，已停止恢复");
+    }
+    throw new Error("这个 PR 曾被移除，但恢复其改动时发生冲突；已中止恢复，不能自动标记为拉取成功");
+  }
+  const restoreCommit = github.run("git", ["rev-parse", "HEAD"], { cwd:localRepo });
+  const now = new Date().toISOString();
+  db.prepare(`UPDATE tracked_changes SET title=?,applied_at=?,last_remote_sha=?,last_checked_at=?,removed_at=NULL,revert_commit=NULL
+    WHERE repository=? AND number=? AND merge_commit=?`).run(title, now, headSha, now, repository, number, mergeCommit);
+  const result = { applied:true, duplicate:false, restored:true, mergeCommit, restoreCommit, headSha, targetBranch };
+  receipt(db, "apply-pr", `${repository}#${number}`, result);
+  return result;
 }
 
 function recordAppliedPullRequest(db, { repository, number, title, targetBranch, headSha, mergeCommit }) {
