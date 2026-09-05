@@ -7,15 +7,19 @@
 （梦向牵引 / 安梦守护 / 梦谱调律）与**梦境档案**（按月目录浏览每一场已保存的梦，点击
 进入纯阅读详情页，正文保留 Markdown / 换行语义）。
 
-其中「安梦守护」允许排除五种最终梦境中的任意一种或多种（而不是单一 boolean 总开关）；
-「梦谱调律」按 Automatic Dream 的双判定树呈现——第一重「基础梦向」、第二重「春意浸染」
-与最终五类概率，倍率只调整对应决策节点的相对权重。
+Automatic Dream 默认处于安全模式，只提供美梦与噩梦；成年亲密主题的「绮梦」能力需要在
+「织梦调律 → 安梦守护 → 高级设置」内显式开启。关闭时，后端策略、梦向牵引、Prompt
+编辑和梦境档案都会隔离绮梦内容，同时保留历史倍率、排除项、Prompt override 与档案。
+
+「安梦守护」允许排除当前可用的最终梦境类型；开启 NSFW 后，「梦谱调律」按 Automatic
+Dream 的双判定树呈现——第一重「基础梦向」、第二重「绮意浸染」与最终五类概率。安全
+模式只显示美梦、噩梦两类的相对倍率与最终概率。
 
 入口、页面、样式与交互均封装在本目录。删除主前端对 `/dream-lab/bootstrap.js` 的
 加载及本目录后，Stone Memory 基础前端仍可运行。
 
 后端写入只调用正式的 `stmem dream` CLI（`preferences` / `pin` / `unpin` / `guard` /
-`multiplier` / `prompt` 子命令）；策略解析与 one-shot 消费统一在 `DreamService`
+`multiplier` / `nsfw` / `prompt` 子命令）；策略解析与 one-shot 消费统一在 `DreamService`
 内完成，自动生成通过 watcher 的可发现 `post-mining` 插件注册，不在 watcher 主流程
 中硬编码梦境业务，也不在 Web 层直接写 Prompt 文件或 `stmem.json`。
 

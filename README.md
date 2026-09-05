@@ -361,7 +361,9 @@ stmem mine-review preview --thread <线程ID> --date <YYYY-MM-DD>   # 审阅候�
 stmem mine-review list --thread <线程ID>
 stmem mine-review apply --thread <线程ID> --candidate <候选ID>
 
-stmem dream --thread <线程ID>                # 手动织梦
+stmem dream --thread <线程ID> --date <YYYY-MM-DD>  # 手动织梦
+stmem dream preferences --thread <线程ID>          # 查看织梦偏好与安全模式分布
+stmem dream nsfw --thread <线程ID> on|off           # 显式开启或关闭成年亲密主题梦境
 stmem memory update --thread <线程ID> --batch-file <json>   # 摘要/锚点编辑
 stmem rules list --thread <线程ID>           # 规则管理
 

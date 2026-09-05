@@ -4,12 +4,13 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 const { getThreadDir } = require("../config");
-const { DREAM_TYPE_ORDER, assertDreamType, normalizeMultipliers, planDreamDistribution, MULTIPLIER_STEPS } = require("./dream-policy");
+const { DREAM_TYPE_ORDER, assertDreamType, isNsfwDreamType, nsfwDisabledError, normalizeMultipliers, planDreamDistribution, MULTIPLIER_STEPS } = require("./dream-policy");
 
 // 每记忆体织梦偏好与 Prompt override 的正式用户数据层。
 // 全部通过 stmem CLI 写入，Web/HTTP 不得直接触碰这些文件。
 const DEFAULT_PREFERENCES = Object.freeze({
-  schemaVersion: 2,
+  schemaVersion: 3,
+  nsfwEnabled: false,
   multipliers: Object.freeze({
     beautiful: 1,
     nightmare: 1,
@@ -58,22 +59,27 @@ class DreamPreferences {
       if (error.code === "ENOENT") return defaultPreferences();
       throw error;
     }
+    const nsfwEnabled = parsed?.schemaVersion === 3 && parsed?.nsfwEnabled === true;
+    const oneShot = normalizeOneShot(parsed?.oneShot);
     return {
-      schemaVersion: 2,
+      schemaVersion: 3,
+      nsfwEnabled,
       multipliers: normalizeMultipliers(parsed?.multipliers),
       excludedTypes: migrateExcludedTypes(parsed),
-      oneShot: normalizeOneShot(parsed?.oneShot),
+      oneShot: !nsfwEnabled && isNsfwDreamType(oneShot?.dreamType) ? null : oneShot,
     };
   }
 
   write(threadId, preferences) {
     const file = this.preferencesFileFor(threadId);
     const document = {
-      schemaVersion: 2,
+      schemaVersion: 3,
+      nsfwEnabled: preferences?.nsfwEnabled === true,
       multipliers: normalizeMultipliers(preferences?.multipliers),
       excludedTypes: normalizeExcludedTypes(preferences?.excludedTypes),
       oneShot: normalizeOneShot(preferences?.oneShot),
     };
+    if (!document.nsfwEnabled && isNsfwDreamType(document.oneShot?.dreamType)) document.oneShot = null;
     fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
     const temporary = `${file}.tmp-${process.pid}-${randomUUID()}`;
     try {
@@ -87,7 +93,9 @@ class DreamPreferences {
 
   setOneShot(threadId, dreamType) {
     const current = this.read(threadId);
-    current.oneShot = { dreamType: assertDreamType(dreamType), token: randomUUID(), requestedAt: new Date().toISOString() };
+    const normalizedType = assertDreamType(dreamType);
+    if (!current.nsfwEnabled && isNsfwDreamType(normalizedType)) throw nsfwDisabledError();
+    current.oneShot = { dreamType: normalizedType, token: randomUUID(), requestedAt: new Date().toISOString() };
     this.write(threadId, current);
     return current;
   }
@@ -113,7 +121,7 @@ class DreamPreferences {
     const current = this.read(threadId);
     const normalized = normalizeExcludedTypes(excludedTypes);
     // 排除集合与现有倍率组合后仍需存在可达随机类型，否则拒绝。
-    planDreamDistribution({ multipliers: current.multipliers, excludedTypes: normalized });
+    planDreamDistribution({ multipliers: current.multipliers, excludedTypes: normalized, nsfwEnabled: current.nsfwEnabled });
     current.excludedTypes = normalized;
     this.write(threadId, current);
     return current;
@@ -128,8 +136,16 @@ class DreamPreferences {
       assertMultiplierStep(normalized[type]);
     }
     // 与当前安梦守护组合后仍需存在可达随机类型，否则拒绝。
-    planDreamDistribution({ multipliers: normalized, excludedTypes: current.excludedTypes });
+    planDreamDistribution({ multipliers: normalized, excludedTypes: current.excludedTypes, nsfwEnabled: current.nsfwEnabled });
     current.multipliers = normalized;
+    this.write(threadId, current);
+    return current;
+  }
+
+  setNsfwEnabled(threadId, enabled) {
+    const current = this.read(threadId);
+    current.nsfwEnabled = enabled === true;
+    if (!current.nsfwEnabled && isNsfwDreamType(current.oneShot?.dreamType)) current.oneShot = null;
     this.write(threadId, current);
     return current;
   }
@@ -191,7 +207,8 @@ class DreamPreferences {
 
 function defaultPreferences() {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
+    nsfwEnabled: false,
     multipliers: { ...DEFAULT_PREFERENCES.multipliers },
     excludedTypes: [],
     oneShot: null,

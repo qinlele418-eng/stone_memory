@@ -17,6 +17,8 @@ function makeStore(t) {
 test("missing preferences fall back to defaults", t => {
   const store = makeStore(t);
   const prefs = store.read("thread-a");
+  assert.equal(prefs.schemaVersion, 3);
+  assert.equal(prefs.nsfwEnabled, false);
   assert.deepEqual(prefs.excludedTypes, []);
   assert.deepEqual(prefs.multipliers, { beautiful: 1, nightmare: 1, erotic: 1, beautiful_erotic: 1, nightmare_erotic: 1 });
   assert.equal(prefs.oneShot, null);
@@ -54,6 +56,7 @@ test("one-shot is consumed only when the token still matches", t => {
 
 test("clearing one-shot resets the next-dream override", t => {
   const store = makeStore(t);
+  store.setNsfwEnabled("thread-a", true);
   store.setOneShot("thread-a", "erotic");
   store.clearOneShot("thread-a");
   assert.equal(store.read("thread-a").oneShot, null);
@@ -93,6 +96,7 @@ test("v1 guard=true migrates to nightmare exclusions", t => {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, guard: true, multipliers: { beautiful: 1, nightmare: 1, erotic: 1, beautiful_erotic: 1, nightmare_erotic: 1 }, oneShot: null }));
   assert.deepEqual(store.read("thread-a").excludedTypes, ["nightmare", "nightmare_erotic"]);
+  assert.equal(store.read("thread-a").nsfwEnabled, false);
 });
 
 test("v1 guard=false migrates to empty exclusions", t => {
@@ -101,6 +105,53 @@ test("v1 guard=false migrates to empty exclusions", t => {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, guard: false, multipliers: { beautiful: 1, nightmare: 1, erotic: 1, beautiful_erotic: 1, nightmare_erotic: 1 }, oneShot: null }));
   assert.deepEqual(store.read("thread-a").excludedTypes, []);
+  assert.equal(store.read("thread-a").nsfwEnabled, false);
+});
+
+test("v2 migrates to safe mode and removes an NSFW one-shot", t => {
+  const store = makeStore(t);
+  const file = store.preferencesFileFor("thread-a");
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ schemaVersion: 2, multipliers: { erotic: 3 }, excludedTypes: ["erotic"], oneShot: { dreamType: "erotic" } }));
+  const prefs = store.read("thread-a");
+  assert.equal(prefs.schemaVersion, 3);
+  assert.equal(prefs.nsfwEnabled, false);
+  assert.equal(prefs.multipliers.erotic, 3);
+  assert.deepEqual(prefs.excludedTypes, ["erotic"]);
+  assert.equal(prefs.oneShot, null);
+});
+
+test("NSFW setting round-trips and gates one-shot choices", t => {
+  const store = makeStore(t);
+  assert.throws(() => store.setOneShot("thread-a", "erotic"), error => error.code === "DREAM_NSFW_DISABLED");
+  store.setNsfwEnabled("thread-a", true);
+  assert.equal(store.read("thread-a").nsfwEnabled, true);
+  store.setOneShot("thread-a", "erotic");
+  assert.equal(store.read("thread-a").oneShot.dreamType, "erotic");
+});
+
+test("disabling NSFW clears only an NSFW one-shot and preserves hidden settings", t => {
+  const store = makeStore(t);
+  store.setNsfwEnabled("thread-a", true);
+  store.setMultipliers("thread-a", { erotic: 3, beautiful_erotic: 2 });
+  store.setExclusions("thread-a", ["erotic"]);
+  store.writePromptOverride("thread-a", "erotic.md", "custom intimate prompt");
+  store.setOneShot("thread-a", "erotic");
+  store.setNsfwEnabled("thread-a", false);
+  const prefs = store.read("thread-a");
+  assert.equal(prefs.oneShot, null);
+  assert.equal(prefs.multipliers.erotic, 3);
+  assert.equal(prefs.multipliers.beautiful_erotic, 2);
+  assert.deepEqual(prefs.excludedTypes, ["erotic"]);
+  assert.equal(store.readPromptOverride("thread-a", "erotic.md"), "custom intimate prompt");
+});
+
+test("disabling NSFW preserves a safe one-shot", t => {
+  const store = makeStore(t);
+  store.setNsfwEnabled("thread-a", true);
+  store.setOneShot("thread-a", "beautiful");
+  store.setNsfwEnabled("thread-a", false);
+  assert.equal(store.read("thread-a").oneShot.dreamType, "beautiful");
 });
 
 test("prompt override write, read, and reset with thread isolation", t => {

@@ -11,16 +11,19 @@ const DREAM_TYPE_ORDER = Object.freeze([
   "nightmare_erotic",
 ]);
 
+const SAFE_DREAM_TYPE_ORDER = Object.freeze(["beautiful", "nightmare"]);
+const NSFW_DREAM_TYPES = Object.freeze(["erotic", "beautiful_erotic", "nightmare_erotic"]);
+
 // 前端可选的倍率档位；CLI 写入只接受这些值，避免无意义的 1.37x 精度。
 const MULTIPLIER_STEPS = Object.freeze([0, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3]);
 
 // Automatic Dream 的双判定概率树：第一重决定基础梦向，第二重只在美梦/噩梦
-// 分支内决定是否「染春」。基础权重放大 4 倍，保证 0.25 步进倍率乘出整数，
+// 分支内决定是否「绮染」。基础权重放大 4 倍，保证 0.25 步进倍率乘出整数，
 // 随机抽取无浮点误差。
 //
-//   第一重：美梦 80 / 噩梦 10 / 春梦 10
-//   第二重：美梦分支 普通 80 / 染春 20
-//           噩梦分支 普通 90 / 染春 10
+//   第一重：美梦 80 / 噩梦 10 / 绮梦 10
+//   第二重：美梦分支 普通 80 / 绮染 20
+//           噩梦分支 普通 90 / 绮染 10
 const BASE_SCALE = 4;
 const FIRST_STAGE_BASE = Object.freeze({ beautiful: 80, nightmare: 10, erotic: 10 });
 const BEAUTIFUL_BRANCH_BASE = Object.freeze({ plain: 80, erotic: 20 });
@@ -61,23 +64,51 @@ function noCandidateError() {
   return error;
 }
 
+function nsfwDisabledError() {
+  const error = new Error("NSFW dream types are disabled for this thread");
+  error.code = "DREAM_NSFW_DISABLED";
+  return error;
+}
+
+function isNsfwDreamType(value) {
+  return NSFW_DREAM_TYPES.includes(value);
+}
+
 // 双判定树的整数权重。这是 canonical 计算核心：展示概率、随机抽取与
 // 保存校验全部基于它，保证前端预览与后端抽取永不背离。
 //
 // multiplier 语义：
 //   beautiful/nightmare/erotic           → 第一重分支倍率
-//   beautiful_erotic/nightmare_erotic    → 第二重「染春」子权重倍率
+//   beautiful_erotic/nightmare_erotic    → 第二重「绮染」子权重倍率
 //
 // excludedTypes 语义：剪掉对应最终叶子，树内局部归一化；某分支所有叶子
 // 权重都归零时整个分支从第一重移除。
-function planDreamWeights({ multipliers, excludedTypes }) {
+function planDreamWeights({ multipliers, excludedTypes, nsfwEnabled = false }) {
   const m = normalizeMultipliers(multipliers);
   const excluded = new Set();
   for (const type of (excludedTypes || [])) excluded.add(assertDreamType(type));
 
+  if (nsfwEnabled !== true) {
+    const beautiful = excluded.has("beautiful") ? 0 : scaledWeight(FIRST_STAGE_BASE.beautiful, m.beautiful);
+    const nightmare = excluded.has("nightmare") ? 0 : scaledWeight(FIRST_STAGE_BASE.nightmare, m.nightmare);
+    const total = beautiful + nightmare;
+    if (total <= 0) throw noCandidateError();
+    return {
+      mode: "safe",
+      nsfwEnabled: false,
+      firstStage: { beautiful, nightmare, erotic: 0, total },
+      overlays: {
+        beautiful: { plain: 1, erotic: 0, total: 1, reachable: false },
+        nightmare: { plain: 1, erotic: 0, total: 1, reachable: false },
+      },
+      excludedTypes: [...excluded],
+      prunedBranches: SAFE_DREAM_TYPE_ORDER.filter(type => excluded.has(type)),
+    };
+  }
+
   const prunedBranches = [];
 
-  // 第二重叶子权重（普通叶子不被浸染倍率影响，染春叶子乘对应浸染倍率）。
+  // 第二重叶子权重（普通叶子不被浸染倍率影响，绮染叶子乘对应浸染倍率）。
   const bPlain = excluded.has("beautiful") ? 0 : scaledWeight(BEAUTIFUL_BRANCH_BASE.plain, 1);
   const bErotic = excluded.has("beautiful_erotic") ? 0 : scaledWeight(BEAUTIFUL_BRANCH_BASE.erotic, m.beautiful_erotic);
   const bChildTotal = bPlain + bErotic;
@@ -99,6 +130,8 @@ function planDreamWeights({ multipliers, excludedTypes }) {
   if (rootTotal <= 0) throw noCandidateError();
 
   return {
+    mode: "nsfw",
+    nsfwEnabled: true,
     firstStage: {
       beautiful: bRoot,
       nightmare: nRoot,
@@ -115,8 +148,8 @@ function planDreamWeights({ multipliers, excludedTypes }) {
 }
 
 // 返回结构化概率分布（0~1 小数），供前端预览与 CLI preferences 展示。
-function planDreamDistribution({ multipliers, excludedTypes }) {
-  const weights = planDreamWeights({ multipliers, excludedTypes });
+function planDreamDistribution({ multipliers, excludedTypes, nsfwEnabled = false }) {
+  const weights = planDreamWeights({ multipliers, excludedTypes, nsfwEnabled });
   const { firstStage, overlays } = weights;
 
   const firstProb = {
@@ -126,6 +159,7 @@ function planDreamDistribution({ multipliers, excludedTypes }) {
   };
 
   function overlayProb(branch) {
+    if (weights.mode === "safe") return { plain: 1, erotic: 0, reachable: false };
     if (!branch.reachable) return { plain: 0, erotic: 0, reachable: false };
     return {
       plain: branch.plain / branch.total,
@@ -139,6 +173,8 @@ function planDreamDistribution({ multipliers, excludedTypes }) {
 
   return {
     valid: true,
+    mode: weights.mode,
+    nsfwEnabled: weights.nsfwEnabled,
     firstStage: firstProb,
     overlays: {
       beautiful: bOverlay,
@@ -164,12 +200,14 @@ function resolveDreamType({
 } = {}) {
   const oneShotType = prefs?.oneShot?.dreamType || null;
   if (oneShotType) {
+    if (prefs?.nsfwEnabled !== true && isNsfwDreamType(oneShotType)) throw nsfwDisabledError();
     return { forcedType: true, source: "one_shot", finalType: assertDreamType(oneShotType) };
   }
 
   const weights = planDreamWeights({
     multipliers: prefs?.multipliers,
     excludedTypes: prefs?.excludedTypes,
+    nsfwEnabled: prefs?.nsfwEnabled === true,
   });
 
   // 第一重：按分支权重抽基础梦向。
@@ -184,7 +222,11 @@ function resolveDreamType({
     }
   }
 
-  // 第二重：春梦直接结束；美梦/噩梦内部抽「染春」。
+  if (weights.mode === "safe") {
+    return { forcedType: false, source: "policy", baseType, finalType: baseType };
+  }
+
+  // 第二重：绮梦直接结束；美梦/噩梦内部抽「绮染」。
   if (baseType === "erotic") {
     return { forcedType: false, source: "policy", baseType, finalType: "erotic" };
   }
@@ -196,11 +238,15 @@ function resolveDreamType({
 
 module.exports = {
   DREAM_TYPE_ORDER,
+  SAFE_DREAM_TYPE_ORDER,
+  NSFW_DREAM_TYPES,
   MULTIPLIER_STEPS,
   isDreamType,
   assertDreamType,
   normalizeMultiplier,
   normalizeMultipliers,
+  isNsfwDreamType,
+  nsfwDisabledError,
   planDreamDistribution,
   planDreamWeights,
   resolveDreamType,

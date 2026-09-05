@@ -21,8 +21,9 @@ function sequence(values) {
   return () => values[index++];
 }
 
-test("default multipliers and no exclusions reproduce the historical 64/9/10/16/1 split", () => {
-  const dist = planDreamDistribution({ multipliers: defaultMultipliers(), excludedTypes: [] });
+test("NSFW mode reproduces the historical 64/9/10/16/1 split", () => {
+  const dist = planDreamDistribution({ multipliers: defaultMultipliers(), excludedTypes: [], nsfwEnabled: true });
+  assert.equal(dist.mode, "nsfw");
   closeTo(dist.final.beautiful, 0.64);
   closeTo(dist.final.nightmare, 0.09);
   closeTo(dist.final.erotic, 0.10);
@@ -38,7 +39,7 @@ test("default multipliers and no exclusions reproduce the historical 64/9/10/16/
 });
 
 test("first-stage multiplier scales the base branch without changing the overlay split", () => {
-  const dist = planDreamDistribution({ multipliers: { ...defaultMultipliers(), beautiful: 2 }, excludedTypes: [] });
+  const dist = planDreamDistribution({ multipliers: { ...defaultMultipliers(), beautiful: 2 }, excludedTypes: [], nsfwEnabled: true });
   // 第一重：160/10/10 → beautiful = 160/180 = 8/9
   closeTo(dist.firstStage.beautiful, 8 / 9);
   closeTo(dist.firstStage.nightmare, 1 / 18);
@@ -51,7 +52,7 @@ test("first-stage multiplier scales the base branch without changing the overlay
 });
 
 test("overlay multiplier only rescales the erotic sub-weight inside its branch", () => {
-  const dist = planDreamDistribution({ multipliers: { ...defaultMultipliers(), beautiful_erotic: 2 }, excludedTypes: [] });
+  const dist = planDreamDistribution({ multipliers: { ...defaultMultipliers(), beautiful_erotic: 2 }, excludedTypes: [], nsfwEnabled: true });
   // 第一重仍 80/10/10
   closeTo(dist.firstStage.beautiful, 0.8);
   closeTo(dist.firstStage.nightmare, 0.1);
@@ -67,7 +68,7 @@ test("overlay multiplier only rescales the erotic sub-weight inside its branch",
 });
 
 test("excluding only beautiful keeps beautiful_erotic reachable at 100% of the branch", () => {
-  const dist = planDreamDistribution({ multipliers: defaultMultipliers(), excludedTypes: ["beautiful"] });
+  const dist = planDreamDistribution({ multipliers: defaultMultipliers(), excludedTypes: ["beautiful"], nsfwEnabled: true });
   closeTo(dist.final.beautiful, 0);
   closeTo(dist.final.beautiful_erotic, 0.8);
   closeTo(dist.final.nightmare, 0.09);
@@ -76,14 +77,14 @@ test("excluding only beautiful keeps beautiful_erotic reachable at 100% of the b
 });
 
 test("excluding only beautiful_erotic keeps plain beautiful", () => {
-  const dist = planDreamDistribution({ multipliers: defaultMultipliers(), excludedTypes: ["beautiful_erotic"] });
+  const dist = planDreamDistribution({ multipliers: defaultMultipliers(), excludedTypes: ["beautiful_erotic"], nsfwEnabled: true });
   closeTo(dist.final.beautiful, 0.8);
   closeTo(dist.final.beautiful_erotic, 0);
   closeTo(dist.final.nightmare, 0.09);
 });
 
 test("excluding the whole beautiful branch renormalizes the first stage to 50/50", () => {
-  const dist = planDreamDistribution({ multipliers: defaultMultipliers(), excludedTypes: ["beautiful", "beautiful_erotic"] });
+  const dist = planDreamDistribution({ multipliers: defaultMultipliers(), excludedTypes: ["beautiful", "beautiful_erotic"], nsfwEnabled: true });
   closeTo(dist.final.beautiful, 0);
   closeTo(dist.final.beautiful_erotic, 0);
   closeTo(dist.firstStage.nightmare, 0.5);
@@ -95,7 +96,7 @@ test("excluding the whole beautiful branch renormalizes the first stage to 50/50
 });
 
 test("excluding erotic drops the erotic branch and renormalizes the first stage", () => {
-  const dist = planDreamDistribution({ multipliers: defaultMultipliers(), excludedTypes: ["erotic"] });
+  const dist = planDreamDistribution({ multipliers: defaultMultipliers(), excludedTypes: ["erotic"], nsfwEnabled: true });
   closeTo(dist.final.erotic, 0);
   closeTo(dist.firstStage.erotic, 0);
   closeTo(dist.firstStage.beautiful, 320 / 360);
@@ -104,7 +105,7 @@ test("excluding erotic drops the erotic branch and renormalizes the first stage"
 });
 
 test("plain exclusion + zero overlay multiplier prunes the branch instead of forcing 100%", () => {
-  const dist = planDreamDistribution({ multipliers: { ...defaultMultipliers(), beautiful_erotic: 0 }, excludedTypes: ["beautiful"] });
+  const dist = planDreamDistribution({ multipliers: { ...defaultMultipliers(), beautiful_erotic: 0 }, excludedTypes: ["beautiful"], nsfwEnabled: true });
   closeTo(dist.final.beautiful, 0);
   closeTo(dist.final.beautiful_erotic, 0);
   assert.ok(dist.prunedBranches.includes("beautiful"));
@@ -117,6 +118,7 @@ test("only an overlay left reachable concentrates to 100%", () => {
   const dist = planDreamDistribution({
     multipliers: defaultMultipliers(),
     excludedTypes: ["beautiful", "nightmare", "nightmare_erotic", "erotic"],
+    nsfwEnabled: true,
   });
   closeTo(dist.final.beautiful_erotic, 1);
   closeTo(dist.final.beautiful, 0);
@@ -130,6 +132,7 @@ test("only an overlay left but base branch multiplier zero is rejected", () => {
     () => planDreamDistribution({
       multipliers: { ...defaultMultipliers(), beautiful: 0 },
       excludedTypes: ["beautiful", "nightmare", "nightmare_erotic", "erotic"],
+      nsfwEnabled: true,
     }),
     error => error.code === "DREAM_NO_CANDIDATE",
   );
@@ -137,7 +140,7 @@ test("only an overlay left but base branch multiplier zero is rejected", () => {
 
 test("excluding all five types is rejected", () => {
   assert.throws(
-    () => planDreamDistribution({ multipliers: defaultMultipliers(), excludedTypes: [...DREAM_TYPE_ORDER] }),
+    () => planDreamDistribution({ multipliers: defaultMultipliers(), excludedTypes: [...DREAM_TYPE_ORDER], nsfwEnabled: true }),
     error => error.code === "DREAM_NO_CANDIDATE",
   );
 });
@@ -145,14 +148,14 @@ test("excluding all five types is rejected", () => {
 test("all root multipliers zero is rejected even with leaves not excluded", () => {
   const zero = { beautiful: 0, nightmare: 0, erotic: 0, beautiful_erotic: 0, nightmare_erotic: 0 };
   assert.throws(
-    () => planDreamDistribution({ multipliers: zero, excludedTypes: [] }),
+    () => planDreamDistribution({ multipliers: zero, excludedTypes: [], nsfwEnabled: true }),
     error => error.code === "DREAM_NO_CANDIDATE",
   );
 });
 
 test("one-shot wins over exclusions and multipliers", () => {
   const result = resolveDreamType({
-    prefs: { oneShot: { dreamType: "nightmare" }, multipliers: defaultMultipliers(), excludedTypes: ["nightmare", "nightmare_erotic"] },
+    prefs: { oneShot: { dreamType: "nightmare" }, multipliers: defaultMultipliers(), excludedTypes: ["nightmare", "nightmare_erotic"], nsfwEnabled: true },
     randomInt: () => { throw new Error("random must not run"); },
   });
   assert.equal(result.forcedType, true);
@@ -160,19 +163,19 @@ test("one-shot wins over exclusions and multipliers", () => {
 });
 
 test("resolve picks the base branch then overlay on the two-stage tree", () => {
-  // 第一重 randomInt(400)=0 → beautiful；第二重 randomInt(400)=0 → <80 → 染春
+  // 第一重 randomInt(400)=0 → beautiful；第二重 randomInt(400)=0 → <80 → 绮染
   assert.equal(
-    resolveDreamType({ prefs: { multipliers: defaultMultipliers(), excludedTypes: [] }, randomInt: sequence([0, 0]) }).finalType,
+    resolveDreamType({ prefs: { multipliers: defaultMultipliers(), excludedTypes: [], nsfwEnabled: true }, randomInt: sequence([0, 0]) }).finalType,
     "beautiful_erotic",
   );
   // 第一重 320 → nightmare；第二重 300 → >=40 → 普通噩梦
   assert.equal(
-    resolveDreamType({ prefs: { multipliers: defaultMultipliers(), excludedTypes: [] }, randomInt: sequence([320, 300]) }).finalType,
+    resolveDreamType({ prefs: { multipliers: defaultMultipliers(), excludedTypes: [], nsfwEnabled: true }, randomInt: sequence([320, 300]) }).finalType,
     "nightmare",
   );
   // 第一重 360 → erotic，直接结束，不再消耗第二个 randomInt
   assert.equal(
-    resolveDreamType({ prefs: { multipliers: defaultMultipliers(), excludedTypes: [] }, randomInt: sequence([360]) }).finalType,
+    resolveDreamType({ prefs: { multipliers: defaultMultipliers(), excludedTypes: [], nsfwEnabled: true }, randomInt: sequence([360]) }).finalType,
     "erotic",
   );
 });
@@ -181,9 +184,55 @@ test("resolve respects exclusions by pruning the branch", () => {
   // 排掉整个美梦分支后，第一重只剩 nightmare/erotic 各 40；randomInt(80)=0 → nightmare
   assert.equal(
     resolveDreamType({
-      prefs: { multipliers: defaultMultipliers(), excludedTypes: ["beautiful", "beautiful_erotic"] },
+      prefs: { multipliers: defaultMultipliers(), excludedTypes: ["beautiful", "beautiful_erotic"], nsfwEnabled: true },
       randomInt: sequence([0, 300]),
     }).finalType,
     "nightmare",
   );
+});
+
+test("safe mode only distributes between beautiful and nightmare", () => {
+  const dist = planDreamDistribution({ multipliers: defaultMultipliers(), excludedTypes: [] });
+  assert.equal(dist.mode, "safe");
+  closeTo(dist.final.beautiful, 8 / 9);
+  closeTo(dist.final.nightmare, 1 / 9);
+  closeTo(dist.final.erotic, 0);
+  closeTo(dist.final.beautiful_erotic, 0);
+  closeTo(dist.final.nightmare_erotic, 0);
+});
+
+test("safe mode ignores hidden multipliers and exclusions", () => {
+  const dist = planDreamDistribution({
+    multipliers: { ...defaultMultipliers(), erotic: 3, beautiful_erotic: 3, nightmare_erotic: 0 },
+    excludedTypes: ["erotic", "beautiful_erotic", "nightmare_erotic"],
+  });
+  closeTo(dist.final.beautiful, 8 / 9);
+  closeTo(dist.final.nightmare, 1 / 9);
+});
+
+test("safe mode applies only safe multipliers and exclusions", () => {
+  const weighted = planDreamDistribution({ multipliers: { ...defaultMultipliers(), beautiful: 2 }, excludedTypes: [] });
+  closeTo(weighted.final.beautiful, 160 / 170);
+  closeTo(weighted.final.nightmare, 10 / 170);
+  closeTo(planDreamDistribution({ multipliers: defaultMultipliers(), excludedTypes: ["beautiful"] }).final.nightmare, 1);
+  closeTo(planDreamDistribution({ multipliers: defaultMultipliers(), excludedTypes: ["nightmare"] }).final.beautiful, 1);
+  assert.throws(
+    () => planDreamDistribution({ multipliers: defaultMultipliers(), excludedTypes: ["beautiful", "nightmare"] }),
+    error => error.code === "DREAM_NO_CANDIDATE",
+  );
+});
+
+test("safe mode rejects an NSFW one-shot before random selection", () => {
+  assert.throws(
+    () => resolveDreamType({
+      prefs: { oneShot: { dreamType: "erotic" }, multipliers: defaultMultipliers(), excludedTypes: [], nsfwEnabled: false },
+      randomInt: () => { throw new Error("random must not run"); },
+    }),
+    error => error.code === "DREAM_NSFW_DISABLED",
+  );
+});
+
+test("safe mode resolves only beautiful or nightmare", () => {
+  assert.equal(resolveDreamType({ prefs: { multipliers: defaultMultipliers(), excludedTypes: [] }, randomInt: () => 0 }).finalType, "beautiful");
+  assert.equal(resolveDreamType({ prefs: { multipliers: defaultMultipliers(), excludedTypes: [] }, randomInt: maximum => maximum - 1 }).finalType, "nightmare");
 });

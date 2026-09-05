@@ -1,5 +1,7 @@
 # Automatic Dream：NSFW 隔离与「绮梦」改造交接
 
+> 文档位置：`docs/automatic-dream-nsfw-gating-handoff.md`
+
 > 接手对象：Codex / 后续开发 Agent  
 > 工作目录：`/root/stone_memory_pr/.worktrees/automatic-dream-controls`  
 > 分支：`feature/automatic-dream-controls`  

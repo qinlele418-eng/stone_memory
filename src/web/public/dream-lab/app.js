@@ -5,36 +5,38 @@
   const threadId = moduleApi?.threadId || "";
 
   const TYPE_ORDER = ["beautiful", "nightmare", "erotic", "beautiful_erotic", "nightmare_erotic"];
+  const SAFE_TYPE_ORDER = ["beautiful", "nightmare"];
+  const NSFW_TYPE_ORDER = ["erotic", "beautiful_erotic", "nightmare_erotic"];
   const TYPE_LABELS = {
     beautiful: "美梦",
     nightmare: "噩梦",
-    erotic: "春梦",
-    beautiful_erotic: "美梦染春梦",
-    nightmare_erotic: "噩梦染春梦",
+    erotic: "绮梦",
+    beautiful_erotic: "美梦·绮染",
+    nightmare_erotic: "噩梦·绮染",
   };
   const MULTIPLIER_STEPS = [0, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3];
   const FIRST_STAGE = [
     { type: "beautiful", label: "美梦基调", base: 80 },
     { type: "nightmare", label: "噩梦基调", base: 10 },
-    { type: "erotic", label: "春梦", base: 10 },
+    { type: "erotic", label: "绮梦", base: 10 },
   ];
   const OVERLAY_STAGES = [
-    { type: "beautiful_erotic", base: "beautiful", plain: 80, erotic: 20, label: "美梦 → 美梦染春梦" },
-    { type: "nightmare_erotic", base: "nightmare", plain: 90, erotic: 10, label: "噩梦 → 噩梦染春梦" },
+    { type: "beautiful_erotic", base: "beautiful", plain: 80, erotic: 20, label: "美梦 → 美梦·绮染" },
+    { type: "nightmare_erotic", base: "nightmare", plain: 90, erotic: 10, label: "噩梦 → 噩梦·绮染" },
   ];
   const GUARD_GROUPS = [
-    { title: "美梦分支", types: [{ type: "beautiful", label: "美梦", desc: "普通美梦，不含春意浸染" }, { type: "beautiful_erotic", label: "美梦染春梦", desc: "美梦中的亲密与欲望浸染" }] },
-    { title: "噩梦分支", types: [{ type: "nightmare", label: "噩梦", desc: "危险、失去、恐惧的落点" }, { type: "nightmare_erotic", label: "噩梦染春梦", desc: "在危险里叠入亲密张力" }] },
-    { title: "独立梦向", types: [{ type: "erotic", label: "春梦", desc: "第一重直接落入春梦，不进行第二重浸染判定" }] },
+    { title: "美梦分支", types: [{ type: "beautiful", label: "美梦", desc: "温暖、安全、圆满的梦" }, { type: "beautiful_erotic", label: "美梦·绮染", desc: "美梦中的亲密与欲望浸染" }] },
+    { title: "噩梦分支", types: [{ type: "nightmare", label: "噩梦", desc: "危险、失去、恐惧的落点" }, { type: "nightmare_erotic", label: "噩梦·绮染", desc: "在危险里叠入亲密张力" }] },
+    { title: "独立梦向", types: [{ type: "erotic", label: "绮梦", desc: "第一重直接落入绮梦，不进行第二重浸染判定" }] },
   ];
 
   const PROMPT_ITEMS = [
     { key: "common-core", label: "公共织梦规则", desc: "决定所有梦境共同规则" },
     { key: "beautiful", label: "美梦", desc: "温暖、安全、圆满" },
     { key: "nightmare", label: "噩梦", desc: "危险、失去、恐惧的落点" },
-    { key: "erotic", label: "春梦", desc: "自愿、平等的亲密与欲望" },
-    { key: "beautiful_erotic", label: "美梦染春梦", desc: "在圆满里叠入亲密余韵" },
-    { key: "nightmare_erotic", label: "噩梦染春梦", desc: "在危险里叠入亲密张力" },
+    { key: "erotic", label: "绮梦", desc: "自愿、平等的亲密与欲望" },
+    { key: "beautiful_erotic", label: "美梦·绮染", desc: "在圆满里叠入亲密余韵" },
+    { key: "nightmare_erotic", label: "噩梦·绮染", desc: "在危险里叠入亲密张力" },
   ];
 
   const root = document.querySelector("#dream-root");
@@ -50,6 +52,24 @@
   }
   function formatPercent(value) {
     return `${(Number(value) * 100).toFixed(2)}%`;
+  }
+  function nsfwEnabled() {
+    return prefs?.nsfwEnabled === true;
+  }
+  function visibleTypeOrder() {
+    return nsfwEnabled() ? TYPE_ORDER : SAFE_TYPE_ORDER;
+  }
+  function visiblePromptItems() {
+    return PROMPT_ITEMS.filter(item => item.key === "common-core" || visibleTypeOrder().includes(item.key));
+  }
+  function visibleGuardGroups() {
+    const visible = new Set(visibleTypeOrder());
+    return GUARD_GROUPS
+      .map(group => ({ ...group, types: group.types.filter(item => visible.has(item.type)) }))
+      .filter(group => group.types.length);
+  }
+  function visibleDreamEntries() {
+    return (dreams?.entries || []).filter(item => nsfwEnabled() || !NSFW_TYPE_ORDER.includes(item.dreamType));
   }
   function failClosed(message) {
     if (!threadId) throw new Error("缺少当前记忆体，请返回插件工坊重新进入");
@@ -100,11 +120,13 @@
 
   // ── 首页 ────────────────────────────────────────────────
   function renderHome() {
-    const count = dreams.entries?.length ?? dreams.dreamDates?.length ?? 0;
+    const promptItems = visiblePromptItems();
+    const entries = visibleDreamEntries();
+    const count = entries.length;
     const missing = dreams.coverage?.missingDates?.length || 0;
-    const latest = dreams.latest;
-    const customCount = Object.values(prefs.promptOverrides || {}).filter(Boolean).length;
-    const pinType = prefs.oneShot?.dreamType || null;
+    const latest = entries.at(-1) || null;
+    const customCount = promptItems.filter(item => prefs.promptOverrides?.[item.key] === true).length;
+    const pinType = visibleTypeOrder().includes(prefs.oneShot?.dreamType) ? prefs.oneShot.dreamType : null;
     const enabled = dreams.enabled === true;
     const latestMeta = latest
       ? `最近一场 ${dateLabel(latest.date)}《${latest.title || "未命名的梦"}》`
@@ -140,8 +162,8 @@
       <section class="card entry-card" data-nav="grimoire" role="link" tabindex="0">
         <div class="entry-copy">
           <h2>织梦秘典</h2>
-          <p>管理小机织梦时使用的规则与五类梦境秘典</p>
-          <span class="entry-meta">${escapeHtml(PROMPT_ITEMS.length)} 份秘典 · ${customCount} 份已自定义</span>
+          <p>管理小机织梦时使用的规则与当前可用梦境秘典</p>
+          <span class="entry-meta">${escapeHtml(promptItems.length)} 份秘典 · ${customCount} 份已自定义</span>
         </div>
         <div class="entry-arrow" aria-hidden="true">→</div>
       </section>
@@ -224,9 +246,11 @@
 
   function setGenerateHint() {
     const hint = root.querySelector("#generate-hint");
-    const pinType = prefs.oneShot?.dreamType || null;
+    const visible = visibleTypeOrder();
+    const pinType = visible.includes(prefs.oneShot?.dreamType) ? prefs.oneShot.dreamType : null;
+    const excluded = (prefs.excludedTypes || []).filter(type => visible.includes(type));
     if (pinType) hint.textContent = `下一场将按「${TYPE_LABELS[pinType] || pinType}」织造，成功后自动解除牵引。`;
-    else if (prefs.excludedTypes?.length) hint.textContent = `本次随机织梦已排除：${prefs.excludedTypes.map(t => TYPE_LABELS[t] || t).join("、")}。`;
+    else if (excluded.length) hint.textContent = `本次随机织梦已排除：${excluded.map(t => TYPE_LABELS[t] || t).join("、")}。`;
     else hint.textContent = "本次随机织梦将遵循当前安梦守护与梦谱调律。";
   }
 
@@ -263,7 +287,7 @@
   }
 
   function renderArchive() {
-    const entries = [...(dreams.entries || [])].sort((a, b) => b.date.localeCompare(a.date));
+    const entries = [...visibleDreamEntries()].sort((a, b) => b.date.localeCompare(a.date));
     const groups = groupByMonth(entries);
     const range = entries.length
       ? (entries.at(-1).date.slice(0, 7) === entries[0].date.slice(0, 7)
@@ -328,7 +352,7 @@
   }
 
   async function renderArchiveDetail(date) {
-    const entries = [...(dreams.entries || [])].sort((a, b) => a.date.localeCompare(b.date));
+    const entries = [...visibleDreamEntries()].sort((a, b) => a.date.localeCompare(b.date));
     const index = entries.findIndex(dream => dream.date === date);
     if (index < 0) { location.hash = "#/archive"; return; }
     const meta = entries[index];
@@ -413,7 +437,7 @@
   function renderGrimoire() {
     root.innerHTML = `
       <div class="module-back"><a href="#/">← 返回自动织梦</a></div>
-      <div class="grid-2">${PROMPT_ITEMS.map(item => grimoireCard(item)).join("")}</div>
+      <div class="grid-2">${visiblePromptItems().map(item => grimoireCard(item)).join("")}</div>
     `;
     root.querySelectorAll(".grimoire-item").forEach(card => {
       const go = () => { location.hash = `#/grimoire/${card.dataset.key}`; };
@@ -433,7 +457,7 @@
   }
 
   function renderGrimoireEditor(key) {
-    const item = PROMPT_ITEMS.find(row => row.key === key);
+    const item = visiblePromptItems().find(row => row.key === key);
     if (!item) { location.hash = "#/grimoire"; return; }
     root.innerHTML = `
       <div class="module-back"><a href="#/grimoire">← 返回织梦秘典</a></div>
@@ -520,7 +544,7 @@
       <div class="module-back"><a href="#/">← 返回自动织梦</a></div>
       ${tuningEntryCard("pin", "梦向牵引", "为下一场梦指定一次方向")}
       ${tuningEntryCard("guard", "安梦守护", "选择不希望随机出现的梦境类型")}
-      ${tuningEntryCard("spectrum", "梦谱调律", "分别调整基础梦向与春意浸染的相对权重")}
+      ${tuningEntryCard("spectrum", "梦谱调律", nsfwEnabled() ? "分别调整基础梦向与绮意浸染的相对权重" : "调整美梦与噩梦在随机织梦中的相对倾向")}
     `;
     root.querySelectorAll("[data-tuning]").forEach(card => {
       const go = () => { location.hash = `#/tuning/${card.dataset.tuning}`; };
@@ -548,7 +572,7 @@
   }
 
   function renderPinDetail() {
-    const pinType = prefs.oneShot?.dreamType || null;
+    const pinType = visibleTypeOrder().includes(prefs.oneShot?.dreamType) ? prefs.oneShot.dreamType : null;
     root.innerHTML = `
       <div class="module-back"><a href="#/tuning">← 返回织梦调律</a></div>
       <section class="card">
@@ -566,7 +590,7 @@
       <section class="card">
         <div class="section-title"><div><h2>安梦守护</h2><p class="lead">选择不希望随机出现的梦境类型。守护只影响随机织梦；主动使用梦向牵引时仍可指定被排除的梦。</p></div></div>
         <div class="guard-groups">
-          ${GUARD_GROUPS.map(group => `
+          ${visibleGuardGroups().map(group => `
             <div class="guard-group">
               <h3 class="guard-group-title">${escapeHtml(group.title)}</h3>
               ${group.types.map(item => `
@@ -576,6 +600,14 @@
                 </label>`).join("")}
             </div>`).join("")}
         </div>
+        <details class="advanced-settings">
+          <summary>高级设置</summary>
+          <label class="switch-row nsfw-switch">
+            <span><strong>NSFW 内容</strong><small id="nsfw-description">启用后解锁含成年亲密主题的绮梦及相关调律。</small></span>
+            <input id="nsfw-enabled" type="checkbox" aria-describedby="nsfw-description" ${nsfwEnabled() ? "checked" : ""}>
+          </label>
+          <div id="nsfw-status" class="status" aria-live="polite"></div>
+        </details>
         <div class="guard-preview">
           <div class="guard-preview-title">当前随机结果</div>
           <div class="guard-preview-list" id="guard-preview-list">计算中……</div>
@@ -592,21 +624,23 @@
 
   function renderSpectrumDetail() {
     const multipliers = pendingMultipliers || prefs.multipliers;
+    const safe = !nsfwEnabled();
+    const stages = safe ? FIRST_STAGE.filter(item => SAFE_TYPE_ORDER.includes(item.type)) : FIRST_STAGE;
     root.innerHTML = `
       <div class="module-back"><a href="#/tuning">← 返回织梦调律</a></div>
       <section class="card">
-        <div class="section-title"><div><h2>梦谱调律</h2><p class="lead">一场梦会先决定基础梦向，再决定是否染上春意。倍率调整的是每一重判定里的相对权重，不直接修改最终百分比。</p></div></div>
-        <h3 class="stage-title">第一重 · 基础梦向</h3>
-        <p class="stage-lead">先决定这场梦最初落向美梦、噩梦还是春梦。</p>
+        <div class="section-title"><div><h2>梦谱调律</h2><p class="lead">${safe ? "调整美梦与噩梦在随机织梦中的相对倾向。" : "一场梦会先决定基础梦向，再决定是否带有绮意浸染。倍率调整每一重判定里的相对权重。"}</p></div></div>
+        <h3 class="stage-title">${safe ? "梦向倍率" : "第一重 · 基础梦向"}</h3>
+        <p class="stage-lead">${safe ? "倍率越高，该梦向在随机织梦中越容易出现。" : "先决定这场梦最初落向美梦、噩梦还是绮梦。"}</p>
         <div class="stage-list" id="first-stage-list">
-          ${FIRST_STAGE.map(item => firstStageRow(item, multipliers[item.type])).join("")}
+          ${stages.map(item => firstStageRow(item, multipliers[item.type])).join("")}
         </div>
-        <h3 class="stage-title">第二重 · 春意浸染</h3>
+        ${safe ? "" : `<h3 class="stage-title">第二重 · 绮意浸染</h3>
         <p class="stage-lead">只有第一重落入美梦或噩梦时，才进行这一步。</p>
         <div class="stage-list" id="overlay-stage-list">
           ${OVERLAY_STAGES.map(item => overlayStageRow(item, multipliers[item.type])).join("")}
-        </div>
-        <h3 class="stage-title">最终梦谱</h3>
+        </div>`}
+        <h3 class="stage-title">${safe ? "当前概率" : "最终梦谱"}</h3>
         <div class="final-list" id="final-list">计算中……</div>
         <div id="spectrum-error" class="validation-error" hidden></div>
         <div class="editor-actions">
@@ -630,8 +664,8 @@
   function firstStageRow(item, multiplier) {
     const options = MULTIPLIER_STEPS.map(step => `<option value="${step}" ${Number(step) === Number(multiplier) ? "selected" : ""}>×${step}</option>`).join("");
     return `<div class="stage-row" data-root="${escapeHtml(item.type)}">
-      <div class="stage-row-head"><strong>${escapeHtml(item.label)}</strong><span>默认权重 ${item.base}</span></div>
-      <div class="stage-row-ctrl">倍率 <select data-multiplier="${escapeHtml(item.type)}">${options}</select><span class="stage-row-value">第一重预计 —</span></div>
+      <div class="stage-row-head"><strong>${escapeHtml(nsfwEnabled() ? item.label : TYPE_LABELS[item.type] + "倍率")}</strong><span>默认权重 ${item.base}</span></div>
+      <div class="stage-row-ctrl">倍率 <select aria-label="${escapeHtml(TYPE_LABELS[item.type])}倍率" data-multiplier="${escapeHtml(item.type)}">${options}</select><span class="stage-row-value">预计 —</span></div>
     </div>`;
   }
 
@@ -639,12 +673,12 @@
     const options = MULTIPLIER_STEPS.map(step => `<option value="${step}" ${Number(step) === Number(multiplier) ? "selected" : ""}>×${step}</option>`).join("");
     return `<div class="stage-row" data-overlay="${escapeHtml(item.type)}">
       <div class="stage-row-head"><strong>${escapeHtml(item.label)}</strong><span>默认内部权重：普通 ${item.plain} / 浸染 ${item.erotic}</span></div>
-      <div class="stage-row-ctrl">浸染倍率 <select data-multiplier="${escapeHtml(item.type)}">${options}</select><span class="stage-row-value">当前条件概率 —</span></div>
+      <div class="stage-row-ctrl">浸染倍率 <select aria-label="${escapeHtml(item.label)}倍率" data-multiplier="${escapeHtml(item.type)}">${options}</select><span class="stage-row-value">当前条件概率 —</span></div>
     </div>`;
   }
 
   function bindPinDetail() {
-    const pinType = prefs.oneShot?.dreamType || null;
+    const pinType = visibleTypeOrder().includes(prefs.oneShot?.dreamType) ? prefs.oneShot.dreamType : null;
     if (pinType) {
       root.querySelector("#pin-change").onclick = () => showPinChooser();
       root.querySelector("#pin-cancel").onclick = async () => {
@@ -662,6 +696,25 @@
     const errorBox = root.querySelector("#guard-error");
     const saveBtn = root.querySelector("#guard-save");
     const list = root.querySelector("#guard-preview-list");
+    const nsfwToggle = root.querySelector("#nsfw-enabled");
+    const nsfwStatus = root.querySelector("#nsfw-status");
+
+    nsfwToggle.onchange = async () => {
+      nsfwToggle.disabled = true;
+      nsfwStatus.textContent = "正在保存……";
+      try {
+        await api(`/api/libraries/${encodeURIComponent(threadId)}/dreams/nsfw`, {
+          method: "PUT",
+          body: JSON.stringify({ enabled: nsfwToggle.checked }),
+        });
+        await loadAll();
+        renderGuardDetail();
+      } catch (error) {
+        nsfwToggle.checked = !nsfwToggle.checked;
+        nsfwToggle.disabled = false;
+        nsfwStatus.textContent = error.message;
+      }
+    };
 
     inputs.forEach(input => {
       input.onchange = () => {
@@ -674,7 +727,8 @@
     });
 
     root.querySelector("#guard-clear").onclick = () => {
-      pendingExcluded = [];
+      const visible = new Set(visibleTypeOrder());
+      pendingExcluded = (pendingExcluded || []).filter(type => !visible.has(type));
       inputs.forEach(input => { input.checked = false; });
       scheduleGuardPreview();
     };
@@ -719,7 +773,11 @@
     });
 
     root.querySelector("#spectrum-reset").onclick = () => {
-      pendingMultipliers = { beautiful: 1, nightmare: 1, erotic: 1, beautiful_erotic: 1, nightmare_erotic: 1 };
+      if (nsfwEnabled()) {
+        pendingMultipliers = { beautiful: 1, nightmare: 1, erotic: 1, beautiful_erotic: 1, nightmare_erotic: 1 };
+      } else {
+        pendingMultipliers = { ...pendingMultipliers, beautiful: 1, nightmare: 1 };
+      }
       renderSpectrumDetail();
     };
 
@@ -752,9 +810,11 @@
   }
 
   function showPinChooser() {
+    const types = visibleTypeOrder();
+    const visibleExcluded = (prefs.excludedTypes || []).filter(type => types.includes(type));
     root.querySelector("#pin-state").innerHTML = `
-      <div class="pin-choices">${TYPE_ORDER.map(type => `<label class="pin-choice"><input type="radio" name="pin-type" value="${escapeHtml(type)}" ${pendingPin === type ? "checked" : ""}><span>${escapeHtml(TYPE_LABELS[type])}${(prefs.excludedTypes || []).includes(type) ? `<small>随机已排除 · 仍可主动牵引</small>` : ""}</span></label>`).join("")}</div>
-      <p class="hint">${(prefs.excludedTypes || []).length ? "本次为你主动指定的梦向，因此不受安梦守护限制。" : "成功织成并保存后自动解除牵引。"}</p>
+      <div class="pin-choices">${types.map(type => `<label class="pin-choice"><input type="radio" name="pin-type" value="${escapeHtml(type)}" ${pendingPin === type ? "checked" : ""}><span>${escapeHtml(TYPE_LABELS[type])}${visibleExcluded.includes(type) ? `<small>随机已排除 · 仍可主动牵引</small>` : ""}</span></label>`).join("")}</div>
+      <p class="hint">${visibleExcluded.length ? "本次为你主动指定的梦向，因此不受安梦守护限制。" : "成功织成并保存后自动解除牵引。"}</p>
       <div class="editor-actions"><button id="pin-confirm-cancel" class="ghost">取消</button><button id="pin-confirm">确认牵引</button></div>`;
     const chosen = root.querySelector('input[name="pin-type"]:checked');
     if (chosen) pendingPin = chosen.value;
@@ -781,9 +841,10 @@
   }
 
   function guardSummary(excludedTypes) {
-    const excluded = excludedTypes || [];
+    const types = visibleTypeOrder();
+    const excluded = (excludedTypes || []).filter(type => types.includes(type));
     if (!excluded.length) return "未设排除";
-    if (excluded.length === 4) return `仅保留「${TYPE_LABELS[TYPE_ORDER.find(t => !excluded.includes(t))] || "—"}」`;
+    if (excluded.length === types.length - 1) return `仅保留「${TYPE_LABELS[types.find(t => !excluded.includes(t))] || "—"}」`;
     return `已排除 ${excluded.length} 类`;
   }
 
@@ -798,7 +859,7 @@
     errorBox.hidden = true;
     saveBtn.disabled = false;
     const excluded = new Set(preview.excludedTypes || []);
-    list.innerHTML = TYPE_ORDER.map(type => {
+    list.innerHTML = visibleTypeOrder().map(type => {
       const value = preview.final[type];
       const label = TYPE_LABELS[type];
       if (excluded.has(type)) return `<div class="guard-preview-row"><span>${escapeHtml(label)}</span><strong class="excluded">已排除</strong></div>`;
@@ -823,7 +884,7 @@
 
     root.querySelectorAll("#first-stage-list .stage-row").forEach(row => {
       const type = row.dataset.root;
-      row.querySelector(".stage-row-value").textContent = `第一重预计 ${formatPercent(preview.firstStage[type])}`;
+      row.querySelector(".stage-row-value").textContent = `${nsfwEnabled() ? "第一重预计 " : "预计 "}${formatPercent(preview.firstStage[type])}`;
     });
 
     root.querySelectorAll("#overlay-stage-list .stage-row").forEach(row => {
@@ -834,12 +895,13 @@
     });
 
     const excluded = new Set(preview.excludedTypes || []);
-    const prunedLabels = { beautiful: "美梦分支", nightmare: "噩梦分支", erotic: "春梦" };
+    const prunedLabels = { beautiful: "美梦分支", nightmare: "噩梦分支", erotic: "绮梦" };
     const prunedText = (preview.prunedBranches || []).map(b => prunedLabels[b] || b).join("、");
-    const total = TYPE_ORDER.reduce((sum, t) => sum + (preview.final[t] || 0), 0);
+    const types = visibleTypeOrder();
+    const total = types.reduce((sum, t) => sum + (preview.final[t] || 0), 0);
     finalList.innerHTML = `
       ${prunedText ? `<div class="final-note">已剪枝：${escapeHtml(prunedText)}</div>` : ""}
-      ${TYPE_ORDER.map(type => {
+      ${types.map(type => {
         const value = preview.final[type] || 0;
         const label = TYPE_LABELS[type];
         if (excluded.has(type)) return `<div class="final-row"><span>${escapeHtml(label)}</span><strong class="excluded">已排除</strong></div>`;

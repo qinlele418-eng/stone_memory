@@ -21,14 +21,33 @@ function run(args, t) {
   return { result, preferences, lines };
 }
 
-test("dream preferences reports defaults and the two-stage distribution", t => {
+test("dream preferences reports safe defaults", t => {
   const { result, lines } = run(["preferences", "--thread", "thread-a"], t);
   assert.equal(result.threadId, "thread-a");
+  assert.equal(result.nsfwEnabled, false);
   assert.deepEqual(result.excludedTypes, []);
   assert.equal(result.oneShot, null);
   assert.equal(result.multipliers.beautiful, 1);
-  assert.ok(result.distribution.final.beautiful > 0.63 && result.distribution.final.beautiful < 0.65);
+  assert.equal(result.distribution.mode, "safe");
+  assert.ok(result.distribution.final.beautiful > 0.88 && result.distribution.final.beautiful < 0.90);
   assert.deepEqual(JSON.parse(lines[0]), result);
+});
+
+test("dream nsfw explicitly enables and disables the full policy", t => {
+  const enabled = run(["nsfw", "--thread", "thread-a", "on"], t);
+  assert.equal(enabled.result.nsfwEnabled, true);
+  assert.equal(enabled.result.distribution.mode, "nsfw");
+
+  const disabled = run(["nsfw", "--thread", "thread-a", "off"], t);
+  assert.equal(disabled.result.nsfwEnabled, false);
+  assert.equal(disabled.result.distribution.mode, "safe");
+});
+
+test("dream pin rejects NSFW types while the capability is disabled", t => {
+  assert.throws(
+    () => run(["pin", "--thread", "thread-a", "--type", "erotic"], t),
+    error => error.code === "DREAM_NSFW_DISABLED",
+  );
 });
 
 test("dream pin sets a one-shot override and unpin clears it", t => {

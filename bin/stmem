@@ -48,8 +48,9 @@ if (!cmd || cmd === "--help" || cmd === "-h") {
   stmem dream preferences --thread <id>            查看织梦策略与秘典状态
   stmem dream pin --thread <id> --type <type>      梦向牵引：指定下一场梦类型
   stmem dream unpin --thread <id>                  取消梦向牵引
-  stmem dream guard --thread <id> on|off           安梦守护：随机排除噩梦与噩梦染春梦
+  stmem dream guard --thread <id> [--exclude <type>] 安梦守护：设置随机排除的梦境类型
   stmem dream multiplier --thread <id> --<type> <x> 梦谱调律：调整某类型倍率
+  stmem dream nsfw --thread <id> on|off            开启或关闭成年亲密主题梦境
   stmem dream prompt --thread <id> --type <key> [--set <file>|--reset]  织梦秘典：查看/保存/恢复 Prompt
   stmem rebuild --thread <id> [--window N] [--tool-pairs N]  预览重建
   stmem rebuild --thread <id> --queue           安全排队，下次主 MCP 启动时应用

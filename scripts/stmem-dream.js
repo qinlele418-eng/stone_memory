@@ -5,14 +5,14 @@ const path = require("node:path");
 
 const { DreamService, validateDreamPromptOverride } = require("../src/services/dream-service");
 const { DreamPreferences, PROMPT_FILES } = require("../src/services/dream-preferences");
-const { DREAM_TYPE_ORDER, planDreamDistribution } = require("../src/services/dream-policy");
+const { DREAM_TYPE_ORDER, isNsfwDreamType, nsfwDisabledError, planDreamDistribution } = require("../src/services/dream-policy");
 
 const BUNDLED_PROMPT_DIRECTORY = path.join(__dirname, "..", "operations", "dream");
 
 // 前端「织梦秘典」六项 → 正式 Prompt 文件名的映射。
 const PROMPT_KEYS = Object.freeze(["common-core", ...DREAM_TYPE_ORDER]);
 
-const SUBCOMMANDS = new Set(["preferences", "pin", "unpin", "guard", "multiplier", "prompt"]);
+const SUBCOMMANDS = new Set(["preferences", "pin", "unpin", "guard", "multiplier", "nsfw", "prompt"]);
 
 function runDreamCommand(args = process.argv.slice(2), {
   serviceFactory = () => new DreamService(),
@@ -76,6 +76,12 @@ function runDreamConfigCommand(args, { preferencesFactory, writeLine }) {
       writeLine(JSON.stringify(summary));
       return summary;
     }
+    case "nsfw": {
+      preferences.setNsfwEnabled(threadId, onOffValue(args, "nsfw"));
+      const summary = preferencesSummary(threadId, preferences);
+      writeLine(JSON.stringify(summary));
+      return summary;
+    }
     case "prompt":
       return runPromptCommand(args, { preferences, writeLine });
     default:
@@ -87,6 +93,7 @@ function runPromptCommand(args, { preferences, writeLine }) {
   const threadId = requiredOption(args, "--thread");
   const key = requiredOption(args, "--type");
   if (!PROMPT_KEYS.includes(key)) throw new Error(`unknown dream prompt type: ${key}`);
+  if (isNsfwDreamType(key) && !preferences.read(threadId).nsfwEnabled) throw nsfwDisabledError();
   const fileName = key === "common-core" ? "common-core.md" : `${key}.md`;
   const setFile = optionValue(args, "--set");
   const reset = args.includes("--reset");
@@ -132,11 +139,12 @@ function preferencesSummary(threadId, preferences) {
   }
   return {
     threadId,
+    nsfwEnabled: prefs.nsfwEnabled,
     multipliers: prefs.multipliers,
     excludedTypes: prefs.excludedTypes,
     oneShot: prefs.oneShot,
     promptOverrides: overrides,
-    distribution: planDreamDistribution({ multipliers: prefs.multipliers, excludedTypes: prefs.excludedTypes }),
+    distribution: planDreamDistribution(prefs),
   };
 }
 
@@ -172,6 +180,12 @@ function parseExclusions(args) {
     index += 1;
   }
   return excluded;
+}
+
+function onOffValue(args, command) {
+  if (args.includes("on")) return true;
+  if (args.includes("off")) return false;
+  throw new Error(`${command} requires on or off`);
 }
 
 function requiredOption(args, name) {
