@@ -1,6 +1,7 @@
 "use strict";
 
 const crypto = require("node:crypto");
+const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { openDatabase } = require("../db");
@@ -10,6 +11,7 @@ const DEFAULT_PROMPT = path.resolve(__dirname, "..", "..", "prompts", "default-p
 const DEFAULT_REPOSITORY = "stone-memory-empire/stmem_core";
 const DEFAULT_LOCAL_REPOSITORY = path.resolve(__dirname, "..", "..", "..", "..");
 const GITHUB_CLIENT_ID = "Ov23liGbwfGo2V7ZdsoT";
+const STMEM_CLI = path.resolve(__dirname, "..", "..", "..", "..", "bin", "stmem");
 
 function settingsPath(context) { return context.resolveDataPath("settings.json"); }
 
@@ -181,6 +183,75 @@ function receipt(db, operation, target, result) {
     .run(operation, target, JSON.stringify(result), new Date().toISOString());
 }
 
+function classifyChangedFiles(files, options = {}) {
+  const unique = [...new Set((files || []).map(file => String(file).replaceAll("\\", "/")).filter(Boolean))].sort();
+  const groups = { frontend:[], webBackend:[], webManager:[], supervisor:[], database:[], dependencies:[], cli:[], other:[] };
+  for (const file of unique) {
+    const frontend = file.startsWith("src/web/public/") || /^developer-modules\/[^/]+\/frontend\//u.test(file);
+    const webManager = /^scripts\/stmem-web(?:-watch)?\.js$/u.test(file) || file === "src/services/managed-local-process.js";
+    const webBackend = file.startsWith("src/web/") && !file.startsWith("src/web/public/");
+    const supervisor = /^scripts\/(?:watcher|watcher-supervisor|stmem-supervisor)\.js$/u.test(file)
+      || file.startsWith("src/services/watcher-") || file.startsWith("src/services/watcher-plugins/")
+      || file === "src/services/windows-watcher-service.js" || file === "src/lib/systemd-watcher-service.js";
+    const database = file.startsWith("src/storage/") || /^migrations\//u.test(file);
+    const dependencies = file === "package-lock.json" || file === "npm-shrinkwrap.json" || (file === "package.json" && options.dependencyManifestChanged !== false);
+    const cli = file === "bin/stmem" || file === "package.json" || (file.startsWith("scripts/") && !webManager && !supervisor);
+    if (frontend) groups.frontend.push(file);
+    if (webBackend) groups.webBackend.push(file);
+    if (webManager) groups.webManager.push(file);
+    if (supervisor) groups.supervisor.push(file);
+    if (database) groups.database.push(file);
+    if (dependencies) groups.dependencies.push(file);
+    if (cli) groups.cli.push(file);
+    if (![frontend, webBackend, webManager, supervisor, database, dependencies, cli].some(Boolean)) groups.other.push(file);
+  }
+  const steps = [];
+  if (groups.frontend.length) steps.push({ id:"refresh", title:"刷新前端", detail:"静态页面会直接从磁盘读取，无需重启 Web。", files:groups.frontend });
+  if (groups.webBackend.length) steps.push({ id:"web-auto", title:"Web 后端自动重载", detail:"Web watch 管理器会检测后端源码变化并自动重启 worker。", files:groups.webBackend });
+  if (groups.webManager.length) steps.push({ id:"web-restart", title:"重启 Web 管理器", detail:"改动涉及 watch/进程管理器自身，需要在终端重启一次。", command:"stmem web restart", files:groups.webManager });
+  if (groups.supervisor.length) steps.push({ id:"supervisor", title:"重启 supervisor", detail:"改动涉及常驻 watcher；可在本页直接重启。", files:groups.supervisor });
+  if (groups.database.length) steps.push({ id:"database", title:"执行数据库迁移", detail:"先通过正式 CLI 升级全部记忆体数据库。", command:"stmem db migrate-all", files:groups.database });
+  if (groups.dependencies.length) steps.push({ id:"dependencies", title:"更新项目依赖", detail:"依赖清单发生变化，需要在项目目录安装锁定依赖。", command:"npm install", files:groups.dependencies });
+  if (groups.cli.length) steps.push({ id:"cli", title:"CLI 下次调用自动生效", detail:"CLI 每次执行都会重新加载，无需重启常驻服务。", files:groups.cli });
+  if (groups.other.length) steps.push({ id:"other", title:"无需额外操作", detail:"这些文件不属于已知的常驻运行链。", files:groups.other });
+  return { files:unique, groups, steps, commands:[...new Set(steps.map(step => step.command).filter(Boolean))] };
+}
+
+function restartPlan(db, settings) {
+  const localRepo = path.resolve(String(settings.localRepoPath || ""));
+  if (!settings.localRepoPath || !fs.existsSync(path.join(localRepo, ".git"))) throw new Error("请先配置有效的本地仓库路径");
+  const files = [];
+  const addOutput = output => files.push(...String(output || "").split(/\r?\n/u).map(item => item.trim()).filter(Boolean));
+  try { addOutput(github.run("git", ["diff", "--name-only", "HEAD"], { cwd:localRepo })); } catch {}
+  try { addOutput(github.run("git", ["ls-files", "--others", "--exclude-standard"], { cwd:localRepo })); } catch {}
+  const latest = db.prepare("SELECT operation,result_json resultJson FROM operation_receipts WHERE operation IN ('apply-pr','update-official','resolve-official-update') ORDER BY id DESC LIMIT 1").get();
+  if (latest) {
+    try {
+      const result = JSON.parse(latest.resultJson);
+      const range = result.before && result.after ? `${result.before}..${result.after}` : result.mergeCommit ? `${result.mergeCommit}^1..${result.mergeCommit}` : "";
+      if (range) addOutput(github.run("git", ["diff", "--name-only", range], { cwd:localRepo }));
+    } catch {}
+  }
+  let dependencyManifestChanged = true;
+  try {
+    const before = JSON.parse(github.run("git", ["show", "HEAD:package.json"], { cwd:localRepo }));
+    const after = JSON.parse(fs.readFileSync(path.join(localRepo, "package.json"), "utf8"));
+    const fields = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies", "engines"];
+    dependencyManifestChanged = fields.some(field => JSON.stringify(before[field] || {}) !== JSON.stringify(after[field] || {}));
+  } catch {}
+  const plan = classifyChangedFiles(files, { dependencyManifestChanged });
+  return { ...plan, empty:!plan.files.length, note:plan.files.length ? "已按当前工作区和最近一次琢石坊合并分析；执行前请核对文件清单。" : "没有检测到需要应用的文件改动。" };
+}
+
+function supervisorControl(db, payload, execute = execFileSync) {
+  const action = String(payload.action || "status");
+  if (!new Set(["start", "stop", "restart", "status"]).has(action)) throw new Error("supervisor 操作无效");
+  const output = execute(process.execPath, [STMEM_CLI, "supervisor", action], { cwd:path.dirname(STMEM_CLI), encoding:"utf8", timeout:30_000, windowsHide:true }).trim();
+  const result = { action, output };
+  if (action !== "status") receipt(db, `supervisor-${action}`, "watcher-supervisor", result);
+  return result;
+}
+
 function configure(context, current, payload) {
   const next = structuredClone(current);
   next.repository = DEFAULT_REPOSITORY;
@@ -335,6 +406,22 @@ function removeChange(db, settings, payload) {
   return result;
 }
 
+function unmergedFiles(localRepo) {
+  return github.run("git", ["diff", "--name-only", "--diff-filter=U", "-z"], { cwd:localRepo }).split("\0").filter(Boolean);
+}
+
+function resolveUnmergedFile(localRepo, file, side) {
+  const stage = side === "theirs" ? "3" : "2";
+  const entries = github.run("git", ["ls-files", "--unmerged", "--", file], { cwd:localRepo });
+  const existsAtStage = entries.split(/\r?\n/u).some(line => line.match(/^\d+\s+[0-9a-f]+\s+([123])\t/u)?.[1] === stage);
+  if (existsAtStage) {
+    github.run("git", ["checkout", side === "theirs" ? "--theirs" : "--ours", "--", file], { cwd:localRepo });
+    github.run("git", ["add", "--", file], { cwd:localRepo });
+  } else {
+    github.run("git", ["rm", "--force", "--ignore-unmatch", "--", file], { cwd:localRepo });
+  }
+}
+
 function updateOfficial(db, settings) {
   const repository = requiredRepository(settings);
   const localRepo = path.resolve(String(settings.localRepoPath || ""));
@@ -350,15 +437,63 @@ function updateOfficial(db, settings) {
   try {
     github.run("git", ["merge", "--no-edit", ref], { cwd: localRepo });
   } catch (error) {
+    const conflicts = unmergedFiles(localRepo);
     try { github.run("git", ["merge", "--abort"], { cwd: localRepo }); } catch {}
     if (/local changes|working tree files|would be overwritten/iu.test(String(error?.message || ""))) {
       throw new Error(`官方 ${defaultBranch} 的改动会覆盖同一路径的本地未提交文件，已停止更新；无关文件和独立插件不会阻止更新`);
+    }
+    if (conflicts.length) {
+      return { updated:false, conflict:true, conflicts, repository, defaultBranch, currentBranch, before, officialHead };
     }
     throw new Error(`官方 ${defaultBranch} 与当前分支存在冲突，已停止并撤销本次自动合并；请协作者手工处理`);
   }
   const after = github.run("git", ["rev-parse", "HEAD"], { cwd: localRepo });
   const result = { updated: before !== after, repository, defaultBranch, currentBranch, before, after, officialHead };
   receipt(db, "update-official", `${repository}:${currentBranch}`, result);
+  return result;
+}
+
+function resolveOfficialUpdate(db, settings, payload) {
+  const repository = requiredRepository(settings);
+  const localRepo = path.resolve(String(settings.localRepoPath || ""));
+  if (!settings.localRepoPath || !fs.existsSync(path.join(localRepo, ".git"))) throw new Error("请先配置有效的本地仓库路径");
+  const strategy = payload.strategy === "official-all" ? "official-all" : payload.strategy === "selected" ? "selected" : "";
+  if (!strategy) throw new Error("冲突处理策略无效");
+  const expectedBranch = github.branchName(payload.currentBranch);
+  const expectedBefore = String(payload.before || "");
+  const expectedOfficialHead = String(payload.officialHead || "");
+  const defaultBranch = github.branchName(payload.defaultBranch);
+  const requestedFiles = Array.isArray(payload.files) ? payload.files.map(String) : [];
+  const ref = `refs/stmem/developer-community/official-${defaultBranch.replaceAll("/", "-")}`;
+  if (github.run("git", ["branch", "--show-current"], { cwd:localRepo }) !== expectedBranch) throw new Error("当前分支已经变化，请重新拉取官方更新");
+  if (github.run("git", ["rev-parse", "HEAD"], { cwd:localRepo }) !== expectedBefore) throw new Error("本地 HEAD 已经变化，请重新拉取官方更新");
+  if (github.run("git", ["rev-parse", ref], { cwd:localRepo }) !== expectedOfficialHead) throw new Error("官方更新引用已经变化，请重新拉取官方更新");
+  try {
+    github.run("git", ["merge", "--no-edit", ref], { cwd:localRepo });
+  } catch (error) {
+    const conflicts = unmergedFiles(localRepo);
+    if (!conflicts.length) {
+      try { github.run("git", ["merge", "--abort"], { cwd:localRepo }); } catch {}
+      throw error;
+    }
+    const allowed = new Set(conflicts);
+    const selected = new Set(requestedFiles);
+    if ([...selected].some(file => !allowed.has(file))) {
+      try { github.run("git", ["merge", "--abort"], { cwd:localRepo }); } catch {}
+      throw new Error("选择的冲突文件已经变化，请重新拉取官方更新");
+    }
+    try {
+      for (const file of conflicts) resolveUnmergedFile(localRepo, file, strategy === "official-all" || selected.has(file) ? "theirs" : "ours");
+      if (unmergedFiles(localRepo).length) throw new Error("仍有未解决的冲突文件");
+      github.run("git", ["commit", "--no-edit"], { cwd:localRepo });
+    } catch (resolutionError) {
+      try { github.run("git", ["merge", "--abort"], { cwd:localRepo }); } catch {}
+      throw new Error(`冲突处理失败，已撤销本次合并：${resolutionError.message}`);
+    }
+  }
+  const after = github.run("git", ["rev-parse", "HEAD"], { cwd:localRepo });
+  const result = { updated:after !== expectedBefore, forced:true, strategy, files:strategy === "official-all" ? "all" : [...new Set(requestedFiles)], repository, defaultBranch, currentBranch:expectedBranch, before:expectedBefore, after, officialHead:expectedOfficialHead };
+  receipt(db, "resolve-official-update", `${repository}:${expectedBranch}`, result);
   return result;
 }
 
@@ -422,13 +557,12 @@ async function run(context, input) {
     if (input.action === "apply-pr") return applyPullRequest(db, settings, payload);
     if (input.action === "tracked") return { tracked: tracked(db, settings) };
     if (input.action === "update-official") return updateOfficial(db, settings);
+    if (input.action === "resolve-official-update") return resolveOfficialUpdate(db, settings, payload);
     if (input.action === "remove-change") return removeChange(db, settings, payload);
-    if (input.action === "restart-plan") return {
-      command: "stmem web restart && stmem supervisor restart",
-      note: "Web 不能安全地在自己的请求处理中重启自身。请复制后在终端执行；两项服务会分别报告结果。",
-    };
+    if (input.action === "restart-plan") return restartPlan(db, settings);
+    if (input.action === "supervisor-control") return supervisorControl(db, payload);
     throw new Error(`未知琢石坊命令：${input.action}`);
   } finally { db.close(); }
 }
 
-module.exports = { run, loadSettings, publicSettings, fallbackReport, workbench, applyPullRequest, updateOfficial, oauthStart, oauthPoll, configure, generate, DEFAULT_REPOSITORY, GITHUB_CLIENT_ID };
+module.exports = { run, loadSettings, publicSettings, fallbackReport, workbench, applyPullRequest, updateOfficial, resolveOfficialUpdate, restartPlan, classifyChangedFiles, supervisorControl, oauthStart, oauthPoll, configure, generate, DEFAULT_REPOSITORY, GITHUB_CLIENT_ID };

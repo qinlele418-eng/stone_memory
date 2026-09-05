@@ -2,7 +2,7 @@
   "use strict";
   const runtime = window.StoneDeveloperModule;
   const $ = selector => document.querySelector(selector);
-  let state = { status: null, dossiers: { pullRequests:[], issues:[] }, pages:{ pr:0, issue:0 }, totalCount:{pr:0,issue:0}, hasMore:{ pr:false, issue:false }, active: null };
+  let state = { status: null, dossiers: { pullRequests:[], issues:[] }, pages:{ pr:0, issue:0 }, totalCount:{pr:0,issue:0}, hasMore:{ pr:false, issue:false }, active: null, officialConflict:null };
   let oauthTimer = null;
 
   function toast(message) {
@@ -152,6 +152,47 @@
   async function loadTracked() { try { renderTracked((await command("tracked")).tracked); } catch (error) { toast(error.message); } }
   async function loadStatus() { try { renderStatus(await command("status")); } catch (error) { toast(error.message); } }
 
+  function showOfficialConflict(result) {
+    state.officialConflict = result;
+    $("#official-conflict-files").innerHTML = result.conflicts.map((file, index) => `<label class="conflict-file"><input type="checkbox" data-conflict-index="${index}"><span><code>${escapeHtml(file)}</code><small>勾选后采用官方版本</small></span></label>`).join("");
+    $("#official-conflict-dialog").showModal();
+  }
+
+  async function resolveOfficialConflict(strategy) {
+    const conflict = state.officialConflict;
+    if (!conflict) return;
+    const files = [...document.querySelectorAll("[data-conflict-index]:checked")].map(node => conflict.conflicts[Number(node.dataset.conflictIndex)]);
+    const message = strategy === "official-all"
+      ? `确认让全部 ${conflict.conflicts.length} 个冲突文件采用官方版本并完成合并？本地冲突内容会被覆盖。`
+      : `确认完成合并？${files.length} 个勾选文件采用官方版本，其余冲突文件保留本地版本。`;
+    if (!confirm(message)) return;
+    try {
+      await command("resolve-official-update", { strategy, files, currentBranch:conflict.currentBranch, before:conflict.before, officialHead:conflict.officialHead, defaultBranch:conflict.defaultBranch });
+      $("#official-conflict-dialog").close(); state.officialConflict = null;
+      toast("官方更新已按所选方案合入当前分支");
+      await Promise.all([loadLocalOverview(), loadTracked()]);
+    } catch (error) { toast(error.message); }
+  }
+
+  async function openRestartAssistant() {
+    const dialog = $("#restart-dialog");
+    $("#restart-note").textContent = "正在分析改动影响…"; $("#restart-steps").innerHTML = "";
+    $("#copy-restart-commands").hidden = true; $("#refresh-frontend").hidden = true; $("#supervisor-actions").hidden = true;
+    dialog.showModal();
+    try {
+      const plan = await command("restart-plan"); state.restartPlan = plan;
+      $("#restart-note").textContent = plan.note;
+      $("#restart-steps").innerHTML = plan.steps.length ? plan.steps.map(step => `<article><div><strong>${escapeHtml(step.title)}</strong><p>${escapeHtml(step.detail)}</p></div><details><summary>${step.files.length} 个文件</summary>${step.files.map(file => `<code>${escapeHtml(file)}</code>`).join("")}</details></article>`).join("") : `<p class="muted">当前无需刷新、迁移或重启。</p>`;
+      $("#copy-restart-commands").hidden = !plan.commands.length;
+      $("#refresh-frontend").hidden = !plan.steps.some(step => step.id === "refresh");
+      $("#supervisor-actions").hidden = !plan.steps.some(step => step.id === "supervisor");
+      if (!$("#supervisor-actions").hidden) {
+        const status = await command("supervisor-control", { action:"status" });
+        $("#supervisor-state").textContent = status.output;
+      }
+    } catch (error) { $("#restart-note").textContent = error.message; }
+  }
+
   async function loadPage(kind, page) {
     try { renderDossiers(await command("refresh", { kind, page }), kind); }
     catch (error) { toast(error.message); }
@@ -218,14 +259,27 @@
   $("#refresh-contributions").addEventListener("click", () => loadContributions(1));
   $("#prev-contributions").addEventListener("click", () => loadContributions(contributionPage - 1)); $("#next-contributions").addEventListener("click", () => loadContributions(contributionPage + 1));
   $("#update-official").addEventListener("click", async () => {
-    if (!confirm("确认从官方仓库默认分支拉取新版并合入当前本地分支？发生冲突会自动停止，不会 push。")) return;
+    if (!confirm("确认从官方仓库默认分支拉取新版并合入当前本地分支？发生冲突时会让你选择处理方式，不会 push。")) return;
     try {
       const result = await command("update-official");
+      if (result.conflict) { showOfficialConflict(result); return; }
       toast(result.updated ? "官方新版已合入当前分支" : "当前分支已经包含官方最新版");
-      await loadTracked();
+      await Promise.all([loadLocalOverview(), loadTracked()]);
     } catch (error) { toast(error.message); }
   });
-  $("#restart").addEventListener("click", async () => { try { const plan=await command("restart-plan"); if(await copyText(plan.command, "重启命令")) toast("正式重启命令已复制，请在终端执行"); } catch(error){toast(error.message);} });
+  $("#close-official-conflict").addEventListener("click", () => { $("#official-conflict-dialog").close(); state.officialConflict=null; });
+  $("#cancel-official-merge").addEventListener("click", () => { $("#official-conflict-dialog").close(); state.officialConflict=null; });
+  $("#merge-selected-official").addEventListener("click", () => resolveOfficialConflict("selected"));
+  $("#merge-all-official").addEventListener("click", () => resolveOfficialConflict("official-all"));
+  $("#restart").addEventListener("click", openRestartAssistant);
+  $("#close-restart-dialog").addEventListener("click", () => $("#restart-dialog").close());
+  $("#copy-restart-commands").addEventListener("click", async () => { const commands=state.restartPlan?.commands||[]; if (commands.length && await copyText(commands.join(" && "), "应用改动命令")) toast("需要在终端执行的指令已复制"); });
+  $("#refresh-frontend").addEventListener("click", () => window.location.reload());
+  document.querySelectorAll("[data-supervisor]").forEach(button => button.addEventListener("click", async () => {
+    const action=button.dataset.supervisor, labels={start:"启动",stop:"停止",restart:"重启"};
+    if (!confirm(`确认${labels[action]} watcher supervisor？`)) return;
+    try { const result=await command("supervisor-control", { action }); $("#supervisor-state").textContent=result.output; toast(`Supervisor 已${labels[action]}`); } catch(error) { toast(error.message); }
+  }));
   loadStatus();
   loadLocalOverview();
   loadContributions();

@@ -8,7 +8,7 @@ const test = require("node:test");
 const { openDatabase } = require("../backend/db");
 const { repositorySlug, branchName } = require("../backend/github");
 const github = require("../backend/github");
-const { fallbackReport, workbench, applyPullRequest, updateOfficial, loadSettings, oauthStart, oauthPoll, configure, generate, DEFAULT_REPOSITORY, GITHUB_CLIENT_ID } = require("../backend/commands/community");
+const { fallbackReport, workbench, applyPullRequest, updateOfficial, resolveOfficialUpdate, classifyChangedFiles, supervisorControl, loadSettings, oauthStart, oauthPoll, configure, generate, DEFAULT_REPOSITORY, GITHUB_CLIENT_ID } = require("../backend/commands/community");
 
 function temporaryContext() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "developer-community-"));
@@ -198,15 +198,79 @@ test("official update aborts an automatic merge when a conflict is detected", ()
     if (args[0] === "branch") return "community/test";
     if (args[0] === "rev-parse") return args[1] === "HEAD" ? "before" : "official";
     if (args[0] === "merge" && args[1] !== "--abort") throw new Error("conflict");
+    if (args[0] === "diff") return "src/conflict.js\0";
     return "";
   };
   try {
-    assert.throws(() => updateOfficial(db, { repository:"example/stone-memory", localRepoPath:path.join(fixture.root,"repo") }), /存在冲突/);
+    const result = updateOfficial(db, { repository:"example/stone-memory", localRepoPath:path.join(fixture.root,"repo") });
+    assert.equal(result.conflict, true);
+    assert.deepEqual(result.conflicts, ["src/conflict.js"]);
     assert.ok(calls.some(row => row[1] === "merge" && row[2] === "--abort"));
     assert.equal(calls.some(row => row[1] === "push"), false);
   } finally {
     github.run = originalRun; github.ghJson = originalGhJson; db.close(); fs.rmSync(fixture.root,{recursive:true,force:true});
   }
+});
+
+test("selected conflict resolution takes official files and preserves unselected local files", () => {
+  const fixture = temporaryContext();
+  fs.mkdirSync(path.join(fixture.root, "repo", ".git"), { recursive:true });
+  const db = openDatabase(fixture.context);
+  const originalRun = github.run;
+  const calls = []; let headReads = 0, diffReads = 0;
+  github.run = (file, args) => {
+    calls.push([file, ...args]);
+    if (args[0] === "branch") return "community/test";
+    if (args[0] === "rev-parse" && args[1] === "HEAD") return headReads++ ? "after" : "before";
+    if (args[0] === "rev-parse") return "official";
+    if (args[0] === "merge" && args[1] !== "--abort") throw new Error("conflict");
+    if (args[0] === "diff") return diffReads++ ? "" : "src/a.js\0src/b.js\0";
+    if (args[0] === "ls-files") return `100644 aaa 2\t${args.at(-1)}\n100644 bbb 3\t${args.at(-1)}`;
+    return "";
+  };
+  try {
+    const result = resolveOfficialUpdate(db, { repository:"example/stone-memory", localRepoPath:path.join(fixture.root,"repo") }, { strategy:"selected", files:["src/a.js"], currentBranch:"community/test", before:"before", officialHead:"official", defaultBranch:"main" });
+    assert.equal(result.forced, true);
+    assert.ok(calls.some(row => row[1] === "checkout" && row[2] === "--theirs" && row.at(-1) === "src/a.js"));
+    assert.ok(calls.some(row => row[1] === "checkout" && row[2] === "--ours" && row.at(-1) === "src/b.js"));
+    assert.ok(calls.some(row => row[1] === "commit" && row[2] === "--no-edit"));
+  } finally {
+    github.run = originalRun; db.close(); fs.rmSync(fixture.root,{recursive:true,force:true});
+  }
+});
+
+test("change planner recommends the smallest runtime actions and supports overlapping impact", () => {
+  const plan = classifyChangedFiles([
+    "src/web/public/styles.css",
+    "src/web/server.js",
+    "scripts/watcher.js",
+    "scripts/stmem-web-watch.js",
+    "src/storage/memory-store.js",
+    "package-lock.json",
+    "README.md",
+    "src/web/public/styles.css",
+  ]);
+  assert.deepEqual(plan.steps.map(step => step.id), ["refresh", "web-auto", "web-restart", "supervisor", "database", "dependencies", "other"]);
+  assert.deepEqual(plan.commands, ["stmem web restart", "stmem db migrate-all", "npm install"]);
+  assert.equal(plan.files.filter(file => file === "src/web/public/styles.css").length, 1);
+});
+
+test("package scripts do not request dependency installation when manifests are unchanged", () => {
+  const plan = classifyChangedFiles(["package.json"], { dependencyManifestChanged:false });
+  assert.deepEqual(plan.steps.map(step => step.id), ["cli"]);
+  assert.deepEqual(plan.commands, []);
+});
+
+test("supervisor controls delegate to the formal stmem CLI and record mutations", () => {
+  const fixture = temporaryContext(), db = openDatabase(fixture.context);
+  const calls = [];
+  try {
+    const result = supervisorControl(db, { action:"restart" }, (file, args, options) => { calls.push({ file, args, options }); return "watcher supervisor 已启动\n"; });
+    assert.equal(result.output, "watcher supervisor 已启动");
+    assert.deepEqual(calls[0].args.slice(-2), ["supervisor", "restart"]);
+    assert.equal(db.prepare("SELECT operation FROM operation_receipts ORDER BY id DESC LIMIT 1").get().operation, "supervisor-restart");
+    assert.throws(() => supervisorControl(db, { action:"delete" }, () => ""), /操作无效/);
+  } finally { db.close(); fs.rmSync(fixture.root,{recursive:true,force:true}); }
 });
 
 test("frontend uses the shared shell, theme contract, mobile layout and confirmation paths", () => {
@@ -222,7 +286,12 @@ test("frontend uses the shared shell, theme contract, mobile layout and confirma
   assert.match(css, /\.dossier-list\s*\{[^}]*max-height:[^}]*overflow-y:auto/s);
   assert.match(app, /confirm\("确认把这条回复正式发布到 GitHub/);
   assert.match(app, /confirm\("确认通过 revert 提交移除/);
-  assert.match(app, /发生冲突会自动停止，不会 push/);
+  assert.match(app, /发生冲突时会让你选择处理方式，不会 push/);
+  assert.match(html, /id="official-conflict-dialog"/);
+  assert.match(app, /resolve-official-update/);
+  assert.match(html, /id="restart-dialog"/);
+  assert.match(html, /data-supervisor="restart"/);
+  assert.match(app, /supervisor-control/);
   assert.doesNotMatch(html, /PR 阅读提示词/);
   assert.match(html, /这个 API 用来做什么/);
   assert.match(html, /GITHUB DEVICE AUTHORIZATION/);

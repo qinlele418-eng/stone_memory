@@ -12,8 +12,9 @@
 - 回复 GitHub 讨论、维护本地工作台并复制给 Agent 的任务说明；
 - 在当前分支吻合时，用 `--no-ff` 把 PR 合入协作者自己的本地分支；无关的未提交文件和独立插件可以保留，只有同路径覆盖或真实合并冲突才会停止；
 - 跟踪已经合入的 PR head 变化；通过 `git revert -m 1` 创建反向提交来移除对应改动，不重写 Git 历史；
-- 快速 fetch 官方仓库默认分支并合入协作者当前分支；无关本地文件不会拦截，遇到同路径覆盖、detached HEAD 或真实合并冲突才停止，冲突时自动 abort，交由协作者手工处理；
-- 给出 `stmem web restart && stmem supervisor restart` 正式重启计划。Web 不能在自己的 HTTP 响应中安全杀死自身，因此实验版复制命令到终端执行。
+- 快速 fetch 官方仓库默认分支并合入协作者当前分支；无关本地文件不会拦截，真实内容冲突会先自动 abort 并弹出文件清单，可选择全部采用官方版本、逐文件选择采用官方版本（未选文件保留本地版本），或不合并；
+- “应用改动助手”读取当前工作区与最近一次琢石坊合并涉及的文件，区分前端刷新、Web 自动重载、Web 管理器重启、数据库迁移、依赖更新、CLI 下次调用生效及 watcher supervisor 重启；只显示实际需要的最小操作。
+- 前端可通过正式模块 CLI 直接启动、停止或重启 watcher supervisor。Web 不能在自己的 HTTP 响应中安全杀死自身，因此涉及 Web 管理器自身的改动仍复制 `stmem web restart` 到终端执行。
 
 ## 配置与登录
 
@@ -33,9 +34,9 @@ PR/Issue 阅读 Prompt 是模块实现的一部分，普通用户无需配置。
 stmem module developer-community <action> --batch-file <json>
 ```
 
-Web 只把 JSON 写入权限为 `0600` 的临时文件并调用上述 CLI。模块没有 companion server，不直接修改 Core 配置或 `memory.sqlite`，也没有独立 watcher/supervisor。
+Web 只把 JSON 写入权限为 `0600` 的临时文件并调用上述 CLI。模块没有 companion server，不直接修改 Core 配置或 `memory.sqlite`，也没有独立 watcher/supervisor；页面上的 supervisor 控制仍由 `stmem module developer-community supervisor-control` 回到正式 `stmem supervisor` 命令。
 
-GitHub/Git 写操作包括 Star、回复、合并到本地分支、拉取官方新版和反向提交。它们都要求页面确认。PR 合并和官方更新依靠 Git 精确判断同路径覆盖与内容冲突，不会因无关 Markdown、未跟踪文件或独立插件而拒绝；移除改动仍要求干净工作区，避免 revert 混入用户修改。快速更新只合并到当前本地分支，不自动 push；发生冲突会中止并撤销本次自动 merge，让协作者自行处理。
+GitHub/Git 写操作包括 Star、回复、合并到本地分支、拉取官方新版、冲突决议和反向提交。它们都要求页面确认。PR 合并和官方更新依靠 Git 精确判断同路径覆盖与内容冲突，不会因无关 Markdown、未跟踪文件或独立插件而拒绝；移除改动仍要求干净工作区，避免 revert 混入用户修改。快速更新只合并到当前本地分支，不自动 push；发生内容冲突会先撤销自动 merge，再由协作者选择全部采用官方版本、逐文件选择官方/本地版本，或取消。确认前会复核分支、本地 HEAD 和官方引用，状态变化后必须重新拉取。
 
 ## 持久数据
 

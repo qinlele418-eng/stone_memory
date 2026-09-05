@@ -47,7 +47,7 @@
       <div class="section-head"><div><p class="eyebrow">LOCAL BRANCH</p><h2>我的改动</h2></div><button id="refresh-local" class="secondary" type="button">刷新状态</button></div>
       <div id="local-state" class="overview-grid"><p class="muted">正在读取本地分支状态…</p></div>
       <div class="overview-columns"><div><h3>官方近期提交 <span class="count">7天</span></h3><div id="official-commits" class="compact-list empty">暂无</div></div><div><h3>本地未提交改动</h3><div id="local-changes" class="compact-list empty">暂无</div></div><div><h3>已提交至 Fork</h3><div id="pushed-commits" class="compact-list empty">暂无</div></div><div><h3>已合并的精矿</h3><div id="merged-prs" class="compact-list empty">暂无</div></div></div>
-      <div class="actions"><button id="update-official" class="secondary" type="button">拉取官方更新</button><button id="restart" class="restart" type="button">一键重启以应用改动</button></div>
+      <div class="actions"><button id="update-official" class="secondary" type="button">拉取官方更新</button><button id="restart" class="restart" type="button">智能应用改动</button></div>
     </section>
 
     <section class="panel mine">
@@ -88,6 +88,34 @@
         <button id="send-reply" class="secondary" type="button">回复讨论</button>
         <button id="add-workbench" class="secondary" type="button">拉入工作台</button>
         <button id="apply-pr" class="primary" type="button">合并入我的分支</button>
+      </div>
+    </article>
+  </dialog>
+  <dialog id="restart-dialog">
+    <article class="dialog-card restart-card">
+      <button id="close-restart-dialog" class="close" aria-label="关闭">×</button>
+      <p class="eyebrow">APPLY CHANGES</p>
+      <h2>应用改动助手</h2>
+      <p id="restart-note" class="muted">正在分析改动影响…</p>
+      <div id="restart-steps" class="restart-steps"></div>
+      <div id="supervisor-actions" class="supervisor-actions" hidden>
+        <strong>Watcher supervisor</strong><span id="supervisor-state" class="muted"></span>
+        <div><button class="secondary" data-supervisor="start" type="button">启动</button><button class="secondary" data-supervisor="stop" type="button">停止</button><button class="primary" data-supervisor="restart" type="button">重启</button></div>
+      </div>
+      <div class="dialog-actions"><button id="copy-restart-commands" class="secondary" type="button" hidden>复制终端指令</button><button id="refresh-frontend" class="primary" type="button" hidden>刷新前端</button></div>
+    </article>
+  </dialog>
+  <dialog id="official-conflict-dialog">
+    <article class="dialog-card conflict-card">
+      <button id="close-official-conflict" class="close" aria-label="关闭">×</button>
+      <p class="eyebrow">MERGE CONFLICT</p>
+      <h2>官方更新与本地分支存在冲突</h2>
+      <p class="muted">勾选的文件采用官方版本；未勾选的冲突文件保留本地版本。确认后会完成一次合并提交，不会推送远端。</p>
+      <div id="official-conflict-files" class="conflict-files"></div>
+      <div class="dialog-actions">
+        <button id="cancel-official-merge" class="secondary" type="button">不合并</button>
+        <button id="merge-selected-official" class="secondary" type="button">选择部分文件强制合并</button>
+        <button id="merge-all-official" class="primary" type="button">强制合并</button>
       </div>
     </article>
   </dialog>
