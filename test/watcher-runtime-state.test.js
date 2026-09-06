@@ -10,7 +10,7 @@ const { childEnvWithHome } = require("../test-support/child-env");
 
 const projectRoot = path.join(__dirname, "..");
 
-function loadRuntimeWithHome(home) {
+function withRuntimeHome(home, run) {
   const previous = process.env.HOME;
   const originalHomedir = os.homedir;
   process.env.HOME = home;
@@ -18,14 +18,16 @@ function loadRuntimeWithHome(home) {
   for (const modulePath of ["../src/config", "../src/services/watcher-runtime"]) {
     delete require.cache[require.resolve(modulePath)];
   }
-  const runtime = require("../src/services/watcher-runtime");
-  process.env.HOME = previous;
-  os.homedir = originalHomedir;
-  return runtime;
+  try {
+    return run(require("../src/services/watcher-runtime"));
+  } finally {
+    process.env.HOME = previous;
+    os.homedir = originalHomedir;
+  }
 }
 
 test("watcher eligibility is isolated per memory body", () => {
-  const { enabledThreadIds, watcherEnabled, watcherActions } = loadRuntimeWithHome(os.tmpdir());
+  const { enabledThreadIds, watcherEnabled, watcherActions } = withRuntimeHome(os.tmpdir(), runtime => runtime);
   assert.equal(watcherEnabled({
     automaticFullMining: false,
     automaticMemoryMaintenance: false,
@@ -55,12 +57,13 @@ test("worker runtime files live inside their memory body directory", t => {
   fs.writeFileSync(path.join(stone, "stmem.json"), JSON.stringify({
     [id]: { runtime: "codex", purpose: "coding" },
   }));
-  const runtime = loadRuntimeWithHome(home);
-  const state = runtime.writeWatcherState(id, { status: "running", pid: 999999 });
-  assert.equal(state.threadId, id);
-  assert.equal(fs.existsSync(path.join(stone, "watcher-state.json")), false);
-  assert.equal(fs.existsSync(path.join(stone, "runtimes", "codex", "coding", id, "watcher-state.json")), true);
-  assert.equal(runtime.readWatcherState(id).status, "stale");
+  withRuntimeHome(home, runtime => {
+    const state = runtime.writeWatcherState(id, { status: "running", pid: 999999 });
+    assert.equal(state.threadId, id);
+    assert.equal(fs.existsSync(path.join(stone, "watcher-state.json")), false);
+    assert.equal(fs.existsSync(path.join(stone, "runtimes", "codex", "coding", id, "watcher-state.json")), true);
+    assert.equal(runtime.readWatcherState(id).status, "stale");
+  });
 });
 
 test("watcher CLI only changes the selected memory body's desired state", t => {

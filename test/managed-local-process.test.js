@@ -43,7 +43,7 @@ test("POSIX managed-process logs never follow a replaced symlink", t => {
   fs.symlinkSync(external, logFile);
   let spawned = false;
   assert.throws(() => startManagedProcess({ script: "ignored.js", pidFile: path.join(stone, "web.pid"), marker: "ignored", logFile }, {
-    spawn: () => { spawned = true; return { pid: 123, unref() {} }; },
+    privatePathOptions: { trustedRoot: root }, spawn: () => { spawned = true; return { pid: 123, unref() {} }; },
   }), /符号链接/);
   const after = fs.statSync(external);
   assert.equal(spawned, false);

@@ -34,8 +34,9 @@ function stopManagedProcess({ pidFile, marker, waitMs = 5_000 }, adapters = {}) 
 function startManagedProcess({ script, pidFile, marker, args = [], env = process.env, logFile }, adapters = {}) {
   const existing = readManagedPid(pidFile, marker, adapters);
   if (existing) return { running: true, started: false, pid: existing };
-  ensurePrivateDirectory(path.dirname(pidFile));
-  const output = logFile ? (adapters.openPrivateAppendFileDescriptor || openPrivateAppendFileDescriptor)(logFile) : "ignore";
+  const privatePathOptions = adapters.privatePathOptions;
+  ensurePrivateDirectory(path.dirname(pidFile), privatePathOptions);
+  const output = logFile ? (adapters.openPrivateAppendFileDescriptor || openPrivateAppendFileDescriptor)(logFile, privatePathOptions) : "ignore";
   let child;
   try {
     child = (adapters.spawn || spawn)(process.execPath, [script, ...args], {

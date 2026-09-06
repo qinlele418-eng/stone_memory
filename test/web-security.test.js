@@ -104,12 +104,13 @@ test("POSIX hardening affects Stone-owned files only", t => {
   const stone = path.join(root, ".stone_memory");
   const database = path.join(stone, "runtimes", "codex", "coding", "memory", "memory.sqlite");
   const source = path.join(external, "conversation.json");
-  ensurePrivateDirectory(path.dirname(database));
-  writePrivateFile(database, "sqlite-placeholder");
-  writePrivateFile(`${database}-wal`, "wal");
-  writePrivateFile(`${database}-shm`, "shm");
+  const security = { trustedRoot: root };
+  ensurePrivateDirectory(path.dirname(database), security);
+  writePrivateFile(database, "sqlite-placeholder", {}, security);
+  writePrivateFile(`${database}-wal`, "wal", {}, security);
+  writePrivateFile(`${database}-shm`, "shm", {}, security);
   fs.writeFileSync(source, "outside", { mode: 0o644 });
-  hardenDatabaseArtifacts(database);
+  hardenDatabaseArtifacts(database, security);
   assert.equal(fs.statSync(stone).mode & 0o777, 0o700);
   for (const file of [database, `${database}-wal`, `${database}-shm`]) assert.equal(fs.statSync(file).mode & 0o777, 0o600);
   assert.equal(fs.statSync(source).mode & 0o777, 0o644, "external Binding/import sources must not be chmodded");
@@ -120,6 +121,7 @@ test("POSIX private writes and appends never follow a symlink", t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-private-symlink-"));
   const external = path.join(root, "outside.txt");
   const privateFile = path.join(root, ".stone_memory", "state.json");
+  const security = { trustedRoot: root };
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   fs.writeFileSync(external, "outside data", { mode: 0o640 });
   fs.chmodSync(external, 0o640);
@@ -130,12 +132,29 @@ test("POSIX private writes and appends never follow a symlink", t => {
     assert.equal(after.mode & 0o777, before.mode & 0o777);
     assert.equal(after.mtimeMs, before.mtimeMs);
   };
-  ensurePrivateDirectory(path.dirname(privateFile));
+  ensurePrivateDirectory(path.dirname(privateFile), security);
   fs.symlinkSync(external, privateFile);
-  assert.throws(() => writePrivateFile(privateFile, "must not replace external"), /符号链接/);
+  assert.throws(() => writePrivateFile(privateFile, "must not replace external", {}, security), /符号链接/);
   unchanged();
-  assert.throws(() => appendPrivateFile(privateFile, "must not append external", { encoding: "utf8" }), /符号链接/);
+  assert.throws(() => appendPrivateFile(privateFile, "must not append external", { encoding: "utf8" }, security), /符号链接/);
   unchanged();
+});
+
+test("POSIX private paths trust an external home boundary but reject symlinks below it", t => {
+  if (process.platform === "win32") return t.skip("Windows does not provide the POSIX symlink semantics exercised here");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-private-boundary-"));
+  const realHome = path.join(root, "real-home");
+  const linkedHome = path.join(root, "linked-home");
+  const privateFile = path.join(linkedHome, ".stone_memory", "state.json");
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(realHome);
+  fs.symlinkSync(realHome, linkedHome);
+  const security = { trustedRoot: linkedHome };
+  assert.doesNotThrow(() => writePrivateFile(privateFile, "safe", {}, security));
+  assert.equal(fs.readFileSync(path.join(realHome, ".stone_memory", "state.json"), "utf8"), "safe");
+  fs.unlinkSync(privateFile);
+  fs.symlinkSync(path.join(root, "outside"), privateFile);
+  assert.throws(() => writePrivateFile(privateFile, "unsafe", {}, security), /符号链接/);
 });
 
 test("POSIX watcher state and lock artifacts tighten existing permissions", t => {
