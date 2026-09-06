@@ -62,7 +62,8 @@ test("new collaborators get the official Core repository and built-in review pro
   try {
     const settings = loadSettings(fixture.context);
     assert.equal(settings.repository, DEFAULT_REPOSITORY);
-    assert.ok(settings.localRepoPath.endsWith(path.join("stone_memory")));
+    assert.equal(path.resolve(settings.localRepoPath), path.resolve(__dirname, "..", "..", ".."));
+    assert.ok(fs.existsSync(path.join(settings.localRepoPath, "bin", "stmem")));
   } finally { fs.rmSync(fixture.root, { recursive:true, force:true }); }
 });
 
