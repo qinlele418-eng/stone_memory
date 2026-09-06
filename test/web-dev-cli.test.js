@@ -14,7 +14,8 @@ test("web dev uses Node watch while preserving the existing managed web boundary
   assert.equal(manifest.scripts.dev, "node bin/stmem web dev");
   assert.match(script, /script: WATCH_SCRIPT/u);
   assert.match(watcher, /"--watch", "--watch-preserve-output"/u);
-  assert.match(watcher, /fs\.writeFileSync\(PID_FILE, String\(process\.pid\)\)/u);
+  assert.match(watcher, /writePrivateFile\(PID_FILE, String\(process\.pid\)\)/u);
+  assert.match(watcher, /ensurePrivateDirectory\(STONE\)/u);
   assert.match(watcher, /child\.kill\(signal\)/u);
   assert.match(script, /请先执行 stmem web stop/u);
   assert.match(script, /readManagedPid\(PID_FILE, MARKER\)/u);

@@ -13,6 +13,7 @@ const { loadConfig, listThreadIds } = require("../src/config");
 const { processMatches } = require("../src/lib/process-identity");
 const { acquireProcessLock, inspectProcessLock, removeIfUnchanged } = require("../src/lib/process-lock");
 const { enabledThreadIds, watcherActions, watcherPaths, writeWatcherState } = require("../src/services/watcher-runtime");
+const { appendPrivateFile, ensurePrivateDirectory } = require("../src/security/local-data-permissions");
 
 const STONE = path.join(os.homedir(), ".stone_memory");
 const LOG_DIR = path.join(STONE, "logs");
@@ -30,17 +31,18 @@ function log(message) {
   const timestamp = new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false });
   const line = `[${timestamp}] [supervisor] ${message}`;
   console.log(line);
-  fs.mkdirSync(LOG_DIR, { recursive: true });
-  fs.appendFileSync(path.join(LOG_DIR, "watcher.log"), `${line}\n`, "utf8");
+  ensurePrivateDirectory(LOG_DIR);
+  const file = path.join(LOG_DIR, "watcher.log");
+  appendPrivateFile(file, `${line}\n`, { encoding: "utf8" });
 }
 
 function externalWorkerOwner(threadId) {
   const { lockDir } = watcherPaths(threadId);
-  const info = inspectProcessLock(lockDir, "scripts/watcher.js");
+  const info = inspectProcessLock(lockDir, "scripts/watcher.js", { privatePaths: true });
   if (!info.exists) return null;
   if (info.active) return info.owner;
   if (info.ageMs < 30_000) return { pending: true, owner: info.owner };
-  removeIfUnchanged(lockDir, info.signature);
+  removeIfUnchanged(lockDir, info.signature, { privatePaths: true });
   return null;
 }
 
@@ -53,7 +55,7 @@ function stopExternalWorker(threadId, reason) {
 }
 
 function acquireLock() {
-  supervisorLease = acquireProcessLock(LOCK_DIR, { marker: "watcher-supervisor.js" });
+  supervisorLease = acquireProcessLock(LOCK_DIR, { marker: "watcher-supervisor.js", privatePaths: true });
   return supervisorLease.acquired;
 }
 

@@ -3,6 +3,8 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { MemoryStore } = require("../src/storage/memory-store");
+const { getThreadDir, assertSafeThreadId } = require("../src/config");
+const { saveConfig } = require("../src/services/thread-setup");
 
 const stone = path.join(os.homedir(), ".stone_memory");
 const configFile = path.join(stone, "stmem.json");
@@ -24,10 +26,10 @@ const child = config[childId];
 if (!parent) throw new Error(`父线程未配置: ${parentId}`);
 if (!child) throw new Error(`子线程未配置: ${childId}（请先 stmem init）`);
 
-const runtime = child.runtime || "claude";
-const purpose = child.purpose || "accompany";
-const memoryDir = path.join(stone, "runtimes", runtime, purpose, childId, "memory");
-const parentMemoryDir = path.join(stone, "runtimes", parent.runtime || "claude", parent.purpose || "accompany", parentId, "memory");
+assertSafeThreadId(parentId);
+assertSafeThreadId(childId);
+const memoryDir = path.join(getThreadDir(childId), "memory");
+const parentMemoryDir = path.join(getThreadDir(parentId), "memory");
 const parentStore = new MemoryStore({ memoryDir: parentMemoryDir, threadId: parentId });
 parentStore.close();
 const store = new MemoryStore({ memoryDir, threadId: childId });
@@ -39,7 +41,7 @@ try {
 
 child.parentThreadId = parentId;
 child.memoriesFlowToParent = !args.includes("--no-memory-return");
-fs.writeFileSync(configFile, JSON.stringify(config, null, 2), "utf8");
+saveConfig(config);
 console.log(`✅ ${childId} 已关联到父线程 ${parentId}`);
 console.log(`   父级 feelings/features: 每次 rebuild 动态可见`);
 console.log(`   子线程记忆回流: ${child.memoriesFlowToParent ? "开启" : "关闭"}`);

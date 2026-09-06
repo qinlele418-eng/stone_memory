@@ -4,6 +4,7 @@ const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
 const { processMatches } = require("../lib/process-identity");
+const { ensurePrivateDirectory, openPrivateAppendFileDescriptor } = require("../security/local-data-permissions");
 
 function readManagedPid(pidFile, marker, adapters = {}) {
   const readFileSync = adapters.readFileSync || fs.readFileSync;
@@ -33,11 +34,16 @@ function stopManagedProcess({ pidFile, marker, waitMs = 5_000 }, adapters = {}) 
 function startManagedProcess({ script, pidFile, marker, args = [], env = process.env, logFile }, adapters = {}) {
   const existing = readManagedPid(pidFile, marker, adapters);
   if (existing) return { running: true, started: false, pid: existing };
-  fs.mkdirSync(path.dirname(pidFile), { recursive: true });
-  const output = logFile ? (adapters.openSync || fs.openSync)(logFile, "a") : "ignore";
-  const child = (adapters.spawn || spawn)(process.execPath, [script, ...args], {
-    detached: true, windowsHide: true, stdio: ["ignore", output, output], env,
-  });
+  ensurePrivateDirectory(path.dirname(pidFile));
+  const output = logFile ? (adapters.openPrivateAppendFileDescriptor || openPrivateAppendFileDescriptor)(logFile) : "ignore";
+  let child;
+  try {
+    child = (adapters.spawn || spawn)(process.execPath, [script, ...args], {
+      detached: true, windowsHide: true, stdio: ["ignore", output, output], env,
+    });
+  } finally {
+    if (typeof output === "number") fs.closeSync(output);
+  }
   child.unref();
   return { running: true, started: true, pid: child.pid };
 }

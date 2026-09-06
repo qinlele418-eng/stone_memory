@@ -69,6 +69,29 @@ test("every library route rejects an unknown thread id instead of touching the f
     assert.match(response.body, /记忆体不存在/);
   }
 
+  const reviewReadRoutes = [
+    `/review-lab/api/dates?threadId=${traversal}`,
+    `/review-lab/api/candidates?threadId=${traversal}`,
+    `/review-lab/api/batches?threadId=${traversal}`,
+  ];
+  for (const pathname of reviewReadRoutes) {
+    const response = await get(port, pathname);
+    assert.equal(response.status, 400, `${pathname} 应当拒绝未知审阅线程`);
+    assert.match(response.body, /记忆体不存在/);
+  }
+
+  const reviewWriteRoutes = [
+    ["/review-lab/api/preview", { threadId: traversal, date: "2026-09-06" }],
+    ["/review-lab/api/batches", { threadId: traversal }],
+    ["/review-lab/api/hybrid", { threadId: traversal }],
+    ["/review-lab/api/fusion", { threadId: traversal }],
+  ];
+  for (const [pathname, body] of reviewWriteRoutes) {
+    const response = await request(port, "POST", pathname, body);
+    assert.equal(response.status, 400, `${pathname} 应当拒绝未知审阅线程`);
+    assert.match(response.body, /记忆体不存在/);
+  }
+
   assert.equal(fs.existsSync(path.join(escapeTarget, "PWNED")), false, "不得在记忆体目录之外创建任何文件");
   assert.deepEqual(fs.readdirSync(escapeTarget), []);
 });

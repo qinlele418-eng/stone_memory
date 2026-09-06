@@ -29,6 +29,8 @@ const { buildFeelingPrompt, buildFeaturePrompt } = require("../services/memory-m
 const { normalizeRebuildRequest, rebuildRequestCliArgs } = require("../services/rebuild-request");
 const { loadModules, resolveInside } = require("../services/developer-module-contract");
 const { compactTermTimelineReport } = require("../services/term-timeline-report");
+const { WebAuthError, isLoopbackHost, isLoopbackAddress, configuredAuth, isPublicWebApiRoute, createWebAuth } = require("../security/web-auth");
+const { webSecurityStatus } = require("../services/web-security");
 
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MAX_UPLOAD = 512 * 1024 * 1024;
@@ -41,8 +43,21 @@ const scratchJobs = new Map();
 const PROJECT_ROOT = path.join(__dirname, "..", "..");
 const STMEM_BIN = path.join(PROJECT_ROOT, "bin", "stmem");
 
+function redactWebSecrets(value) {
+  let output = String(value || "");
+  // Exact configured model credentials are the only values this process can
+  // reliably recognise without guessing their provider-specific format.
+  const configuredKeys = Object.values(loadConfig().apiKeys || {})
+    .map(item => String(item?.key || ""))
+    .filter(key => key.length >= 8);
+  for (const key of configuredKeys) output = output.split(key).join("[REDACTED]");
+  return output
+    .replace(/\b(stmem_[A-Za-z0-9_-]+)\b/g, "[REDACTED]")
+    .replace(/(["']?(?:authorization|api[_ -]?key)["']?\s*[:=]\s*["']?)(?:bearer\s+)?[^"'\s,;}\]]+/gi, "$1[REDACTED]");
+}
+
 function safeStmemFailure(stderr, command, status) {
-  const lines = String(stderr || "").split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  const lines = redactWebSecrets(stderr).split(/\r?\n/).map(line => line.trim()).filter(Boolean);
   const marked = lines.reverse().find(line =>
     /^\[(?:memory-miner|memory-compressor)\]\s+(?:subagent\s+)?error:/i.test(line)
     || /^\[(?:tool-policy|module)\]\s+error:/i.test(line));
@@ -400,7 +415,6 @@ function publicThreadSettings(threadId) {
     sessionDir: entry.sessionDir || "", minerMode: entry.minerMode || "subagent", apiProvider: entry.apiProvider || "",
     baseUrl: entry.apiProvider ? (config.apiKeys?.[entry.apiProvider]?.baseUrl || "") : "",
     model: entry.apiProvider ? (config.apiKeys?.[entry.apiProvider]?.model || "") : "",
-    apiKey: entry.apiProvider ? (config.apiKeys?.[entry.apiProvider]?.key || "") : "",
     hasApiKey: !!(entry.apiProvider && config.apiKeys?.[entry.apiProvider]?.key),
     windowDays: entry.windowDays ?? 3, keepToolPairs: entry.keepToolPairs ?? 30,
     mcpRebuildDefaultsEnabled: entry.mcpRebuildDefaultsEnabled === true,
@@ -415,13 +429,19 @@ function publicThreadSettings(threadId) {
   };
 }
 
-function json(res, status, data) {
+function json(res, status, data, headers = {}) {
   const body = JSON.stringify(data);
-  res.writeHead(status, { "content-type": "application/json; charset=utf-8", "content-length": Buffer.byteLength(body) });
+  res.writeHead(status, {
+    "content-type": "application/json; charset=utf-8",
+    "content-length": Buffer.byteLength(body),
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
+    ...headers,
+  });
   res.end(body);
 }
 
-function error(res, status, message) { json(res, status, { error: message }); }
+function error(res, status, message, headers = {}) { json(res, status, { error: redactWebSecrets(message) }, headers); }
 
 function readBody(req, limit = 2 * 1024 * 1024) {
   return new Promise((resolve, reject) => {
@@ -688,7 +708,11 @@ async function handleDreamSettings(req, url, threadId, resource) {
   throw new Error("不支持的织梦设置请求");
 }
 
-async function handleApi(req, res, url) {
+async function handleApi(req, res, url, { isRemote = false } = {}) {
+  if (req.method === "GET" && url.pathname === "/api/web-security") return json(res, 200, webSecurityStatus());
+  if (req.method === "POST" && url.pathname === "/api/web-security/token") {
+    return json(res, 200, JSON.parse(runStmem(["web", "auth", "rotate", "--json"])));
+  }
   if (req.method === "GET" && url.pathname === "/api/developer-modules") {
     return json(res, 200, { modules: listDeveloperModules() });
   }
@@ -702,6 +726,7 @@ async function handleApi(req, res, url) {
     }
     if (req.method === "POST") {
       const body = await readJson(req);
+      if (isRemote && body.threadFile) throw new Error("远程 Web 不能注册服务器本地 Binding 路径；请在本机通过 CLI 或 loopback Continuity Lab 明确配置来源");
       const args = ["binding", "add", "--thread", threadId, "--provider", String(body.provider || "")];
       if (body.externalThreadId) args.push("--external-thread", String(body.externalThreadId));
       if (body.threadFile) args.push("--thread-file", String(body.threadFile));
@@ -730,6 +755,7 @@ async function handleApi(req, res, url) {
     publicThreadSettings(threadId);
     const body = await readJson(req);
     const args = ["binding", "import", "--thread", threadId, "--binding", bindingId];
+    if (isRemote && body.source) throw new Error("远程 Web Binding 导入不能临时指定服务器本地路径；请在本机通过 CLI 或 loopback Continuity Lab 明确配置来源");
     if (body.source) args.push("--source", String(body.source));
     if (body.apply === true) args.push("--apply");
     return json(res, 200, JSON.parse(runStmem(args)));
@@ -819,10 +845,12 @@ async function handleApi(req, res, url) {
   }
   if (req.method === "GET" && url.pathname === "/review-lab/api/dates") {
     const threadId = String(url.searchParams.get("threadId") || "");
+    publicThreadSettings(threadId);
     return json(res, 200, { dates: miningDates(threadId) });
   }
   if (req.method === "GET" && url.pathname === "/review-lab/api/candidates") {
     const threadId = String(url.searchParams.get("threadId") || "");
+    publicThreadSettings(threadId);
     const args = ["mine-review", "list", "--thread", threadId];
     if (url.searchParams.get("date")) args.push("--date", url.searchParams.get("date"));
     const result = parseStmemJson(runStmem(args));
@@ -834,6 +862,7 @@ async function handleApi(req, res, url) {
   if (req.method === "POST" && url.pathname === "/review-lab/api/preview") {
     const body = await readJson(req);
     const threadId = String(body.threadId || "");
+    publicThreadSettings(threadId);
     const profile = reviewProfileFromInput(threadId, body.profile);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(String(body.date || ""))) throw new Error("候选日期无效");
     const ruleIds = Object.entries(REVIEW_RULE_IDS)
@@ -854,12 +883,14 @@ async function handleApi(req, res, url) {
   }
   if (req.method === "GET" && url.pathname === "/review-lab/api/batches") {
     const threadId = String(url.searchParams.get("threadId") || "");
+    publicThreadSettings(threadId);
     const result = parseStmemJson(runStmem(reviewBatchCommandArgs("batch-list", threadId)));
     return json(res, 200, result);
   }
   if (req.method === "POST" && url.pathname === "/review-lab/api/batches") {
     const body = await readJson(req);
     const threadId = String(body.threadId || "");
+    publicThreadSettings(threadId);
     const batch = writePrivateBatch(reviewBatchPayload(threadId, body));
     try {
       const created = parseStmemJson(runStmem(reviewBatchCommandArgs("batch-create", threadId, batch.file)));
@@ -872,6 +903,7 @@ async function handleApi(req, res, url) {
   const reviewBatchMatch = url.pathname.match(/^\/review-lab\/api\/batches\/(batch-[0-9a-f-]+)$/);
   if (req.method === "GET" && reviewBatchMatch) {
     const threadId = String(url.searchParams.get("threadId") || "");
+    publicThreadSettings(threadId);
     const batch = parseStmemJson(runStmem(reviewBatchCommandArgs(
       "batch-status",
       threadId,
@@ -883,6 +915,7 @@ async function handleApi(req, res, url) {
   if (req.method === "POST" && reviewBatchRetryMatch) {
     const body = await readJson(req);
     const threadId = String(body.threadId || "");
+    publicThreadSettings(threadId);
     runReviewBatchInBackground(threadId, reviewBatchRetryMatch[1], "batch-retry");
     return json(res, 202, { ok: true, batchId: reviewBatchRetryMatch[1] });
   }
@@ -894,6 +927,7 @@ async function handleApi(req, res, url) {
   }
   if (req.method === "POST" && url.pathname === "/review-lab/api/hybrid") {
     const body = await readJson(req);
+    publicThreadSettings(String(body.threadId || ""));
     const batch = writePrivateBatch({
       date: body.date,
       selection: body.selection,
@@ -909,6 +943,7 @@ async function handleApi(req, res, url) {
   if (req.method === "POST" && url.pathname === "/review-lab/api/fusion") {
     const body = await readJson(req);
     const threadId = String(body.threadId || "");
+    publicThreadSettings(threadId);
     const profile = reviewProfileFromInput(threadId, body.profile);
     const sourceCandidateId = String(body.sourceCandidateId || "");
     if (!/^candidate-[0-9a-f-]+$/.test(sourceCandidateId)) throw new Error("融合来源候选无效");
@@ -928,6 +963,7 @@ async function handleApi(req, res, url) {
   if (req.method === "POST" && fusionEditMatch) {
     const body = await readJson(req);
     const threadId = String(body.threadId || "");
+    publicThreadSettings(threadId);
     const reviews = new MiningReviewStore({
       memoryDir: path.join(getThreadDir(threadId), "memory"),
       threadId,
@@ -942,6 +978,7 @@ async function handleApi(req, res, url) {
   const reviewEvidenceMatch = url.pathname.match(/^\/review-lab\/api\/candidates\/([^/]+)\/evidence$/);
   if (req.method === "GET" && reviewEvidenceMatch) {
     const threadId = String(url.searchParams.get("threadId") || "");
+    publicThreadSettings(threadId);
     const reviews = new MiningReviewStore({ memoryDir: path.join(getThreadDir(threadId), "memory"), threadId });
     const candidate = reviews.load(decodeURIComponent(reviewEvidenceMatch[1]));
     const index = Number(url.searchParams.get("index"));
@@ -961,6 +998,7 @@ async function handleApi(req, res, url) {
   if (req.method === "POST" && reviewActionMatch) {
     const body = await readJson(req);
     const threadId = String(body.threadId || "");
+    publicThreadSettings(threadId);
     const result = parseStmemJson(runStmem([
       "mine-review", reviewActionMatch[2], "--thread", threadId,
       "--candidate", decodeURIComponent(reviewActionMatch[1]),
@@ -977,6 +1015,12 @@ async function handleApi(req, res, url) {
     const body = await readJson(req);
     const threadId = String(body.threadId || "").trim(), sessionDir = String(body.sessionDir || "").trim();
     if (!threadId || !sessionDir) throw new Error("请先填写真实 Claude/Codex 线程 ID 和线程文件搜索目录");
+    if (isRemote) {
+      const current = publicThreadSettings(threadId);
+      if (sessionDir !== String(current.sessionDir || "")) {
+        throw new Error("远程 Web 不能指定服务器本地线程文件目录；请使用已配置的 sessionDir，或在本机 CLI / loopback Web 中修改");
+      }
+    }
     const file = findThreadSessionFile(sessionDir, threadId);
     if (!file) throw new Error(`在这个目录中没有找到线程 ${threadId} 的 JSONL 文件，请重新填写路径或检查文件是否存在`);
     return json(res, 200, { found: true, file });
@@ -995,6 +1039,9 @@ async function handleApi(req, res, url) {
     if (req.method === "PATCH") {
       const body = await readJson(req);
       const current = publicThreadSettings(threadId);
+      if (isRemote && Object.hasOwn(body, "sessionDir") && String(body.sessionDir || "").trim() !== String(current.sessionDir || "")) {
+        throw new Error("远程 Web 不能修改服务器本地线程文件目录；请在本机 CLI / loopback Web 中修改");
+      }
       const automationKeys = ["automaticFullMining", "automaticMemoryMaintenance", "automaticCompression", "automaticDream", "watcherEnabled"];
       const regularBody = Object.fromEntries(Object.entries(body).filter(([key]) => !automationKeys.includes(key)));
       const input = { ...current, ...regularBody, threadId, runtime: current.runtime, purpose: current.purpose };
@@ -1527,6 +1574,7 @@ async function handleApi(req, res, url) {
 
   if (req.method === "POST" && url.pathname === "/api/libraries") {
     const input = await readJson(req);
+    if (isRemote) throw new Error("远程 Web 不能新增服务器本地线程文件目录；请在本机 CLI / loopback Web 中创建记忆体");
     const initDir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-web-init-"));
     const initFile = path.join(initDir, "init.json");
     fs.writeFileSync(initFile, JSON.stringify(input), { encoding: "utf8", mode: 0o600 });
@@ -1571,15 +1619,39 @@ function cleanupPreviews() {
 }
 
 function startWebServer({ host = "127.0.0.1", port = 4173 } = {}) {
+  if (!isLoopbackHost(host) && !configuredAuth(loadConfig())) {
+    throw new Error("非 loopback Web 监听必须先配置 Web API Token");
+  }
+  const webAuth = createWebAuth({ host, configProvider: loadConfig });
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host || `${host}:${port}`}`);
     try {
-      if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/review-lab/api/")) return await handleApi(req, res, url);
+      // The allowlist is deliberately tiny. Every other current and future
+      // /api/* and /review-lab/api/* route reaches the shared auth gate below.
+      if (isPublicWebApiRoute(req.method, url.pathname) && url.pathname === "/api/auth/status") return json(res, 200, webAuth.status());
+      if (isPublicWebApiRoute(req.method, url.pathname) && url.pathname === "/api/auth/unlock") {
+        webAuth.assertSameOrigin(req, { kind: "none" });
+        const body = await readJson(req);
+        const cookie = webAuth.unlock(String(body.token || ""), req);
+        return json(res, 200, { unlocked: true }, { "set-cookie": cookie });
+      }
+      if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/review-lab/api/")) {
+        const principal = webAuth.authenticate(req);
+        webAuth.assertSameOrigin(req, principal);
+        // A server deliberately bound beyond loopback must never grant its
+        // local-file capability through a reverse proxy whose upstream socket
+        // happens to be 127.0.0.1.  Use the loopback-only listener for the
+        // explicit local Continuity Lab workflow.
+        return await handleApi(req, res, url, { isRemote: !isLoopbackHost(host) || !isLoopbackAddress(req.socket?.remoteAddress) });
+      }
       if (serveCanonicalDeveloperModule(req, res, url.pathname)) return;
       if (serveStatic(req, res, url.pathname)) return;
       if (!path.extname(url.pathname)) return serveStatic(req, res, "/");
       error(res, 404, "页面不存在");
-    } catch (cause) { error(res, 400, cause.message || "请求失败"); }
+    } catch (cause) {
+      if (cause instanceof WebAuthError) return error(res, cause.status, cause.message || "认证失败", cause.headers);
+      error(res, 400, cause.message || "请求失败");
+    }
   });
   const timer = setInterval(cleanupPreviews, 10 * 60 * 1000);
   timer.unref();
@@ -1594,6 +1666,8 @@ module.exports = {
   startWebServer, listLibraries, overview, previewRows, paginate, buildConversationCalendar,
   listDeveloperModules,
   miningDatesFromStore, miningCommandArgs, miningCheckCommandArgs, targetedMiningCommandArgs,
-  timelineCommandArgs, compactTimelineReport, compressionCommandArgs, safeStmemFailure, runStmem,
+  timelineCommandArgs, compactTimelineReport, compressionCommandArgs, safeStmemFailure, redactWebSecrets, runStmem,
+  error,
   reviewCandidateForWeb, reviewProfileFromInput, reviewBatchPayload, reviewBatchCommandArgs,
+  publicThreadSettings,
 };

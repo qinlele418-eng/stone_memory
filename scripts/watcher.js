@@ -32,6 +32,7 @@ const { latestContextUsage } = require("../src/lib/thread-context-usage");
 const { updateContextUsage } = require("../src/services/rebuild-log");
 const { MemoryStore } = require("../src/storage/memory-store");
 const { watcherActions, watcherEnabled, watcherPaths, writeWatcherState } = require("../src/services/watcher-runtime");
+const { appendPrivateFile, ensurePrivateDirectory } = require("../src/security/local-data-permissions");
 const LOG_DIR = path.join(os.homedir(), ".stone_memory", "logs");
 let workerLockDir = null;
 let workerLease = null;
@@ -40,8 +41,9 @@ function log(msg) {
   const ts = new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false });
   const line = `[${ts}] ${msg}`;
   console.log(line);
-  fs.mkdirSync(LOG_DIR, { recursive: true });
-  fs.appendFileSync(path.join(LOG_DIR, "watcher.log"), line + "\n", "utf8");
+  ensurePrivateDirectory(LOG_DIR);
+  const file = path.join(LOG_DIR, "watcher.log");
+  appendPrivateFile(file, line + "\n", { encoding: "utf8" });
 }
 
 function beijingToday() {
@@ -51,8 +53,8 @@ function beijingToday() {
 
 function acquireWorkerLock(threadId) {
   const { root, lockDir } = watcherPaths(threadId);
-  fs.mkdirSync(root, { recursive: true });
-  workerLease = acquireProcessLock(lockDir, { marker: "scripts/watcher.js" });
+  ensurePrivateDirectory(root);
+  workerLease = acquireProcessLock(lockDir, { marker: "scripts/watcher.js", privatePaths: true });
   if (!workerLease.acquired) return null;
   return lockDir;
 }

@@ -15,6 +15,27 @@ const {
 } = require("../src/services/dream-service");
 const { DreamStore } = require("../src/storage/dream-store");
 const { MemoryStore } = require("../src/storage/memory-store");
+const { DreamPreferences } = require("../src/services/dream-preferences");
+
+// DreamService normally resolves preferences through getThreadDir().  Tests
+// must never let that default reach a developer's real Stone HOME.
+function isolatedPreferences(root) {
+  return new DreamPreferences({ baseDirForThread: threadId => path.join(root, "preferences", threadId) });
+}
+
+function isolatedDreamService(root, options) {
+  return new DreamService({ ...options, preferences: isolatedPreferences(root) });
+}
+
+test("dream test preferences keep temporary locks inside the fixture root", t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-dream-preferences-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const preferences = isolatedPreferences(root);
+  const directory = preferences.directoryFor("thread-test");
+  assert.ok(path.relative(root, directory) && !path.relative(root, directory).startsWith(".."));
+  preferences.withLock("thread-test", () => assert.equal(fs.existsSync(preferences.lockFileFor("thread-test")), true));
+  assert.equal(fs.existsSync(preferences.lockFileFor("thread-test")), false);
+});
 
 test("dream type roll preserves DreamSea probability boundaries", () => {
   assert.equal(rollDreamType({ randomInt: () => 7_999 }).finalType, "beautiful");
@@ -132,7 +153,7 @@ test("dream service generates once from published same-thread feelings and saves
 
   const calls = [];
   const dreamStore = new DreamStore({ root: path.join(root, "dream") });
-  const service = new DreamService({
+  const service = isolatedDreamService(root, {
     dreamStore,
     memoryStoreFactory: () => new MemoryStore({ memoryDir, threadId }),
     getThreadConfig: () => ({ userName: "test-user", aiName: "test-ai" }),
@@ -183,7 +204,7 @@ test("dream service saves free Markdown without an H1 in one subagent call", t =
     "```",
   ].join("\n");
   let calls = 0;
-  const service = new DreamService({
+  const service = isolatedDreamService(root, {
     dreamStore,
     memoryStoreFactory: () => ({
       getDayState: () => ({ status: "completed" }),
@@ -213,7 +234,7 @@ test("dream service rejects whitespace once and leaves no dream file", t => {
   const threadId = "thread-test";
   const dreamStore = new DreamStore({ root: path.join(root, "dream") });
   let calls = 0;
-  const service = new DreamService({
+  const service = isolatedDreamService(root, {
     dreamStore,
     memoryStoreFactory: () => ({
       getDayState: () => ({ status: "completed" }),

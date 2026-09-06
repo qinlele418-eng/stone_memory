@@ -9,6 +9,9 @@ const { startWebServer } = require("../src/web/server");
 const { loadConfig } = require("../src/config");
 const { saveConfig } = require("../src/services/thread-setup");
 const { readManagedPid, startManagedProcess, stopManagedProcess } = require("../src/services/managed-local-process");
+const { ensurePrivateDirectory, hardenPrivateFile, writePrivateFile } = require("../src/security/local-data-permissions");
+const { isLoopbackHost, configuredAuth } = require("../src/security/web-auth");
+const { webSecurityStatus, rotateWebApiToken } = require("../src/services/web-security");
 
 const STONE = path.join(os.homedir(), ".stone_memory");
 const PID_FILE = path.join(STONE, "web.pid");
@@ -17,7 +20,7 @@ const WATCH_SCRIPT = path.join(__dirname, "stmem-web-watch.js");
 const MARKER = ["stmem-web-watch.js", "stmem-web.js", "stmem web"];
 const invokedThroughCli = path.basename(process.argv[1] || "") === "stmem";
 const args = process.argv.slice(invokedThroughCli ? 3 : 2);
-const actions = new Set(["start", "stop", "restart", "status", "config", "dev", "serve"]);
+const actions = new Set(["start", "stop", "restart", "status", "config", "dev", "serve", "auth"]);
 const action = actions.has(args[0]) ? args.shift() : "serve";
 const value = name => {
   const index = args.indexOf(name);
@@ -25,6 +28,7 @@ const value = name => {
 };
 
 function webConfig({ persistFlags = false } = {}) {
+  if (fs.existsSync(path.join(STONE, "stmem.json"))) hardenPrivateFile(path.join(STONE, "stmem.json"));
   const config = loadConfig();
   const current = config.web || {};
   const rawPort = value("--port");
@@ -37,16 +41,51 @@ function webConfig({ persistFlags = false } = {}) {
     const parsed = new URL(publicUrl);
     if (!new Set(["http:", "https:"]).has(parsed.protocol)) throw new Error("前端访问地址必须使用 http 或 https");
   }
-  const next = { host: String(host).trim(), port, publicUrl: String(publicUrl).trim() };
+  const next = { ...current, host: String(host).trim(), port, publicUrl: String(publicUrl).trim() };
   if (persistFlags && (value("--host") != null || rawPort != null || value("--url") != null)) {
+    if (!isLoopbackHost(next.host) && !configuredAuth(config)) {
+      throw new Error("非 loopback Web 监听必须先执行 stmem web auth rotate 配置 Web API Token");
+    }
     config.web = next;
     saveConfig(config);
   }
   return next;
 }
 
+function assertNetworkAuth(config) {
+  if (!isLoopbackHost(config.host) && !configuredAuth(loadConfig())) {
+    throw new Error("非 loopback Web 监听必须先执行 stmem web auth rotate 配置 Web API Token");
+  }
+}
+
+function warnInsecureNetworkHttp(config) {
+  if (!isLoopbackHost(config.host) && !/^https:/i.test(config.publicUrl || "")) {
+    console.warn("安全警告：当前 Web API 在非 loopback HTTP 上运行。访问令牌和浏览器会话可能被网络监听；建议使用 HTTPS、可信反向代理或 VPN。");
+  }
+}
+
+function runAuthCommand() {
+  const subcommand = args.shift() || "status";
+  if (subcommand === "status") {
+    console.log(JSON.stringify(webSecurityStatus(), null, 2));
+    return;
+  }
+  if (subcommand === "rotate") {
+    const result = rotateWebApiToken();
+    if (args.includes("--json")) console.log(JSON.stringify(result, null, 2));
+    else {
+      console.log("已生成新的 Web API Token。旧 Token 立即失效；请现在保存，之后无法再次读取：");
+      console.log(result.token);
+    }
+    return;
+  }
+  throw new Error("用法：stmem web auth status | rotate [--json]");
+}
+
 function startBackground() {
   const config = webConfig({ persistFlags: true });
+  assertNetworkAuth(config);
+  warnInsecureNetworkHttp(config);
   return startManagedProcess({
     script: WATCH_SCRIPT,
     pidFile: PID_FILE,
@@ -58,12 +97,14 @@ function startBackground() {
 
 async function serve() {
   const config = webConfig();
+  assertNetworkAuth(config);
+  warnInsecureNetworkHttp(config);
   const watchChild = args.includes("--watch-child");
   if (!watchChild) {
     const existing = readManagedPid(PID_FILE, MARKER);
     if (existing && existing !== process.pid) throw new Error(`Stone Memory 前端已运行 (pid ${existing})`);
-    fs.mkdirSync(STONE, { recursive: true });
-    fs.writeFileSync(PID_FILE, String(process.pid));
+    ensurePrivateDirectory(STONE);
+    writePrivateFile(PID_FILE, String(process.pid));
     const cleanup = () => {
       try {
         if (Number(fs.readFileSync(PID_FILE, "utf8")) === process.pid) fs.rmSync(PID_FILE, { force: true });
@@ -83,6 +124,8 @@ async function serve() {
 
 function startDevelopmentServer() {
   const config = webConfig({ persistFlags: true });
+  assertNetworkAuth(config);
+  warnInsecureNetworkHttp(config);
   const existing = readManagedPid(PID_FILE, MARKER);
   if (existing) throw new Error(`后台 Web 正在运行 (pid ${existing})；请先执行 stmem web stop，再启动 dev`);
   console.log(`Stone Memory dev：http://${config.host}:${config.port}`);
@@ -112,6 +155,7 @@ function startDevelopmentServer() {
 }
 
 async function main() {
+  if (action === "auth") return runAuthCommand();
   if (action === "serve") return serve();
   if (action === "dev") return startDevelopmentServer();
   if (action === "config") {

@@ -5,6 +5,7 @@ const path = require("path");
 const { getThreadDir } = require("../config");
 const { resolveAutomaticActions } = require("./automatic-mining-policy");
 const { processMatches } = require("../lib/process-identity");
+const { assertPrivateFileTarget, ensurePrivateDirectory, hardenPrivateFile, writePrivateFile } = require("../security/local-data-permissions");
 
 function watcherActions(threadConfig = {}) {
   const actions = resolveAutomaticActions(threadConfig);
@@ -38,18 +39,19 @@ function watcherPaths(threadId) {
 
 function writeWatcherState(threadId, patch = {}) {
   const { root, stateFile } = watcherPaths(threadId);
-  fs.mkdirSync(root, { recursive: true });
+  ensurePrivateDirectory(root);
+  assertPrivateFileTarget(stateFile);
   let previous = {};
   try { previous = JSON.parse(fs.readFileSync(stateFile, "utf8")); } catch {}
   const state = { ...previous, ...patch, threadId, updatedAt: new Date().toISOString() };
-  const temp = `${stateFile}.tmp-${process.pid}-${Date.now()}`;
-  fs.writeFileSync(temp, JSON.stringify(state, null, 2), "utf8");
-  fs.renameSync(temp, stateFile);
+  writePrivateFile(stateFile, JSON.stringify(state, null, 2), { encoding: "utf8" });
   return state;
 }
 
 function readWatcherState(threadId, { verifyProcess = true } = {}) {
-  const { stateFile } = watcherPaths(threadId);
+  const { root, stateFile } = watcherPaths(threadId);
+  ensurePrivateDirectory(root);
+  hardenPrivateFile(stateFile);
   let state = null;
   try { state = JSON.parse(fs.readFileSync(stateFile, "utf8")); } catch { return null; }
   if (!verifyProcess || !state?.pid) return state;

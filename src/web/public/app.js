@@ -170,8 +170,32 @@ async function api(url, options = {}) {
   if (!request.method || String(request.method).toUpperCase() === "GET") request.cache = "no-store";
   const response = await fetch(url, request);
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || "请求失败");
+  if (!response.ok) {
+    const error = new Error(data.error || "请求失败");
+    error.status = response.status;
+    throw error;
+  }
   return data;
+}
+
+function renderWebUnlock() {
+  app.innerHTML = `<section class="welcome"><div class="welcome-content"><p class="eyebrow">WEB API PROTECTION</p><h1>请输入访问令牌</h1><p class="lead">此 Stone Memory Web 服务受访问令牌保护。令牌只用于建立当前浏览器会话，不会保存到浏览器存储。</p><form id="web-unlock-form" class="wizard-card"><label class="field"><span>Web API 访问令牌</span><input name="token" type="password" autocomplete="off" required autofocus placeholder="stmem_…"></label><button class="primary" type="submit">解锁此浏览器</button></form></div></section>`;
+  app.querySelector("#web-unlock-form").onsubmit = async event => {
+    event.preventDefault();
+    const form = event.currentTarget, button = form.querySelector("button");
+    const token = String(new FormData(form).get("token") || "");
+    button.disabled = true;
+    try {
+      const response = await fetch("/api/auth/unlock", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token }) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "无法解锁");
+      form.reset();
+      await bootstrap();
+    } catch (error) {
+      showToast(error.message, "error");
+      button.disabled = false;
+    }
+  };
 }
 
 async function loadLibraries() {
@@ -676,14 +700,39 @@ async function renderSettings(library) {
       <label class="check-card full"><input type="checkbox" name="automaticMemoryMaintenance" ${config.automaticMemoryMaintenance ? "checked" : ""}><span><strong>自动挖掘当日摘要和特征</strong>在时间戳跨天时自动开启挖掘。</span></label>
       <label class="check-card full"><input type="checkbox" name="automaticCompression" ${config.automaticCompression ? "checked" : ""}><span><strong>自动压缩摘要（测试功能）</strong>当前仍在测试，建议暂时不要开启。</span></label>
       <div class="integrity full">纯对话 archive 保存在本地共享 SQLite 的 messages 表；memory/archive/full 才是按天保存的原始线程文件备份。</div>
-    </div><div class="wizard-actions"><button class="danger-button" id="delete-library" type="button">删除记忆体</button><button class="primary" type="submit">保存设置</button></div></form>`;
+    </div><div class="wizard-actions"><button class="danger-button" id="delete-library" type="button">删除记忆体</button><button class="primary" type="submit">保存设置</button></div></form><section class="section-card" id="web-security-card"><p class="eyebrow">STONE GLOBAL SETTINGS</p><h2>Web API 访问保护</h2><p class="lead">正在读取全局 Web 安全状态…</p></section>`;
     const miner = card.querySelector("#setting-miner"), apiFields = card.querySelector("#setting-api-fields");
+    const securityCard = card.querySelector("#web-security-card");
+    const loadWebSecurity = async () => {
+      try {
+        const security = await api("/api/web-security");
+        securityCard.innerHTML = `<p class="eyebrow">STONE GLOBAL SETTINGS</p><h2>Web API 访问保护</h2><p class="lead">${security.enabled ? "已启用。现有令牌无法再次读取；重置后旧令牌和浏览器会话会立即失效。" : "尚未启用。启用后，可安全地将 Web 服务暴露给局域网或其他网络。"}</p><div class="wizard-actions"><button class="${security.enabled ? "danger-button" : "primary"}" id="rotate-web-token" type="button">${security.enabled ? "重置 Web API Token" : "生成 Web API Token"}</button></div><div id="web-token-once" class="integrity warning" hidden></div>`;
+        securityCard.querySelector("#rotate-web-token").onclick = async event => {
+          const button = event.currentTarget;
+          if (security.enabled && !window.confirm("重置后旧 Token 和已解锁浏览器会话会立即失效。继续吗？")) return;
+          button.disabled = true;
+          try {
+            const result = await api("/api/web-security/token", { method: "POST" });
+            const once = securityCard.querySelector("#web-token-once");
+            once.hidden = false;
+            once.textContent = `请立即复制并保存此 Token（仅显示本次）：${result.token}`;
+            button.textContent = "再次重置 Web API Token";
+            security.enabled = true;
+          } catch (error) {
+            showToast(error.message, "error");
+            button.disabled = false;
+          }
+        };
+      } catch (error) {
+        securityCard.innerHTML = `<p class="eyebrow">STONE GLOBAL SETTINGS</p><h2>Web API 访问保护</h2><p class="lead">${escapeHtml(error.message)}</p>`;
+      }
+    };
     const renderApiSettings = () => {
-      apiFields.innerHTML = miner.value === "api" ? `<div class="field-grid"><div class="field"><label for="setting-provider">API 厂商</label><input id="setting-provider" name="apiProvider" value="${escapeHtml(config.apiProvider || "")}" required></div><div class="field"><label for="setting-model">模型名</label><input id="setting-model" name="model" value="${escapeHtml(config.model || "")}" required><small>必须与上游当前提供的模型名完全一致；Stone Memory 不预设。</small></div><div class="field"><label for="setting-key">API Key</label><div class="secret-input"><input id="setting-key" name="apiKey" type="password" value="${escapeHtml(config.apiKey || "")}" required><button type="button" id="toggle-key" aria-label="显示 API Key" title="显示 API Key"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z"/><circle cx="12" cy="12" r="2.7"/></svg></button></div><small>Key 只在本机页面显示和保存。</small></div><div class="field"><label for="setting-base">Base URL</label><input id="setting-base" name="baseUrl" value="${escapeHtml(config.baseUrl || "")}"></div></div>` : "";
-      const toggle = apiFields.querySelector("#toggle-key"), keyInput = apiFields.querySelector("#setting-key");
-      if (toggle) toggle.onclick = () => { const visible = keyInput.type === "text"; keyInput.type = visible ? "password" : "text"; toggle.setAttribute("aria-label", visible ? "显示 API Key" : "隐藏 API Key"); toggle.title = visible ? "显示 API Key" : "隐藏 API Key"; };
+      const keyHint = config.hasApiKey ? "已安全保存；留空即可保留。" : "请输入 API Key。";
+      apiFields.innerHTML = miner.value === "api" ? `<div class="field-grid"><div class="field"><label for="setting-provider">API 厂商</label><input id="setting-provider" name="apiProvider" value="${escapeHtml(config.apiProvider || "")}" required></div><div class="field"><label for="setting-model">模型名</label><input id="setting-model" name="model" value="${escapeHtml(config.model || "")}" required><small>必须与上游当前提供的模型名完全一致；Stone Memory 不预设。</small></div><div class="field"><label for="setting-key">API Key</label><input id="setting-key" name="apiKey" type="password" value="" autocomplete="new-password" placeholder="${keyHint}" ${config.hasApiKey ? "" : "required"}><small>${keyHint}</small></div><div class="field"><label for="setting-base">Base URL</label><input id="setting-base" name="baseUrl" value="${escapeHtml(config.baseUrl || "")}"></div></div>` : "";
     };
     miner.onchange = renderApiSettings; renderApiSettings();
+    loadWebSecurity();
     card.querySelector("#settings-form").onsubmit = async event => {
       event.preventDefault();
       const form = event.currentTarget, button = form.querySelector("button[type=submit]");
@@ -695,6 +744,13 @@ async function renderSettings(library) {
       button.disabled = true; button.textContent = "正在保存…";
       try {
         const result = await api(`/api/libraries/${encodeURIComponent(library.threadId)}/settings`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(values) });
+        config.hasApiKey = result.config.hasApiKey;
+        const keyInput = form.querySelector("#setting-key");
+        if (keyInput) {
+          keyInput.value = "";
+          keyInput.required = !config.hasApiKey;
+          keyInput.placeholder = config.hasApiKey ? "已安全保存；留空即可保留。" : "请输入 API Key。";
+        }
         library.libraryName = result.config.libraryName;
         document.querySelector(".side-title").textContent = result.config.libraryName;
         await loadLibraries(); showToast("设置已保存");
@@ -1189,8 +1245,9 @@ async function checkAndRepair(library) {
   await showIntegrity(library, true); button.disabled = false; button.innerHTML = original;
 }
 
-preparePwa();
-loadLibraries().then(async () => {
+async function bootstrap() {
+  try {
+    await loadLibraries();
   if (!state.libraries.length) {
     welcome();
     return;
@@ -1202,4 +1259,12 @@ loadLibraries().then(async () => {
     return;
   }
   lobby();
-}).catch(error => { app.innerHTML = `<section class="welcome"><div class="welcome-content"><h1>Stone Memory</h1><p class="lead">本地服务暂时无法读取记忆体。</p><button class="primary" onclick="location.reload()">重新加载</button></div></section>`; showToast(error.message, "error"); });
+  } catch (error) {
+    if (error.status === 401) return renderWebUnlock();
+    app.innerHTML = `<section class="welcome"><div class="welcome-content"><h1>Stone Memory</h1><p class="lead">本地服务暂时无法读取记忆体。</p><button class="primary" onclick="location.reload()">重新加载</button></div></section>`;
+    showToast(error.message, "error");
+  }
+}
+
+preparePwa();
+bootstrap();

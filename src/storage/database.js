@@ -1,5 +1,7 @@
 const fs = require("fs");
 const path = require("path");
+const os = require("os");
+const { ensurePrivateDirectory, hardenDatabaseArtifacts } = require("../security/local-data-permissions");
 const Database = require("better-sqlite3");
 const { resolveDatabasePath } = require("./database-location");
 const { messageIdentity } = require("../lib/message-identity");
@@ -221,9 +223,18 @@ CREATE INDEX IF NOT EXISTS idx_binding_batches_memory
 
 function openDatabase(memoryDir) {
   const dbPath = resolveDatabasePath(memoryDir);
-  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  const stoneRoot = path.resolve(os.homedir(), ".stone_memory");
+  const relative = path.relative(stoneRoot, dbPath);
+  const stoneOwned = relative && !relative.startsWith("..") && !path.isAbsolute(relative);
+  if (stoneOwned) {
+    ensurePrivateDirectory(path.dirname(dbPath));
+    if (fs.existsSync(dbPath)) hardenDatabaseArtifacts(dbPath);
+  } else {
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  }
   const db = new Database(dbPath);
   db.pragma("journal_mode = WAL");
+  if (stoneOwned) hardenDatabaseArtifacts(dbPath);
   db.pragma("foreign_keys = ON");
   // 所有正式线程共享一个 SQLite；per-thread watcher 可并发做模型调用，
   // 短写事务由 SQLite 串行。忙等待不应误计为 miner 语义失败。

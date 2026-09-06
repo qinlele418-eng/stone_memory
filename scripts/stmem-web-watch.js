@@ -6,6 +6,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 const { readManagedPid } = require("../src/services/managed-local-process");
+const { ensurePrivateDirectory, writePrivateFile } = require("../src/security/local-data-permissions");
 
 const STONE = path.join(os.homedir(), ".stone_memory");
 const PID_FILE = path.join(STONE, "web.pid");
@@ -19,8 +20,8 @@ if (existing && existing !== process.pid) {
   process.exit(1);
 }
 
-fs.mkdirSync(STONE, { recursive:true });
-fs.writeFileSync(PID_FILE, String(process.pid));
+ensurePrivateDirectory(STONE);
+writePrivateFile(PID_FILE, String(process.pid));
 
 const child = spawn(process.execPath, ["--watch", "--watch-preserve-output", WEB_SCRIPT, "serve", "--watch-child", ...args], {
   stdio:"inherit",

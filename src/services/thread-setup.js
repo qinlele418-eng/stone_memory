@@ -4,6 +4,8 @@ const os = require("os");
 const { CONFIG_PATH, loadConfig } = require("../config");
 const { MemoryStore } = require("../storage/memory-store");
 const { findThreadSessionFile } = require("../lib/thread-session-file");
+const { assertSafeThreadId, assertRuntimeAndPurpose } = require("../config");
+const { ensurePrivateDirectory, writePrivateFile } = require("../security/local-data-permissions");
 
 const STONE = path.join(os.homedir(), ".stone_memory");
 const GLOBAL_KEYS = new Set(["runtimes", "threadId", "apiKeys", "web"]);
@@ -13,22 +15,23 @@ function normalizeName(value) {
 }
 
 function saveConfig(config) {
-  fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
+  ensurePrivateDirectory(path.dirname(CONFIG_PATH));
   const temp = `${CONFIG_PATH}.tmp-${process.pid}-${Date.now()}`;
-  fs.writeFileSync(temp, JSON.stringify(config, null, 2), "utf8");
+  writePrivateFile(temp, JSON.stringify(config, null, 2), { encoding: "utf8" });
   fs.renameSync(temp, CONFIG_PATH);
+  try { fs.chmodSync(CONFIG_PATH, 0o600); } catch {}
 }
 
 function validateThreadInput(input, config = loadConfig(), { allowExisting = false } = {}) {
   const required = ["libraryName", "threadId", "ai", "user", "runtime", "purpose", "minerMode"];
   for (const key of required) if (!String(input[key] || "").trim()) throw new Error(`缺少必填项：${key}`);
-  if (!/^[A-Za-z0-9._:-]+$/.test(input.threadId)) throw new Error("真实线程 ID 只能包含字母、数字、点、冒号、下划线和连字符");
+  assertSafeThreadId(input.threadId);
   if (config[input.threadId] && !allowExisting) throw new Error("这个线程已经绑定到其他记忆体");
   const wanted = normalizeName(input.libraryName);
   const duplicate = Object.entries(config).find(([key, item]) =>
     key !== input.threadId && !GLOBAL_KEYS.has(key) && item && typeof item === "object" && normalizeName(item.label || key) === wanted);
   if (duplicate) throw new Error(`已经存在名为“${String(input.libraryName).trim()}”的记忆体`);
-  if (!["claude", "codex"].includes(input.runtime)) throw new Error("运行时必须是 claude 或 codex");
+  assertRuntimeAndPurpose(input.runtime, input.purpose);
   if (!String(input.sessionDir || "").trim()) throw new Error("需要填写线程文件搜索目录");
   if (!["api", "subagent"].includes(input.minerMode)) throw new Error("挖掘模式必须是 api 或 subagent");
   if (input.minerMode === "api") {
@@ -42,7 +45,12 @@ function validateThreadInput(input, config = loadConfig(), { allowExisting = fal
 }
 
 function threadDirectory(input) {
-  return path.join(STONE, "runtimes", input.runtime, input.purpose, input.threadId);
+  assertRuntimeAndPurpose(input.runtime, input.purpose);
+  const root = path.resolve(STONE, "runtimes");
+  const directory = path.resolve(root, input.runtime, input.purpose, assertSafeThreadId(input.threadId));
+  const relative = path.relative(root, directory);
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) throw new Error("线程目录必须位于 Stone Memory 运行目录内");
+  return directory;
 }
 
 function validateSessionBinding(input) {
@@ -137,15 +145,15 @@ function createThread(input, { allowExisting = false, requireSession = true } = 
 
   const root = threadDirectory({ ...input, threadId });
   for (const relative of ["memory/archive/full", "memory/import/done", "memory/mined/feelings", "rules", "logs"])
-    fs.mkdirSync(path.join(root, relative), { recursive: true });
+    ensurePrivateDirectory(path.join(root, relative));
   const retain = path.join(root, "memory", "retain-config.json");
-  if (!fs.existsSync(retain)) fs.writeFileSync(retain, JSON.stringify({ retain: {}, eventAnchors: {} }, null, 2));
+  if (!fs.existsSync(retain)) writePrivateFile(retain, JSON.stringify({ retain: {}, eventAnchors: {} }, null, 2), { encoding: "utf8" });
   const audit = path.join(root, "memory", "audit-marks.json");
-  if (!fs.existsSync(audit)) fs.writeFileSync(audit, JSON.stringify({ lastCutoffDate: `${new Date().getFullYear()}-01-01`, retainMarks: {} }, null, 2));
+  if (!fs.existsSync(audit)) writePrivateFile(audit, JSON.stringify({ lastCutoffDate: `${new Date().getFullYear()}-01-01`, retainMarks: {} }, null, 2), { encoding: "utf8" });
   const instructions = path.join(root, "rules", "instructions.md");
-  if (!fs.existsSync(instructions)) fs.writeFileSync(instructions, `# ${entry.ai} 的系统指令\n\n在此定义 ${entry.ai} 的基础人格、行为规则、回复风格。\n每次 rebuild 时这些指令会自动注入到新线程头部。\n`);
+  if (!fs.existsSync(instructions)) writePrivateFile(instructions, `# ${entry.ai} 的系统指令\n\n在此定义 ${entry.ai} 的基础人格、行为规则、回复风格。\n每次 rebuild 时这些指令会自动注入到新线程头部。\n`, { encoding: "utf8" });
   const operations = path.join(root, "rules", "operations.md");
-  if (!fs.existsSync(operations)) fs.writeFileSync(operations, `# ${entry.ai} 的操作指令\n\n在此定义 ${entry.ai} 可以使用的工具、API、外部系统。\n每次 rebuild 时这些操作指令会自动注入到新线程头部。\n`);
+  if (!fs.existsSync(operations)) writePrivateFile(operations, `# ${entry.ai} 的操作指令\n\n在此定义 ${entry.ai} 可以使用的工具、API、外部系统。\n每次 rebuild 时这些操作指令会自动注入到新线程头部。\n`, { encoding: "utf8" });
 
   const store = new MemoryStore({ memoryDir: path.join(root, "memory"), threadId });
   store.registerThread({ runtime: entry.runtime, purpose: entry.purpose, label: entry.label });
