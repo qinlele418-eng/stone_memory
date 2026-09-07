@@ -1,8 +1,10 @@
+const os = require("os");
 const path = require("path");
 const { getThreadDir, listThreadIds } = require("../config");
 const { MemoryStore } = require("../storage/memory-store");
 const { listBindings, getBinding } = require("./memory-bindings");
 const { moduleDataDir, resolveInside } = require("./developer-module-contract");
+const { MIGRATION_STATE_ROOT } = require("./developer-module-migration-state");
 
 function withStore(threadId, action) {
   const store = new MemoryStore({ memoryDir: path.join(getThreadDir(threadId), "memory"), threadId });
@@ -16,6 +18,9 @@ function createModuleContext(manifest, { threadId = null } = {}) {
     moduleId: manifest.id,
     threadId,
     moduleDataDir: dataDir,
+    migrationStateRoot: MIGRATION_STATE_ROOT,
+    legacyThreadDir: threadId ? getThreadDir(threadId) : null,
+    legacyDreamRoot: path.join(os.homedir(), ".stone_memory", "dream"),
     resolveDataPath(relativePath) {
       if (!dataDir) throw new Error("该命令需要 --thread <记忆体ID>");
       return resolveInside(dataDir, relativePath, "module data path");

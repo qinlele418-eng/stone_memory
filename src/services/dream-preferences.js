@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 const { getThreadDir } = require("../config");
+const { readyBackendFor, withModuleMutation } = require("./developer-module-data");
 const { DREAM_TYPE_ORDER, assertDreamType, isNsfwDreamType, nsfwDisabledError, normalizeMultipliers, planDreamDistribution, MULTIPLIER_STEPS } = require("./dream-policy");
 
 // 每记忆体织梦偏好与 Prompt override 的正式用户数据层。
@@ -31,12 +32,21 @@ const PROMPT_FILES = Object.freeze([
 const LOCK_STALE_MS = 15 * 60 * 1000;
 
 class DreamPreferences {
-  constructor({ baseDirForThread = threadId => path.join(getThreadDir(threadId), "dream") } = {}) {
-    this.baseDirForThread = baseDirForThread;
+  constructor(options = {}) {
+    this.managed = !options.baseDirForThread;
+    this.baseDirForThread = options.baseDirForThread || (threadId => path.join(getThreadDir(threadId), "dream"));
+    this.moduleBaseDirForThread = options.moduleBaseDirForThread || (threadId => {
+      const { dataPathFor } = require("./developer-module-data");
+      return dataPathFor("dream-lab", threadId, ".");
+    });
+    this.migrationStateRoot = options.migrationStateRoot;
+    this.backendForThread = options.backendForThread || (threadId => readyBackendFor("dream-lab", threadId, { stateRoot: this.migrationStateRoot }));
   }
 
   directoryFor(threadId) {
-    return this.baseDirForThread(threadId);
+    return this.managed && this.backendForThread(threadId) === "module"
+      ? this.moduleBaseDirForThread(threadId)
+      : this.baseDirForThread(threadId);
   }
 
   preferencesFileFor(threadId) {
@@ -71,7 +81,6 @@ class DreamPreferences {
   }
 
   write(threadId, preferences) {
-    const file = this.preferencesFileFor(threadId);
     const document = {
       schemaVersion: 3,
       nsfwEnabled: preferences?.nsfwEnabled === true,
@@ -80,6 +89,15 @@ class DreamPreferences {
       oneShot: normalizeOneShot(preferences?.oneShot),
     };
     if (!document.nsfwEnabled && isNsfwDreamType(document.oneShot?.dreamType)) document.oneShot = null;
+    if (this.managed) {
+      return withModuleMutation("dream-lab", threadId, backend => this.writeDocument(
+        path.join(backend === "module" ? this.moduleBaseDirForThread(threadId) : this.baseDirForThread(threadId), "preferences.json"), document,
+      ), { stateRoot: this.migrationStateRoot });
+    }
+    return this.writeDocument(this.preferencesFileFor(threadId), document);
+  }
+
+  writeDocument(file, document) {
     fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
     const temporary = `${file}.tmp-${process.pid}-${randomUUID()}`;
     try {
@@ -144,13 +162,21 @@ class DreamPreferences {
 
   setNsfwEnabled(threadId, enabled) {
     const current = this.read(threadId);
-    current.nsfwEnabled = enabled === true;
-    if (!current.nsfwEnabled && isNsfwDreamType(current.oneShot?.dreamType)) current.oneShot = null;
+    const nextEnabled = enabled === true;
+    if (!nextEnabled) {
+      planDreamDistribution({
+        multipliers: current.multipliers,
+        excludedTypes: current.excludedTypes,
+        nsfwEnabled: false,
+      });
+    }
+    current.nsfwEnabled = nextEnabled;
+    if (!nextEnabled && isNsfwDreamType(current.oneShot?.dreamType)) current.oneShot = null;
     this.write(threadId, current);
     return current;
   }
 
-  // Prompt override：thread 作用域覆盖 bundled operations/dream，缺失时返回 null 表示回退内置。
+  // Prompt override：thread 作用域覆盖 bundled prompts，缺失时返回 null 表示回退内置。
   readPromptOverride(threadId, fileName) {
     assertPromptFile(fileName);
     const file = path.join(this.promptDirectoryFor(threadId), fileName);
@@ -165,7 +191,15 @@ class DreamPreferences {
     assertPromptFile(fileName);
     const text = String(content ?? "");
     if (!text.trim()) throw new Error("dream prompt override must not be empty");
-    const file = path.join(this.promptDirectoryFor(threadId), fileName);
+    if (this.managed) {
+      return withModuleMutation("dream-lab", threadId, backend => this.writePromptFile(
+        path.join(backend === "module" ? this.moduleBaseDirForThread(threadId) : this.baseDirForThread(threadId), "prompts", fileName), text,
+      ), { stateRoot: this.migrationStateRoot });
+    }
+    return this.writePromptFile(path.join(this.promptDirectoryFor(threadId), fileName), text);
+  }
+
+  writePromptFile(file, text) {
     fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
     const temporary = `${file}.tmp-${process.pid}-${randomUUID()}`;
     try {
@@ -178,10 +212,13 @@ class DreamPreferences {
 
   resetPromptOverride(threadId, fileName) {
     assertPromptFile(fileName);
-    const file = path.join(this.promptDirectoryFor(threadId), fileName);
-    try { fs.unlinkSync(file); } catch (error) {
-      if (error.code !== "ENOENT") throw error;
-    }
+    const remove = backend => {
+      const directory = backend === "module" ? this.moduleBaseDirForThread(threadId) : this.baseDirForThread(threadId);
+      const file = path.join(directory, "prompts", fileName);
+      try { fs.unlinkSync(file); } catch (error) { if (error.code !== "ENOENT") throw error; }
+    };
+    if (this.managed) return withModuleMutation("dream-lab", threadId, remove, { stateRoot: this.migrationStateRoot });
+    return remove("legacy");
   }
 
   hasPromptOverride(threadId, fileName) {

@@ -593,6 +593,16 @@ function serveCanonicalDeveloperModule(req, res, pathname) {
   return true;
 }
 
+function serveLegacyDreamLab(res, url) {
+  const { pathname } = url;
+  if (!/^\/dream-lab(?:\/|$)/u.test(pathname)) return false;
+  const suffix = pathname.slice("/dream-lab".length).replace(/^\//u, "");
+  const location = `/developer-modules/dream-lab/${suffix}`.replace(/\/$/u, "/") + url.search;
+  res.writeHead(302, { location });
+  res.end();
+  return true;
+}
+
 function overview(threadId) {
   const library = listLibraries().find(item => item.threadId === threadId);
   if (!library) return null;
@@ -1600,6 +1610,7 @@ function startWebServer({ host = "127.0.0.1", port = 4173 } = {}) {
     const url = new URL(req.url, `http://${req.headers.host || `${host}:${port}`}`);
     try {
       if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/review-lab/api/")) return await handleApi(req, res, url);
+      if (serveLegacyDreamLab(res, url)) return;
       if (serveCanonicalDeveloperModule(req, res, url.pathname)) return;
       if (serveStatic(req, res, url.pathname)) return;
       if (!path.extname(url.pathname)) return serveStatic(req, res, "/");
