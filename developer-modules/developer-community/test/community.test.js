@@ -421,6 +421,7 @@ test("frontend uses the shared shell, theme contract, mobile layout and confirma
   assert.match(css, /--stone-theme-/);
   assert.match(css, /@media\(max-width:720px\)/);
   assert.match(css, /\.dossier-list\s*\{[^}]*max-height:[^}]*overflow-y:auto/s);
+  assert.match(css, /\.restart \{[^}]*background:var\(--stone-theme-accent/s);
   assert.match(css, /\.contribution-card \.contribution-title\s*\{[^}]*-webkit-line-clamp:2/s);
   assert.match(app, /class="contribution-meta"/);
   assert.match(app, /暂无回复/);
