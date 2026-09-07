@@ -2,10 +2,10 @@
 
 const crypto = require("node:crypto");
 const fs = require("node:fs");
-const os = require("node:os");
 const path = require("node:path");
 const { resolveInside } = require("../../../src/services/developer-module-contract");
 const { stateDirectory, readMigrationState, writeMigrationState, clearActiveMarker, withMigrationLock, withMigrationRunnerLock } = require("../../../src/services/developer-module-migration-state");
+const { DreamStore } = require("../../../src/storage/dream-store");
 
 function walk(root, current = root) {
   if (!fs.existsSync(current)) return [];
@@ -78,8 +78,10 @@ function mapping(source, target, mode, selectedNames = null) {
 
 function migrationMappings(context) {
   const threadDir = context.legacyThreadDir;
-  const legacyDreamRoot = context.legacyDreamRoot || path.join(os.homedir(), [".stone", "memory"].join("_"), "dream");
   if (!threadDir) throw new Error("Dream Lab migration requires the legacy thread root from the module context");
+  const legacyDreamDirectory = context.legacyDreamRoot
+    ? path.join(context.legacyDreamRoot, context.threadId)
+    : new DreamStore().legacyRootForThread(context.threadId);
   const operationDirectories = [path.join(threadDir, "tmp"), path.join(threadDir, "tmp", "dream-operations")];
   const operationMappings = operationDirectories
     .map((directory, index) => mapping(
@@ -93,7 +95,7 @@ function migrationMappings(context) {
     operationMappings.push(mapping(operationDirectories[0], context.resolveDataPath("operations"), "dream-operation-files", []));
   }
   return [
-    mapping(path.join(legacyDreamRoot, context.threadId), context.resolveDataPath("dreams"), "dream-archive"),
+    mapping(legacyDreamDirectory, context.resolveDataPath("dreams"), "dream-archive"),
     mapping(path.join(threadDir, "dream", "preferences.json"), context.resolveDataPath("preferences.json"), "preferences"),
     mapping(path.join(threadDir, "dream", "prompts"), context.resolveDataPath("prompts"), "prompt-overrides"),
     ...operationMappings,
@@ -160,7 +162,6 @@ function stageMatchesFinal(context, stagingContext) {
 }
 
 function probeDreamTarget(context) {
-  const { DreamStore } = require("../../../src/storage/dream-store");
   const store = new DreamStore({ rootForThread: () => context.resolveDataPath("dreams"), backendForThread: () => "module" });
   for (const date of store.listDates(context.threadId)) store.get(context.threadId, date);
   const preferences = context.resolveDataPath("preferences.json");
