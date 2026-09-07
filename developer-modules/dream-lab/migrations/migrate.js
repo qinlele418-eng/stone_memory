@@ -2,6 +2,7 @@
 
 const crypto = require("node:crypto");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { resolveInside } = require("../../../src/services/developer-module-contract");
 const { stateDirectory, readMigrationState, writeMigrationState, clearActiveMarker, withMigrationLock, withMigrationRunnerLock } = require("../../../src/services/developer-module-migration-state");
@@ -77,8 +78,8 @@ function mapping(source, target, mode, selectedNames = null) {
 
 function migrationMappings(context) {
   const threadDir = context.legacyThreadDir;
-  const legacyDreamRoot = context.legacyDreamRoot;
-  if (!threadDir || !legacyDreamRoot) throw new Error("Dream Lab migration requires legacy data roots from the module context");
+  const legacyDreamRoot = context.legacyDreamRoot || path.join(os.homedir(), [".stone", "memory"].join("_"), "dream");
+  if (!threadDir) throw new Error("Dream Lab migration requires the legacy thread root from the module context");
   const operationDirectories = [path.join(threadDir, "tmp"), path.join(threadDir, "tmp", "dream-operations")];
   const operationMappings = operationDirectories
     .map((directory, index) => mapping(
@@ -265,20 +266,4 @@ function rollback(context) {
   }));
 }
 
-function ensureModuleMigration({ moduleId, threadId, dataRoot, stateRoot, legacyThreadDir, legacyDreamRoot, retryFailed = false } = {}) {
-  const { findModule, moduleDataDir } = require("../../../src/services/developer-module-contract");
-  const module = findModule(moduleId);
-  const options = { moduleId, scope: module.manifest.scope, threadId, stateRoot };
-  const current = readMigrationState(options);
-  if (current.status === "active" || (current.status === "failed" && !retryFailed)) return current;
-  const dataDir = moduleDataDir(module.manifest, { threadId, dataRoot });
-  const context = {
-    moduleId, scope: module.manifest.scope, threadId, moduleDataDir: dataDir, migrationStateRoot: stateRoot,
-    legacyThreadDir, legacyDreamRoot,
-    resolveDataPath(relativePath) { return resolveInside(dataDir, relativePath, "module data path"); },
-  };
-  try { return migrate(context, { apply: true }).state; }
-  catch { return readMigrationState(options); }
-}
-
-module.exports = { inventory, migrationMappings, migrate, rollback, ensureModuleMigration, removeInterruptedStagingDirectories, removeCreated };
+module.exports = { inventory, migrationMappings, migrate, rollback, removeInterruptedStagingDirectories, removeCreated };

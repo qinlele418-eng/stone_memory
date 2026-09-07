@@ -1,4 +1,3 @@
-const os = require("os");
 const path = require("path");
 const { getThreadDir, listThreadIds } = require("../config");
 const { MemoryStore } = require("../storage/memory-store");
@@ -20,7 +19,6 @@ function createModuleContext(manifest, { threadId = null } = {}) {
     moduleDataDir: dataDir,
     migrationStateRoot: MIGRATION_STATE_ROOT,
     legacyThreadDir: threadId ? getThreadDir(threadId) : null,
-    legacyDreamRoot: path.join(os.homedir(), ".stone_memory", "dream"),
     resolveDataPath(relativePath) {
       if (!dataDir) throw new Error("该命令需要 --thread <记忆体ID>");
       return resolveInside(dataDir, relativePath, "module data path");
