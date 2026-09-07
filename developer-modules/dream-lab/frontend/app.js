@@ -25,8 +25,8 @@
     { type: "nightmare_erotic", base: "nightmare", plain: 90, erotic: 10, label: "噩梦 → 噩梦·绮染" },
   ];
   const GUARD_GROUPS = [
-    { title: "美梦分支", types: [{ type: "beautiful", label: "美梦", desc: "温暖、安全、圆满的梦" }, { type: "beautiful_erotic", label: "美梦·绮染", desc: "美梦中的亲密与欲望浸染" }] },
-    { title: "噩梦分支", types: [{ type: "nightmare", label: "噩梦", desc: "危险、失去、恐惧的落点" }, { type: "nightmare_erotic", label: "噩梦·绮染", desc: "在危险里叠入亲密张力" }] },
+    { title: "美梦分支", types: [{ type: "beautiful", label: "美梦", desc: "温暖、安全、圆满的梦" }, { type: "beautiful_erotic", label: "美梦·绮染", desc: "美梦中的奇幻与超现实浸染" }] },
+    { title: "噩梦分支", types: [{ type: "nightmare", label: "噩梦", desc: "危险、失去、恐惧的落点" }, { type: "nightmare_erotic", label: "噩梦·绮染", desc: "在危险里叠入超现实错位" }] },
     { title: "独立梦向", types: [{ type: "erotic", label: "绮梦", desc: "第一重直接落入绮梦，不进行第二重浸染判定" }] },
   ];
 
@@ -34,9 +34,9 @@
     { key: "common-core", label: "公共织梦规则", desc: "决定所有梦境共同规则" },
     { key: "beautiful", label: "美梦", desc: "温暖、安全、圆满" },
     { key: "nightmare", label: "噩梦", desc: "危险、失去、恐惧的落点" },
-    { key: "erotic", label: "绮梦", desc: "自愿、平等的亲密与欲望" },
-    { key: "beautiful_erotic", label: "美梦·绮染", desc: "在圆满里叠入亲密余韵" },
-    { key: "nightmare_erotic", label: "噩梦·绮染", desc: "在危险里叠入亲密张力" },
+    { key: "erotic", label: "绮梦", desc: "奇幻、超现实与梦境规则变化" },
+    { key: "beautiful_erotic", label: "美梦·绮染", desc: "在圆满里叠入绮幻余韵" },
+    { key: "nightmare_erotic", label: "噩梦·绮染", desc: "在危险里叠入超现实错位" },
   ];
 
   const root = document.querySelector("#dream-root");
@@ -604,8 +604,8 @@
         <details class="advanced-settings" ${openNsfwSettings ? "open" : ""}>
           <summary>高级设置</summary>
           <fieldset class="nsfw-mode" aria-describedby="nsfw-description">
-            <legend>NSFW 模式</legend>
-            <small id="nsfw-description">开启后解锁含成年亲密主题的绮梦及相关调律。</small>
+            <legend>是否开启绮染</legend>
+            <small id="nsfw-description">开启后解锁绮梦、绮染梦境及相关调律。</small>
             <div class="nsfw-options">
               <label><input type="radio" name="nsfw-mode" value="off" ${nsfwEnabled() ? "" : "checked"}> OFF</label>
               <label><input type="radio" name="nsfw-mode" value="on" ${nsfwEnabled() ? "checked" : ""}> ON</label>
@@ -925,3 +925,4 @@
   window.addEventListener("hashchange", render);
   render();
 })();
+

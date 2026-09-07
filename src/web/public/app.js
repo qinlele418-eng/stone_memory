@@ -207,7 +207,6 @@ function loadDeveloperModules() {
   return Promise.all([
     loadOptionalScript("/developer-modules/stone-memory-assistant/bootstrap.js"),
     loadOptionalScript("/developer-kit/bootstrap.js?v=2"),
-    loadOptionalScript("/dream-lab/bootstrap.js"),
     loadOptionalScript("/notebook-lab/bootstrap.js"),
   ]).catch(error => showToast(error.message, "error"));
 }

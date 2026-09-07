@@ -90,6 +90,8 @@ async function runModuleCommand(args = process.argv.slice(3)) {
   const implementation = require(commandFile);
   if (typeof implementation.run !== "function") throw new Error(`模块命令 ${moduleAction} 未导出 run(context,input)`);
   const input = commandInput(args.slice(1), moduleAction);
+  if (args.includes("--apply")) input.apply = true;
+  if (args.includes("--dry-run")) input.apply = false;
   if (moduleAction === "hook") {
     try { input.stdin = await readStdin(); }
     catch { return console.log("{}"); }

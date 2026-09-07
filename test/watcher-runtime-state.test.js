@@ -25,7 +25,7 @@ function loadRuntimeWithHome(home) {
 }
 
 test("watcher eligibility is isolated per memory body", () => {
-  const { enabledThreadIds, watcherEnabled, watcherActions } = loadRuntimeWithHome(os.tmpdir());
+  const { enabledThreadIds, watcherEnabled, watcherActions, developerWatcherEnabled } = loadRuntimeWithHome(os.tmpdir());
   assert.equal(watcherEnabled({
     automaticFullMining: false,
     automaticMemoryMaintenance: false,
@@ -36,10 +36,19 @@ test("watcher eligibility is isolated per memory body", () => {
     automaticFullMining: true,
     automaticMemoryMaintenance: false,
   }), true);
+  const noCoreActions = { automaticFullMining: false, automaticMemoryMaintenance: false, automaticCompression: false };
+  assert.equal(watcherEnabled({ ...noCoreActions, watcherModules: { "dev-custom-hook": true } }), true);
+  assert.equal(watcherEnabled({ ...noCoreActions, watcherModules: { "custom-hook": true } }), false);
+  assert.equal(watcherEnabled({ ...noCoreActions, watcherModules: { "dev-custom-hook": true }, watcherEnabled: false }), false);
+  assert.equal(developerWatcherEnabled({ watcherModules: { "dev-custom-hook": true } }), true);
+  assert.equal(developerWatcherEnabled({ watcherModules: { "dev-custom_hook": true } }), false);
   assert.deepEqual(watcherActions({
     automaticFullMining: false,
     automaticMemoryMaintenance: true,
   }), { sync: false, mine: true, compact: false, dream: false });
+  assert.deepEqual(watcherActions({ automaticDream: true, watcherModules: { "dev-dream": true } }), {
+    sync: true, mine: true, compact: false, dream: true,
+  });
   assert.deepEqual(enabledThreadIds({
     enabled: { automaticFullMining: true },
     disabled: { automaticFullMining: false, automaticMemoryMaintenance: false },

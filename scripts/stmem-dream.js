@@ -7,7 +7,7 @@ const { DreamService, validateDreamPromptOverride } = require("../src/services/d
 const { DreamPreferences, PROMPT_FILES } = require("../src/services/dream-preferences");
 const { DREAM_TYPE_ORDER, isNsfwDreamType, nsfwDisabledError, planDreamDistribution } = require("../src/services/dream-policy");
 
-const BUNDLED_PROMPT_DIRECTORY = path.join(__dirname, "..", "operations", "dream");
+const BUNDLED_PROMPT_DIRECTORY = path.join(__dirname, "..", "developer-modules", "dream-lab", "prompts");
 
 // 前端「织梦秘典」六项 → 正式 Prompt 文件名的映射。
 const PROMPT_KEYS = Object.freeze(["common-core", ...DREAM_TYPE_ORDER]);

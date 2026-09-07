@@ -119,7 +119,7 @@ h2, h3 {
 .badge {
   display: inline-block;
   padding: 4px 10px;
-  border-radius: 999px;
+  border-radius: var(--stone-theme-radius-pill, 999px);
   background: var(--stone-theme-surface-soft, #f5f8f1);
   color: var(--stone-theme-ink-soft, #69756d);
   font-size: 12px;
@@ -137,7 +137,7 @@ h2, h3 {
   color: var(--stone-theme-accent-strong, #295540);
   text-decoration: none;
   border: 1px solid var(--stone-theme-line, #dce6d7);
-  border-radius: 999px;
+  border-radius: var(--stone-theme-radius-pill, 999px);
   background: color-mix(in srgb, var(--stone-theme-surface, #fffef9) 82%, transparent);
   font-size: 13px;
   font-weight: 700;
@@ -178,7 +178,7 @@ button {
   padding: 0 18px;
   min-height: 40px;
   border: 0;
-  border-radius: 10px;
+  border-radius: var(--stone-theme-radius-sm, 12px);
   background: var(--stone-theme-accent-strong, #295540);
   color: white;
   font-weight: 800;
@@ -194,6 +194,27 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
   outline: 2px solid var(--stone-theme-accent, #397052);
   outline-offset: 2px;
 }
+
+/* 梦谱调律 */
+.multiplier-row { padding: 14px 0; border-top: 1px solid var(--stone-theme-line-soft, #eaf0e6); }
+.multiplier-row:first-of-type { border-top: 0; }
+.multiplier-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.multiplier-head select {
+  padding: 6px 10px;
+  border: 1px solid var(--stone-theme-line, #dce6d7);
+  border-radius: var(--stone-theme-radius-xs, 8px);
+  background: var(--stone-theme-surface, #fff);
+  color: var(--stone-theme-ink, #18372b);
+  font-size: 13px;
+}
+.multiplier-value { margin-top: 6px; color: var(--stone-theme-ink-soft, #69756d); font-size: 13px; }
+.probability-total { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--stone-theme-line, #dce6d7); font-weight: 700; }
+
+/* 梦向牵引选择 */
+.pin-choices { display: flex; flex-direction: column; gap: 10px; margin: 14px 0 10px; }
+.pin-choice { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border: 1px solid var(--stone-theme-line, #dce6d7); border-radius: var(--stone-theme-radius-sm, 14px); cursor: pointer; }
+.pin-choice:has(input:checked) { border-color: var(--stone-theme-accent, #397052); background: color-mix(in srgb, var(--stone-theme-accent, #397052) 8%, transparent); }
+.pin-choice input { accent-color: var(--stone-theme-accent, #397052); }
 
 /* 安梦守护：分支分组 + 五排除开关 */
 .guard-groups { display: flex; flex-direction: column; gap: 18px; margin-top: 16px; }
@@ -220,7 +241,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
   justify-content: space-between;
   padding: 0 14px;
   border: 1px solid var(--stone-theme-line, #dce6d7);
-  border-radius: 10px;
+  border-radius: var(--stone-theme-radius-sm, 12px);
   background: var(--stone-theme-surface-soft, #f5f8f1);
   color: var(--stone-theme-ink, #18372b);
   font-size: 15px;
@@ -243,7 +264,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 .nsfw-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
 .nsfw-options label {
   display: flex; min-height: 42px; align-items: center; justify-content: center; gap: 8px;
-  border: 1px solid var(--stone-theme-line, #dce6d7); border-radius: 10px;
+  border: 1px solid var(--stone-theme-line, #dce6d7); border-radius: var(--stone-theme-radius-sm, 12px);
   color: var(--stone-theme-ink-soft, #69756d); font-size: 13px; font-weight: 800; cursor: pointer;
 }
 .nsfw-options label:has(input:checked) {
@@ -271,7 +292,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 .stage-row-ctrl { display: flex; align-items: center; gap: 10px; margin-top: 8px; font-size: 13px; color: var(--stone-theme-ink-soft, #69756d); }
 .stage-row-ctrl select {
   padding: 6px 10px; border: 1px solid var(--stone-theme-line, #dce6d7);
-  border-radius: 8px; background: var(--stone-theme-surface, #fff);
+  border-radius: var(--stone-theme-radius-xs, 8px); background: var(--stone-theme-surface, #fff);
   color: var(--stone-theme-ink, #18372b); font-size: 13px;
 }
 .stage-row-value { font-variant-numeric: tabular-nums; color: var(--stone-theme-ink, #18372b); }
@@ -339,7 +360,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 .dream-article-body ul, .dream-article-body ol { margin: 0 0 1.2em; padding-left: 1.4em; }
 .dream-article-body li { margin: .3em 0; }
 .dream-article-body blockquote { margin: 1em 0; padding: 2px 16px; border-left: 3px solid var(--stone-theme-accent, #397052); color: var(--stone-theme-ink-soft, #69756d); }
-.dream-article-body code { padding: 1px 6px; border-radius: 6px; background: var(--stone-theme-surface-soft, #f5f8f1); font-family: var(--stone-theme-font-mono, ui-monospace, monospace); font-size: .9em; }
+.dream-article-body code { padding: 1px 6px; border-radius: var(--stone-theme-radius-xs, 8px); background: var(--stone-theme-surface-soft, #f5f8f1); font-family: var(--stone-theme-font-mono, ui-monospace, monospace); font-size: .9em; }
 .dream-article-body a { color: var(--stone-theme-accent-strong, #295540); }
 
 .dream-pager { display: flex; justify-content: space-between; gap: 12px; margin-top: 32px; padding-top: 20px; border-top: 1px solid var(--stone-theme-line, #dce6d7); }
