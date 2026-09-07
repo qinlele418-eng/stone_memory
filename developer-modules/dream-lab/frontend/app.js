@@ -925,4 +925,3 @@
   window.addEventListener("hashchange", render);
   render();
 })();
-
