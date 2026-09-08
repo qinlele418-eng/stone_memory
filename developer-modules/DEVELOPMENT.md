@@ -212,6 +212,17 @@ developer-modules/<module-id>/prompts/
 
 用户修改后的 Prompt 属于运行数据，放在模块数据目录。两者不能覆盖写成同一个文件。
 
+`prompts/default.md` 是模块组织源码的约定，不是宿主自动加载或注入的入口。当前宿主不会因文件存在而读取它、调用模型或启用规则。模块需要在 README 中说明实际消费方式。
+
+如果该文件用于记忆体的规则注入，应由用户选择后通过正式 CLI 导入并启用（在仓库根目录执行，替换模块 ID 和真实记忆体 ID）：
+
+```bash
+stmem rules import --thread <thread-id> --source developer-modules/<module-id>/prompts/default.md --name <module-id>.md
+stmem rules enable --thread <thread-id> --name <module-id>.md
+```
+
+导入会写入同名规则；更新前应检查用户已有内容，不得覆盖用户修改。模块删除不会自动删除已导入规则，README 应说明如何使用 `stmem rules disable` 或 `stmem rules delete`（均传入 `--thread` 和 `--name`）停用或清理。
+
 ## 8. 浏览器存储
 
 使用 `localStorage`、`sessionStorage` 或 IndexedDB 必须在 `storage.browser` 中声明用途。
@@ -292,6 +303,26 @@ stmem watcher set --thread <id> --dev-example on
 
 模块可以拥有自己的视觉个性，但不能另造一套无法跟随主题、移动端和导航规则的页面框架。
 
+### 静态资源与共享领域逻辑
+
+正式模块静态路由以 `entry.frontend` 所在目录作为公开资源根。例如入口为 `frontend/index.html` 时，浏览器只能请求 `frontend/` 内的文件，不能通过 `../backend/` 或 `../prompts/` 访问兄弟目录。不要为共享代码扩大静态伺服范围。
+
+前后端共用的纯领域逻辑可以放在 `frontend/domain.js`，由页面通过 `<script src="./domain.js"></script>` 加载，后端命令通过 `require("../../frontend/domain.js")` 复用。例如：
+
+```js
+// frontend/domain.js：只包含可公开的纯函数。
+(function (root) {
+  function totalAmount(records) {
+    return records.reduce((sum, record) => sum + record.amount, 0);
+  }
+  const domain = { totalAmount };
+  if (typeof module === "object" && module.exports) module.exports = domain;
+  else root.ModuleDomain = domain;
+})(globalThis);
+```
+
+该目录内的文件可被浏览器请求，不得放凭证、私有 Prompt 或服务端配置。共享文件不应在顶层使用 DOM、文件系统或数据库；持久化仍由 `backend/commands/` 通过正式命令处理。
+
 ## 12. 权限最小化
 
 manifest 只能声明实际需要的权限。典型能力包括：
@@ -338,6 +369,8 @@ manifest 只能声明实际需要的权限。典型能力包括：
 ## 14. CI 审计
 
 提交前运行：
+
+以下模块审计与合同测试只使用 Node.js 22 和仓库源码，无需先安装原生依赖：
 
 ```bash
 npm run audit:developer-modules
