@@ -4,9 +4,10 @@ const os = require("os");
 const { CONFIG_PATH, loadConfig } = require("../config");
 const { MemoryStore } = require("../storage/memory-store");
 const { findThreadSessionFile } = require("../lib/thread-session-file");
+const { canonicalMemoryDir } = require("./memory-identity");
 
 const STONE = path.join(os.homedir(), ".stone_memory");
-const GLOBAL_KEYS = new Set(["runtimes", "threadId", "apiKeys", "web"]);
+const GLOBAL_KEYS = new Set(["runtimes", "threadId", "apiKeys", "web", "memories"]);
 
 function normalizeName(value) {
   return String(value || "").trim().normalize("NFKC").toLocaleLowerCase();
@@ -42,6 +43,7 @@ function validateThreadInput(input, config = loadConfig(), { allowExisting = fal
 }
 
 function threadDirectory(input) {
+  if (input.memoryId) return canonicalMemoryDir(STONE, input.memoryId);
   return path.join(STONE, "runtimes", input.runtime, input.purpose, input.threadId);
 }
 
@@ -90,6 +92,7 @@ function createThread(input, { allowExisting = false, requireSession = true } = 
       ? existing.watcherEnabled
       : Object.values(watcherModules).some(Boolean);
   const entry = {
+    memoryId: String(input.memoryId || existing.memoryId || threadId).trim(),
     ai: String(input.ai).trim(),
     user: String(input.user).trim(),
     userGender: String(input.userGender || "unspecified").trim(),
@@ -133,6 +136,14 @@ function createThread(input, { allowExisting = false, requireSession = true } = 
     claude: { command: "claude -p", flags: { systemPrompt: "--system-prompt-file", mcpConfig: "--mcp-config", model: "--model" } },
   };
   config[threadId] = entry;
+  if (input.memoryId) {
+    config.memories = config.memories || {};
+    const memory = config.memories[input.memoryId];
+    if (!memory) throw new Error(`记忆体不存在：${input.memoryId}`);
+    const bindings = Array.isArray(memory.bindings) ? memory.bindings.filter(item => item.threadId !== threadId) : [];
+    bindings.push({ threadId, runtime: entry.runtime, purpose: entry.purpose, sessionDir: entry.sessionDir, boundAt: new Date().toISOString() });
+    config.memories[input.memoryId] = { ...memory, label: libraryName, status: "active", updatedAt: new Date().toISOString(), bindings };
+  }
   saveConfig(config);
 
   const root = threadDirectory({ ...input, threadId });

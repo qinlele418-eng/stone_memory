@@ -22,6 +22,7 @@ const {
   createThread, validateThreadInput, validateSessionBinding, normalizeName,
 } = require("../src/services/thread-setup");
 const { INIT_SCHEMA, buildInitTemplate } = require("../src/services/init-contract");
+const { createMemory, getMemory } = require("../src/services/memory-setup");
 
 function loadCfg() {
   try { return JSON.parse(fs.readFileSync(cfgFile, "utf8")); }
@@ -105,6 +106,12 @@ async function interactiveInit(threadId) {
 
 async function main() {
   const args = process.argv.slice(2);
+  if (args.includes("--new")) {
+    const nameIndex = args.indexOf("--name");
+    const memory = createMemory({ label: nameIndex >= 0 ? args[nameIndex + 1] : "新建记忆体" });
+    console.log(JSON.stringify({ success: true, memory }, null, 2));
+    return;
+  }
   if (args.includes("--template")) {
     const runtimeIndex = args.indexOf("--runtime");
     console.log(JSON.stringify(buildInitTemplate(runtimeIndex >= 0 ? args[runtimeIndex + 1] : "codex"), null, 2));
@@ -116,6 +123,9 @@ async function main() {
   }
   const threadIdx = args.indexOf("--thread");
   const argumentThreadId = threadIdx >= 0 ? args[threadIdx + 1] : null;
+  const memoryIdx = args.indexOf("--memory");
+  const memoryId = memoryIdx >= 0 ? args[memoryIdx + 1] : null;
+  if (memoryId && !getMemory(memoryId)) throw new Error(`记忆体不存在：${memoryId}`);
 
   let input;
   if (args.includes("--batch") || args.includes("--batch-file")) {
@@ -127,7 +137,7 @@ async function main() {
     }
     const threadId = argumentThreadId || raw.threadId;
     if (!threadId) throw new Error("batch 文件必须填写真实 threadId");
-    input = { ...raw, threadId, libraryName: raw.libraryName || raw.label || threadId };
+    input = { ...raw, memoryId, threadId, libraryName: raw.libraryName || raw.label || threadId };
     if (args.includes("--validate")) {
       validateThreadInput(input, loadCfg(), { allowExisting: true });
       const sessionFile = validateSessionBinding(input);
@@ -140,7 +150,9 @@ async function main() {
   } else {
     if (!argumentThreadId) {
       console.log("用法:\n"
+        + "  stmem init --new [--name <名称>]\n"
         + "  stmem init --thread <真实线程ID>\n"
+        + "  stmem init --memory <记忆体ID> --thread <真实线程ID> --batch-file <json>\n"
         + "  stmem init --template --runtime codex\n"
         + "  stmem init --batch-file <json> --validate\n"
         + "  stmem init --batch-file <json>");
@@ -158,4 +170,4 @@ async function main() {
 
 }
 
-main().catch(e => { console.error(e.message); process.exit(1); });
+main().catch(e => { console.error(`[init] error: ${e.message}`); process.exit(1); });
