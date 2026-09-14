@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 const path = require("path");
-const { getThreadDir, listThreadIds } = require("../src/config");
+const { spawnSync } = require("child_process");
+const { getThreadDir, listMemoryIds } = require("../src/config");
 const { MemoryStore } = require("../src/storage/memory-store");
 const {
   planBinding,
@@ -13,6 +14,10 @@ const {
   revertBindingImport,
   listImportBatches,
 } = require("../src/services/memory-bindings");
+const {
+  readBindingConfig, planBindingAdd, applyBindingAdd, planBindingSwitch, applyBindingSwitch,
+  planBindingState, applyBindingState,
+} = require("../src/services/memory-binding-config");
 
 function parseArgs(argv) {
   const args = [...argv];
@@ -20,6 +25,7 @@ function parseArgs(argv) {
   const options = { action, apply: false };
   const values = {
     "--thread": "threadId",
+    "--memory": "memoryId",
     "--id": "bindingId",
     "--binding": "bindingId",
     "--provider": "provider",
@@ -32,6 +38,8 @@ function parseArgs(argv) {
     "--map-time": "timeField",
     "--map-role": "roleField",
     "--map-content": "contentField",
+    "--batch-file": "batchFile",
+    "--confirmed-plan": "confirmedPlan",
   };
   for (let index = 0; index < args.length; index++) {
     const arg = args[index];
@@ -47,6 +55,10 @@ function parseArgs(argv) {
 
 function usage() {
   return `用法：
+  stmem binding list --memory <记忆体ID>
+  stmem binding add --memory <记忆体ID> --batch-file <json> [--apply]
+  stmem binding switch --memory <记忆体ID> --binding <id> [--confirmed-plan <token> --apply]
+  stmem binding enable|disable|remove --memory <记忆体ID> --binding <id> [--apply]
   stmem binding list --thread <记忆体ID>
   stmem binding add --thread <记忆体ID> --provider codex --external-thread <id> --thread-file <jsonl>
   stmem binding add ... --apply
@@ -71,7 +83,41 @@ function runBindingCommand(argv = process.argv.slice(3)) {
     console.log(usage());
     return;
   }
-  const threadId = options.threadId || listThreadIds()[0];
+  if (!options.memoryId && !options.threadId) {
+    const configured = listMemoryIds();
+    if (options.action !== "list") throw new Error("Binding 写操作必须显式指定 --memory <id>");
+    if (configured.length > 1) throw new Error("存在多个记忆体，请显式指定 --memory <id>");
+    options.memoryId = configured.length === 1 ? configured[0] : null;
+  }
+  if (options.memoryId) {
+    let output;
+    if (options.action === "list") output = { memoryId: options.memoryId, ...readBindingConfig(options.memoryId) };
+    else if (options.action === "add") {
+      if (!options.batchFile) throw new Error("新 Binding 写入需要 --batch-file <json>");
+      const input = JSON.parse(require("fs").readFileSync(options.batchFile, "utf8"));
+      output = options.apply ? applyBindingAdd(options.memoryId, input) : planBindingAdd(options.memoryId, input);
+    } else if (options.action === "switch") {
+      const bindingId = requireValue(options.bindingId, "--binding <id>");
+      if (!options.apply) output = planBindingSwitch(options.memoryId, bindingId);
+      else output = applyBindingSwitch(options.memoryId, bindingId, {
+        confirmedPlan: options.confirmedPlan,
+        rebuild(binding) {
+          const result = spawnSync(process.execPath, [path.join(__dirname, "..", "bin", "stmem"), "rebuild", "--thread", options.memoryId, "--binding", binding.id, "--apply"], {
+            cwd: path.join(__dirname, ".."), encoding: "utf8", maxBuffer: 32 * 1024 * 1024,
+          });
+          return { status: result.status, output: result.stdout, error: result.error?.message || result.stderr };
+        },
+      });
+    } else if (["enable", "disable", "remove"].includes(options.action)) {
+      const bindingId = requireValue(options.bindingId, "--binding <id>");
+      output = options.apply
+        ? applyBindingState(options.memoryId, bindingId, options.action)
+        : planBindingState(options.memoryId, bindingId, options.action);
+    } else throw new Error("新记忆体 Binding 支持 list|add|switch|enable|disable|remove");
+    console.log(JSON.stringify(output, null, 2));
+    return output;
+  }
+  const threadId = options.threadId;
   if (!threadId) throw new Error("未指定记忆体，请使用 --thread <id>");
   const memoryDir = path.join(getThreadDir(threadId), "memory");
   const store = new MemoryStore({ memoryDir, threadId });
