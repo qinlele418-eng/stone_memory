@@ -6,8 +6,9 @@
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
-const { loadConfig, listThreadIds } = require("../src/config");
+const { loadConfig, listMemoryIds, getMemoryContext, getMemoryRuntimeConfig } = require("../src/config");
 const { saveConfig } = require("../src/services/thread-setup");
+const { writeJson } = require("../src/services/memory-setup");
 const { processMatches } = require("../src/lib/process-identity");
 const { readWatcherState, watcherActions, watcherEnabled } = require("../src/services/watcher-runtime");
 const {
@@ -26,13 +27,18 @@ const CORE_MODULES = new Set(Object.keys(LEGACY_KEYS));
 const args = process.argv.slice(3);
 const subcmd = args[0] || "status";
 const threadIndex = args.indexOf("--thread");
-const threadId = threadIndex >= 0 ? args[threadIndex + 1] : null;
+const memoryIndex = args.indexOf("--memory");
+const legacyThreadId = threadIndex >= 0 ? args[threadIndex + 1] : null;
+const explicitMemoryId = memoryIndex >= 0 ? args[memoryIndex + 1] : null;
+if (legacyThreadId && explicitMemoryId && legacyThreadId !== explicitMemoryId) {
+  throw new Error("--memory 与兼容参数 --thread 不能指向不同记忆体");
+}
+const threadId = explicitMemoryId || legacyThreadId;
 
 function selectedConfig() {
-  if (!threadId) throw new Error("watcher 状态是每记忆体配置，请加 --thread <id>");
-  const config = loadConfig();
-  if (!config[threadId] || typeof config[threadId] !== "object") throw new Error(`记忆体不存在：${threadId}`);
-  return config;
+  if (!threadId) throw new Error("watcher 状态是每记忆体配置，请加 --memory <id>");
+  const context = getMemoryContext(threadId);
+  return { context, config: loadConfig() };
 }
 
 function parseOnOff(value, label) {
@@ -41,7 +47,21 @@ function parseOnOff(value, label) {
 }
 
 function saveExpectedState(mutator) {
-  const config = selectedConfig();
+  const { context, config } = selectedConfig();
+  if (context.layout === "memory-v1") {
+    const file = path.join(context.root, "watcher.json");
+    const next = { schemaVersion: 1, enabled: false, modules: {}, ...(context.watcherConfig || {}) };
+    const compatibility = {
+      get watcherEnabled() { return next.enabled; },
+      set watcherEnabled(value) { next.enabled = value; },
+      get watcherModules() { return next.modules; },
+      set watcherModules(value) { next.modules = value; },
+    };
+    mutator(compatibility);
+    next.updatedAt = new Date().toISOString();
+    writeJson(file, next);
+    return getMemoryRuntimeConfig(threadId);
+  }
   mutator(config[threadId]);
   saveConfig(config);
   return config[threadId];
@@ -91,7 +111,7 @@ if (subcmd === "set") {
   const entry = saveExpectedState(item => {
     for (let index = 1; index < args.length; index++) {
       const flag = args[index];
-      if (flag === "--thread") { index += 1; continue; }
+      if (flag === "--thread" || flag === "--memory") { index += 1; continue; }
       if (!flag.startsWith("--")) continue;
       const name = flag.slice(2);
       if (!/^[a-z][a-z0-9-]{0,63}$/.test(name)) throw new Error(`非法 watcher 模块名：${name}`);
@@ -109,17 +129,17 @@ if (subcmd === "set") {
   return;
 }
 
-if (subcmd !== "status") throw new Error("用法：stmem watcher [status|on|off|set|service] --thread <id>");
+if (subcmd !== "status") throw new Error("用法：stmem watcher [status|on|off|set|service] --memory <id>");
 
 let supervisorPid = null;
 try { supervisorPid = Number(fs.readFileSync(path.join(STONE, "watcher.pid"), "utf8")); } catch {}
 const supervisorRunning = !!supervisorPid && processMatches(supervisorPid, "watcher-supervisor.js");
 const config = loadConfig();
-const ids = threadId ? [threadId] : listThreadIds();
+const ids = threadId ? [threadId] : listMemoryIds();
 console.log(`watcher supervisor: ${supervisorRunning ? `运行中 (pid ${supervisorPid})` : "未运行"}`);
 for (const id of ids) {
-  const entry = config[id];
-  if (!entry || typeof entry !== "object") continue;
+  let entry;
+  try { entry = getMemoryRuntimeConfig(id); } catch { continue; }
   const enabled = watcherEnabled(entry), actions = watcherActions(entry), state = readWatcherState(id);
   const actual = !enabled ? "OFF" : state?.status === "running" ? `运行中 (pid ${state.pid})` : state?.status || "等待 supervisor 应用";
   console.log(`  ${entry.label || id}: 期望 ${enabled ? "ON" : "OFF"} · 实际 ${actual}`);

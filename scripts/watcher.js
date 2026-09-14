@@ -18,7 +18,7 @@ const path = require("path");
 const os = require("os");
 const { execFile, execSync } = require("child_process");
 
-const { loadConfig, getCfg, getThreadDir, listThreadIds } = require("../src/config");
+const { getCfg, getThreadDir, listMemoryIds, getMemoryRuntimeConfig } = require("../src/config");
 const { listJsonlRecursive } = require("../src/lib/archive-paths");
 const { requiresRemine, shouldAttempt } = require("../src/services/mining-state");
 const { resolveAutoCompactConfig } = require("../src/services/auto-compact-config");
@@ -136,7 +136,7 @@ async function runMining(tid, dateStr, { force = false, threadConfig = {} } = {}
 }
 
 function runAutoCompact(tid) {
-  const config = resolveAutoCompactConfig(loadConfig()[tid]);
+  const config = resolveAutoCompactConfig(getMemoryRuntimeConfig(tid));
   if (config.error) {
     log(`[${tid}] 自动 compact 未启用：${config.error}`);
     return Promise.resolve(false);
@@ -240,7 +240,7 @@ async function flushSync(tid) {
   try {
     while (state.dirty) {
       state.dirty = false;
-      const config = loadConfig()[tid] || {};
+      const config = getMemoryRuntimeConfig(tid);
       const actions = resolveAutomaticActions(config);
       if (actions.sync) {
         await syncFromThread(tid);
@@ -253,7 +253,7 @@ async function flushSync(tid) {
         await checkAndMine(tid);
       }
       if (actions.sync) {
-        const usage = latestContextUsage(findThreadSessionFile(config.sessionDir, tid), config.runtime || "claude");
+        const usage = latestContextUsage(findThreadSessionFile(config.sessionDir, config.externalThreadId || tid), config.runtime || "claude");
         if (usage) updateContextUsage(tid, usage);
       }
     }
@@ -273,14 +273,16 @@ function scheduleSync(tid, debounceMs = 300) {
 }
 
 function watchThreadFile(tid) {
-  const sessionDir = getCfg("sessionDir", tid);
+  const config = getMemoryRuntimeConfig(tid);
+  const sessionDir = config.sessionDir;
+  const externalThreadId = config.externalThreadId || tid;
   if (!sessionDir || !fs.existsSync(sessionDir)) {
     log(`[${tid}] 无法实时监听：sessionDir 不存在 (${sessionDir || "未配置"})`);
     return null;
   }
   let currentFile=null,currentWatcher=null;
   const attach=()=>{
-    const targetFile=findThreadSessionFile(sessionDir,tid);
+    const targetFile=findThreadSessionFile(sessionDir,externalThreadId);
     if(!targetFile){if(!currentFile)log(`[${tid}] 无法实时监听：在 ${sessionDir} 中没有递归找到绑定线程文件`);return;}
     if(targetFile===currentFile)return;
     currentWatcher?.close();currentFile=targetFile;
@@ -302,7 +304,7 @@ async function checkAndMine(tid) {
   if (!archiveDates.length) return false;
   const miningState = loadMiningState(tid);
   const bjToday = beijingToday();
-  const threadConfig = loadConfig()[tid] || {};
+  const threadConfig = getMemoryRuntimeConfig(tid);
   const actions = resolveAutomaticActions(threadConfig);
   if (!actions.mine) return false;
 
@@ -342,7 +344,7 @@ async function main() {
   if (!threadFlag && !once) {
     throw new Error("watcher worker 必须指定 --thread；多线程请启动 watcher-supervisor.js");
   }
-  const threadIds = threadFlag ? [threadFlag] : listThreadIds();
+  const threadIds = threadFlag ? [threadFlag] : listMemoryIds();
   if (!threadIds.length) {
     log("没有配置任何线程，请先运行 stmem init --thread <id>");
     process.exit(1);
@@ -353,7 +355,7 @@ async function main() {
       log(`[${threadFlag}] 已有 worker 正在运行，本进程退出`);
       return;
     }
-    const initialConfig = loadConfig()[threadFlag] || {};
+    const initialConfig = getMemoryRuntimeConfig(threadFlag);
     if (!watcherEnabled(initialConfig) && !once) {
       log(`[${threadFlag}] 自动化已全部关闭，worker 不启动`);
       releaseWorkerLock();
@@ -395,7 +397,7 @@ async function main() {
         // 启动时同步一次，之后这里只承担低频漏事件兜底。
         await flushSync(tid);
         const minedAny = await checkAndMine(tid);
-        const actions = resolveAutomaticActions(loadConfig()[tid] || {});
+        const actions = resolveAutomaticActions(getMemoryRuntimeConfig(tid));
         if (actions.compact && (!compactChecked.has(tid) || minedAny)) {
           compactChecked.add(tid);
           await runAutoCompact(tid);

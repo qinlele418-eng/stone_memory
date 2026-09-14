@@ -26,12 +26,13 @@ function readJsonl(file) {
 
 function sessionFile(threadId, runtime) {
   const root = getCfg("sessionDir", threadId);
-  return findThreadSessionFile(root, threadId);
+  return findThreadSessionFile(root, getCfg("externalThreadId", threadId, threadId));
 }
 
 function missingSessionMessage(threadId) {
   const root = getCfg("sessionDir", threadId);
-  return `无法重建：在配置的线程文件目录中没有找到线程 ${threadId}。请前往设置修改线程文件目录，或检查对应文件是否存在（当前目录：${root || "未配置"}）`;
+  const externalThreadId = getCfg("externalThreadId", threadId, threadId);
+  return `无法重建：在配置的线程文件目录中没有找到线程 ${externalThreadId}（记忆体 ${threadId}）。请前往设置修改 Binding，或检查对应文件是否存在（当前目录：${root || "未配置"}）`;
 }
 
 function textFromBlocks(content, types) {

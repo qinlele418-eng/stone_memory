@@ -12,22 +12,24 @@ const { ingestMessages, stripCodexForkSnapshot } = require("../src/services/thre
 const { readThreadDelta, commitThreadCursor } = require("../src/services/thread-sync-cursor");
 const { findThreadSessionFile } = require("../src/lib/thread-session-file");
 
-const { getCfg, getThreadDir, listThreadIds } = require("../src/config");
+const { getCfg, getThreadDir } = require("../src/config");
 const { MemoryStore } = require("../src/storage/memory-store");
 const { FullArchive } = require("../src/services/memory-archive");
 
-const tid = process.argv.includes("--thread")
-  ? process.argv[process.argv.indexOf("--thread") + 1]
-  : listThreadIds()[0];
-if (!tid) { console.error("未指定线程，请用 --thread <id> 或先 stmem init"); process.exit(1); }
+const syncArgs = process.argv.slice(2);
+const { resolveMemoryArg } = require("../src/lib/memory-cli");
+let tid;
+try { tid = resolveMemoryArg(syncArgs, { allowDefault: false }); }
+catch (error) { console.error(error.message); process.exit(1); }
 
 const threadDir = getThreadDir(tid);
 const sessionDir = getCfg("sessionDir", tid);
 if (!sessionDir) { console.error("请在 stmem.json 中配置 sessionDir"); process.exit(1); }
-const threadFile = findThreadSessionFile(sessionDir, tid);
+const externalThreadId = getCfg("externalThreadId", tid, tid);
+const threadFile = findThreadSessionFile(sessionDir, externalThreadId);
 
 if (!threadFile) {
-  console.log(`线程文件不存在：无法在 ${sessionDir} 中递归找到 ${tid}。请修改线程文件目录或检查文件是否存在`);
+  console.log(`线程文件不存在：无法在 ${sessionDir} 中递归找到 Binding ${externalThreadId}。请修改线程文件目录或检查文件是否存在`);
   process.exit(1);
 }
 
