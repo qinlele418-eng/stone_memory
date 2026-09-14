@@ -27,10 +27,15 @@ test("module data is isolated by memory or global scope", () => {
     path.join(root, "thread-a", "dream-lab"),
   );
   assert.equal(
+    moduleDataDir({ id: "dream-lab", scope: "memory" }, { memoryId: "memory-a", dataRoot: root }),
+    path.join(root, "memory-a", "dream-lab"),
+  );
+  assert.equal(
     moduleDataDir({ id: "theme-studio", scope: "global" }, { dataRoot: root }),
     path.join(root, "_global", "theme-studio"),
   );
   assert.throws(() => moduleDataDir({ id: "dream-lab", scope: "memory" }, { threadId: "../escape", dataRoot: root }), /invalid thread id/);
+  assert.throws(() => moduleDataDir({ id: "dream-lab", scope: "memory" }, { memoryId: "memory-a", threadId: "thread-a", dataRoot: root }), /must match/);
 });
 
 test("module paths cannot escape their code directory", () => {

@@ -48,7 +48,7 @@
 
   const params = new URLSearchParams(location.search);
   const THREAD_KEY = "stone-memory-developer-thread";
-  const requestedThreadId = params.get("threadId") || "";
+  const requestedThreadId = params.get("memoryId") || params.get("threadId") || "";
   if (requestedThreadId) {
     try { sessionStorage.setItem(THREAD_KEY, requestedThreadId); } catch {}
   }
@@ -78,7 +78,7 @@
   async function currentLibrary() {
     if (!threadId) return null;
     const data = await api(`/review-lab/api/libraries?threadId=${encodeURIComponent(threadId)}`);
-    return data.libraries?.find(row => row.threadId === threadId) || data.libraries?.[0] || null;
+    return data.libraries?.find(row => row.memoryId === threadId || row.threadId === threadId) || null;
   }
 
   class StoneModulePage extends HTMLElement {
@@ -139,6 +139,7 @@
   });
 
   window.StoneDeveloperModule = Object.freeze({
+    memoryId: threadId,
     threadId,
     api,
     currentLibrary,

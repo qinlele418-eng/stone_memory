@@ -45,9 +45,13 @@ function readBatchFile(args) {
 }
 
 function commandInput(args, action) {
+  const memoryId = valueAfter(args, "--memory");
+  const legacyThreadId = valueAfter(args, "--thread");
+  if (memoryId && legacyThreadId && memoryId !== legacyThreadId) throw new Error("--memory 与兼容参数 --thread 不能指向不同记忆体");
   return {
     action,
-    threadId: valueAfter(args, "--thread"),
+    memoryId: memoryId || legacyThreadId,
+    threadId: memoryId || legacyThreadId,
     bindingId: valueAfter(args, "--binding") || valueAfter(args, "--id"),
     summaryLimit: valueAfter(args, "--summary-limit"),
     minImportance: valueAfter(args, "--min-importance"),
@@ -66,11 +70,11 @@ async function runModuleCommand(args = process.argv.slice(3)) {
   if (action === "inspect" || action === "paths") {
     const id = valueAfter(args, "--id") || args[1];
     const loaded = findModule(id);
-    const threadId = valueAfter(args, "--thread");
+    const threadId = valueAfter(args, "--memory") || valueAfter(args, "--thread");
     const output = {
       id: loaded.id,
       codeDir: loaded.moduleDir,
-      dataDir: loaded.manifest.scope === "global" || threadId ? moduleDataDir(loaded.manifest, { threadId }) : null,
+      dataDir: loaded.manifest.scope === "global" || threadId ? moduleDataDir(loaded.manifest, { memoryId: threadId }) : null,
       manifest: loaded.manifest,
     };
     return console.log(JSON.stringify(output, null, 2));
@@ -94,7 +98,7 @@ async function runModuleCommand(args = process.argv.slice(3)) {
     try { input.stdin = await readStdin(); }
     catch { return console.log("{}"); }
   }
-  const context = createModuleContext(loaded.manifest, { threadId: input.threadId });
+  const context = createModuleContext(loaded.manifest, { memoryId: input.memoryId });
   const output = await implementation.run(context, input);
   console.log(JSON.stringify(output ?? {}, null, moduleAction === "hook" ? 0 : 2));
   return output;

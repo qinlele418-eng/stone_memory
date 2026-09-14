@@ -78,10 +78,11 @@ function findModule(id, root = MODULE_ROOT) {
   return { id: moduleId, moduleDir, file: loaded.file, manifest: loaded.manifest };
 }
 
-function moduleDataDir(manifest, { threadId, dataRoot = MODULE_DATA_ROOT } = {}) {
+function moduleDataDir(manifest, { memoryId, threadId, dataRoot = MODULE_DATA_ROOT } = {}) {
   const id = assertModuleId(manifest.id);
   if (manifest.scope === "global") return path.join(dataRoot, "_global", id);
-  return path.join(dataRoot, safeSegment(threadId, "thread id"), id);
+  if (memoryId && threadId && memoryId !== threadId) throw new Error("memory id and legacy thread id must match");
+  return path.join(dataRoot, safeSegment(memoryId || threadId, memoryId ? "memory id" : "thread id"), id);
 }
 
 module.exports = {

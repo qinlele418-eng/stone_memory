@@ -485,7 +485,7 @@ async function init() {
   if (!state.threadId) throw new Error("缺少当前记忆体标识，请从 Stone Memory 插件工坊进入。");
   wireUi();
   const libraryResult = await api(`/review-lab/api/libraries?threadId=${encodeURIComponent(state.threadId)}`);
-  state.library = libraryResult.libraries?.[0] || null;
+  state.library = libraryResult.libraries?.find(row => row.memoryId === state.threadId || row.threadId === state.threadId) || null;
   state.providers = libraryResult.providers || [];
   $("#library-meta").textContent = state.library ? `${state.library.label} · 与 Stone Memory 共用本地数据` : "当前记忆体不可用";
   const runtime = state.library?.runtime || "";
