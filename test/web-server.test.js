@@ -114,6 +114,7 @@ test("web subprocess errors never expose unmarked conversation output", () => {
     safeStmemFailure("[module] error: GitHub 点星失败（HTTP 404）：OAuth App 无权访问这个仓库", "module", 1),
     "error: GitHub 点星失败（HTTP 404）：OAuth App 无权访问这个仓库",
   );
+  assert.equal(safeStmemFailure("[init] error: 缺少必填项：threadId", "init", 1), "error: 缺少必填项：threadId");
 });
 
 test("web targeted mining goes through the CLI append command", () => {

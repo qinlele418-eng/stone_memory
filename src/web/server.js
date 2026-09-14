@@ -29,6 +29,7 @@ const { buildFeelingPrompt, buildFeaturePrompt } = require("../services/memory-m
 const { normalizeRebuildRequest, rebuildRequestCliArgs } = require("../services/rebuild-request");
 const { loadModules, resolveInside } = require("../services/developer-module-contract");
 const { compactTermTimelineReport } = require("../services/term-timeline-report");
+const { listMemories, getMemory } = require("../services/memory-setup");
 
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MAX_UPLOAD = 512 * 1024 * 1024;
@@ -45,10 +46,10 @@ function safeStmemFailure(stderr, command, status) {
   const lines = String(stderr || "").split(/\r?\n/).map(line => line.trim()).filter(Boolean);
   const marked = lines.reverse().find(line =>
     /^\[(?:memory-miner|memory-compressor)\]\s+(?:subagent\s+)?error:/i.test(line)
-    || /^\[(?:tool-policy|module)\]\s+error:/i.test(line));
+    || /^\[(?:tool-policy|module|init)\]\s+error:/i.test(line));
   if (marked) {
     return marked.replace(/^\[(?:memory-miner|memory-compressor)\]\s+/i, "")
-      .replace(/^\[(?:tool-policy|module)\]\s+/i, "").slice(0, 800);
+      .replace(/^\[(?:tool-policy|module|init)\]\s+/i, "").slice(0, 800);
   }
   // 不把任意 stderr（可能包含私密对话或模型原文）直接回显给前端；
   // 只提取脚本明确标记的错误或常见系统错误。
@@ -495,7 +496,7 @@ function buildConversationCalendar(counts, page = 1) {
 
 function listLibraries() {
   const config = loadConfig();
-  return listThreadIds().map(threadId => {
+  const configured = listThreadIds().map(threadId => {
     const tc = config[threadId] || {};
     const actions = watcherActions(tc);
     const memoryDir = path.join(getThreadDir(threadId), "memory");
@@ -509,7 +510,7 @@ function listLibraries() {
         (SELECT COUNT(*) FROM feelings WHERE thread_id=? AND summary_mode='hidden') hidden`).get(threadId, threadId, threadId, threadId, threadId);
       const latest = store.db.prepare("SELECT MAX(completed_at) completedAt FROM mining_day_state WHERE thread_id=? AND status='completed'").get(threadId);
       return {
-        threadId, libraryName: tc.label || threadId, runtime: tc.runtime || "claude", purpose: tc.purpose || "accompany",
+        memoryId: tc.memoryId || threadId, configured: true, threadId, libraryName: tc.label || threadId, runtime: tc.runtime || "claude", purpose: tc.purpose || "accompany",
         ai: tc.ai || "", user: tc.user || "", counts, lastMinedAt: latest?.completedAt || null,
         watcherEnabled: watcherEnabled(tc),
         automaticFullMining: actions.sync,
@@ -519,6 +520,15 @@ function listLibraries() {
       };
     } finally { store.close(); }
   });
+  const configuredMemoryIds = new Set(configured.map(item => item.memoryId));
+  const drafts = listMemories(config).filter(memory => !configuredMemoryIds.has(memory.memoryId)).map(memory => ({
+    memoryId: memory.memoryId, configured: false, threadId: null, libraryName: memory.label,
+    runtime: null, purpose: null, ai: "", user: "", createdAt: memory.createdAt,
+    counts: { messages: 0, feelings: 0, features: 0, coarse: 0, hidden: 0 }, lastMinedAt: null,
+    watcherEnabled: false, automaticFullMining: false, automaticMemoryMaintenance: false,
+    automaticCompression: false, automaticDream: false,
+  }));
+  return [...drafts, ...configured];
 }
 
 function listDeveloperModules(publicDir = PUBLIC_DIR) {
@@ -591,9 +601,11 @@ function serveCanonicalDeveloperModule(req, res, pathname) {
   return true;
 }
 
-function overview(threadId) {
-  const library = listLibraries().find(item => item.threadId === threadId);
+function overview(identifier) {
+  const library = listLibraries().find(item => item.threadId === identifier || item.memoryId === identifier);
   if (!library) return null;
+  if (!library.configured) return library;
+  const threadId = library.threadId;
   const store = new MemoryStore({ memoryDir: path.join(getThreadDir(threadId), "memory"), threadId });
   try {
     const recent = store.db.prepare(`SELECT id,source_date sourceDate,event_time eventTime,content,importance,summary_mode summaryMode
@@ -742,11 +754,12 @@ async function handleApi(req, res, url) {
     const loaded = loadModules().find(item => item.id === moduleId && !item.errors.length);
     if (!loaded) throw new Error("开发者模块不存在或 manifest 无效");
     if (!loaded.manifest.entry?.commands?.[action]) throw new Error("开发者模块命令未登记");
-    const threadId = String(url.searchParams.get("thread") || "");
+    const threadId = String(url.searchParams.get("memoryId") || url.searchParams.get("memory") || url.searchParams.get("thread") || "");
     const bindingId = String(url.searchParams.get("binding") || "");
     if (loaded.manifest.scope === "memory" && !threadId) throw new Error("缺少当前记忆体");
     if (threadId) publicThreadSettings(threadId);
-    const args = ["module", moduleId, action, "--thread", threadId];
+    const args = ["module", moduleId, action];
+    if (threadId) args.push("--memory", threadId);
     if (bindingId) args.push("--binding", bindingId);
     const output = req.method === "POST"
       ? runStmemBatch(args, await readJson(req))
@@ -1527,14 +1540,24 @@ async function handleApi(req, res, url) {
 
   if (req.method === "POST" && url.pathname === "/api/libraries") {
     const input = await readJson(req);
+    if (!input.memoryId) {
+      const result = JSON.parse(runStmem(["memory", "create", ...(String(input.libraryName || "").trim() ? ["--name", String(input.libraryName).trim()] : [])]));
+      if (!String(input.threadId || "").trim()) {
+        return json(res, 201, { library: { ...result.memory, libraryName: result.memory.label, configured: false, threadId: null } });
+      }
+      // Compatibility for an already-open older frontend: it may still submit
+      // the former all-in-one payload. The server still routes both writes through CLI.
+      input.memoryId = result.memory.memoryId;
+    }
+    if (!getMemory(input.memoryId)) throw new Error(`记忆体不存在：${input.memoryId}`);
     const initDir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-web-init-"));
     const initFile = path.join(initDir, "init.json");
     fs.writeFileSync(initFile, JSON.stringify(input), { encoding: "utf8", mode: 0o600 });
-    try { runStmem(["init", "--thread", input.threadId, "--batch-file", initFile]); }
+    try { runStmem(["init", "--memory", input.memoryId, "--thread", input.threadId, "--batch-file", initFile]); }
     finally { fs.rmSync(initDir, { recursive: true, force: true }); }
     const createdConfig = loadConfig()[input.threadId];
     if (!createdConfig) throw new Error("init 返回成功但没有生成线程配置");
-    const created = { threadId: input.threadId, ...createdConfig };
+    const created = { memoryId: input.memoryId, threadId: input.threadId, ...createdConfig };
     const imported = { imported: 0, fullBacked: 0, files: 0 };
     try {
       for (const token of input.importTokens || []) {
