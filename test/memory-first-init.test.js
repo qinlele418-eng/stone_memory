@@ -10,6 +10,7 @@ const stmem = path.join(root, "bin", "stmem");
 
 function run(home, args) {
   const env = { ...process.env, HOME: home };
+  if (process.platform === "win32") env.USERPROFILE = home;
   delete env.NODE_TEST_CONTEXT;
   return spawnSync(process.execPath, [stmem, ...args], {
     cwd: root, env, encoding: "utf8",
@@ -18,6 +19,7 @@ function run(home, args) {
 
 function runCode(home, code, args = []) {
   const env = { ...process.env, HOME: home };
+  if (process.platform === "win32") env.USERPROFILE = home;
   delete env.NODE_TEST_CONTEXT;
   return spawnSync(process.execPath, ["-e", code, ...args], { cwd: root, env, encoding: "utf8" });
 }
