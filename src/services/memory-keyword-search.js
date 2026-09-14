@@ -1,7 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 
-const { getCfg, getThreadDir, listThreadIds } = require("../config");
+const { getCfg, getThreadDir, listMemoryIds } = require("../config");
 const {
   readFeelings: readDatabaseFeelings,
   readMessages,
@@ -10,7 +10,7 @@ const {
 const { automaticRetainWindow } = require("./thread-rebuilder");
 
 function resolvePaths(threadId) {
-  const configured = listThreadIds();
+  const configured = listMemoryIds();
   const tid = threadId || (configured.length === 1 ? configured[0] : null);
   if (!tid && configured.length > 1) throw new Error("Multiple memory bodies configured; threadId is required");
   if (!tid) throw new Error("No thread configured");

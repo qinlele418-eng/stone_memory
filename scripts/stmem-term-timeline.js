@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 const fs = require("fs");
 const path = require("path");
-const { getThreadDir, listThreadIds } = require("../src/config");
+const { getThreadDir } = require("../src/config");
+const { resolveMemoryArg } = require("../src/lib/memory-cli");
 const { MemoryStore } = require("../src/storage/memory-store");
 const { extractFeatureTerms, normalizeTerm } = require("../src/services/feature-phrase-extractor");
 const { buildTermTimeline, buildCooccurrenceSignatures } = require("../src/services/term-timeline");
@@ -16,9 +17,8 @@ const { updateTermEvidenceCache } = require("../src/services/term-evidence-cache
 
 const args = process.argv.slice(2);
 const value = name => { const index = args.indexOf(name); return index >= 0 ? args[index + 1] : null; };
-const threadId = value("--thread") || listThreadIds()[0];
+const threadId = resolveMemoryArg(args);
 const requestedTerms = (value("--terms") || "").split(",").map(term => term.trim()).filter(Boolean);
-if (!threadId) throw new Error("没有已配置线程，请使用 --thread <id>");
 if (!requestedTerms.length) throw new Error("请使用 --terms 词1,词2 指定要查看的词");
 const memoryDir = path.join(getThreadDir(threadId), "memory");
 const store = new MemoryStore({ memoryDir, threadId });

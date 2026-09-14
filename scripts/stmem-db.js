@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 const path = require("path");
-const { getThreadDir, listThreadIds, getCfg } = require("../src/config");
+const { getThreadDir, listMemoryIds, getCfg } = require("../src/config");
+const { resolveMemoryArg } = require("../src/lib/memory-cli");
 const { MemoryStore } = require("../src/storage/memory-store");
 
 const args = process.argv.slice(2);
@@ -8,7 +9,7 @@ if (args[0] === "db") args.shift();
 const action = args[0] || "status";
 if (action === "migrate-all") {
   const results = [];
-  for (const threadId of listThreadIds()) {
+  for (const threadId of listMemoryIds()) {
     const memoryDir = path.join(getThreadDir(threadId), "memory");
     const threadStore = new MemoryStore({ memoryDir, threadId });
     try {
@@ -19,9 +20,7 @@ if (action === "migrate-all") {
   console.log(JSON.stringify({ threads: results.length, results }, null, 2));
   process.exit(0);
 }
-const threadIdx = args.indexOf("--thread");
-const tid = threadIdx >= 0 ? args[threadIdx + 1] : listThreadIds()[0];
-if (!tid) throw new Error("未指定线程，请使用 --thread <id>");
+const tid = resolveMemoryArg(args, { allowDefault: action === "status" || action === "export" });
 const memoryDir = path.join(getThreadDir(tid), "memory");
 const store = new MemoryStore({ memoryDir, threadId: tid });
 
@@ -40,7 +39,7 @@ try {
       integrity: store.db.pragma("integrity_check", { simple: true }),
     }, null, 2));
   } else {
-    throw new Error("用法: stmem db [status|migrate|migrate-all|export] [--thread <id>]");
+    throw new Error("用法: stmem db [status|migrate|migrate-all|export] [--memory <id>]");
   }
 } finally {
   store.close();

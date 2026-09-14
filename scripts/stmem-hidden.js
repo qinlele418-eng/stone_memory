@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 const fs = require("fs");
 const path = require("path");
-const { getThreadDir, listThreadIds } = require("../src/config");
+const { getThreadDir } = require("../src/config");
+const { resolveMemoryArg } = require("../src/lib/memory-cli");
 const { MemoryStore } = require("../src/storage/memory-store");
 const { buildHiddenPlan } = require("../src/services/hidden-plan");
 
@@ -9,8 +10,7 @@ const args = process.argv.slice(2);
 const value = name => { const index = args.indexOf(name); return index >= 0 ? args[index + 1] : null; };
 
 function main() {
-  const threadId = value("--thread") || listThreadIds()[0];
-  if (!threadId) throw new Error("没有已配置线程，请使用 --thread <id>");
+  const threadId = resolveMemoryArg(args, { allowDefault: !args.includes("--apply") });
   const afterDays = Math.max(1, Number(value("--after-days")) || 90);
   const apply = args.includes("--apply");
   const json = args.includes("--json");

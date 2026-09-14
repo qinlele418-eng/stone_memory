@@ -2,14 +2,14 @@
 
 const fs = require("node:fs");
 const { NotebookService } = require("../src/services/notebook-service");
+const { resolveMemoryArg } = require("../src/lib/memory-cli");
 
 function runNotebookCommand(args = process.argv.slice(2), {
   serviceFactory = () => new NotebookService(),
   writeLine = line => console.log(line),
 } = {}) {
   const action = String(args[0] || "status");
-  const threadId = optionValue(args, "--thread");
-  if (!threadId) throw new Error("notebook command requires --thread <id>");
+  const threadId = resolveMemoryArg(args, { allowDefault: false });
   const batch = readBatch(args);
   const service = serviceFactory();
   let result;

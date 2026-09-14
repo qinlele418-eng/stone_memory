@@ -2,14 +2,14 @@
 
 const fs = require("node:fs");
 const { ScratchRewardService } = require("../src/services/scratch-reward-service");
+const { resolveMemoryArg } = require("../src/lib/memory-cli");
 
 function runScratchCommand(args = process.argv.slice(2), {
   serviceFactory = () => new ScratchRewardService(),
   writeLine = line => console.log(line),
 } = {}) {
   const action = String(args[0] || "inspect");
-  const threadId = optionValue(args, "--thread");
-  if (!threadId) throw new Error("scratch command requires --thread <id>");
+  const threadId = resolveMemoryArg(args, { allowDefault: false });
   const service = serviceFactory();
 
   if (action === "inspect") {

@@ -1,7 +1,8 @@
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
-const { getThreadDir, listThreadIds } = require("../src/config");
+const { getThreadDir } = require("../src/config");
+const { resolveMemoryArg } = require("../src/lib/memory-cli");
 const { MemoryStore } = require("../src/storage/memory-store");
 const { parseThreadMessages, beijingDateKey, isSystemTemplate, internalRecordReason } = require("../src/services/thread-ingest");
 const { listDateFiles, resolveDateFile } = require("../src/lib/archive-paths");
@@ -197,8 +198,9 @@ function applyUnfilterBatch(store,policy,memoryDir,rules,confirmedPlan){
   return {restored,removedRules:rules.length,policy:plan.next};
 }
 function runToolPolicy(args=process.argv.slice(3)) {
-  const action=args[0]||"status",threadId=valueAfter(args,"--thread")||listThreadIds()[0];
-  if(!threadId) throw new Error("没有可用记忆体，请传 --thread");
+  const action=args[0]||"status";
+  const writeActions=new Set(["apply","unfilter","reset-cleaning","rollback-formatting"]);
+  const threadId=resolveMemoryArg(args,{allowDefault:!writeActions.has(action)});
   const memoryDir=path.join(getThreadDir(threadId),"memory"), current=loadToolEventPolicy(memoryDir);
   if(action==="status") {
     const store=new MemoryStore({memoryDir,threadId});
