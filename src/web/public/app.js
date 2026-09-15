@@ -2,7 +2,7 @@ const app = document.querySelector("#app");
 const toast = document.querySelector("#toast");
 
 const state = {
-  libraries: [], step: 1, imports: [],
+  libraries: [], step: 1, imports: [], memoryId: null,
   form: { libraryName: "", threadId: "", ai: "", user: "", userGender: "unspecified", runtime: "codex", purpose: "accompany", sessionDir: "", minerMode: "subagent", apiProvider: "", apiKey: "", baseUrl: "", model: "", windowDays: 3, keepToolPairs: 30, automaticFullMining: true, automaticMemoryMaintenance: true, automaticCompression: false },
 };
 
@@ -117,9 +117,10 @@ async function preparePwa() {
   } catch {}
 }
 
-function resetCreateForm() {
+function resetCreateForm(memory = null) {
   state.step = 1; state.imports = [];
-  state.form = { libraryName: "", threadId: "", ai: "", user: "", userGender: "unspecified", runtime: "codex", purpose: "accompany", sessionDir: "", minerMode: "subagent", apiProvider: "", apiKey: "", baseUrl: "", model: "", windowDays: 3, keepToolPairs: 30, automaticFullMining: true, automaticMemoryMaintenance: true, automaticCompression: false };
+  state.memoryId = memory?.memoryId || null;
+  state.form = { libraryName: memory?.libraryName || memory?.label || "", threadId: "", ai: "", user: "", userGender: "unspecified", runtime: "codex", purpose: "accompany", sessionDir: "", minerMode: "subagent", apiProvider: "", apiKey: "", baseUrl: "", model: "", windowDays: 3, keepToolPairs: 30, automaticFullMining: true, automaticMemoryMaintenance: true, automaticCompression: false };
 }
 
 function stoneSvg(className = "hero-stone") {
@@ -214,7 +215,15 @@ function loadDeveloperModules() {
 
 function welcome() {
   app.innerHTML = `<section class="welcome"><div class="welcome-content">${stoneSvg()}<h1>Stone Memory</h1><p class="cn-title">磐石记忆</p><blockquote>“蒲苇韧如丝，磐石无转移”</blockquote><button class="primary" id="create">点击创建</button></div></section>`;
-  document.querySelector("#create").onclick = () => { resetCreateForm(); wizard(); };
+  document.querySelector("#create").onclick = event => createMemoryDraft(event.currentTarget);
+}
+
+async function createMemoryDraft(button) {
+  button.disabled = true; button.textContent = "正在创建…";
+  try {
+    const result = await api("/api/libraries", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    await loadLibraries(); resetCreateForm(result.library); wizard(); showToast("记忆体已创建，可以慢慢配置");
+  } catch (error) { showToast(error.message, "error"); button.disabled = false; button.textContent = "创建新的记忆体"; }
 }
 
 function topbar(extra = "") { return `<header class="topbar shell">${brand()}${extra}</header>`; }
@@ -362,20 +371,21 @@ function finishStep() {
 async function createLibrary() {
   syncForm(); const button = document.querySelector("#finish"); button.disabled = true; button.textContent = "正在安放记忆…";
   try {
-    const result = await api("/api/libraries", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...state.form, importTokens: state.imports.map(item => item.token) }) });
+    const result = await api("/api/libraries", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...state.form, memoryId: state.memoryId, importTokens: state.imports.map(item => item.token) }) });
     await loadLibraries(); state.imports = []; showToast(`“${result.library.label}”已经开始生长`); openLibrary(result.library.threadId);
   } catch (error) { showToast(error.message, "error"); button.disabled = false; button.textContent = "创建我的记忆"; }
 }
 
 function lobby() {
-  app.innerHTML = `<section class="lobby">${topbar()}<div class="shell"><div class="lobby-head"><h1>你的记忆体</h1><p>蒲苇韧如丝，磐石无转移。</p></div><div class="library-grid">${state.libraries.map(library => `<button class="library-card" data-id="${escapeHtml(library.threadId)}">${stoneSvg("mini-stone")}<h2>${escapeHtml(library.libraryName)}</h2><p>${library.lastMinedAt ? "记忆正在生长" : "等待第一次记忆挖掘"}</p><div class="library-stats"><span>${library.counts.feelings} 条摘要</span><span>${library.counts.features} 条特征</span></div></button>`).join("")}<button class="new-card" id="new-library"><div><span>＋</span><strong>创建新的记忆体</strong></div></button></div></div></section>`;
+  app.innerHTML = `<section class="lobby">${topbar()}<div class="shell"><div class="lobby-head"><h1>你的记忆体</h1><p>蒲苇韧如丝，磐石无转移。</p></div><div class="library-grid">${state.libraries.map(library => `<button class="library-card" data-id="${escapeHtml(library.memoryId || library.threadId)}">${stoneSvg("mini-stone")}<h2>${escapeHtml(library.libraryName)}</h2><p>${!library.configured ? "尚未配置 · 点击继续" : library.lastMinedAt ? "记忆正在生长" : "等待第一次记忆挖掘"}</p><div class="library-stats"><span>${library.counts.feelings} 条摘要</span><span>${library.counts.features} 条特征</span></div></button>`).join("")}<button class="new-card" id="new-library"><div><span>＋</span><strong>创建新的记忆体</strong></div></button></div></div></section>`;
   document.querySelectorAll(".library-card").forEach(card => card.onclick = () => openLibrary(card.dataset.id));
-  document.querySelector("#new-library").onclick = () => { resetCreateForm(); wizard(); };
+  document.querySelector("#new-library").onclick = event => createMemoryDraft(event.currentTarget);
 }
 
-async function openLibrary(threadId, view = "overview") {
+async function openLibrary(identifier, view = "overview") {
   try {
-    const data = await api(`/api/libraries/${encodeURIComponent(threadId)}/overview`);
+    const data = await api(`/api/libraries/${encodeURIComponent(identifier)}/overview`);
+    if (!data.configured) { resetCreateForm(data); wizard(); return; }
     workspace(data);
     if (view === "developer") renderDeveloperMode(data);
   } catch (error) {
