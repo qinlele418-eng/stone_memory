@@ -9,6 +9,9 @@ const MAX_EVENT_TEXT = 1200;
 const MAX_IMAGE_BYTES = 900 * 1024;
 const MAX_STROKES = 240;
 const MAX_POINTS_PER_STROKE = 360;
+const MAX_WAIT_MS = 25_000;
+const WAIT_POLL_MS = 150;
+const AGENT_ONLINE_WINDOW_MS = 45_000;
 
 const DEFAULT_WORDS = [
   ["蜗牛", "动物", "简单"], ["蝴蝶", "动物", "简单"], ["长颈鹿", "动物", "简单"], ["企鹅", "动物", "简单"],
@@ -66,6 +69,8 @@ function run(context, input) {
     const handlers = {
       state: () => readState(db, context, payload),
       "agent-state": () => readState(db, context, { ...payload, viewer: "agent" }),
+      "agent-join": () => agentJoin(db, context, payload),
+      "agent-wait": () => agentWait(db, context, payload),
       "room-create": () => createRoom(db, context, payload, input.threadId),
       "game-start": () => startGame(db, context, payload),
       chat: () => addChat(db, context, payload),
@@ -151,7 +156,17 @@ function openDatabase(file) {
     CREATE INDEX IF NOT EXISTS idx_events_room_seq ON events(room_id, seq);
     CREATE INDEX IF NOT EXISTS idx_rounds_room_number ON rounds(room_id, number);
   `);
+  ensureRoomColumn(db, "event_seq", "INTEGER NOT NULL DEFAULT 0");
+  ensureRoomColumn(db, "agent_joined_at", "TEXT");
+  ensureRoomColumn(db, "agent_last_seen_at", "TEXT");
+  db.exec(`UPDATE rooms
+    SET event_seq = MAX(event_seq, COALESCE((SELECT MAX(events.seq) FROM events WHERE events.room_id=rooms.id), 0))`);
   return db;
+}
+
+function ensureRoomColumn(db, name, definition) {
+  const columns = new Set(db.pragma("table_info(rooms)").map(column => column.name));
+  if (!columns.has(name)) db.exec(`ALTER TABLE rooms ADD COLUMN ${name} ${definition}`);
 }
 
 function seedWords(db) {
@@ -182,9 +197,48 @@ function createRoom(db, context, payload, threadId) {
   return readState(db, context, { roomCode: code });
 }
 
+function agentJoin(db, context, payload) {
+  const room = requireRoom(db, payload.roomCode);
+  if (room.status === "ended") throw new Error("房间已经结束，请创建新房间");
+  const now = new Date().toISOString();
+  const firstJoin = !room.agent_joined_at;
+  db.prepare("UPDATE rooms SET agent_joined_at=COALESCE(agent_joined_at,?),agent_last_seen_at=?,updated_at=? WHERE id=?")
+    .run(now, now, now, room.id);
+  if (firstJoin) appendEvent(db, room.id, "agent-join", "agent", `${readSettings(db).agentName}进入了房间。`);
+  return readState(db, context, { roomCode: room.code, viewer: "agent" });
+}
+
+function agentWait(db, context, payload) {
+  const initial = requireRoom(db, payload.roomCode);
+  if (!initial.agent_joined_at) throw new Error("AI尚未加入房间，请先调用 agent-join");
+  const afterSeq = clampInteger(payload.afterSeq, 0, Number.MAX_SAFE_INTEGER, 0);
+  const timeoutMs = clampInteger(payload.timeoutMs, 50, MAX_WAIT_MS, 20_000);
+  const deadline = Date.now() + timeoutMs;
+  db.prepare("UPDATE rooms SET agent_last_seen_at=? WHERE id=?").run(new Date().toISOString(), initial.id);
+
+  while (true) {
+    const room = requireRoom(db, initial.code);
+    const cursor = Number(room.event_seq || 0);
+    if (cursor > afterSeq || room.status === "ended") {
+      const result = readState(db, context, { roomCode: room.code, viewer: "agent", afterSeq });
+      return { ...result, wait: { afterSeq, cursor, timedOut: false } };
+    }
+    if (Date.now() >= deadline) {
+      const result = readState(db, context, { roomCode: room.code, viewer: "agent", afterSeq });
+      return { ...result, wait: { afterSeq, cursor, timedOut: true } };
+    }
+    sleep(Math.min(WAIT_POLL_MS, Math.max(1, deadline - Date.now())));
+  }
+}
+
+function sleep(milliseconds) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
+}
+
 function startGame(db, context, payload) {
   const room = requireRoom(db, payload.roomCode);
   if (!new Set(["lobby", "ended"]).has(room.status)) throw new Error("房间已经在游戏中");
+  if (!isAgentOnline(room)) throw new Error("AI尚未进入并等待，请先邀请AI加入房间");
   const maxRounds = clampInteger(payload.maxRounds, 1, 20, room.max_rounds || 6);
   const drawer = payload.firstDrawer === "agent" ? "agent" : "human";
   const settings = readSettings(db);
@@ -335,9 +389,22 @@ function saveSettings(db, context, payload) {
 function agentAction(db, context, payload) {
   const kind = cleanText(payload.kind, 40);
   const common = { ...payload, actor: "agent" };
-  if (kind === "chat") return addChat(db, context, { ...common, text: payload.text });
-  if (kind === "guess") return addGuess(db, context, { ...common, answer: payload.answer });
-  if (kind === "reveal") return revealRound(db, context, common);
+  if (kind === "chat") {
+    addChat(db, context, { ...common, text: payload.text });
+    return readState(db, context, { roomCode: payload.roomCode, viewer: "agent" });
+  }
+  if (kind === "guess") {
+    addGuess(db, context, { ...common, answer: payload.answer });
+    return readState(db, context, { roomCode: payload.roomCode, viewer: "agent" });
+  }
+  if (kind === "reveal") {
+    revealRound(db, context, common);
+    return readState(db, context, { roomCode: payload.roomCode, viewer: "agent" });
+  }
+  if (kind === "next") {
+    nextRound(db, context, common);
+    return readState(db, context, { roomCode: payload.roomCode, viewer: "agent" });
+  }
   if (kind === "draw") {
     const room = requireActiveRoom(db, payload.roomCode);
     if (room.phase !== "drawing" || room.drawer !== "agent") throw new Error("当前没有轮到AI作画");
@@ -345,7 +412,7 @@ function agentAction(db, context, payload) {
     db.prepare("UPDATE rounds SET drawing_json=? WHERE id=?").run(JSON.stringify(strokes), currentRound(db, room).id);
     appendEvent(db, room.id, "drawing-plan", "agent", `${readSettings(db).agentName}开始画了。`, { strokeCount: strokes.length });
     touchRoom(db, room.id);
-    return readState(db, context, { roomCode: room.code, includeDrawing: true });
+    return readState(db, context, { roomCode: room.code, viewer: "agent", includeDrawing: true });
   }
   throw new Error("不支持的AI游戏动作");
 }
@@ -359,7 +426,8 @@ function readState(db, context, payload = {}) {
   const settings = readSettings(db);
   if (!room) return { room: null, words, gallery, settings };
   const round = currentRound(db, room, false);
-  const events = room.status === "ended" ? [] : db.prepare("SELECT id,seq,kind,actor,text,meta_json,created_at createdAt FROM events WHERE room_id=? ORDER BY seq").all(room.id)
+  const afterSeq = clampInteger(payload.afterSeq, 0, Number.MAX_SAFE_INTEGER, 0);
+  const events = room.status === "ended" ? [] : db.prepare("SELECT id,seq,kind,actor,text,meta_json,created_at createdAt FROM events WHERE room_id=? AND seq>? ORDER BY seq").all(room.id, afterSeq)
     .map(row => ({ ...row, meta: parseJson(row.meta_json, {}), meta_json: undefined }));
   const viewer = payload.viewer === "agent" ? "agent" : "human";
   const reveal = payload.revealAnswer === true || round?.status === "complete" || room.status === "ended" || round?.drawer === viewer;
@@ -377,6 +445,11 @@ function readState(db, context, payload = {}) {
       updatedAt: room.updated_at,
       endedAt: room.ended_at,
       threadBound: Boolean(room.thread_id),
+      eventCursor: Number(room.event_seq || 0),
+      agentJoined: Boolean(room.agent_joined_at),
+      agentOnline: isAgentOnline(room),
+      agentJoinedAt: room.agent_joined_at,
+      agentLastSeenAt: room.agent_last_seen_at,
     },
     round: round ? {
       id: round.id,
@@ -390,8 +463,8 @@ function readState(db, context, payload = {}) {
       winner: round.winner,
     } : null,
     events,
-    words,
-    gallery,
+    words: viewer === "agent" ? [] : words,
+    gallery: viewer === "agent" ? [] : gallery,
     settings,
   };
   if (viewer === "agent") result.agent = agentGuidance(room, round);
@@ -399,15 +472,21 @@ function readState(db, context, payload = {}) {
 }
 
 function agentGuidance(room, round) {
+  if (room.status === "lobby") return { role: "player", actions: ["agent-wait"], note: "你已进入房间。用 room.eventCursor 作为 afterSeq 调用 agent-wait；处理事件后再次等待，游戏期间不要把房间回复发到外部聊天。" };
   if (!round || room.status !== "active") return { role: "observer", actions: ["agent-state"] };
-  if (room.phase === "round-complete") return { role: "observer", actions: ["chat", "round-next"], note: "本轮已经结算，不要重复提交答案。" };
+  if (room.phase === "round-complete") return { role: "observer", actions: ["chat", "next", "agent-wait"], note: "本轮已经结算，不要重复提交答案；通过 agent-action kind=next 进入下一轮，完成动作后用最新 eventCursor 继续 agent-wait。" };
   if (round.drawer === "agent" && room.phase === "drawing") {
-    return { role: "drawer", actions: ["draw", "chat", "reveal"], note: "通过 agent-action 明确提交动作；draw 需要 strokes，reveal 表示放弃并揭晓。" };
+    return { role: "drawer", actions: ["draw", "chat", "reveal", "agent-wait"], note: "通过 agent-action 明确提交动作；draw 需要 strokes，reveal 表示放弃并揭晓。完成动作后用最新 eventCursor 继续 agent-wait。" };
   }
   if (round.drawer === "human" && room.phase === "guessing") {
-    return { role: "guesser", actions: ["guess", "chat", "reveal"], imageAction: "image-read", roundId: round.id, note: "可多次明确 guess；猜错后仍可 guess 或 chat。聊天不会自动成为答案。" };
+    return { role: "guesser", actions: ["guess", "chat", "reveal", "agent-wait"], imageAction: "image-read", roundId: round.id, note: "可多次明确 guess；猜错后仍可 guess 或 chat。聊天不会自动成为答案。完成动作后用最新 eventCursor 继续 agent-wait。" };
   }
-  return { role: "observer", actions: ["chat", "reveal"], note: "等待对方完成当前动作。" };
+  return { role: "observer", actions: ["chat", "reveal", "agent-wait"], note: "等待对方完成当前动作；用最新 eventCursor 调用 agent-wait。" };
+}
+
+function isAgentOnline(room) {
+  const lastSeen = Date.parse(String(room?.agent_last_seen_at || ""));
+  return Boolean(room?.agent_joined_at) && Number.isFinite(lastSeen) && Date.now() - lastSeen <= AGENT_ONLINE_WINDOW_MS;
 }
 
 function createRound(db, roomId, number, drawer) {
@@ -473,7 +552,9 @@ function normalizeStrokes(value) {
 }
 
 function appendEvent(db, roomId, kind, actor, text = "", meta = {}) {
-  const next = db.prepare("SELECT COALESCE(MAX(seq),0)+1 next FROM events WHERE room_id=?").get(roomId).next;
+  const updated = db.prepare("UPDATE rooms SET event_seq=event_seq+1 WHERE id=? RETURNING event_seq").get(roomId);
+  if (!updated) throw new Error("房间不存在");
+  const next = Number(updated.event_seq);
   db.prepare("INSERT INTO events (id,room_id,seq,kind,actor,text,meta_json,created_at) VALUES (?,?,?,?,?,?,?,?)")
     .run(crypto.randomUUID(), roomId, next, kind, actor, cleanText(text, MAX_EVENT_TEXT), JSON.stringify(meta || {}), new Date().toISOString());
 }

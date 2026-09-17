@@ -31,6 +31,7 @@ test("main MCP discovers and calls developer modules through the formal CLI", t 
   assert.ok(toolNames.has("stmem_module_call"));
   assert.ok(JSON.parse(discovery[2].result.content[0].text).some(item => item.id === "drawing-game"));
   assert.ok(JSON.parse(discovery[3].result.content[0].text).manifest.entry.commands["agent-state"]);
+  assert.ok(JSON.parse(discovery[3].result.content[0].text).manifest.entry.commands["agent-wait"]);
 
   const createdResponse = callServer([
     { jsonrpc: "2.0", id: 5, method: "tools/call", params: { name: "stmem_module_call", arguments: {
@@ -39,6 +40,15 @@ test("main MCP discovers and calls developer modules through the formal CLI", t 
   ], env)[0];
   assert.equal(createdResponse.result.isError, false, createdResponse.result.content[0].text);
   const created = JSON.parse(createdResponse.result.content[0].text);
+
+  const joinedResponse = callServer([
+    { jsonrpc: "2.0", id: 51, method: "tools/call", params: { name: "stmem_module_call", arguments: {
+      moduleId: "drawing-game", action: "agent-join", input: { roomCode: created.room.code },
+    } } },
+  ], env)[0];
+  assert.equal(joinedResponse.result.isError, false, joinedResponse.result.content[0].text);
+  const joined = JSON.parse(joinedResponse.result.content[0].text);
+  assert.equal(joined.room.agentOnline, true);
 
   const startedResponse = callServer([
     { jsonrpc: "2.0", id: 6, method: "tools/call", params: { name: "stmem_module_call", arguments: {

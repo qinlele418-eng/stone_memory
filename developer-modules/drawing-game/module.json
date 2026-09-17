@@ -1,7 +1,7 @@
 {
   "id": "drawing-game",
   "title": "你画我猜",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "sdkVersion": 1,
   "scope": "memory",
   "permissions": ["core:read"],
@@ -10,6 +10,8 @@
     "commands": {
       "state": "backend/commands/game.js",
       "agent-state": "backend/commands/game.js",
+      "agent-join": "backend/commands/game.js",
+      "agent-wait": "backend/commands/game.js",
       "room-create": "backend/commands/game.js",
       "game-start": "backend/commands/game.js",
       "chat": "backend/commands/game.js",
@@ -40,7 +42,7 @@
   "status": "私人实验",
   "eyebrow": "DRAW TOGETHER · REMEMBER TOGETHER",
   "actionLabel": "进入房间 →",
-  "metaLabel": "Game · v0.1",
+  "metaLabel": "Game · v0.2",
   "features": ["手机画板", "AI玩家", "私人词库"],
   "order": 16
 }

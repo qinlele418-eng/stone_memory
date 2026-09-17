@@ -40,8 +40,12 @@
         </header>
 
         <section id="lobby-controls" class="panel room-lobby hidden">
-          <p>房间已经准备好了。开始后，已连接的 AI 会通过这个房间进入游戏。</p>
-          <button id="start-game" class="primary wide">开始游戏</button>
+          <p id="agent-status">房间已经准备好了。先邀请 AI 通过 MCP 进入房间。</p>
+          <div class="invite-box">
+            <p id="invite-text"></p>
+            <button id="copy-invite" class="quiet compact" type="button">复制邀请语</button>
+          </div>
+          <button id="start-game" class="primary wide" disabled>等待 AI 进入……</button>
         </section>
 
         <section id="play-area" class="play-area hidden">

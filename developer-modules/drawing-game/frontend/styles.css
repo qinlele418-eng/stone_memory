@@ -2,6 +2,7 @@
 body { margin: 0; overscroll-behavior: none; }
 button, input, select { font: inherit; }
 button { cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: .55; }
 .hidden { display: none !important; }
 .view { display: none; }
 .view.active { display: block; }
@@ -14,6 +15,8 @@ h2 { margin: 0; color: var(--stone-theme-ink); }
 .lobby { text-align: center; }
 .lobby-mark { display: grid; place-items: center; width: 72px; height: 72px; margin: 0 auto 16px; border-radius: 26px; color: var(--stone-theme-canvas); background: var(--stone-theme-accent); font-size: 38px; transform: rotate(-6deg); }
 .lobby p:not(.eyebrow), .room-lobby p { color: var(--stone-theme-ink-soft); line-height: 1.7; }
+.invite-box { display: flex; align-items: center; gap: 10px; margin: 14px 0; padding: 12px; border: 1px solid var(--stone-theme-line-soft); border-radius: var(--stone-theme-radius-md); background: var(--stone-theme-surface-soft); }
+.invite-box p { flex: 1; margin: 0; text-align: left; overflow-wrap: anywhere; }
 .lobby-options, .form-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 22px 0 16px; text-align: left; }
 label { display: grid; gap: 7px; color: var(--stone-theme-ink-soft); font-size: 13px; font-weight: 700; }
 input, select { min-width: 0; border: 1px solid var(--stone-theme-line); border-radius: var(--stone-theme-radius-sm); padding: 12px; color: var(--stone-theme-ink); background: var(--stone-theme-canvas); outline: none; }
@@ -72,4 +75,5 @@ input:focus, select:focus { border-color: var(--stone-theme-accent); box-shadow:
   .width-label { order: 2; width: 100%; }
   .width-label input { flex: 1; }
   .gallery { grid-template-columns: 1fr; }
+  .invite-box { align-items: stretch; flex-direction: column; }
 }

@@ -138,6 +138,12 @@
     $("#play-area").classList.toggle("hidden", room.status !== "active");
     if (room.status === "lobby") {
       $("#turn-title").textContent = "房间准备好了";
+      const joined = Boolean(room.agentOnline);
+      $("#agent-status").textContent = joined ? `${agentName}已经进入并在等待，可以开始了。` : room.agentJoined ? `${agentName}加入过房间，但现在没有在等待；请再叫他进入房间。` : `先把邀请语发给${agentName}，等他通过 MCP 进入房间。`;
+      $("#invite-text").textContent = `来玩你画我猜。请调用 Stone Memory MCP：先执行 drawing-game / agent-join 加入房间 ${room.code}，再用返回的 room.eventCursor 作为 afterSeq 调用 drawing-game / agent-wait 留在房间里。`;
+      $("#start-game").disabled = !joined;
+      $("#start-game").textContent = joined ? "开始游戏" : `等待${agentName}进入……`;
+      schedulePoll();
       return;
     }
     const round = state.round;
@@ -316,6 +322,15 @@
       state = await command("game-start", { roomCode: state.room.code, maxRounds: Number($("#max-rounds").value), firstDrawer: $("#first-drawer").value });
       render();
     } catch (error) { toast(error.message); }
+  });
+  $("#copy-invite").addEventListener("click", async () => {
+    const text = $("#invite-text").textContent;
+    try {
+      await navigator.clipboard.writeText(text);
+      toast("邀请语已复制");
+    } catch {
+      toast("复制失败，请长按邀请语复制");
+    }
   });
   $("#submit-drawing").addEventListener("click", async () => {
     if (!strokes.length) return toast("先画一点东西吧");

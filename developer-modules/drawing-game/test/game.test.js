@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { Worker } = require("node:worker_threads");
 const test = require("node:test");
 
 const game = require("../backend/commands/game");
@@ -28,6 +29,7 @@ test("creates a room and starts a human drawing round", () => {
   try {
     const created = call(item.context, "room-create", { maxRounds: 4 });
     assert.match(created.room.code, /^\d{6}$/u);
+    call(item.context, "agent-join", { roomCode: created.room.code });
     const started = call(item.context, "game-start", { roomCode: created.room.code, firstDrawer: "human" });
     assert.equal(started.room.status, "active");
     assert.equal(started.room.maxRounds, 4);
@@ -50,6 +52,7 @@ test("completed PNG stays in gallery while room events are cleared on end", () =
   const item = fixture();
   try {
     const created = call(item.context, "room-create");
+    call(item.context, "agent-join", { roomCode: created.room.code });
     call(item.context, "game-start", { roomCode: created.room.code, firstDrawer: "human", maxRounds: 1 });
     const onePixelPng = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
     const submitted = call(item.context, "drawing-submit", { roomCode: created.room.code, actor: "human", imageDataUrl: onePixelPng });
@@ -75,6 +78,7 @@ test("a wrong guess stays open for chat and another explicit guess", () => {
   const item = fixture();
   try {
     const created = call(item.context, "room-create");
+    call(item.context, "agent-join", { roomCode: created.room.code });
     const started = call(item.context, "game-start", { roomCode: created.room.code, firstDrawer: "human" });
     const answer = started.round.word;
     const onePixelPng = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
@@ -96,11 +100,107 @@ test("a wrong guess stays open for chat and another explicit guess", () => {
   } finally { item.cleanup(); }
 });
 
+test("agent views never leak an unfinished human answer through round, words, gallery, or action responses", () => {
+  const item = fixture();
+  try {
+    const created = call(item.context, "room-create");
+    call(item.context, "agent-join", { roomCode: created.room.code });
+    const started = call(item.context, "game-start", { roomCode: created.room.code, firstDrawer: "human" });
+    const answer = started.round.word;
+    const onePixelPng = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+    call(item.context, "drawing-submit", { roomCode: created.room.code, actor: "human", imageDataUrl: onePixelPng });
+
+    const agentState = call(item.context, "agent-state", { roomCode: created.room.code });
+    assert.equal(agentState.round.word, "");
+    assert.deepEqual(agentState.words, []);
+    assert.deepEqual(agentState.gallery, []);
+    assert.doesNotMatch(JSON.stringify(agentState), new RegExp(answer, "u"));
+
+    const chatted = call(item.context, "agent-action", { roomCode: created.room.code, kind: "chat", text: "我先看看" });
+    assert.equal(chatted.round.word, "");
+    assert.deepEqual(chatted.words, []);
+    assert.deepEqual(chatted.gallery, []);
+    assert.doesNotMatch(JSON.stringify(chatted), new RegExp(answer, "u"));
+
+    const wrong = call(item.context, "agent-action", { roomCode: created.room.code, kind: "guess", answer: "肯定不是答案" });
+    assert.equal(wrong.room.phase, "guessing");
+    assert.equal(wrong.round.word, "");
+    assert.doesNotMatch(JSON.stringify(wrong), new RegExp(answer, "u"));
+  } finally { item.cleanup(); }
+});
+
+test("agent joins and waits from an event cursor without losing room actions", () => {
+  const item = fixture();
+  try {
+    const created = call(item.context, "room-create");
+    assert.equal(created.room.agentJoined, false);
+    const joined = call(item.context, "agent-join", { roomCode: created.room.code });
+    assert.equal(joined.room.agentJoined, true);
+    assert.ok(joined.room.eventCursor > created.room.eventCursor);
+    assert.deepEqual(joined.agent.actions, ["agent-wait"]);
+
+    const cursor = joined.room.eventCursor;
+    call(item.context, "game-start", { roomCode: created.room.code, firstDrawer: "human" });
+    const waited = call(item.context, "agent-wait", { roomCode: created.room.code, afterSeq: cursor, timeoutMs: 50 });
+    assert.equal(waited.wait.timedOut, false);
+    assert.ok(waited.room.eventCursor > cursor);
+    assert.deepEqual(waited.events.map(event => event.kind), ["game-start", "round-start"]);
+  } finally { item.cleanup(); }
+});
+
+test("agent wait returns a heartbeat timeout and keeps its cursor stable", () => {
+  const item = fixture();
+  try {
+    const created = call(item.context, "room-create");
+    const joined = call(item.context, "agent-join", { roomCode: created.room.code });
+    const waited = call(item.context, "agent-wait", { roomCode: created.room.code, afterSeq: joined.room.eventCursor, timeoutMs: 50 });
+    assert.equal(waited.wait.timedOut, true);
+    assert.equal(waited.wait.cursor, joined.room.eventCursor);
+    assert.deepEqual(waited.events, []);
+  } finally { item.cleanup(); }
+});
+
+test("agent wait unblocks when another connection writes a room event", async () => {
+  const item = fixture();
+  try {
+    const created = call(item.context, "room-create");
+    const joined = call(item.context, "agent-join", { roomCode: created.room.code });
+    const started = call(item.context, "game-start", { roomCode: created.room.code, firstDrawer: "human" });
+    const worker = new Worker(`
+      const { workerData } = require("node:worker_threads");
+      const game = require(workerData.moduleFile);
+      const path = require("node:path");
+      const root = workerData.root;
+      const context = { moduleDataDir: root, resolveDataPath(relative) { return path.resolve(root, relative); } };
+      setTimeout(() => game.run(context, { action: "chat", threadId: "thread-test", payload: {
+        roomCode: workerData.roomCode, actor: "human", text: "我在房间里"
+      }}), 150);
+    `, {
+      eval: true,
+      workerData: {
+        moduleFile: path.join(__dirname, "..", "backend", "commands", "game.js"),
+        root: item.root,
+        roomCode: created.room.code,
+      },
+    });
+    const waited = call(item.context, "agent-wait", { roomCode: created.room.code, afterSeq: started.room.eventCursor, timeoutMs: 3000 });
+    const exitCode = await new Promise((resolve, reject) => {
+      worker.once("error", reject);
+      worker.once("exit", resolve);
+    });
+    assert.equal(exitCode, 0);
+    assert.equal(waited.wait.timedOut, false);
+    assert.equal(waited.events.at(-1).kind, "chat");
+    assert.equal(waited.events.at(-1).text, "我在房间里");
+  } finally { item.cleanup(); }
+});
+
 test("either player can give up and reveal without scoring", () => {
   for (const actor of ["human", "agent"]) {
     const item = fixture();
     try {
       const created = call(item.context, "room-create");
+      call(item.context, "agent-join", { roomCode: created.room.code });
       call(item.context, "game-start", { roomCode: created.room.code, firstDrawer: "agent" });
       const revealed = call(item.context, "round-reveal", { roomCode: created.room.code, actor });
       assert.equal(revealed.room.phase, "round-complete");
