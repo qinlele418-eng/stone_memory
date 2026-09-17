@@ -14,7 +14,7 @@ test("responsive navigation shell delegates to the stable frontend", () => {
   for (const action of ["home", "memory", "workshop", "me"]) {
     assert.match(html, new RegExp(`data-shell-action="${action}"`));
   }
-  assert.ok(html.indexOf("/app.js?v=16") < html.indexOf("/developer-kit/navigation-shell.js?v=3"));
+  assert.ok(html.indexOf("/app.js?v=17") < html.indexOf("/developer-kit/navigation-shell.js?v=3"));
   assert.match(html, /\/developer-kit\/navigation-shell\.css\?v=4/);
   assert.match(adapter, /MutationObserver/);
   assert.match(adapter, /data-view="\$\{view\}"/);

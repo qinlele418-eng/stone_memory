@@ -37,7 +37,11 @@ body.stone-theme-enabled .lobby .lobby-head p {
   font: 600 16px/1.5 var(--stone-theme-font-display), var(--stone-theme-font-body);
 }
 body.stone-theme-enabled .home-dashboard-ready .library-grid { grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); }
-body.stone-theme-enabled .library-card--mapped { min-height: 0; padding: 22px; }
+body.stone-theme-enabled .library-card--mapped {
+  min-height: 0;
+  padding: 22px;
+  background: var(--stone-theme-surface);
+}
 .library-card--mapped > .mini-stone, .library-card--mapped > h2, .library-card--mapped > p, .library-card--mapped > .library-stats { display: none; }
 .mapped-memory-card { display: grid; gap: 15px; }
 .mapped-memory-top { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; gap: 14px; align-items: center; }

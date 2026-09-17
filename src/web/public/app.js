@@ -248,12 +248,28 @@ function welcome() {
   document.querySelector("#create").onclick = event => createMemoryDraft(event.currentTarget);
 }
 
-async function createMemoryDraft(button) {
-  button.disabled = true; button.textContent = "正在创建…";
-  try {
-    const result = await api("/api/libraries", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
-    await loadLibraries(); resetCreateForm(result.library); wizard(); showToast("记忆体已创建，可以慢慢配置");
-  } catch (error) { showToast(error.message, "error"); button.disabled = false; button.textContent = "创建新的记忆体"; }
+function createMemoryDraft(button, memory = null) {
+  const overlay=document.createElement("div");overlay.className="editor-overlay create-memory-overlay";
+  overlay.innerHTML=`<form class="editor-panel create-memory-dialog"><button class="ghost editor-close" type="button" aria-label="关闭">关闭</button><p class="eyebrow">NEW MEMORY</p><h2>${memory?"完成记忆体设置":"创建记忆体"}</h2><p class="lead">先建立记忆本身。对话绑定、历史导入与自动化可以进入记忆体后再设置。</p><div class="field-grid"><div class="field full"><label for="quick-memory-name">记忆体名字</label><input id="quick-memory-name" name="libraryName" value="${escapeHtml(memory?.libraryName||"")}" required autofocus></div><div class="field"><label for="quick-ai-name">AI 名字</label><input id="quick-ai-name" name="ai" required></div><div class="field"><label for="quick-user-name">用户名字</label><input id="quick-user-name" name="user" required></div><div class="field full"><label for="quick-purpose">记忆体用途</label><select id="quick-purpose" name="purpose"><option value="accompany">陪伴</option><option value="coding">编程</option><option value="study">学习</option></select><small>用途会影响后续摘要的生成风格，请确认后再选择。</small></div></div><div class="wizard-actions">${memory?'<button class="danger-button" id="delete-draft-memory" type="button">删除这个空记忆体</button>':'<span></span>'}<button class="primary" type="submit">创建并进入</button></div></form>`;
+  document.body.append(overlay);
+  const close=()=>{overlay.remove();if(button){button.disabled=false;}};
+  overlay.querySelector(".editor-close").onclick=close;
+  overlay.onclick=event=>{if(event.target===overlay)close();};
+  overlay.querySelector("#delete-draft-memory")?.addEventListener("click",async event=>{
+    if(!window.confirm("确认要删除吗？删除后无法恢复"))return;
+    event.currentTarget.disabled=true;
+    try{await api(`/api/libraries/${encodeURIComponent(memory.memoryId)}`,{method:"DELETE"});close();await loadLibraries();state.libraries.length?lobby():welcome();showToast("空记忆体已删除");}
+    catch(error){showToast(error.message,"error");event.currentTarget.disabled=false;}
+  });
+  overlay.querySelector("form").onsubmit=async event=>{
+    event.preventDefault();const submit=event.currentTarget.querySelector('button[type="submit"]'),values=Object.fromEntries(new FormData(event.currentTarget).entries());
+    submit.disabled=true;submit.textContent="正在创建…";
+    try{
+      const result=await api("/api/libraries",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({...values,...(memory?{memoryId:memory.memoryId}:{})})});
+      overlay.remove();await loadLibraries();showToast(`“${result.library.libraryName}”已经创建`);await openLibrary(result.library.memoryId);
+    }catch(error){showToast(error.message,"error");submit.disabled=false;submit.textContent="创建并进入";}
+  };
+  requestAnimationFrame(()=>overlay.querySelector("#quick-memory-name")?.focus());
 }
 
 function topbar(extra = "") { return `<header class="topbar shell">${brand()}${extra}</header>`; }
@@ -402,13 +418,13 @@ async function createLibrary() {
   syncForm(); const button = document.querySelector("#finish"); button.disabled = true; button.textContent = "正在安放记忆…";
   try {
     const result = await api("/api/libraries", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...state.form, memoryId: state.memoryId, importTokens: state.imports.map(item => item.token) }) });
-    await loadLibraries(); state.imports = []; showToast(`“${result.library.label}”已经开始生长`); openLibrary(result.library.threadId);
+    await loadLibraries(); state.imports = []; showToast(`“${result.library.libraryName || result.library.label}”已经开始生长`); openLibrary(result.library.memoryId || result.library.threadId);
   } catch (error) { showToast(error.message, "error"); button.disabled = false; button.textContent = "创建我的记忆"; }
 }
 
 function lobby() {
-  app.innerHTML = `<section class="lobby stone-page-transition-pending" data-transition-message="正在整理今日纹路…" aria-busy="true"><div class="shell"><div class="lobby-head"><p>—— 蒲苇韧如丝，磐石无转移 ——</p></div><div class="library-grid">${state.libraries.map(library => `<button class="library-card" data-id="${escapeHtml(library.memoryId || library.threadId)}">${stoneSvg("mini-stone")}<h2>${escapeHtml(library.libraryName)}</h2><p>${!library.configured ? "尚未配置 · 点击继续" : library.lastMinedAt ? "记忆正在生长" : "等待第一次记忆挖掘"}</p><div class="library-stats"><span>${library.counts.feelings} 条摘要</span><span>${library.counts.features} 条特征</span></div></button>`).join("")}<button class="new-card" id="new-library"><div><span>＋</span><strong>创建新的记忆体</strong></div></button></div></div></section>`;
-  document.querySelectorAll(".library-card").forEach(card => card.onclick = () => openLibrary(card.dataset.id));
+  app.innerHTML = `<section class="lobby stone-page-transition-pending" data-transition-message="正在整理今日纹路…" aria-busy="true"><div class="shell"><div class="lobby-head"><p>—— 蒲苇韧如丝，磐石无转移 ——</p></div><div class="library-grid">${state.libraries.map(library => `<button class="library-card" data-id="${escapeHtml(library.memoryId || library.threadId)}">${stoneSvg("mini-stone")}<h2>${escapeHtml(library.libraryName)}</h2><p>${!library.configured ? "尚未配置 · 点击继续" : !library.bound ? "尚未绑定对话窗口" : library.lastMinedAt ? "记忆正在生长" : "等待第一次记忆挖掘"}</p><div class="library-stats"><span>${library.counts.feelings} 条摘要</span><span>${library.counts.features} 条特征</span></div></button>`).join("")}<button class="new-card" id="new-library"><div><span>＋</span><strong>创建新的记忆体</strong></div></button></div></div></section>`;
+  document.querySelectorAll(".library-card").forEach(card => card.onclick = () => { const library=state.libraries.find(item=>(item.memoryId||item.threadId)===card.dataset.id); library?.configured?openLibrary(card.dataset.id):createMemoryDraft(card,library); });
   document.querySelector("#new-library").onclick = event => createMemoryDraft(event.currentTarget);
 }
 
@@ -416,7 +432,7 @@ async function openLibrary(identifier, view = "overview") {
   if (view === "developer") { renderGlobalWorkshop(); return; }
   try {
     const data = await api(`/api/libraries/${encodeURIComponent(identifier)}/overview`);
-    if (!data.configured) { resetCreateForm(data); wizard(); return; }
+    if (!data.configured) { createMemoryDraft(null,data); return; }
     workspace(data);
   } catch (error) {
     showToast(error.message, "error");
@@ -426,7 +442,7 @@ async function openLibrary(identifier, view = "overview") {
 function workspace(data) {
   const counts = data.counts, rebuild=data.rebuild;
   const automationReady=data.automaticFullMining&&data.automaticMemoryMaintenance;
-  const statusText=data.attention||(!automationReady?"自动挖掘未完全开启":"记忆运行正常");
+  const statusText=!data.bound?"尚未绑定对话窗口":data.attention||(!automationReady?"自动挖掘未完全开启":"记忆运行正常");
   app.innerHTML = `<section class="workspace" data-thread-id="${escapeHtml(data.threadId)}" data-library-name="${escapeHtml(data.libraryName)}"><div class="shell workspace-grid"><aside class="sidebar"><a class="back-link" href="#">← 返回记忆体</a><h2 class="side-title">${escapeHtml(data.libraryName)}</h2><nav class="side-nav" aria-label="记忆体导航"><button class="active" data-view="overview"><span>概览</span></button><button data-view="management"><span>管理</span></button><button data-view="developer"><span>插件</span></button><button data-view="settings"><span>设置</span></button></nav></aside><main id="workspace-main"><div class="dashboard-head"><div><p class="eyebrow">Stone Memory</p><h1>${escapeHtml(data.libraryName)}</h1><div class="status-line ${automationReady&&!data.attention?"":"warning"}"><span class="status-dot"></span>${escapeHtml(statusText)}</div></div>${stoneSvg("mini-stone")}</div>
     ${rebuild?`<section class="section-card"><h2>当前线程已插入内容</h2><div class="overview-grid"><div><span>人设 / 规则</span><strong>${rebuild.injectedRules||0} 份</strong><small>${(rebuild.injectedRuleNames||[]).map(escapeHtml).join("、")||"无"}</small></div><div><span>原文对话</span><strong>${(rebuild.recentMessages||0)+(rebuild.retainedMessages||0)} 条</strong><small>近期 ${rebuild.recentMessages||0} 条（${rebuild.windowDays} 个活跃日） · 锚点实际注入 ${rebuild.retainedMessages||0} 条（${rebuild.retainAnchors||0} 个锚点）</small></div><div><span>摘要</span><strong>${rebuild.injectedFeelings||0} 条</strong><small>仅统计本次实际写入线程的摘要</small></div><div><span>工具链</span><strong>${rebuild.preservedToolPairs||0} 组</strong><small>上次 rebuild 的保留结果</small></div></div></section>`:`<section class="section-card"><h2>当前线程已插入内容</h2><div class="overview-empty-guide"><p>当前还没有线程注入报告。请前往【维护】，先通过【对话导入】补充记录、在【记忆挖掘】中生成摘要，再通过【线程重建】将人设、摘要与近期对话写入当前线程，完成记忆体构建。</p><button class="secondary" id="overview-maintenance">前往维护 →</button></div></section>`}
     <section class="section-card"><h2>线程与记忆状态</h2><div class="overview-grid"><div><span>当前上下文窗口</span><strong>${formatContextUsage(data.contextUsage)}</strong><small>${contextUsageHint(data)}</small></div><div><span>最近重建</span><strong>${rebuild?escapeHtml(formatBeijingTime(rebuild.completedAt)):"暂无记录"}</strong><small>${rebuild?`${escapeHtml(rebuild.runtime)} · ${escapeHtml(rebuild.trigger||"cli")} · 北京时间`:"等待第一次正式 rebuild"}</small></div><div><span>上次挖掘</span><strong>${data.lastMinedAt?escapeHtml(formatBeijingTime(data.lastMinedAt)):"尚未挖掘"}</strong><small>待挖掘 ${data.pendingMiningDays||0} 天</small></div><div><span>自动化</span><strong>${data.automaticFullMining||data.automaticMemoryMaintenance||data.automaticCompression?"已配置":"已关闭"}</strong><small>对话录入 ${data.automaticFullMining?"开":"关"} · 摘要挖掘 ${data.automaticMemoryMaintenance?"开":"关"} · 自动压缩（测试）${data.automaticCompression?"开":"关"}</small></div></div></section>
