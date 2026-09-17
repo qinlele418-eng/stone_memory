@@ -35,11 +35,12 @@ test("notebook does not overwrite host semantic tokens or force a light color sc
   assert.doesNotMatch(styles, /color-scheme:\s*light\s*;/u);
 });
 
-test("notebook applies the saved Stone theme before loading the shared module runtime", () => {
-  const firstFrameAt = page.indexOf("../theme-studio/first-frame.js");
+test("notebook loads the shared module runtime before its themed stylesheet", () => {
   const runtimeAt = page.indexOf("../developer-kit/runtime.js");
-  assert.ok(firstFrameAt >= 0);
-  assert.ok(runtimeAt > firstFrameAt);
+  const stylesheetAt = page.indexOf("styles.css?v=12");
+  assert.ok(runtimeAt >= 0);
+  assert.ok(stylesheetAt > runtimeAt);
+  assert.doesNotMatch(page, /theme-studio\//u);
   assert.match(page, /styles\.css\?v=12/u);
 });
 
