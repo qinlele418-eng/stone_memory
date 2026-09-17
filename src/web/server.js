@@ -6,7 +6,7 @@ const zlib = require("zlib");
 const crypto = require("crypto");
 const { spawn, spawnSync } = require("child_process");
 const { URL } = require("url");
-const { loadConfig, listThreadIds, getThreadDir, CONFIG_PATH } = require("../config");
+const { loadConfig, listThreadIds, listMemoryIds, getThreadDir, getMemoryContext, getMemoryRuntimeConfig, CONFIG_PATH } = require("../config");
 const { readImportSource } = require("../services/import-source");
 const { MemoryStore } = require("../storage/memory-store");
 const { buildRebuildPreview } = require("../services/rebuild-workbench");
@@ -30,6 +30,7 @@ const { normalizeRebuildRequest, rebuildRequestCliArgs } = require("../services/
 const { loadModules, resolveInside } = require("../services/developer-module-contract");
 const { compactTermTimelineReport } = require("../services/term-timeline-report");
 const { listMemories, getMemory } = require("../services/memory-setup");
+const { readBindingConfig } = require("../services/memory-binding-config");
 
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MAX_UPLOAD = 512 * 1024 * 1024;
@@ -46,10 +47,12 @@ function safeStmemFailure(stderr, command, status) {
   const lines = String(stderr || "").split(/\r?\n/).map(line => line.trim()).filter(Boolean);
   const marked = lines.reverse().find(line =>
     /^\[(?:memory-miner|memory-compressor)\]\s+(?:subagent\s+)?error:/i.test(line)
-    || /^\[(?:tool-policy|module|init)\]\s+error:/i.test(line));
+    || /^\[(?:tool-policy|module|init|memory|api-profile)\]\s+error:/i.test(line)
+    || /^\[binding\]\s+/i.test(line));
   if (marked) {
     return marked.replace(/^\[(?:memory-miner|memory-compressor)\]\s+/i, "")
-      .replace(/^\[(?:tool-policy|module|init)\]\s+/i, "").slice(0, 800);
+      .replace(/^\[(?:tool-policy|module|init|memory|api-profile)\]\s+/i, "")
+      .replace(/^\[binding\]\s+/i, "").slice(0, 800);
   }
   // 不把任意 stderr（可能包含私密对话或模型原文）直接回显给前端；
   // 只提取脚本明确标记的错误或常见系统错误。
@@ -392,11 +395,19 @@ function refreshMiningBatchJob(job){
 }
 
 function publicThreadSettings(threadId) {
-  const config = loadConfig(), entry = config[threadId];
+  const config = loadConfig();
+  let entry = config[threadId];
+  let memoryId = entry?.memoryId || threadId;
+  try {
+    const context = getMemoryContext(threadId);
+    memoryId = context.memoryId;
+    if (context.layout === "memory-v1") entry = getMemoryRuntimeConfig(memoryId);
+  } catch {}
   if (!entry) throw new Error(`记忆体不存在：${threadId}`);
   const actions = watcherActions(entry);
   return {
-    threadId, libraryName: entry.label || threadId, ai: entry.ai || "", user: entry.user || "",
+    memoryId, threadId: memoryId, externalThreadId: entry.externalThreadId || (memoryId === threadId ? null : threadId),
+    libraryName: entry.label || memoryId, ai: entry.ai || "", user: entry.user || "",
     userGender: entry.userGender || "unspecified", runtime: entry.runtime || "claude", purpose: entry.purpose || "accompany",
     sessionDir: entry.sessionDir || "", minerMode: entry.minerMode || "subagent", apiProvider: entry.apiProvider || "",
     baseUrl: entry.apiProvider ? (config.apiKeys?.[entry.apiProvider]?.baseUrl || "") : "",
@@ -496,8 +507,22 @@ function buildConversationCalendar(counts, page = 1) {
 
 function listLibraries() {
   const config = loadConfig();
-  const configured = listThreadIds().map(threadId => {
-    const tc = config[threadId] || {};
+  const configured = listMemoryIds().flatMap(memoryId => {
+    let context;
+    try { context = getMemoryContext(memoryId); } catch { return []; }
+    let tc, threadId;
+    if (context.layout === "memory-v1") {
+      let bindings;
+      try { bindings = readBindingConfig(memoryId); } catch { return []; }
+      const primary = bindings.bindings.find(item => item.id === bindings.primaryBindingId && item.enabled !== false);
+      const memory = context.memoryConfig || {};
+      const settingsComplete = !!(String(memory.label || "").trim() && String(memory.ai || "").trim()
+        && String(memory.user || "").trim() && String(memory.purpose || "").trim());
+      if (!primary && !settingsComplete) return [];
+      tc = getMemoryRuntimeConfig(memoryId); threadId = memoryId;
+    } else {
+      tc = context.config || {}; threadId = context.legacyKey || memoryId;
+    }
     const actions = watcherActions(tc);
     const memoryDir = path.join(getThreadDir(threadId), "memory");
     const store = new MemoryStore({ memoryDir, threadId });
@@ -510,7 +535,7 @@ function listLibraries() {
         (SELECT COUNT(*) FROM feelings WHERE thread_id=? AND summary_mode='hidden') hidden`).get(threadId, threadId, threadId, threadId, threadId);
       const latest = store.db.prepare("SELECT MAX(completed_at) completedAt FROM mining_day_state WHERE thread_id=? AND status='completed'").get(threadId);
       return {
-        memoryId: tc.memoryId || threadId, configured: true, threadId, libraryName: tc.label || threadId, runtime: tc.runtime || "claude", purpose: tc.purpose || "accompany",
+        memoryId, configured: true, bound: !!tc.externalThreadId, threadId, externalThreadId: tc.externalThreadId || (threadId !== memoryId ? threadId : null), libraryName: tc.label || memoryId, runtime: tc.runtime || null, purpose: tc.purpose || "accompany",
         ai: tc.ai || "", user: tc.user || "", counts, lastMinedAt: latest?.completedAt || null,
         watcherEnabled: watcherEnabled(tc),
         automaticFullMining: actions.sync,
@@ -664,8 +689,9 @@ function overview(identifier) {
       FROM feelings WHERE thread_id=? ORDER BY source_date DESC,COALESCE(event_time,'') DESC,order_key DESC LIMIT 5`).all(threadId);
     const daily = store.db.prepare("SELECT COUNT(*) count FROM feelings WHERE thread_id=? AND summary_mode='daily'").get(threadId).count;
     const failed = store.db.prepare("SELECT COUNT(*) count FROM mining_day_state WHERE thread_id=? AND status='failed'").get(threadId).count;
-    const rebuild=latestSuccessfulRebuild(threadId), file=sessionFile(threadId,library.runtime);
-    const rawUsage=readRebuildState(threadId).contextUsage||null, configuredMax=Number(loadConfig()[threadId]?.contextWindowTokens);
+    const rebuild=latestSuccessfulRebuild(threadId); let file=null;
+    try { if (library.runtime) file=sessionFile(threadId,library.runtime); } catch {}
+    const rawUsage=readRebuildState(threadId).contextUsage||null, configuredMax=Number(getMemoryRuntimeConfig(threadId)?.contextWindowTokens);
     const contextUsage=rawUsage?{...rawUsage,maxTokens:configuredMax>0?configuredMax:rawUsage.detectedMaxTokens||null}:null;
     if(contextUsage?.maxTokens)contextUsage.percent=contextUsage.usedTokens/contextUsage.maxTokens*100;
     const pendingMiningDays=store.db.prepare(`SELECT COUNT(DISTINCT m.source_date) count FROM messages m LEFT JOIN mining_day_state s ON s.thread_id=m.thread_id AND s.source_date=m.source_date AND s.status IN ('completed','completed_empty') WHERE m.thread_id=? AND s.source_date IS NULL`).get(threadId).count;
@@ -1066,10 +1092,32 @@ async function handleApi(req, res, url) {
       const input = { ...current, ...regularBody, threadId, runtime: current.runtime, purpose: current.purpose };
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-web-config-"));
       const file = path.join(dir, "config.json");
-      fs.writeFileSync(file, JSON.stringify(input), { encoding: "utf8", mode: 0o600 });
+      let canonical = false;
+      try { canonical = getMemoryContext(threadId).layout === "memory-v1"; } catch {}
+      const settingsPatch = {
+        label: input.libraryName, ai: input.ai, user: input.user, userGender: input.userGender,
+        miner: { mode: input.minerMode, apiProfile: input.minerMode === "api" ? input.apiProvider : null },
+        rebuild: {
+          windowDays: input.windowDays, keepToolPairs: input.keepToolPairs,
+          contextWindowTokens: input.contextWindowTokens || null,
+          mcpRebuildDefaultsEnabled: input.mcpRebuildDefaultsEnabled,
+          mcpSummaryLimit: input.mcpSummaryLimit,
+          mcpMinImportance: input.mcpMinImportance,
+        },
+      };
+      fs.writeFileSync(file, JSON.stringify(canonical ? settingsPatch : input), { encoding: "utf8", mode: 0o600 });
       try {
-        runStmem(["init", "--thread", threadId, "--batch-file", file]);
-        const moduleArgs = ["watcher", "set", "--thread", threadId];
+        if (canonical && input.minerMode === "api") {
+          const profileFile = path.join(dir, "api-profile.json");
+          fs.writeFileSync(profileFile, JSON.stringify({ id: input.apiProvider, key: input.apiKey, baseUrl: input.baseUrl, model: input.model }), { encoding: "utf8", mode: 0o600 });
+          runStmem(["api-profile", "set", "--batch-file", profileFile, "--validate"]);
+          runStmem(["api-profile", "set", "--batch-file", profileFile, "--apply"]);
+        }
+        if (canonical) {
+          runStmem(["memory", "settings", "--memory", threadId, "--batch-file", file, "--validate"]);
+          runStmem(["memory", "settings", "--memory", threadId, "--batch-file", file, "--apply"]);
+        } else runStmem(["init", "--thread", threadId, "--batch-file", file]);
+        const moduleArgs = ["watcher", "set", canonical ? "--memory" : "--thread", threadId];
         const moduleMap = {
           automaticFullMining: "--archive",
           automaticMemoryMaintenance: "--miner",
@@ -1081,12 +1129,12 @@ async function handleApi(req, res, url) {
         }
         if (moduleArgs.length > 4) runStmem(moduleArgs);
         if (Object.hasOwn(body, "watcherEnabled")) {
-          runStmem(["watcher", body.watcherEnabled === true ? "on" : "off", "--thread", threadId]);
+          runStmem(["watcher", body.watcherEnabled === true ? "on" : "off", canonical ? "--memory" : "--thread", threadId]);
         } else if (moduleArgs.length > 4) {
           const resulting = publicThreadSettings(threadId);
           const anyModule = resulting.automaticFullMining || resulting.automaticMemoryMaintenance
             || resulting.automaticCompression || resulting.automaticDream;
-          runStmem(["watcher", anyModule ? "on" : "off", "--thread", threadId]);
+          runStmem(["watcher", anyModule ? "on" : "off", canonical ? "--memory" : "--thread", threadId]);
         }
         return json(res, 200, { success: true, config: publicThreadSettings(threadId) });
       } finally { fs.rmSync(dir, { recursive: true, force: true }); }
@@ -1215,7 +1263,10 @@ async function handleApi(req, res, url) {
   const libraryMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)$/);
   if (req.method === "DELETE" && libraryMatch) {
     const threadId = decodeURIComponent(libraryMatch[1]);
-    runStmem(["delete", "--thread", threadId]);
+    const context = getMemoryContext(threadId);
+    if (context.layout === "memory-v1" && !(context.bindingConfig?.bindings || []).length) {
+      runStmem(["memory", "delete", "--memory", context.memoryId, "--apply"]);
+    } else runStmem(["delete", "--thread", threadId]);
     return json(res, 200, { success: true, threadId });
   }
 
@@ -1593,38 +1644,86 @@ async function handleApi(req, res, url) {
 
   if (req.method === "POST" && url.pathname === "/api/libraries") {
     const input = await readJson(req);
+    let createdNow = false;
     if (!input.memoryId) {
       const result = JSON.parse(runStmem(["memory", "create", ...(String(input.libraryName || "").trim() ? ["--name", String(input.libraryName).trim()] : [])]));
+      createdNow = true;
       if (!String(input.threadId || "").trim()) {
-        return json(res, 201, { library: { ...result.memory, libraryName: result.memory.label, configured: false, threadId: null } });
+        if (!String(input.ai || "").trim() || !String(input.user || "").trim() || !String(input.purpose || "").trim()) {
+          return json(res, 201, { library: { ...result.memory, libraryName: result.memory.label, configured: false, threadId: null } });
+        }
+        input.memoryId = result.memory.memoryId;
+      } else {
+        // Compatibility for an already-open older frontend: it may still submit
+        // the former all-in-one payload. The server still routes both writes through CLI.
+        input.memoryId = result.memory.memoryId;
       }
-      // Compatibility for an already-open older frontend: it may still submit
-      // the former all-in-one payload. The server still routes both writes through CLI.
-      input.memoryId = result.memory.memoryId;
     }
     if (!getMemory(input.memoryId)) throw new Error(`记忆体不存在：${input.memoryId}`);
     const initDir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-web-init-"));
-    const initFile = path.join(initDir, "init.json");
-    fs.writeFileSync(initFile, JSON.stringify(input), { encoding: "utf8", mode: 0o600 });
-    try { runStmem(["init", "--memory", input.memoryId, "--thread", input.threadId, "--batch-file", initFile]); }
-    finally { fs.rmSync(initDir, { recursive: true, force: true }); }
-    const createdConfig = loadConfig()[input.threadId];
-    if (!createdConfig) throw new Error("init 返回成功但没有生成线程配置");
-    const created = { memoryId: input.memoryId, threadId: input.threadId, ...createdConfig };
     const imported = { imported: 0, fullBacked: 0, files: 0 };
     try {
+      if (!String(input.threadId || "").trim()) {
+        const settingsFile = path.join(initDir, "memory-settings.json");
+        fs.writeFileSync(settingsFile, JSON.stringify({
+          label: input.libraryName, purpose: input.purpose, ai: input.ai, user: input.user,
+          userGender: input.userGender || "unspecified", miner: { mode: "subagent", apiProfile: null },
+        }), { encoding: "utf8", mode: 0o600 });
+        runStmem(["memory", "settings", "--memory", input.memoryId, "--batch-file", settingsFile, "--validate"]);
+        runStmem(["memory", "settings", "--memory", input.memoryId, "--batch-file", settingsFile, "--apply"]);
+        const created = listLibraries().find(item => item.memoryId === input.memoryId);
+        if (!created?.configured) throw new Error("记忆体基础设置保存成功但页面未能识别");
+        return json(res, 201, { library: created, imported });
+      }
+      if (input.minerMode === "api") {
+        const profileFile = path.join(initDir, "api-profile.json");
+        fs.writeFileSync(profileFile, JSON.stringify({ id: input.apiProvider, key: input.apiKey, baseUrl: input.baseUrl, model: input.model }), { encoding: "utf8", mode: 0o600 });
+        runStmem(["api-profile", "set", "--batch-file", profileFile, "--validate"]);
+        runStmem(["api-profile", "set", "--batch-file", profileFile, "--apply"]);
+      }
+      const settingsFile = path.join(initDir, "memory-settings.json");
+      fs.writeFileSync(settingsFile, JSON.stringify({
+        label: input.libraryName, purpose: input.purpose, ai: input.ai, user: input.user,
+        userGender: input.userGender || "unspecified",
+        miner: { mode: input.minerMode, apiProfile: input.minerMode === "api" ? input.apiProvider : null },
+        rebuild: { windowDays: Number(input.windowDays) || 3, keepToolPairs: Number(input.keepToolPairs) || 0 },
+      }), { encoding: "utf8", mode: 0o600 });
+      runStmem(["memory", "settings", "--memory", input.memoryId, "--batch-file", settingsFile, "--validate"]);
+      runStmem(["memory", "settings", "--memory", input.memoryId, "--batch-file", settingsFile, "--apply"]);
+
+      const bindingFile = path.join(initDir, "binding.json");
+      fs.writeFileSync(bindingFile, JSON.stringify({ provider: input.runtime, externalThreadId: input.threadId, sessionRoot: input.sessionDir, mode: "primary" }), { encoding: "utf8", mode: 0o600 });
+      runStmem(["binding", "add", "--memory", input.memoryId, "--batch-file", bindingFile]);
+      runStmem(["binding", "add", "--memory", input.memoryId, "--batch-file", bindingFile, "--apply"]);
+
+      const modules = ["watcher", "set", "--memory", input.memoryId,
+        "--archive", input.automaticFullMining === false ? "off" : "on",
+        "--miner", input.automaticMemoryMaintenance === false ? "off" : "on",
+        "--compression", input.automaticCompression === true ? "on" : "off",
+        "--dream", input.automaticDream === true ? "on" : "off"];
+      runStmem(modules);
+      const watcherOn = input.watcherEnabled !== false && (input.automaticFullMining !== false || input.automaticMemoryMaintenance !== false || input.automaticCompression === true || input.automaticDream === true);
+      runStmem(["watcher", watcherOn ? "on" : "off", "--memory", input.memoryId]);
+
       for (const token of input.importTokens || []) {
         const item = previews.get(token);
         if (!item) throw new Error("有一个导入预览已经过期，请重新上传");
-        runStmem(["import", "--thread", created.threadId, "--source", item.filePath, "--apply"]);
+        runStmem(["import", "--memory", input.memoryId, "--source", item.filePath, "--apply"]);
         imported.imported += item.source.preview.valid;
         imported.fullBacked += item.source.preview.valid + (item.source.preview.filtered || 0);
         imported.files++;
         fs.rmSync(path.dirname(item.filePath), { recursive: true, force: true });
         previews.delete(token);
       }
+      const created = listLibraries().find(item => item.memoryId === input.memoryId);
+      if (!created?.configured) throw new Error("Binding 创建成功但记忆体未进入已配置状态");
       return json(res, 201, { library: created, imported });
-    } catch (cause) { throw cause; }
+    } catch (cause) {
+      if (createdNow) {
+        try { runStmem(["memory", "delete", "--memory", input.memoryId, "--apply"]); } catch {}
+      }
+      throw cause;
+    } finally { fs.rmSync(initDir, { recursive: true, force: true }); }
   }
 
   return error(res, 404, "接口不存在");

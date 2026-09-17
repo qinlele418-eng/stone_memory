@@ -75,6 +75,78 @@ test("memory-first init creates an unbound draft and later keeps its stable iden
   assert.equal(fs.existsSync(path.join(home, ".stone_memory", "runtimes", "codex", "accompany", "thread-abc")), false);
 });
 
+test("formal memory-first creation stores settings, binding and watcher state without a legacy thread entry", t => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-formal-create-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const memory = JSON.parse(run(home, ["memory", "create", "--name", "新记忆"]).stdout).memory;
+  const sessionRoot = path.join(home, "sessions");
+  fs.mkdirSync(sessionRoot, { recursive: true });
+  fs.writeFileSync(path.join(sessionRoot, "rollout-real-thread.jsonl"), `${JSON.stringify({ type: "session_meta", payload: { id: "real-thread", base_instructions: "test" } })}\n`);
+
+  const settingsFile = path.join(home, "settings.json");
+  fs.writeFileSync(settingsFile, JSON.stringify({
+    label: "正式记忆", purpose: "coding", ai: "石头", user: "用户",
+    miner: { mode: "subagent", apiProfile: null }, rebuild: { windowDays: 7, keepToolPairs: 18 },
+  }));
+  assert.equal(run(home, ["memory", "settings", "--memory", memory.memoryId, "--batch-file", settingsFile, "--validate"]).status, 0);
+  assert.equal(run(home, ["memory", "settings", "--memory", memory.memoryId, "--batch-file", settingsFile, "--apply"]).status, 0);
+  const unboundWeb = runCode(home, `
+    const { listLibraries, overview } = require("./src/web/server");
+    console.log(JSON.stringify({ library: listLibraries()[0], overview: overview(process.argv[1]) }));
+  `, [memory.memoryId]);
+  assert.equal(unboundWeb.status, 0, unboundWeb.stderr);
+  const unbound = JSON.parse(unboundWeb.stdout);
+  assert.equal(unbound.library.configured, true);
+  assert.equal(unbound.library.bound, false);
+  assert.equal(unbound.library.threadId, memory.memoryId);
+  assert.deepEqual(unbound.overview.recent, []);
+
+  const bindingFile = path.join(home, "binding.json");
+  fs.writeFileSync(bindingFile, JSON.stringify({ provider: "codex", externalThreadId: "real-thread", sessionRoot, mode: "primary" }));
+  assert.equal(run(home, ["binding", "add", "--memory", memory.memoryId, "--batch-file", bindingFile]).status, 0);
+  assert.equal(run(home, ["binding", "add", "--memory", memory.memoryId, "--batch-file", bindingFile, "--apply"]).status, 0);
+  assert.equal(run(home, ["watcher", "set", "--memory", memory.memoryId, "--archive", "on", "--miner", "on", "--compression", "off"]).status, 0);
+  assert.equal(run(home, ["watcher", "on", "--memory", memory.memoryId]).status, 0);
+
+  const root = path.join(home, ".stone_memory", "memories", memory.memoryId);
+  const config = JSON.parse(fs.readFileSync(path.join(home, ".stone_memory", "stmem.json"), "utf8"));
+  const settings = JSON.parse(fs.readFileSync(path.join(root, "memory.json"), "utf8"));
+  const bindings = JSON.parse(fs.readFileSync(path.join(root, "bindings.json"), "utf8"));
+  const watcher = JSON.parse(fs.readFileSync(path.join(root, "watcher.json"), "utf8"));
+  assert.equal(config["real-thread"], undefined);
+  assert.equal(config.memories[memory.memoryId].status, "active");
+  assert.equal(settings.status, "active");
+  assert.equal(settings.label, "正式记忆");
+  assert.equal(bindings.bindings[0].externalThreadId, "real-thread");
+  assert.equal(watcher.enabled, true);
+  assert.deepEqual(watcher.modules, { archive: true, miner: true, compression: false, dream: false });
+  const listed = runCode(home, `
+    const { listLibraries, overview } = require("./src/web/server");
+    const libraries = listLibraries();
+    console.log(JSON.stringify({ libraries, overview: overview(process.argv[1]) }));
+  `, [memory.memoryId]);
+  assert.equal(listed.status, 0, listed.stderr);
+  const web = JSON.parse(listed.stdout);
+  assert.equal(web.libraries.length, 1);
+  assert.equal(web.libraries[0].memoryId, memory.memoryId);
+  assert.equal(web.libraries[0].threadId, memory.memoryId);
+  assert.equal(web.libraries[0].externalThreadId, "real-thread");
+  assert.equal(web.libraries[0].configured, true);
+  assert.equal(web.overview.libraryName, "正式记忆");
+});
+
+test("API profiles are validated before their secrets are written", t => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-api-profile-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const batch = path.join(home, "profile.json");
+  fs.writeFileSync(batch, JSON.stringify({ id: "proxy", key: "secret", baseUrl: "https://example.test/v1", model: "model-1" }));
+  assert.equal(run(home, ["api-profile", "set", "--batch-file", batch, "--validate"]).status, 0);
+  assert.equal(fs.existsSync(path.join(home, ".stone_memory", "stmem.json")), false);
+  assert.equal(run(home, ["api-profile", "set", "--batch-file", batch, "--apply"]).status, 0);
+  const config = JSON.parse(fs.readFileSync(path.join(home, ".stone_memory", "stmem.json"), "utf8"));
+  assert.deepEqual(config.apiKeys.proxy, { key: "secret", baseUrl: "https://example.test/v1", model: "model-1" });
+});
+
 test("binding rejects an unknown memory without creating a thread", t => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-memory-first-missing-"));
   t.after(() => fs.rmSync(home, { recursive: true, force: true }));
@@ -117,6 +189,26 @@ test("draft deletion previews first and moves data to a recoverable backup", t =
   assert.equal(removed.status, 0, removed.stderr);
   const result = JSON.parse(removed.stdout);
   assert.equal(result.recoverable, true);
+  assert.equal(fs.existsSync(root), false);
+  assert.equal(fs.existsSync(result.backup), true);
+  const config = JSON.parse(fs.readFileSync(path.join(home, ".stone_memory", "stmem.json"), "utf8"));
+  assert.equal(config.memories[created.memoryId], undefined);
+});
+
+test("draft deletion recovers an interrupted creation with missing canonical files", t => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-broken-draft-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const created = JSON.parse(run(home, ["memory", "create", "--name", "中断草稿"]).stdout).memory;
+  const root = path.join(home, ".stone_memory", "memories", created.memoryId);
+  fs.rmSync(path.join(root, "memory.json"));
+  fs.rmSync(path.join(root, ".layout-v1.json"));
+
+  const preview = run(home, ["memory", "delete", "--memory", created.memoryId]);
+  assert.equal(preview.status, 0, preview.stderr);
+  assert.equal(JSON.parse(preview.stdout).recoverable, true);
+  const removed = run(home, ["memory", "delete", "--memory", created.memoryId, "--apply"]);
+  assert.equal(removed.status, 0, removed.stderr);
+  const result = JSON.parse(removed.stdout);
   assert.equal(fs.existsSync(root), false);
   assert.equal(fs.existsSync(result.backup), true);
   const config = JSON.parse(fs.readFileSync(path.join(home, ".stone_memory", "stmem.json"), "utf8"));

@@ -1,11 +1,12 @@
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
-const { getMemoryContext, listMemoryIds } = require("../config");
+const { getMemoryContext, listMemoryIds, loadConfig } = require("../config");
 const { findThreadSessionFile } = require("../lib/thread-session-file");
 const { MemoryStore } = require("../storage/memory-store");
 const { addBinding: registerBinding } = require("./memory-bindings");
 const { writeJson } = require("./memory-setup");
+const { saveConfig } = require("./thread-setup");
 
 const PROVIDERS = new Set(["claude", "codex"]);
 const MODES = new Set(["primary", "parallel", "child", "import_only"]);
@@ -71,6 +72,8 @@ function applyBindingAdd(memoryId, input) {
   const binding = { ...candidate, createdAt: now, updatedAt: now };
   const next = { ...config, revision: config.revision + 1, primaryBindingId: config.primaryBindingId || binding.id, bindings: [...config.bindings, binding] };
   const original = fs.readFileSync(file, "utf8");
+  const memoryFile = path.join(context.root, "memory.json");
+  const originalMemory = fs.readFileSync(memoryFile, "utf8");
   writeJson(file, next);
   try {
     const store = new MemoryStore({ memoryDir: path.join(context.root, "memory"), threadId: memoryId });
@@ -78,8 +81,22 @@ function applyBindingAdd(memoryId, input) {
       store.registerThread({ runtime: binding.provider, purpose: null, label: null });
       registerBinding(store, { provider: binding.provider, externalThreadId: binding.externalThreadId, threadFile: binding.resolvedThreadFile, mode: next.primaryBindingId === binding.id ? "primary" : binding.mode });
     } finally { store.close(); }
+    const memory = JSON.parse(originalMemory);
+    if (memory.status !== "active") {
+      memory.status = "active";
+      memory.updatedAt = now;
+      writeJson(memoryFile, memory);
+      const registry = loadConfig();
+      registry.memories = registry.memories || {};
+      registry.memories[memoryId] = {
+        ...(registry.memories[memoryId] || {}), memoryId, label: memory.label,
+        status: "active", createdAt: memory.createdAt, updatedAt: now,
+      };
+      saveConfig(registry);
+    }
   } catch (error) {
     fs.writeFileSync(file, original, { encoding: "utf8", mode: 0o600 });
+    fs.writeFileSync(memoryFile, originalMemory, { encoding: "utf8", mode: 0o600 });
     throw error;
   }
   return { applied: true, changed: true, binding, config: next };

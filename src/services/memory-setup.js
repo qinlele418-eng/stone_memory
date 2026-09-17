@@ -35,7 +35,7 @@ function createMemory({ label = "新建记忆体" } = {}) {
       schemaVersion: 1, memoryId, label: record.label, status: "draft",
       purpose: null, ai: "", user: "", userGender: "unspecified",
       miner: { mode: null, apiProfile: null },
-      rebuild: { windowDays: 3, keepToolPairs: 30, contextWindowTokens: null },
+      rebuild: { windowDays: 3, keepToolPairs: 30, contextWindowTokens: null, mcpRebuildDefaultsEnabled: false, mcpSummaryLimit: 0, mcpMinImportance: 0 },
       createdAt: record.createdAt, updatedAt: record.updatedAt,
     });
     writeJson(path.join(root, "bindings.json"), {
@@ -144,12 +144,15 @@ function validateMemorySettings(current, patch, config = loadConfig()) {
   }
   if (Object.hasOwn(patch, "rebuild")) {
     if (!patch.rebuild || typeof patch.rebuild !== "object" || Array.isArray(patch.rebuild)) throw new Error("rebuild 设置必须是对象");
-    const rebuildUnknown = Object.keys(patch.rebuild).filter(key => !["windowDays", "keepToolPairs", "contextWindowTokens"].includes(key));
+    const rebuildUnknown = Object.keys(patch.rebuild).filter(key => !["windowDays", "keepToolPairs", "contextWindowTokens", "mcpRebuildDefaultsEnabled", "mcpSummaryLimit", "mcpMinImportance"].includes(key));
     if (rebuildUnknown.length) throw new Error(`不支持的 rebuild 设置：${rebuildUnknown.join("、")}`);
     next.rebuild = { ...(next.rebuild || {}) };
     if (Object.hasOwn(patch.rebuild, "windowDays")) next.rebuild.windowDays = boundedInteger(patch.rebuild.windowDays, "窗口天数", 1, 365);
     if (Object.hasOwn(patch.rebuild, "keepToolPairs")) next.rebuild.keepToolPairs = boundedInteger(patch.rebuild.keepToolPairs, "工具链组数", 0, 500);
     if (Object.hasOwn(patch.rebuild, "contextWindowTokens")) next.rebuild.contextWindowTokens = boundedInteger(patch.rebuild.contextWindowTokens, "上下文窗口", 1, 100000000, { nullable: true });
+    if (Object.hasOwn(patch.rebuild, "mcpRebuildDefaultsEnabled")) next.rebuild.mcpRebuildDefaultsEnabled = patch.rebuild.mcpRebuildDefaultsEnabled === true;
+    if (Object.hasOwn(patch.rebuild, "mcpSummaryLimit")) next.rebuild.mcpSummaryLimit = boundedInteger(patch.rebuild.mcpSummaryLimit, "MCP 摘要上限", 0, 1000000);
+    if (Object.hasOwn(patch.rebuild, "mcpMinImportance")) next.rebuild.mcpMinImportance = boundedInteger(patch.rebuild.mcpMinImportance, "MCP 最低重要度", 0, 5);
   }
   next.schemaVersion = 1;
   next.memoryId = current.memoryId;
@@ -188,8 +191,12 @@ function updateMemorySettings(memoryId, patch, { apply = false } = {}) {
 }
 
 function deleteDraftMemory(memoryId, { apply = false, now = new Date() } = {}) {
+  const config = loadConfig();
+  const registered = getMemory(memoryId, config);
+  if (!registered) throw new Error(`记忆体不存在：${memoryId}`);
   const context = getMemoryContext(memoryId);
-  const settings = publicMemorySettings(memoryId);
+  const memoryFile = path.join(context.root, "memory.json");
+  const settings = fs.existsSync(memoryFile) ? readJson(memoryFile) : registered;
   const bindingsFile = path.join(context.root, "bindings.json");
   const bindings = fs.existsSync(bindingsFile) ? readJson(bindingsFile).bindings || [] : [];
   if (context.configured || settings.status !== "draft" || bindings.length) {
@@ -197,16 +204,18 @@ function deleteDraftMemory(memoryId, { apply = false, now = new Date() } = {}) {
   }
   const stamp = now.toISOString().replace(/[:.]/g, "-");
   const backup = path.join(path.dirname(CONFIG_PATH), "backups", "deleted-memories", `${memoryId}-${stamp}`);
-  const plan = { memoryId, label: settings.label, source: context.root, backup, recoverable: true };
+  const sourceExists = fs.existsSync(context.root);
+  const plan = { memoryId, label: settings.label, source: context.root, backup: sourceExists ? backup : null, recoverable: sourceExists };
   if (!apply) return { dryRun: true, ...plan };
-  fs.mkdirSync(path.dirname(backup), { recursive: true });
-  fs.renameSync(context.root, backup);
-  const config = loadConfig();
+  if (sourceExists) {
+    fs.mkdirSync(path.dirname(backup), { recursive: true });
+    fs.renameSync(context.root, backup);
+  }
   try {
     if (config.memories) delete config.memories[memoryId];
     saveConfig(config);
   } catch (error) {
-    fs.renameSync(backup, context.root);
+    if (sourceExists) fs.renameSync(backup, context.root);
     throw error;
   }
   return { applied: true, ...plan };
