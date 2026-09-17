@@ -335,7 +335,7 @@
     card.tabIndex = 0;
     card.dataset.developerModule = MODULE_ID;
     card.dataset.moduleOrder = String(MODULE_ORDER);
-    card.innerHTML = `<span class="me-menu-icon" aria-hidden="true">◐</span><span class="me-menu-copy"><strong>自定义主题</strong><small>选择要管理的内容</small><span class="me-inline-links"><button type="button" data-theme-focus="themes">可用主题</button><button type="button" data-theme-focus="brand">品牌图标</button></span></span><span aria-hidden="true">›</span>`;
+    card.innerHTML = `<span class="me-menu-icon" aria-hidden="true">◐</span><span class="me-menu-copy"><strong>自定义主题</strong></span><span aria-hidden="true">›</span>`;
     host.append(card);
     sortDeveloperModules(host);
     card.onclick = event => {

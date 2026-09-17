@@ -447,6 +447,7 @@ test("canonical developer modules are discovered without copying frontend code i
   const continuity = listDeveloperModules().find(module => module.id === "continuity-lab");
   assert.ok(continuity);
   assert.equal(continuity.entry, "/developer-modules/continuity-lab/");
+  assert.equal(continuity.scope, "memory");
   assert.equal(continuity.status, "官方架构实验");
   const root = path.join(__dirname, "..", "developer-modules", "continuity-lab");
   assert.ok(fs.existsSync(path.join(root, "frontend", "index.html")));

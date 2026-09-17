@@ -510,18 +510,23 @@ function listLibraries() {
   const configured = listMemoryIds().flatMap(memoryId => {
     let context;
     try { context = getMemoryContext(memoryId); } catch { return []; }
-    let tc, threadId;
+    let tc, threadId, bound, bindingCount;
     if (context.layout === "memory-v1") {
       let bindings;
       try { bindings = readBindingConfig(memoryId); } catch { return []; }
       const primary = bindings.bindings.find(item => item.id === bindings.primaryBindingId && item.enabled !== false);
+      const enabledBindings = bindings.bindings.filter(item => item.enabled !== false);
       const memory = context.memoryConfig || {};
       const settingsComplete = !!(String(memory.label || "").trim() && String(memory.ai || "").trim()
         && String(memory.user || "").trim() && String(memory.purpose || "").trim());
       if (!primary && !settingsComplete) return [];
       tc = getMemoryRuntimeConfig(memoryId); threadId = memoryId;
+      bound = !!primary?.externalThreadId;
+      bindingCount = enabledBindings.length;
     } else {
       tc = context.config || {}; threadId = context.legacyKey || memoryId;
+      bound = !!threadId;
+      bindingCount = bound ? 1 : 0;
     }
     const actions = watcherActions(tc);
     const memoryDir = path.join(getThreadDir(threadId), "memory");
@@ -535,7 +540,7 @@ function listLibraries() {
         (SELECT COUNT(*) FROM feelings WHERE thread_id=? AND summary_mode='hidden') hidden`).get(threadId, threadId, threadId, threadId, threadId);
       const latest = store.db.prepare("SELECT MAX(completed_at) completedAt FROM mining_day_state WHERE thread_id=? AND status='completed'").get(threadId);
       return {
-        memoryId, configured: true, bound: !!tc.externalThreadId, threadId, externalThreadId: tc.externalThreadId || (threadId !== memoryId ? threadId : null), libraryName: tc.label || memoryId, runtime: tc.runtime || null, purpose: tc.purpose || "accompany",
+        memoryId, configured: true, bound, bindingCount, threadId, externalThreadId: tc.externalThreadId || (context.layout !== "memory-v1" ? threadId : null), libraryName: tc.label || memoryId, runtime: tc.runtime || null, purpose: tc.purpose || "accompany",
         ai: tc.ai || "", user: tc.user || "", counts, lastMinedAt: latest?.completedAt || null,
         watcherEnabled: watcherEnabled(tc),
         automaticFullMining: actions.sync,
@@ -618,6 +623,7 @@ function listDeveloperModules(publicDir = PUBLIC_DIR) {
         if (!/^[a-z0-9][a-z0-9-]*$/u.test(id) || id !== entry.name || manifest.entry !== expectedEntry) return [];
         return [{
           id,
+          scope: String(manifest.scope || "memory"),
           title: String(manifest.title || id),
           summary: String(manifest.summary || ""),
           contributor: String(manifest.contributor || ""),
@@ -639,6 +645,7 @@ function listDeveloperModules(publicDir = PUBLIC_DIR) {
     .filter(item => !item.errors.length && item.manifest.entry?.frontend && !item.manifest.legacy?.frontend)
     .map(item => ({
       id: item.id,
+      scope: String(item.manifest.scope || "memory"),
       title: String(item.manifest.title || item.id),
       summary: String(item.manifest.summary || ""),
       contributor: String(item.manifest.contributor || "Stone Memory"),

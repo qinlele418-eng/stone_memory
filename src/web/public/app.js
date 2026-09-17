@@ -209,7 +209,7 @@ function loadOptionalScript(src) {
 function loadDeveloperModules() {
   return Promise.all([
     loadOptionalScript("/developer-modules/stone-memory-assistant/bootstrap.js?v=2"),
-    loadOptionalScript("/developer-kit/bootstrap.js?v=3"),
+    loadOptionalScript("/developer-kit/bootstrap.js?v=4"),
     loadOptionalScript("/dream-lab/bootstrap.js?v=2"),
     loadOptionalScript("/notebook-lab/bootstrap.js?v=2"),
   ]).catch(error => showToast(error.message, "error"));
@@ -227,6 +227,7 @@ function openGlobalWorkshopPanel(panel = "plugins") {
 }
 
 function renderGlobalWorkshop(panel = "plugins") {
+  const activeMemoryId = document.querySelector(".workspace")?.dataset.threadId || "";
   app.innerHTML = `<section class="global-workshop"><main class="shell global-workshop-main"><div class="dashboard-head"><div><p class="eyebrow">Stone Memory Workshop</p><h1>琢石坊</h1><p class="lead">先使用已经装好的能力，再逛协作社区，或者开始制作自己的模块。</p></div></div><nav class="workshop-tabs" aria-label="琢石坊导航" role="tablist"><button type="button" data-workshop-tab="plugins" role="tab">插件工坊</button><button type="button" data-workshop-tab="community" role="tab">琢石坊</button><button type="button" data-workshop-tab="maker" role="tab">制作台</button></nav><section class="workshop-panel" data-workshop-panel="plugins"><div class="workshop-panel-head"><div><h2>插件工坊</h2><p>查看笔记、织梦与其他已安装模块。需要记忆体的能力会在进入后请你明确选择。</p></div></div><div id="developer-module-host" class="developer-module-host" data-module-section="plugins" aria-live="polite"></div></section><section class="workshop-panel" data-workshop-panel="community" hidden><div class="developer-module-host" data-module-section="community" aria-live="polite"></div></section><section class="workshop-panel" data-workshop-panel="maker" hidden><div data-developer-kit-host></div></section></main></section>`;
   document.querySelectorAll("[data-workshop-tab]").forEach(button => {
     button.onclick = () => openGlobalWorkshopPanel(button.dataset.workshopTab);
@@ -236,6 +237,8 @@ function renderGlobalWorkshop(panel = "plugins") {
     const picker = document.createElement("label");
     picker.className = "workshop-memory-picker";
     picker.innerHTML = `<span>为需要记忆体的插件选择目标</span><select><option value="">请选择记忆体</option>${state.libraries.map(library => `<option value="${escapeHtml(library.memoryId || library.threadId)}">${escapeHtml(library.libraryName)}</option>`).join("")}</select>`;
+    picker.querySelector("select").value = activeMemoryId;
+    moduleHost.dataset.memoryId = activeMemoryId;
     picker.querySelector("select").onchange = event => { moduleHost.dataset.memoryId = event.target.value; };
     moduleHost.before(picker);
   }
@@ -423,7 +426,7 @@ async function createLibrary() {
 }
 
 function lobby() {
-  app.innerHTML = `<section class="lobby stone-page-transition-pending" data-transition-message="正在整理今日纹路…" aria-busy="true"><div class="shell"><div class="lobby-head"><p>—— 蒲苇韧如丝，磐石无转移 ——</p></div><div class="library-grid">${state.libraries.map(library => `<button class="library-card" data-id="${escapeHtml(library.memoryId || library.threadId)}">${stoneSvg("mini-stone")}<h2>${escapeHtml(library.libraryName)}</h2><p>${!library.configured ? "尚未配置 · 点击继续" : !library.bound ? "尚未绑定对话窗口" : library.lastMinedAt ? "记忆正在生长" : "等待第一次记忆挖掘"}</p><div class="library-stats"><span>${library.counts.feelings} 条摘要</span><span>${library.counts.features} 条特征</span></div></button>`).join("")}<button class="new-card" id="new-library"><div><span>＋</span><strong>创建新的记忆体</strong></div></button></div></div></section>`;
+    app.innerHTML = `<section class="lobby stone-page-transition-pending" data-transition-message="正在整理今日纹路…" aria-busy="true"><div class="shell"><div class="lobby-head"><p>—— 蒲苇韧如丝，磐石无转移 ——</p></div><div class="library-grid">${state.libraries.map(library => `<button class="library-card" data-id="${escapeHtml(library.memoryId || library.threadId)}">${stoneSvg("mini-stone")}<h2>${escapeHtml(library.libraryName)}</h2><p>${!library.configured ? "尚未配置 · 点击继续" : !library.bound ? "尚未绑定对话窗口" : library.lastMinedAt ? "记忆正在生长" : "等待第一次记忆挖掘"}</p><div class="library-stats"><span>${library.counts.feelings} 条摘要</span><span>${library.counts.features} 条特征</span></div></button>`).join("")}<button class="library-card new-card" id="new-library"><div><span>＋</span><strong>创建新的记忆体</strong></div></button></div></div></section>`;
   document.querySelectorAll(".library-card").forEach(card => card.onclick = () => { const library=state.libraries.find(item=>(item.memoryId||item.threadId)===card.dataset.id); library?.configured?openLibrary(card.dataset.id):createMemoryDraft(card,library); });
   document.querySelector("#new-library").onclick = event => createMemoryDraft(event.currentTarget);
 }
@@ -474,7 +477,7 @@ function renderGlobalAbout() {
 
 function renderMyContent(main) {
   const external=(href,label)=>href?`<a href="${escapeHtml(href)}" target="_blank" rel="noreferrer">${label}</a>`:"";
-  main.innerHTML=`<div class="dashboard-head about-hero"><div><p class="eyebrow">MY STONE MEMORY</p><h1>我的</h1><p class="lead">管理外观、安装入口与项目联系。</p></div></div><section class="me-panel"><div id="theme-entry-host"></div><button class="me-menu-row" id="install-stone-memory" type="button"><span class="me-menu-icon" aria-hidden="true">⌂</span><span class="me-menu-copy"><strong>添加到桌面主页</strong><small>使用当前保存的桌面图标，像应用一样打开</small><small id="pwa-install-hint"></small></span><span aria-hidden="true">›</span></button><div class="me-menu-row me-follow-row"><span class="me-menu-icon" aria-hidden="true">◎</span><span class="me-menu-copy"><strong>关注项目</strong><small>获取项目动态、文档和社区消息</small><span class="me-inline-links">${external(projectContact.github,"GitHub")}${external(projectContact.website,"官网")}${external(projectContact.xiaohongshu,"小红书")}${external(projectContact.qqGroup,"QQ群")}</span></span></div><button class="me-menu-row" id="open-support-code" type="button"><span class="me-menu-icon" aria-hidden="true">✦</span><span class="me-menu-copy"><strong>召唤赞赏码</strong><small>请作者喝杯茶，给小石头添一点口粮</small></span><span aria-hidden="true">›</span></button></section><dialog class="support-dialog" id="support-code-dialog"><button class="dialog-close" type="button" aria-label="关闭">×</button><h2>召唤赞赏码</h2><p>支持完全自愿，不影响任何已有功能。</p><div class="support-code">${projectContact.supportImage?`<img src="${escapeHtml(projectContact.supportImage)}" alt="开发者赞赏码">`:`<div><span>赞赏码</span><small>图片待放置</small></div>`}</div></dialog>`;
+  main.innerHTML=`<div class="dashboard-head about-hero"><div><p class="eyebrow">MY STONE MEMORY</p><h1>我的</h1><p class="lead">管理外观、安装入口与项目联系。</p></div></div><section class="me-panel"><div id="theme-entry-host"></div><button class="me-menu-row" id="install-stone-memory" type="button"><span class="me-menu-icon" aria-hidden="true">⌂</span><span class="me-menu-copy"><strong>添加到桌面主页</strong></span><span aria-hidden="true">›</span></button><div class="me-menu-row me-follow-row"><span class="me-menu-icon" aria-hidden="true">◎</span><span class="me-menu-copy"><strong>关注项目</strong></span></div><button class="me-menu-row" id="open-support-code" type="button"><span class="me-menu-icon" aria-hidden="true">✦</span><span class="me-menu-copy"><strong>召唤赞赏码</strong><small>请作者喝杯茶，给小石头添一点口粮</small></span><span aria-hidden="true">›</span></button></section><dialog class="support-dialog" id="support-code-dialog"><button class="dialog-close" type="button" aria-label="关闭">×</button><h2>召唤赞赏码</h2><p>支持完全自愿，不影响任何已有功能。</p><div class="support-code">${projectContact.supportImage?`<img src="${escapeHtml(projectContact.supportImage)}" alt="开发者赞赏码">`:`<div><span>赞赏码</span><small>图片待放置</small></div>`}</div></dialog>`;
   const supportDialog=main.querySelector("#support-code-dialog");
   main.querySelector("#open-support-code")?.addEventListener("click",()=>supportDialog?.showModal());
   supportDialog?.querySelector(".dialog-close")?.addEventListener("click",()=>supportDialog.close());

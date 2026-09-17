@@ -36,11 +36,27 @@ body.stone-theme-enabled .lobby .lobby-head p {
   color: var(--stone-theme-ink);
   font: 600 16px/1.5 var(--stone-theme-font-display), var(--stone-theme-font-body);
 }
-body.stone-theme-enabled .home-dashboard-ready .library-grid { grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); }
-body.stone-theme-enabled .library-card--mapped {
+body.stone-theme-enabled .home-dashboard-ready .library-grid {
+  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+  align-items: stretch;
+}
+body.stone-theme-enabled .home-dashboard-ready .library-grid > .library-card {
+  align-self: stretch;
+}
+
+/* 首页卡片统一尺寸契约 */
+body.stone-theme-enabled .home-dashboard-ready .library-grid > .library-card--mapped,
+body.stone-theme-enabled .home-dashboard-ready .library-grid > .new-card {
   min-height: 0;
   padding: 22px;
+  box-sizing: border-box;
   background: var(--stone-theme-surface);
+}
+
+/* 创建卡内容居中，但尺寸跟随同排记忆体卡 */
+body.stone-theme-enabled .home-dashboard-ready .library-grid > .new-card {
+  display: grid;
+  place-items: center;
 }
 .library-card--mapped > .mini-stone, .library-card--mapped > h2, .library-card--mapped > p, .library-card--mapped > .library-stats { display: none; }
 .mapped-memory-card { display: grid; gap: 15px; }
@@ -70,8 +86,12 @@ body.stone-theme-enabled .library-card--mapped .mapped-memory-copy h2 { margin: 
   .today-grain-growth { gap: 7px; margin-top: 15px; }
   .today-grain-chip { padding: 7px 9px; font-size: 11px; }
   .today-grain-chip b { font-size: 17px; }
-  body.stone-theme-enabled .home-dashboard-ready .library-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
-  body.stone-theme-enabled .library-card--mapped {
+  body.stone-theme-enabled .home-dashboard-ready .library-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+  body.stone-theme-enabled .home-dashboard-ready .library-grid > .library-card--mapped,
+  body.stone-theme-enabled .home-dashboard-ready .library-grid > .new-card {
     min-height: 0;
     padding: 17px;
     border-radius: var(--stone-theme-radius-md, 18px);

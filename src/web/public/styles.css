@@ -131,7 +131,7 @@ td.context { min-width: 320px; max-width: 460px; line-height: 1.5; }
 .library-card h2 { position: relative; margin: 126px 0 8px; font-family: Georgia, "Noto Serif SC", serif; font-size: 28px; font-weight: 600; }
 .library-card p { margin: 0; color: var(--muted); }
 .library-stats { display: flex; gap: 14px; margin-top: 22px; color: var(--pine-700); font-size: 13px; font-weight: 650; }
-.new-card { display: grid; place-items: center; min-height: 290px; padding: 26px; color: var(--pine-700); background: rgba(234,242,229,.42); border: 2px dashed var(--moss-300); border-radius: var(--radius-lg); }
+.new-card { display: grid; place-items: center; color: var(--pine-700); background: rgba(234,242,229,.42); border: 2px dashed var(--moss-300); }
 .new-card span { display: grid; place-items: center; width: 48px; height: 48px; margin: auto auto 14px; border-radius: 50%; background: var(--moss-100); font-size: 28px; }
 
 .workspace { min-height: 100vh; }
@@ -360,6 +360,10 @@ td.context { min-width: 320px; max-width: 460px; line-height: 1.5; }
 }
 
 .mining-prompts-section { margin-top: 0; }
+/* Global pages use their tabs/content as the first visual block. */
+.global-workshop-main > .dashboard-head,
+.global-about-main > .dashboard-head,
+.global-workshop .workshop-panel-head { display: none; }
 .mining-prompts-details { border: 1px solid var(--pine-200,#c8d6c1); border-radius: 8px; }
 .mining-prompts-details[open] { padding-bottom: 16px; }
 .mining-prompts-summary { cursor: pointer; padding: 14px 18px; display: flex; justify-content: space-between; align-items: center; user-select: none; }

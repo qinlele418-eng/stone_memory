@@ -27,7 +27,7 @@
     sortModules(host);
   }
 
-  function moduleCard(module) {
+  function moduleCard(module, host) {
     const card = document.createElement("section");
     card.className = "developer-experiment-card";
     card.dataset.developerModule = module.id;
@@ -49,6 +49,10 @@
     card.querySelector(".developer-enter").onclick = () => {
       const destination = new URL(module.entry, location.origin);
       const memoryId = host.dataset.memoryId || document.querySelector(".workspace")?.dataset.threadId || "";
+      if (module.scope === "memory" && !memoryId) {
+        document.querySelector(".workshop-memory-picker select")?.focus();
+        return;
+      }
       if (memoryId) destination.searchParams.set("threadId", memoryId);
       location.href = destination.href;
     };
@@ -63,7 +67,7 @@
       .catch(() => []);
     for (const module of await modulesPromise) {
       if ((module.workshopSection || "plugins") !== host.dataset.moduleSection) continue;
-      if (!host.querySelector(`[data-developer-module="${CSS.escape(module.id)}"]`)) host.append(moduleCard(module));
+      if (!host.querySelector(`[data-developer-module="${CSS.escape(module.id)}"]`)) host.append(moduleCard(module, host));
     }
     sortModules(host);
   }
