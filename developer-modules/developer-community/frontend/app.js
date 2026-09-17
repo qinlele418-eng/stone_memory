@@ -150,7 +150,21 @@
   }
 
   async function loadTracked() { try { renderTracked((await command("tracked")).tracked); } catch (error) { toast(error.message); } }
-  async function loadStatus() { try { renderStatus(await command("status")); } catch (error) { toast(error.message); } }
+  async function loadStatus() {
+    try {
+      const status = await command("status");
+      renderStatus(status);
+      return status;
+    } catch (error) {
+      toast(error.message);
+      return null;
+    }
+  }
+
+  async function loadAuthenticatedViews(status = state.status) {
+    if (!status?.auth?.authenticated) return;
+    await Promise.all([loadLocalOverview(), loadContributions()]);
+  }
 
   function showMergeConflict(result, kind) {
     state.mergeConflict = { ...result, kind };
@@ -214,7 +228,9 @@
         const result = await command("oauth-poll", { flowId });
         if (result.status === "authorized") {
           $("#oauth-state").textContent = `登录成功：@${result.identity.login}`;
-          await loadStatus(); setTimeout(() => $("#oauth-dialog").close(), 700); return;
+          const status = await loadStatus();
+          await loadAuthenticatedViews(status);
+          setTimeout(() => $("#oauth-dialog").close(), 700); return;
         }
         if (result.status === "denied" || result.status === "expired") {
           $("#oauth-state").textContent = result.status === "denied" ? "你取消了 GitHub 授权。" : "验证码已经过期，请重新登录。"; return;
@@ -289,7 +305,10 @@
     if (!confirm(`确认${labels[action]} watcher supervisor？`)) return;
     try { const result=await command("supervisor-control", { action }); $("#supervisor-state").textContent=result.output; toast(`Supervisor 已${labels[action]}`); } catch(error) { toast(error.message); }
   }));
-  loadStatus();
-  loadLocalOverview();
-  loadContributions();
+  async function bootstrap() {
+    const status = await loadStatus();
+    await loadAuthenticatedViews(status);
+  }
+
+  bootstrap();
 })();

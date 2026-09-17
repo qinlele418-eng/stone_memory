@@ -438,6 +438,9 @@ test("frontend uses the shared shell, theme contract, mobile layout and confirma
   assert.match(html, /这个 API 用来做什么/);
   assert.match(html, /GITHUB DEVICE AUTHORIZATION/);
   assert.match(app, /oauth-start/);
+  assert.match(app, /if \(!status\?\.auth\?\.authenticated\) return/);
+  assert.match(app, /const status = await loadStatus\(\);\s*await loadAuthenticatedViews\(status\)/);
+  assert.doesNotMatch(app, /loadStatus\(\);\s*loadLocalOverview\(\);\s*loadContributions\(\);/);
   assert.match(app, /filesBlock\(dossier\.files\)/);
   assert.match(app, /value == null \? "" : value/);
   assert.match(html, /三项全部留空＝原文模式/);
