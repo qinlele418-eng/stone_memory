@@ -153,7 +153,8 @@
     $("#secret-word").textContent = round?.word || (round ? `${round.wordLength}个字` : "等待题目");
     const humanDrawing = canHumanDraw();
     $("#drawing-tools").classList.toggle("hidden", !humanDrawing);
-    $("#canvas-blocker").classList.toggle("hidden", humanDrawing || (room.drawer === "agent" && round?.drawing));
+    const waitingForAgentDrawing = room.phase === "drawing" && room.drawer === "agent" && !round?.drawing;
+    $("#canvas-blocker").classList.toggle("hidden", !waitingForAgentDrawing);
     $("#canvas-message").textContent = room.phase === "drawing" ? `等待${agentName}作画……` : room.phase === "guessing" ? "作品已完成" : "这一轮结束啦";
     $("#next-round").classList.toggle("hidden", room.phase !== "round-complete");
     $("#reveal-round").classList.toggle("hidden", !new Set(["drawing", "guessing"]).has(room.phase));
