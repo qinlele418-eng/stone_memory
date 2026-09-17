@@ -2,6 +2,8 @@
 
 Stone Memory 的可拆卸开发者模块。人类与绑定到同一记忆体的 AI 可以在房间中轮流画图、猜词和聊天。
 
+猜题方可以在一轮结束前多次明确提交答案；猜错后，猜题与聊天仍可并行。聊天不会自动当作答案。人类和 AI 都可以选择放弃并揭晓本轮答案。
+
 ## 数据边界
 
 - 活跃房间状态、词库和图库索引按记忆体隔离，位于模块自己的 `module.sqlite`。
@@ -12,7 +14,13 @@ Stone Memory 的可拆卸开发者模块。人类与绑定到同一记忆体的 
 
 ## 模型接入
 
-模块把待处理事件原子写入 `inbox/`。Cyberboss 的可选 `sm-game` 渠道消费事件，并使用房间上下文把回复送回模块，而不是 QQ。
+运行中的 Agent 通过 Stone Memory 的通用模块 MCP 工具主动读取房间、取得猜题图片，并明确提交 `draw`、`guess`、`chat` 或 `reveal`。模块不创建额外唤醒桥，也不把普通聊天自动当成答案。
+
+- `stmem_module_list`：发现已安装模块。
+- `stmem_module_inspect`：读取 manifest 和可用命令。
+- `stmem_module_call`：经正式 `stmem module` CLI 调用命令；图片结果会作为 MCP image content 返回。
+
+AI 玩家先调用 `drawing-game / agent-state`。动作通过 `drawing-game / agent-action` 提交，`input.kind` 可为 `draw`、`guess`、`chat` 或 `reveal`。
 
 ## 验证
 

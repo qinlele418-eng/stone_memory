@@ -70,3 +70,45 @@ test("completed PNG stays in gallery while room events are cleared on end", () =
 test("normalizes traditional and punctuated answers", () => {
   assert.equal(game.normalizeAnswer(" 蝸、牛！"), "蜗牛");
 });
+
+test("a wrong guess stays open for chat and another explicit guess", () => {
+  const item = fixture();
+  try {
+    const created = call(item.context, "room-create");
+    const started = call(item.context, "game-start", { roomCode: created.room.code, firstDrawer: "human" });
+    const answer = started.round.word;
+    const onePixelPng = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+    call(item.context, "drawing-submit", { roomCode: created.room.code, actor: "human", imageDataUrl: onePixelPng });
+
+    const wrong = call(item.context, "guess", { roomCode: created.room.code, actor: "agent", answer: "肯定不是答案" });
+    assert.equal(wrong.room.phase, "guessing");
+    assert.equal(wrong.round.status, "guessing");
+
+    const chatted = call(item.context, "chat", { roomCode: created.room.code, actor: "human", text: answer });
+    assert.equal(chatted.room.phase, "guessing");
+    assert.equal(chatted.round.winner, null);
+
+    const correct = call(item.context, "guess", { roomCode: created.room.code, actor: "agent", answer });
+    assert.equal(correct.room.phase, "round-complete");
+    assert.equal(correct.round.winner, "agent");
+    assert.equal(correct.room.scores.agent, 1);
+    assert.throws(() => call(item.context, "guess", { roomCode: created.room.code, actor: "agent", answer }), /不能提交|已经结算/u);
+  } finally { item.cleanup(); }
+});
+
+test("either player can give up and reveal without scoring", () => {
+  for (const actor of ["human", "agent"]) {
+    const item = fixture();
+    try {
+      const created = call(item.context, "room-create");
+      call(item.context, "game-start", { roomCode: created.room.code, firstDrawer: "agent" });
+      const revealed = call(item.context, "round-reveal", { roomCode: created.room.code, actor });
+      assert.equal(revealed.room.phase, "round-complete");
+      assert.equal(revealed.round.status, "complete");
+      assert.ok(revealed.round.word);
+      assert.equal(revealed.round.winner, null);
+      assert.deepEqual(revealed.room.scores, { human: 0, agent: 0 });
+      assert.match(revealed.events.at(-1).text, /放弃并揭晓答案/u);
+    } finally { item.cleanup(); }
+  }
+});

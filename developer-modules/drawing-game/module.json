@@ -9,10 +9,12 @@
     "frontend": "frontend/index.html",
     "commands": {
       "state": "backend/commands/game.js",
+      "agent-state": "backend/commands/game.js",
       "room-create": "backend/commands/game.js",
       "game-start": "backend/commands/game.js",
       "chat": "backend/commands/game.js",
       "guess": "backend/commands/game.js",
+      "round-reveal": "backend/commands/game.js",
       "drawing-submit": "backend/commands/game.js",
       "round-next": "backend/commands/game.js",
       "game-end": "backend/commands/game.js",
@@ -25,8 +27,14 @@
   },
   "storage": {
     "database": "module.sqlite",
-    "files": ["gallery", "inbox"]
+    "files": ["gallery"]
   },
+  "coreExtensions": [
+    {
+      "path": "mcp-server.js",
+      "reason": "为所有开发者模块提供经 stmem module CLI 调度的通用 MCP 适配能力"
+    }
+  ],
   "contributor": "左丞相可",
   "summary": "和有连续记忆的 AI 在同一个房间里轮流画图、猜词和聊天。",
   "status": "私人实验",

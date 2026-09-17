@@ -150,6 +150,7 @@
     $("#canvas-blocker").classList.toggle("hidden", humanDrawing || (room.drawer === "agent" && round?.drawing));
     $("#canvas-message").textContent = room.phase === "drawing" ? `等待${agentName}作画……` : room.phase === "guessing" ? "作品已完成" : "这一轮结束啦";
     $("#next-round").classList.toggle("hidden", room.phase !== "round-complete");
+    $("#reveal-round").classList.toggle("hidden", !new Set(["drawing", "guessing"]).has(room.phase));
     renderEvents();
     updateComposer();
     schedulePoll();
@@ -323,6 +324,11 @@
   });
   $("#next-round").addEventListener("click", async () => {
     try { clearCanvas(); renderedAgentDrawing = ""; state = await command("round-next", { roomCode: state.room.code }); render(); }
+    catch (error) { toast(error.message); }
+  });
+  $("#reveal-round").addEventListener("click", async () => {
+    if (!confirm("这一轮就到这里，并揭晓答案吗？")) return;
+    try { state = await command("round-reveal", { roomCode: state.room.code, actor: "human" }); render(); }
     catch (error) { toast(error.message); }
   });
   $("#end-game").addEventListener("click", async () => {

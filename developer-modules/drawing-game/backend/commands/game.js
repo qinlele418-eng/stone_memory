@@ -60,16 +60,17 @@ function run(context, input) {
   const payload = input.payload && typeof input.payload === "object" ? input.payload : {};
   fs.mkdirSync(context.moduleDataDir, { recursive: true });
   fs.mkdirSync(context.resolveDataPath("gallery"), { recursive: true });
-  fs.mkdirSync(context.resolveDataPath("inbox"), { recursive: true });
   const db = openDatabase(context.resolveDataPath("module.sqlite"));
   try {
     seedWords(db);
     const handlers = {
       state: () => readState(db, context, payload),
+      "agent-state": () => readState(db, context, { ...payload, viewer: "agent" }),
       "room-create": () => createRoom(db, context, payload, input.threadId),
       "game-start": () => startGame(db, context, payload),
       chat: () => addChat(db, context, payload),
       guess: () => addGuess(db, context, payload),
+      "round-reveal": () => revealRound(db, context, payload),
       "drawing-submit": () => submitDrawing(db, context, payload),
       "round-next": () => nextRound(db, context, payload),
       "game-end": () => endGame(db, context, payload),
@@ -198,7 +199,6 @@ function startGame(db, context, payload) {
     appendEvent(db, room.id, "round-start", "system", `第1轮由${drawer === "agent" ? settings.agentName : settings.humanName}作画。`);
   });
   transaction();
-  if (drawer === "agent") emitAgentEvent(db, context, room.id, "draw");
   return readState(db, context, { roomCode: room.code });
 }
 
@@ -208,7 +208,6 @@ function addChat(db, context, payload) {
   const text = requireText(payload.text, "聊天内容", MAX_EVENT_TEXT);
   appendEvent(db, room.id, "chat", actor, text);
   touchRoom(db, room.id);
-  if (actor === "human") emitAgentEvent(db, context, room.id, "chat", { message: text });
   return readState(db, context, { roomCode: room.code });
 }
 
@@ -219,6 +218,7 @@ function addGuess(db, context, payload) {
   if (actor === room.drawer) throw new Error("作画者不能猜自己的题目");
   const answer = requireText(payload.answer || payload.text, "答案", 120);
   const round = currentRound(db, room);
+  if (round.status !== "guessing") throw new Error("本轮已经结算");
   const accepted = [round.word, ...parseJson(round.aliases_json, [])].map(normalizeAnswer);
   const correct = accepted.includes(normalizeAnswer(answer));
   appendEvent(db, room.id, "guess", actor, answer, { correct });
@@ -226,13 +226,24 @@ function addGuess(db, context, payload) {
     const scores = parseJson(room.scores_json, { human: 0, agent: 0 });
     scores[actor] = Number(scores[actor] || 0) + 1;
     const now = new Date().toISOString();
-    db.prepare("UPDATE rounds SET status='complete',winner=?,completed_at=? WHERE id=?").run(actor, now, round.id);
-    db.prepare("UPDATE rooms SET phase='round-complete',scores_json=?,updated_at=? WHERE id=?")
-      .run(JSON.stringify(scores), now, room.id);
-    const settings = readSettings(db);
-    appendEvent(db, room.id, "round-result", "system", `${actor === "agent" ? settings.agentName : settings.humanName}猜中了，答案是“${round.word}”。`, { answer: round.word, winner: actor });
+    const transaction = db.transaction(() => {
+      const locked = db.prepare("UPDATE rounds SET status='complete',winner=?,completed_at=? WHERE id=? AND status='guessing'").run(actor, now, round.id);
+      if (locked.changes !== 1) throw new Error("本轮已经结算");
+      db.prepare("UPDATE rooms SET phase='round-complete',scores_json=?,updated_at=? WHERE id=?")
+        .run(JSON.stringify(scores), now, room.id);
+      const settings = readSettings(db);
+      appendEvent(db, room.id, "round-result", "system", `${actor === "agent" ? settings.agentName : settings.humanName}猜中了，答案是“${round.word}”。`, { answer: round.word, winner: actor });
+    });
+    transaction();
   }
-  if (actor === "human") emitAgentEvent(db, context, room.id, "guess-result", { answer, correct });
+  return readState(db, context, { roomCode: room.code });
+}
+
+function revealRound(db, context, payload) {
+  const room = requireActiveRoom(db, payload.roomCode);
+  if (!new Set(["drawing", "guessing"]).has(room.phase)) throw new Error("本轮已经结算");
+  const actor = normalizeActor(payload.actor, "human");
+  completeRoundWithoutWinner(db, context, room, actor);
   return readState(db, context, { roomCode: room.code });
 }
 
@@ -248,7 +259,6 @@ function submitDrawing(db, context, payload) {
   db.prepare("UPDATE rooms SET phase='guessing',updated_at=? WHERE id=?").run(now, room.id);
   const settings = readSettings(db);
   appendEvent(db, room.id, "drawing", actor, `${actor === "agent" ? settings.agentName : settings.humanName}画好了。`, { imageFile });
-  if (actor === "human") emitAgentEvent(db, context, room.id, "guess", { imageFile });
   return readState(db, context, { roomCode: room.code });
 }
 
@@ -263,7 +273,6 @@ function nextRound(db, context, payload) {
   db.prepare("UPDATE rooms SET round_no=?,drawer=?,phase='drawing',updated_at=? WHERE id=?").run(number, drawer, now, room.id);
   createRound(db, room.id, number, drawer);
   appendEvent(db, room.id, "round-start", "system", `第${number}轮由${drawer === "agent" ? settings.agentName : settings.humanName}作画。`);
-  if (drawer === "agent") emitAgentEvent(db, context, room.id, "draw");
   return readState(db, context, { roomCode: room.code });
 }
 
@@ -328,6 +337,7 @@ function agentAction(db, context, payload) {
   const common = { ...payload, actor: "agent" };
   if (kind === "chat") return addChat(db, context, { ...common, text: payload.text });
   if (kind === "guess") return addGuess(db, context, { ...common, answer: payload.answer });
+  if (kind === "reveal") return revealRound(db, context, common);
   if (kind === "draw") {
     const room = requireActiveRoom(db, payload.roomCode);
     if (room.phase !== "drawing" || room.drawer !== "agent") throw new Error("当前没有轮到AI作画");
@@ -351,8 +361,9 @@ function readState(db, context, payload = {}) {
   const round = currentRound(db, room, false);
   const events = room.status === "ended" ? [] : db.prepare("SELECT id,seq,kind,actor,text,meta_json,created_at createdAt FROM events WHERE room_id=? ORDER BY seq").all(room.id)
     .map(row => ({ ...row, meta: parseJson(row.meta_json, {}), meta_json: undefined }));
-  const reveal = payload.revealAnswer === true || round?.status === "complete" || room.status === "ended" || round?.drawer === "human";
-  return {
+  const viewer = payload.viewer === "agent" ? "agent" : "human";
+  const reveal = payload.revealAnswer === true || round?.status === "complete" || room.status === "ended" || round?.drawer === viewer;
+  const result = {
     room: {
       id: room.id,
       code: room.code,
@@ -383,6 +394,20 @@ function readState(db, context, payload = {}) {
     gallery,
     settings,
   };
+  if (viewer === "agent") result.agent = agentGuidance(room, round);
+  return result;
+}
+
+function agentGuidance(room, round) {
+  if (!round || room.status !== "active") return { role: "observer", actions: ["agent-state"] };
+  if (room.phase === "round-complete") return { role: "observer", actions: ["chat", "round-next"], note: "本轮已经结算，不要重复提交答案。" };
+  if (round.drawer === "agent" && room.phase === "drawing") {
+    return { role: "drawer", actions: ["draw", "chat", "reveal"], note: "通过 agent-action 明确提交动作；draw 需要 strokes，reveal 表示放弃并揭晓。" };
+  }
+  if (round.drawer === "human" && room.phase === "guessing") {
+    return { role: "guesser", actions: ["guess", "chat", "reveal"], imageAction: "image-read", roundId: round.id, note: "可多次明确 guess；猜错后仍可 guess 或 chat。聊天不会自动成为答案。" };
+  }
+  return { role: "observer", actions: ["chat", "reveal"], note: "等待对方完成当前动作。" };
 }
 
 function createRound(db, roomId, number, drawer) {
@@ -398,36 +423,21 @@ function createRound(db, roomId, number, drawer) {
   return id;
 }
 
-function emitAgentEvent(db, context, roomId, mode, extra = {}) {
-  const room = db.prepare("SELECT * FROM rooms WHERE id=?").get(roomId);
-  if (!room?.thread_id) return null;
-  const round = currentRound(db, room, false);
-  const event = {
-    version: 1,
-    type: "drawing_game_event",
-    eventId: crypto.randomUUID(),
-    roomId: room.id,
-    roomCode: room.code,
-    mode,
-    threadId: room.thread_id,
-    round: round ? {
-      number: round.number,
-      drawer: round.drawer,
-      word: mode === "draw" ? round.word : undefined,
-      imageFile: extra.imageFile ? context.resolveDataPath(extra.imageFile) : undefined,
-    } : null,
-    message: cleanText(extra.message, MAX_EVENT_TEXT),
-    answer: cleanText(extra.answer, 120),
-    correct: typeof extra.correct === "boolean" ? extra.correct : undefined,
-    scores: extra.scores,
-    createdAt: new Date().toISOString(),
-  };
-  const inbox = context.resolveDataPath("inbox");
-  const target = path.join(inbox, `${Date.now()}-${event.eventId}.json`);
-  const temporary = `${target}.tmp-${process.pid}`;
-  fs.writeFileSync(temporary, `${JSON.stringify(event, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
-  fs.renameSync(temporary, target);
-  return event.eventId;
+function completeRoundWithoutWinner(db, context, room, actor) {
+  const round = currentRound(db, room);
+  const now = new Date().toISOString();
+  const settings = readSettings(db);
+  const label = actor === "agent" ? settings.agentName : settings.humanName;
+  const message = `${label}选择放弃并揭晓答案：“${round.word}”。`;
+  const transaction = db.transaction(() => {
+    const locked = db.prepare("UPDATE rounds SET status='complete',winner=NULL,completed_at=? WHERE id=? AND status!='complete'").run(now, round.id);
+    if (locked.changes !== 1) return false;
+    db.prepare("UPDATE rooms SET phase='round-complete',updated_at=? WHERE id=?").run(now, room.id);
+    appendEvent(db, room.id, "round-result", "system", message, { answer: round.word, reason: "revealed", actor });
+    return true;
+  });
+  const completed = transaction();
+  return completed;
 }
 
 function savePng(context, room, round, dataUrl) {
