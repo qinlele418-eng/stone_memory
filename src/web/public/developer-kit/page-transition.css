@@ -1,0 +1,26 @@
+body.stone-theme-enabled .stone-page-transition-pending {
+  display: grid;
+  min-height: 100dvh;
+  place-items: center;
+}
+
+body.stone-theme-enabled .stone-page-transition-pending > * {
+  display: none !important;
+}
+
+body.stone-theme-enabled .stone-page-transition-pending::before {
+  color: var(--stone-theme-ink-soft);
+  font: 600 14px/1.5 var(--stone-theme-font-body);
+  letter-spacing: .04em;
+  content: attr(data-transition-message);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  body.stone-theme-enabled .stone-page-transition-pending::before {
+    animation: stone-page-transition-pulse 1.4s ease-in-out infinite;
+  }
+}
+
+@keyframes stone-page-transition-pulse {
+  50% { opacity: .52; }
+}

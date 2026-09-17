@@ -5,13 +5,8 @@
 
 body.stone-theme-enabled .developer-mode-head {
   color: var(--stone-theme-ink);
-  background:
-    radial-gradient(circle at 82% 18%, color-mix(in srgb, var(--stone-theme-accent) 20%, transparent), transparent 34%),
-    linear-gradient(132deg,
-      color-mix(in srgb, var(--stone-theme-surface) 88%, var(--stone-theme-accent-soft)) 0%,
-      color-mix(in srgb, var(--stone-theme-surface-soft) 64%, var(--stone-theme-accent-soft)) 58%,
-      color-mix(in srgb, var(--stone-theme-accent-soft) 72%, var(--stone-theme-surface)) 100%);
-  border-color: color-mix(in srgb, var(--stone-theme-accent) 38%, var(--stone-theme-line));
+  background: linear-gradient(132deg, var(--stone-theme-surface), var(--stone-theme-surface-soft) 58%, var(--stone-theme-accent-soft));
+  border-color: var(--stone-theme-line);
   box-shadow: var(--stone-theme-shadow-panel);
 }
 
@@ -39,13 +34,13 @@ body.stone-theme-enabled .developer-orbit::before {
 
 body.stone-theme-enabled .developer-orbit::after {
   background: var(--stone-theme-accent-soft);
-  box-shadow: 0 0 24px color-mix(in srgb, var(--stone-theme-accent) 22%, transparent);
+  box-shadow: 0 0 24px var(--stone-theme-accent-soft);
 }
 
 body.stone-theme-enabled .developer-orbit span,
 body.stone-theme-enabled .developer-orbit i {
   background: var(--stone-theme-status);
-  box-shadow: 0 0 12px color-mix(in srgb, var(--stone-theme-status) 42%, transparent);
+  box-shadow: 0 0 12px var(--stone-theme-accent-soft);
 }
 
 body.stone-theme-enabled .developer-orbit i {
@@ -55,24 +50,19 @@ body.stone-theme-enabled .developer-orbit i {
 body.stone-theme-enabled .developer-experiment-card,
 body.stone-theme-enabled .developer-theme-card {
   color: var(--stone-theme-ink);
-  border-color: color-mix(in srgb, var(--stone-theme-accent) 32%, var(--stone-theme-line));
-  background:
-    radial-gradient(circle at 88% 82%, color-mix(in srgb, var(--stone-theme-accent) 18%, transparent), transparent 35%),
-    linear-gradient(145deg,
-      color-mix(in srgb, var(--stone-theme-surface) 92%, var(--stone-theme-accent-soft)),
-      color-mix(in srgb, var(--stone-theme-surface-soft) 66%, var(--stone-theme-accent-soft)) 58%,
-      color-mix(in srgb, var(--stone-theme-accent-soft) 62%, var(--stone-theme-surface)));
+  border-color: var(--stone-theme-line);
+  background: linear-gradient(145deg, var(--stone-theme-surface), var(--stone-theme-surface-soft) 58%, var(--stone-theme-accent-soft));
   box-shadow: var(--stone-theme-shadow-card);
 }
 
 body.stone-theme-enabled .developer-experiment-card::before {
   display: block;
-  background-image: radial-gradient(circle at 18% 16%, color-mix(in srgb, var(--stone-theme-accent) 18%, transparent) 0 1px, transparent 1.5px);
+  background-image: radial-gradient(circle at 18% 16%, var(--stone-theme-accent-soft) 0 1px, transparent 1.5px);
 }
 
 body.stone-theme-enabled .developer-experiment-glow {
   display: block;
-  background: radial-gradient(circle, color-mix(in srgb, var(--stone-theme-danger) 26%, transparent), transparent 65%);
+  background: radial-gradient(circle, var(--stone-theme-accent-soft), transparent 65%);
 }
 
 body.stone-theme-enabled .developer-experiment-copy .eyebrow {
@@ -91,19 +81,19 @@ body.stone-theme-enabled .developer-theme-card .developer-experiment-copy > p:no
 
 body.stone-theme-enabled .developer-status {
   color: var(--stone-theme-accent-strong);
-  background: color-mix(in srgb, var(--stone-theme-accent-soft) 82%, var(--stone-theme-surface));
-  border: 1px solid color-mix(in srgb, var(--stone-theme-accent) 34%, var(--stone-theme-line));
+  background: var(--stone-theme-accent-soft);
+  border: 1px solid var(--stone-theme-line);
 }
 
 body.stone-theme-enabled .developer-contributor {
   color: var(--stone-theme-ink-soft);
-  background: color-mix(in srgb, var(--stone-theme-surface) 72%, var(--stone-theme-accent-soft));
+  background: var(--stone-theme-surface);
   border-color: var(--stone-theme-line);
 }
 
 body.stone-theme-enabled .developer-experiment-features span {
   color: var(--stone-theme-ink-soft);
-  background: color-mix(in srgb, var(--stone-theme-surface) 74%, transparent);
+  background: var(--stone-theme-surface);
   border-color: var(--stone-theme-line-soft);
 }
 
@@ -130,9 +120,9 @@ body.stone-theme-enabled .developer-enter {
     linear-gradient(
       135deg,
       var(--stone-theme-accent-soft),
-      color-mix(in srgb, var(--stone-theme-accent) 48%, var(--stone-theme-surface))
+      var(--stone-theme-accent)
     );
-  border-color: color-mix(in srgb, var(--stone-theme-accent) 58%, var(--stone-theme-line));
+  border-color: var(--stone-theme-accent);
   box-shadow: var(--stone-theme-shadow-button);
 }
 
@@ -141,8 +131,8 @@ body.stone-theme-enabled .developer-enter:hover {
   background:
     linear-gradient(
       135deg,
-      color-mix(in srgb, var(--stone-theme-accent-soft) 76%, var(--stone-theme-surface)),
-      color-mix(in srgb, var(--stone-theme-accent) 62%, var(--stone-theme-surface))
+      var(--stone-theme-surface),
+      var(--stone-theme-accent)
     );
   border-color: var(--stone-theme-accent);
 }
@@ -187,7 +177,7 @@ body.stone-theme-enabled .theme-workbench .theme-token-control input {
 body.stone-theme-enabled .theme-workbench .theme-token-field > input:focus,
 body.stone-theme-enabled .theme-workbench .theme-token-control input:focus {
   border-color: var(--stone-theme-accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--stone-theme-accent) 14%, transparent);
+  box-shadow: 0 0 0 3px var(--stone-theme-accent-soft);
 }
 
 body.stone-theme-enabled .theme-workbench .theme-upload {

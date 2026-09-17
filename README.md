@@ -507,7 +507,7 @@ codex mcp add stmem -- node ~/stone_memory/mcp-server.js
 
 > 以上操作均可交由 AI 助手完成。注意注册的是 `mcp-server.js`，不是 `stmem` CLI。
 
-### 可用工具（共 13 个）
+### 可用工具
 
 | 工具 | 功能 |
 |------|------|
@@ -515,6 +515,7 @@ codex mcp add stmem -- node ~/stone_memory/mcp-server.js
 | `stmem_memory_rebuild` | 应用刚刚预览的参数：Codex 立即 apply，Claude Code 写入 queue |
 | `stmem_memory_mine` | 触发单日挖掘（feelings + features） |
 | `stmem_memory_status` | 查看当前 stmem 状态，含各线程 archive/feelings/features 数量 |
+| `stmem_memory_bind` | 将发起调用的当前 Codex/Claude Code 窗口绑定到指定记忆体；已属于其他记忆体时拒绝改绑 |
 | `stmem_dream_latest` / `stmem_dream_status` / `stmem_dream_get` | 查看最近梦境、织梦状态或指定日期梦境 |
 | `stmem_memory_search` | 关键词搜索 feelings + 回溯原文 archive |
 | `stmem_memory_deep_search` | 深度检索（子 agent 多级搜索 + 原文回溯） |

@@ -11,6 +11,21 @@ test("main page enables the semantic theme bridge", () => {
   assert.match(html, /<body[^>]*\bclass="[^"]*\bstone-theme-enabled\b[^"]*"/);
 });
 
+test("switching back to the original theme keeps the semantic visual layer enabled", () => {
+  const bootstrap = fs.readFileSync(
+    path.join(__dirname, "..", "src", "web", "public", "theme-studio", "bootstrap.js"),
+    "utf8",
+  );
+  assert.match(bootstrap, /classList\.add\("stone-theme-enabled"\)/);
+  assert.doesNotMatch(bootstrap, /classList\.(?:remove|toggle)\("stone-theme-enabled"/);
+  assert.match(bootstrap, /meta\[name="theme-color"\]/);
+  const firstFrame = fs.readFileSync(
+    path.join(__dirname, "..", "src", "web", "public", "theme-studio", "first-frame.js"),
+    "utf8",
+  );
+  assert.match(firstFrame, /meta\[name="theme-color"\]/);
+});
+
 test("desktop shortcut reads its independent custom icon", () => {
   const app = fs.readFileSync(path.join(__dirname, "..", "src", "web", "public", "app.js"), "utf8");
   assert.match(app, /localStorage\.getItem\(DESKTOP_ICON_STORAGE_KEY\)/);
@@ -49,6 +64,36 @@ test("mobile workspace navigation keeps two-character labels centered", () => {
   assert.match(mobileNav, /white-space:\s*normal/);
   assert.match(mobileNav, /overflow-wrap:\s*normal/);
   assert.match(mobileNav, /\.side-nav button span\s*\{[^}]*white-space:\s*nowrap/);
+});
+
+test("responsive component patches preserve desktop theme colors and effects", () => {
+  const publicDir = path.join(__dirname, "..", "src", "web", "public");
+  const workbench = fs.readFileSync(path.join(publicDir, "theme-studio", "theme-workbench.css"), "utf8");
+  const developer = fs.readFileSync(path.join(publicDir, "theme-studio", "developer-common.css"), "utf8");
+  const dashboard = fs.readFileSync(path.join(publicDir, "developer-kit", "home-dashboard.css"), "utf8");
+  const moduleTheme = fs.readFileSync(path.join(publicDir, "developer-kit", "module-theme.css"), "utf8");
+  const viewportMedia = source => {
+    const blocks = [];
+    const matcher = /@media\s*\([^)]*(?:max|min)-width:[^)]*\)\s*\{/g;
+    for (const match of source.matchAll(matcher)) {
+      let depth = 1;
+      let cursor = match.index + match[0].length;
+      while (cursor < source.length && depth) {
+        if (source[cursor] === "{") depth += 1;
+        else if (source[cursor] === "}") depth -= 1;
+        cursor += 1;
+      }
+      blocks.push(source.slice(match.index, cursor));
+    }
+    return blocks.join("\n");
+  };
+  const forbiddenVisualProperty = /^\s*(?:color|background(?:-image|-color)?|border-color|box-shadow|filter|backdrop-filter|-webkit-backdrop-filter)\s*:/m;
+
+  for (const [name, source] of [["workbench", workbench], ["developer", developer], ["dashboard", dashboard], ["module", moduleTheme]]) {
+    assert.doesNotMatch(viewportMedia(source), forbiddenVisualProperty, `${name} responsive CSS must stay layout-only`);
+  }
+  const mobileDashboard = viewportMedia(dashboard);
+  assert.match(mobileDashboard, /\.library-card--mapped[\s\S]*?min-height:\s*0/);
 });
 
 test("mobile mining remains contained while input zoom overrides stay removed", () => {
@@ -213,9 +258,11 @@ test("semantic theme covers mining calendar states and preserves the developer l
   const topbarRule = workbench.match(/body\.stone-theme-enabled \.topbar\s*\{([\s\S]*?)\}/)?.[1] || "";
   const sidebarRule = workbench.match(/body\.stone-theme-enabled \.sidebar\s*\{([\s\S]*?)\}/)?.[1] || "";
   assert.doesNotMatch(topbarRule, /\b(?:margin|padding)\s*:/);
-  assert.doesNotMatch(sidebarRule, /\b(?:margin|padding)\s*:/);
+  assert.doesNotMatch(sidebarRule, /\bmargin\s*:/);
   assert.match(topbarRule, /background:\s*transparent/);
-  assert.match(sidebarRule, /background:\s*transparent/);
+  assert.match(sidebarRule, /padding:\s*18px/);
+  assert.match(sidebarRule, /background:\s*color-mix\([^;]*stone-theme-surface/);
+  assert.match(sidebarRule, /box-shadow:\s*var\(--stone-theme-shadow-card\)/);
   assert.match(tokens, /--stone-theme-font-display:\s*Georgia,\s*"Noto Serif SC",\s*serif/);
   assert.match(tokens, /--stone-theme-font-body:\s*Inter,\s*"Noto Sans SC",\s*"Microsoft YaHei",\s*system-ui,\s*sans-serif/);
   assert.doesNotMatch(bootstrap, /path:\s*"tokens\.typography\./);

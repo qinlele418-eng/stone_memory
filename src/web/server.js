@@ -531,6 +531,56 @@ function listLibraries() {
   return [...drafts, ...configured];
 }
 
+function localDateKey(date = new Date()) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(date);
+}
+
+function homeOverview() {
+  const libraries = listLibraries();
+  const today = localDateKey();
+  const totals = {
+    todayMessages: 0, todayFeelings: 0, totalFeelings: 0, pendingMiningDays: 0,
+    latestMessageAt: null, latestMinedAt: null, caredDays: 0,
+  };
+  for (const library of libraries) {
+    totals.totalFeelings += Number(library.counts?.feelings || 0);
+    if (library.lastMinedAt && (!totals.latestMinedAt || library.lastMinedAt > totals.latestMinedAt)) {
+      totals.latestMinedAt = library.lastMinedAt;
+    }
+    // 尚未绑定线程的 memory-first 草稿没有数据库；它仍计入记忆体总数，但不参与维护统计。
+    if (!library.configured || !library.threadId) continue;
+    const store = new MemoryStore({ memoryDir: path.join(getThreadDir(library.threadId), "memory"), threadId: library.threadId });
+    try {
+      const message = store.db.prepare(`SELECT
+        SUM(CASE WHEN source_date=? THEN 1 ELSE 0 END) count, MAX(timestamp) latest,
+        COUNT(DISTINCT source_date) caredDays
+        FROM messages WHERE thread_id=?`).get(today, library.threadId);
+      const feeling = store.db.prepare("SELECT COUNT(*) count FROM feelings WHERE thread_id=? AND source_date=?").get(library.threadId, today);
+      const pending = store.db.prepare(`SELECT COUNT(DISTINCT m.source_date) count FROM messages m
+        LEFT JOIN mining_day_state s ON s.thread_id=m.thread_id AND s.source_date=m.source_date AND s.status IN ('completed','completed_empty')
+        WHERE m.thread_id=? AND s.source_date IS NULL`).get(library.threadId);
+      totals.todayMessages += Number(message?.count || 0);
+      totals.todayFeelings += Number(feeling?.count || 0);
+      totals.pendingMiningDays += Number(pending?.count || 0);
+      totals.caredDays = Math.max(totals.caredDays, Number(message?.caredDays || 0));
+      if (message?.latest && (!totals.latestMessageAt || message.latest > totals.latestMessageAt)) totals.latestMessageAt = message.latest;
+    } finally { store.close(); }
+  }
+  return {
+    ...totals,
+    memoryCount: libraries.length,
+    companionCount: libraries.filter(item => item.purpose === "accompany").length,
+    codingCount: libraries.filter(item => item.purpose === "coding").length,
+    studyCount: libraries.filter(item => item.purpose === "study").length,
+    connectedRuntimeCount: new Set(libraries.map(item => item.runtime).filter(Boolean)).size,
+    runningWatcherCount: libraries.filter(item => item.watcherEnabled).length,
+    automationRunning: libraries.some(item => item.watcherEnabled),
+    libraries,
+  };
+}
+
 function listDeveloperModules(publicDir = PUBLIC_DIR) {
   const root = path.join(publicDir, "developer-modules");
   const legacyModules = !fs.existsSync(root) ? [] : fs.readdirSync(root, { withFileTypes: true })
@@ -552,6 +602,7 @@ function listDeveloperModules(publicDir = PUBLIC_DIR) {
           metaLabel: String(manifest.metaLabel || "Module"),
           features: Array.isArray(manifest.features) ? manifest.features.map(String).slice(0, 6) : [],
           order: Number.isFinite(Number(manifest.order)) ? Number(manifest.order) : 100,
+          workshopSection: String(manifest.workshopSection || "plugins"),
           entry: expectedEntry,
         }];
       } catch {
@@ -572,6 +623,7 @@ function listDeveloperModules(publicDir = PUBLIC_DIR) {
       metaLabel: String(item.manifest.metaLabel || `Module · v${item.manifest.version}`),
       features: Array.isArray(item.manifest.features) ? item.manifest.features.map(String).slice(0, 6) : [],
       order: Number.isFinite(Number(item.manifest.order)) ? Number(item.manifest.order) : 100,
+      workshopSection: String(item.manifest.workshopSection || "plugins"),
       entry: `/developer-modules/${item.id}/`,
     }));
   const byId = new Map(legacyModules.map(item => [item.id, item]));
@@ -984,6 +1036,7 @@ async function handleApi(req, res, url) {
       features: result.featureCount,
     } : result);
   }
+  if (req.method === "GET" && url.pathname === "/api/home") return json(res, 200, homeOverview());
   if (req.method === "GET" && url.pathname === "/api/libraries") return json(res, 200, { libraries: listLibraries() });
 
   if (req.method === "POST" && url.pathname === "/api/session-file/check") {
@@ -1614,7 +1667,7 @@ function startWebServer({ host = "127.0.0.1", port = 4173 } = {}) {
 }
 
 module.exports = {
-  startWebServer, listLibraries, overview, previewRows, paginate, buildConversationCalendar,
+  startWebServer, listLibraries, homeOverview, overview, previewRows, paginate, buildConversationCalendar,
   listDeveloperModules,
   miningDatesFromStore, miningCommandArgs, miningCheckCommandArgs, targetedMiningCommandArgs,
   timelineCommandArgs, compactTimelineReport, compressionCommandArgs, safeStmemFailure, runStmem,

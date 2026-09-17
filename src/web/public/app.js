@@ -9,6 +9,7 @@ const state = {
 // 正式发布前在这里补齐公共账号；空值会显示为“待配置”，不会跳往错误地址。
 const projectContact = {
   github: "https://github.com/stone-memory-empire",
+  website: "",
   xiaohongshu: "",
   qqGroup: "",
   email: "",
@@ -98,9 +99,10 @@ async function installStoneMemory() {
 function refreshPwaInstallUi() {
   const button=document.querySelector("#install-stone-memory"),hint=document.querySelector("#pwa-install-hint");
   if(!button)return;
-  if(pwaInstalled || isPwaStandalone()){button.disabled=true;button.textContent="已添加到桌面";if(hint)hint.textContent="Stone Memory 已安装为桌面应用。";return;}
-  if(pwaInstallPending){button.disabled=true;button.textContent="等待安装确认…";return;}
-  button.disabled=false;button.textContent="添加到桌面主页";
+  const label=button.querySelector?.("strong")||button;
+  if(pwaInstalled || isPwaStandalone()){button.disabled=true;label.textContent="已添加到桌面";if(hint)hint.textContent="Stone Memory 已安装为桌面应用。";return;}
+  if(pwaInstallPending){button.disabled=true;label.textContent="等待安装确认…";return;}
+  button.disabled=false;label.textContent="添加到桌面主页";
   if(hint)hint.textContent=window.isSecureContext && deferredPwaInstall?"当前网站可安装，点击后弹出系统安装确认。":pwaInstallHelp();
 }
 
@@ -206,11 +208,39 @@ function loadOptionalScript(src) {
 
 function loadDeveloperModules() {
   return Promise.all([
-    loadOptionalScript("/developer-modules/stone-memory-assistant/bootstrap.js"),
-    loadOptionalScript("/developer-kit/bootstrap.js?v=2"),
-    loadOptionalScript("/dream-lab/bootstrap.js"),
-    loadOptionalScript("/notebook-lab/bootstrap.js"),
+    loadOptionalScript("/developer-modules/stone-memory-assistant/bootstrap.js?v=2"),
+    loadOptionalScript("/developer-kit/bootstrap.js?v=3"),
+    loadOptionalScript("/dream-lab/bootstrap.js?v=2"),
+    loadOptionalScript("/notebook-lab/bootstrap.js?v=2"),
   ]).catch(error => showToast(error.message, "error"));
+}
+
+function openGlobalWorkshopPanel(panel = "plugins") {
+  document.querySelectorAll("[data-workshop-panel]").forEach(section => {
+    section.hidden = section.dataset.workshopPanel !== panel;
+  });
+  document.querySelectorAll("[data-workshop-tab]").forEach(button => {
+    const active = button.dataset.workshopTab === panel;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+}
+
+function renderGlobalWorkshop(panel = "plugins") {
+  app.innerHTML = `<section class="global-workshop"><main class="shell global-workshop-main"><div class="dashboard-head"><div><p class="eyebrow">Stone Memory Workshop</p><h1>琢石坊</h1><p class="lead">先使用已经装好的能力，再逛协作社区，或者开始制作自己的模块。</p></div></div><nav class="workshop-tabs" aria-label="琢石坊导航" role="tablist"><button type="button" data-workshop-tab="plugins" role="tab">插件工坊</button><button type="button" data-workshop-tab="community" role="tab">琢石坊</button><button type="button" data-workshop-tab="maker" role="tab">制作台</button></nav><section class="workshop-panel" data-workshop-panel="plugins"><div class="workshop-panel-head"><div><h2>插件工坊</h2><p>查看笔记、织梦与其他已安装模块。需要记忆体的能力会在进入后请你明确选择。</p></div></div><div id="developer-module-host" class="developer-module-host" data-module-section="plugins" aria-live="polite"></div></section><section class="workshop-panel" data-workshop-panel="community" hidden><div class="developer-module-host" data-module-section="community" aria-live="polite"></div></section><section class="workshop-panel" data-workshop-panel="maker" hidden><div data-developer-kit-host></div></section></main></section>`;
+  document.querySelectorAll("[data-workshop-tab]").forEach(button => {
+    button.onclick = () => openGlobalWorkshopPanel(button.dataset.workshopTab);
+  });
+  const moduleHost = document.querySelector("#developer-module-host");
+  if (moduleHost && state.libraries.length) {
+    const picker = document.createElement("label");
+    picker.className = "workshop-memory-picker";
+    picker.innerHTML = `<span>为需要记忆体的插件选择目标</span><select><option value="">请选择记忆体</option>${state.libraries.map(library => `<option value="${escapeHtml(library.memoryId || library.threadId)}">${escapeHtml(library.libraryName)}</option>`).join("")}</select>`;
+    picker.querySelector("select").onchange = event => { moduleHost.dataset.memoryId = event.target.value; };
+    moduleHost.before(picker);
+  }
+  openGlobalWorkshopPanel(panel);
+  loadDeveloperModules();
 }
 
 function welcome() {
@@ -377,17 +407,17 @@ async function createLibrary() {
 }
 
 function lobby() {
-  app.innerHTML = `<section class="lobby">${topbar()}<div class="shell"><div class="lobby-head"><h1>你的记忆体</h1><p>蒲苇韧如丝，磐石无转移。</p></div><div class="library-grid">${state.libraries.map(library => `<button class="library-card" data-id="${escapeHtml(library.memoryId || library.threadId)}">${stoneSvg("mini-stone")}<h2>${escapeHtml(library.libraryName)}</h2><p>${!library.configured ? "尚未配置 · 点击继续" : library.lastMinedAt ? "记忆正在生长" : "等待第一次记忆挖掘"}</p><div class="library-stats"><span>${library.counts.feelings} 条摘要</span><span>${library.counts.features} 条特征</span></div></button>`).join("")}<button class="new-card" id="new-library"><div><span>＋</span><strong>创建新的记忆体</strong></div></button></div></div></section>`;
+  app.innerHTML = `<section class="lobby stone-page-transition-pending" data-transition-message="正在整理今日纹路…" aria-busy="true"><div class="shell"><div class="lobby-head"><p>—— 蒲苇韧如丝，磐石无转移 ——</p></div><div class="library-grid">${state.libraries.map(library => `<button class="library-card" data-id="${escapeHtml(library.memoryId || library.threadId)}">${stoneSvg("mini-stone")}<h2>${escapeHtml(library.libraryName)}</h2><p>${!library.configured ? "尚未配置 · 点击继续" : library.lastMinedAt ? "记忆正在生长" : "等待第一次记忆挖掘"}</p><div class="library-stats"><span>${library.counts.feelings} 条摘要</span><span>${library.counts.features} 条特征</span></div></button>`).join("")}<button class="new-card" id="new-library"><div><span>＋</span><strong>创建新的记忆体</strong></div></button></div></div></section>`;
   document.querySelectorAll(".library-card").forEach(card => card.onclick = () => openLibrary(card.dataset.id));
   document.querySelector("#new-library").onclick = event => createMemoryDraft(event.currentTarget);
 }
 
 async function openLibrary(identifier, view = "overview") {
+  if (view === "developer") { renderGlobalWorkshop(); return; }
   try {
     const data = await api(`/api/libraries/${encodeURIComponent(identifier)}/overview`);
     if (!data.configured) { resetCreateForm(data); wizard(); return; }
     workspace(data);
-    if (view === "developer") renderDeveloperMode(data);
   } catch (error) {
     showToast(error.message, "error");
   }
@@ -397,22 +427,19 @@ function workspace(data) {
   const counts = data.counts, rebuild=data.rebuild;
   const automationReady=data.automaticFullMining&&data.automaticMemoryMaintenance;
   const statusText=data.attention||(!automationReady?"自动挖掘未完全开启":"记忆运行正常");
-  app.innerHTML = `<section class="workspace" data-thread-id="${escapeHtml(data.threadId)}" data-library-name="${escapeHtml(data.libraryName)}"><div class="shell workspace-grid"><aside class="sidebar"><a class="back-link" href="#">← 返回记忆体</a><h2 class="side-title">${escapeHtml(data.libraryName)}</h2><nav class="side-nav" aria-label="记忆体导航"><button class="active" data-view="overview"><span>概览</span></button><button data-view="management"><span>管理</span></button><button data-view="developer"><span>插件</span></button><button data-view="settings"><span>设置</span></button><button data-view="about"><span>关于</span></button></nav></aside><main id="workspace-main"><div class="dashboard-head"><div><p class="eyebrow">Stone Memory</p><h1>${escapeHtml(data.libraryName)}</h1><div class="status-line ${automationReady&&!data.attention?"":"warning"}"><span class="status-dot"></span>${escapeHtml(statusText)}</div></div>${stoneSvg("mini-stone")}</div>
+  app.innerHTML = `<section class="workspace" data-thread-id="${escapeHtml(data.threadId)}" data-library-name="${escapeHtml(data.libraryName)}"><div class="shell workspace-grid"><aside class="sidebar"><a class="back-link" href="#">← 返回记忆体</a><h2 class="side-title">${escapeHtml(data.libraryName)}</h2><nav class="side-nav" aria-label="记忆体导航"><button class="active" data-view="overview"><span>概览</span></button><button data-view="management"><span>管理</span></button><button data-view="developer"><span>插件</span></button><button data-view="settings"><span>设置</span></button></nav></aside><main id="workspace-main"><div class="dashboard-head"><div><p class="eyebrow">Stone Memory</p><h1>${escapeHtml(data.libraryName)}</h1><div class="status-line ${automationReady&&!data.attention?"":"warning"}"><span class="status-dot"></span>${escapeHtml(statusText)}</div></div>${stoneSvg("mini-stone")}</div>
     ${rebuild?`<section class="section-card"><h2>当前线程已插入内容</h2><div class="overview-grid"><div><span>人设 / 规则</span><strong>${rebuild.injectedRules||0} 份</strong><small>${(rebuild.injectedRuleNames||[]).map(escapeHtml).join("、")||"无"}</small></div><div><span>原文对话</span><strong>${(rebuild.recentMessages||0)+(rebuild.retainedMessages||0)} 条</strong><small>近期 ${rebuild.recentMessages||0} 条（${rebuild.windowDays} 个活跃日） · 锚点实际注入 ${rebuild.retainedMessages||0} 条（${rebuild.retainAnchors||0} 个锚点）</small></div><div><span>摘要</span><strong>${rebuild.injectedFeelings||0} 条</strong><small>仅统计本次实际写入线程的摘要</small></div><div><span>工具链</span><strong>${rebuild.preservedToolPairs||0} 组</strong><small>上次 rebuild 的保留结果</small></div></div></section>`:`<section class="section-card"><h2>当前线程已插入内容</h2><div class="overview-empty-guide"><p>当前还没有线程注入报告。请前往【维护】，先通过【对话导入】补充记录、在【记忆挖掘】中生成摘要，再通过【线程重建】将人设、摘要与近期对话写入当前线程，完成记忆体构建。</p><button class="secondary" id="overview-maintenance">前往维护 →</button></div></section>`}
     <section class="section-card"><h2>线程与记忆状态</h2><div class="overview-grid"><div><span>当前上下文窗口</span><strong>${formatContextUsage(data.contextUsage)}</strong><small>${contextUsageHint(data)}</small></div><div><span>最近重建</span><strong>${rebuild?escapeHtml(formatBeijingTime(rebuild.completedAt)):"暂无记录"}</strong><small>${rebuild?`${escapeHtml(rebuild.runtime)} · ${escapeHtml(rebuild.trigger||"cli")} · 北京时间`:"等待第一次正式 rebuild"}</small></div><div><span>上次挖掘</span><strong>${data.lastMinedAt?escapeHtml(formatBeijingTime(data.lastMinedAt)):"尚未挖掘"}</strong><small>待挖掘 ${data.pendingMiningDays||0} 天</small></div><div><span>自动化</span><strong>${data.automaticFullMining||data.automaticMemoryMaintenance||data.automaticCompression?"已配置":"已关闭"}</strong><small>对话录入 ${data.automaticFullMining?"开":"关"} · 摘要挖掘 ${data.automaticMemoryMaintenance?"开":"关"} · 自动压缩（测试）${data.automaticCompression?"开":"关"}</small></div></div></section>
     <section class="section-card"><h2>最近生成摘要</h2>${data.recent.length ? data.recent.map(item => `<article class="memory-row"><div class="memory-time">${escapeHtml(item.sourceDate)} ${escapeHtml(item.eventTime || "")}</div><p>${escapeHtml(item.content)}</p><span class="badge">importance ${item.importance}</span><span class="badge">${escapeHtml(item.summaryMode)}</span></article>`).join("") : `<div class="empty">还没有摘要。导入对话后，第一次挖掘会让记忆在这里出现。</div>`}</section></main></div></section>`;
+  document.querySelector('[data-view="developer"]')?.remove();
   document.querySelector(".back-link").onclick = event => { event.preventDefault(); lobby(); };
   document.querySelector('[data-view="management"]').onclick = () => renderManagement(data);
-  document.querySelector('[data-view="developer"]').onclick = () => renderDeveloperMode(data);
   document.querySelector('[data-view="settings"]').onclick = () => renderSettings(data);
-  document.querySelector('[data-view="about"]').onclick = () => renderAbout(data);
   document.querySelector('[data-view="overview"]').onclick = () => workspace(data);
   document.querySelector("#overview-maintenance")?.addEventListener("click",()=>renderManagement(data));
 }
 
-function renderAbout(library) {
-  document.querySelectorAll(".side-nav button").forEach(button=>button.classList.toggle("active",button.dataset.view==="about"));
-  const main=document.querySelector("#workspace-main");
+function renderAboutContent(main) {
   const action=(href,label)=>href?`<a class="secondary about-action" href="${escapeHtml(href)}" target="_blank" rel="noreferrer">${label}<span>↗</span></a>`:`<button class="secondary about-action" disabled>${label}<span>待配置</span></button>`;
   main.innerHTML=`<div class="dashboard-head about-hero"><div><p class="eyebrow">About Stone Memory</p><h1>关于项目</h1><p class="lead">了解磐石记忆的最新进展，参与社区，也为项目继续生长添一块石头。</p></div>${stoneSvg("mini-stone")}</div><section class="about-grid"><article class="about-card about-install"><span class="about-card-icon" aria-hidden="true">⌂</span><div><p class="eyebrow">MOBILE APP</p><h2>添加到桌面主页</h2><p>像普通应用一样打开 Stone Memory，并使用当前主题正在显示的图标。</p><small id="pwa-install-hint"></small></div><button class="primary about-action" id="install-stone-memory">添加到桌面主页</button></article><article class="about-card"><span class="about-card-icon" aria-hidden="true">⌘</span><div><p class="eyebrow">OPEN SOURCE</p><h2>GitHub 项目</h2><p>查看项目动态、提交 Issue，或者用一颗 Star 支持 Stone Memory。</p></div>${action(projectContact.github,"前往 GitHub")}</article><article class="about-card"><span class="about-card-icon" aria-hidden="true">✦</span><div><p class="eyebrow">LATEST NEWS</p><h2>关注项目动态</h2><p>前往小红书主页，查看功能介绍、开发故事与最新测试消息。</p></div>${action(projectContact.xiaohongshu,"关注小红书")}</article><article class="about-card"><span class="about-card-icon" aria-hidden="true">◌</span><div><p class="eyebrow">COMMUNITY</p><h2>加入 QQ 交流群</h2><p>与其他使用者交流部署经验、使用方式和新的想法。</p></div>${action(projectContact.qqGroup,"加入交流群")}</article><article class="about-card"><span class="about-card-icon" aria-hidden="true">@</span><div><p class="eyebrow">CONTACT</p><h2>联系我们</h2><p>合作、授权和正式问题反馈，请通过官方邮箱联系。</p><code>${escapeHtml(projectContact.email||"官方邮箱待配置")}</code></div><button class="secondary about-action" id="copy-project-email" ${projectContact.email?"":"disabled"}>复制官方邮箱<span>${projectContact.email?"复制":"待配置"}</span></button></article><article class="about-card about-support"><div><p class="eyebrow">SUPPORT THE CREATOR</p><h2>支持开发者</h2><p>如果 Stone Memory 帮到了你，可以自愿支持项目继续开发与维护。</p></div><div class="support-code">${projectContact.supportImage?`<img src="${escapeHtml(projectContact.supportImage)}" alt="开发者赞赏码">`:`<div><span>赞赏码</span><small>图片待放置</small></div>`}</div></article></section><p class="about-footnote">支持完全自愿，不影响 Stone Memory 已提供功能的正常使用。</p>`;
   main.querySelector("#copy-project-email")?.addEventListener("click",async()=>{
@@ -423,6 +450,29 @@ function renderAbout(library) {
   main.querySelector("#install-stone-memory")?.addEventListener("click",installStoneMemory);
   refreshPwaInstallUi();
 }
+
+function renderGlobalAbout() {
+  app.innerHTML = `<section class="global-about"><main class="shell global-about-main" id="global-about-main"></main></section>`;
+  renderMyContent(document.querySelector("#global-about-main"));
+}
+
+function renderMyContent(main) {
+  const external=(href,label)=>href?`<a href="${escapeHtml(href)}" target="_blank" rel="noreferrer">${label}</a>`:"";
+  main.innerHTML=`<div class="dashboard-head about-hero"><div><p class="eyebrow">MY STONE MEMORY</p><h1>我的</h1><p class="lead">管理外观、安装入口与项目联系。</p></div></div><section class="me-panel"><div id="theme-entry-host"></div><button class="me-menu-row" id="install-stone-memory" type="button"><span class="me-menu-icon" aria-hidden="true">⌂</span><span class="me-menu-copy"><strong>添加到桌面主页</strong><small>使用当前保存的桌面图标，像应用一样打开</small><small id="pwa-install-hint"></small></span><span aria-hidden="true">›</span></button><div class="me-menu-row me-follow-row"><span class="me-menu-icon" aria-hidden="true">◎</span><span class="me-menu-copy"><strong>关注项目</strong><small>获取项目动态、文档和社区消息</small><span class="me-inline-links">${external(projectContact.github,"GitHub")}${external(projectContact.website,"官网")}${external(projectContact.xiaohongshu,"小红书")}${external(projectContact.qqGroup,"QQ群")}</span></span></div><button class="me-menu-row" id="open-support-code" type="button"><span class="me-menu-icon" aria-hidden="true">✦</span><span class="me-menu-copy"><strong>召唤赞赏码</strong><small>请作者喝杯茶，给小石头添一点口粮</small></span><span aria-hidden="true">›</span></button></section><dialog class="support-dialog" id="support-code-dialog"><button class="dialog-close" type="button" aria-label="关闭">×</button><h2>召唤赞赏码</h2><p>支持完全自愿，不影响任何已有功能。</p><div class="support-code">${projectContact.supportImage?`<img src="${escapeHtml(projectContact.supportImage)}" alt="开发者赞赏码">`:`<div><span>赞赏码</span><small>图片待放置</small></div>`}</div></dialog>`;
+  const supportDialog=main.querySelector("#support-code-dialog");
+  main.querySelector("#open-support-code")?.addEventListener("click",()=>supportDialog?.showModal());
+  supportDialog?.querySelector(".dialog-close")?.addEventListener("click",()=>supportDialog.close());
+  void syncPwaIcons().catch(()=>{});
+  main.querySelector("#install-stone-memory")?.addEventListener("click",installStoneMemory);
+  refreshPwaInstallUi();
+}
+
+window.StoneLegacyNavigation = Object.freeze({
+  openAbout: renderGlobalAbout,
+  openWorkshop: renderGlobalWorkshop,
+  openHome: lobby,
+  openMemory: (identifier, view = "overview") => openLibrary(identifier, view),
+});
 
 function managementNav(active="overview") {
   const items=[["overview","管理概览"],["memories","摘要记忆"],["conversations","对话档案"],["context","上下文与线程"],["automation","自动化"],["maintenance","数据维护"]];
@@ -459,10 +509,8 @@ async function renderAutomation(library) {
 }
 
 function renderDeveloperMode(library) {
-  document.querySelectorAll(".side-nav button").forEach(button => button.classList.toggle("active", button.dataset.view === "developer"));
-  const main=document.querySelector("#workspace-main");
-  main.innerHTML=`<div class="dashboard-head developer-mode-head"><div><p class="eyebrow">Stone Memory Workshop</p><h1>插件工坊</h1><p class="lead">体验社区实验，也把新的想法装进可拆卸、可审计的插件。</p></div><div class="developer-orbit" aria-hidden="true"><span></span><i></i></div></div><section class="developer-lab-intro"><span class="developer-live-dot"></span><p>实验能力与正式记忆相互隔离。插件可以复用 Stone Memory 的 CLI、MCP、Watcher 与独立数据空间；进入主线前不会改变默认流程。</p></section><div id="developer-module-host" class="developer-module-host" aria-live="polite"></div>`;
-  loadDeveloperModules();
+  void library;
+  renderGlobalWorkshop();
 }
 
 function renderMemoryHub(library) {
@@ -1207,6 +1255,10 @@ loadLibraries().then(async () => {
   }
   const route = new URLSearchParams(window.location.search);
   const threadId = route.get("threadId");
+  if (route.get("view") === "workshop") {
+    renderGlobalWorkshop();
+    return;
+  }
   if (route.get("view") === "developer" && state.libraries.some(library => library.threadId === threadId)) {
     await openLibrary(threadId, "developer");
     return;

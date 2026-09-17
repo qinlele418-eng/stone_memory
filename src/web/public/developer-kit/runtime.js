@@ -2,11 +2,15 @@
   "use strict";
 
   const MODULE_THEME_BRIDGE_KEY = "stone-memory-developer-semantic-theme-v1";
-  const sharedThemeStyle = document.createElement("link");
-  sharedThemeStyle.rel = "stylesheet";
-  sharedThemeStyle.href = "/theme-studio/theme-tokens.css?v=11";
-  sharedThemeStyle.dataset.stoneSharedTheme = "";
-  document.head.append(sharedThemeStyle);
+  const appendSharedStyle = (href, marker) => {
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = href;
+    link.dataset[marker] = "";
+    document.head.append(link);
+  };
+  appendSharedStyle("/theme-studio/theme-tokens.css?v=14", "stoneSharedTheme");
+  appendSharedStyle("/developer-kit/module-theme.css?v=2", "stoneModuleTheme");
   const ALLOWED_SEMANTIC_PROPERTIES = new Set([
     "--stone-theme-canvas", "--stone-theme-canvas-warm",
     "--stone-theme-ink", "--stone-theme-ink-soft", "--stone-theme-ink-faint",
@@ -58,10 +62,8 @@
 
   function returnToDeveloperMode() {
     const url = new URL("/", location.origin);
-    if (threadId) {
-      url.searchParams.set("threadId", threadId);
-      url.searchParams.set("view", "developer");
-    }
+    url.searchParams.set("view", "workshop");
+    if (threadId) url.searchParams.set("threadId", threadId);
     location.href = url;
   }
 
@@ -91,22 +93,24 @@
       root.innerHTML = `<style>
         :host { display:block; min-height:100dvh; color:var(--stone-theme-ink,#18372b); }
         * { box-sizing:border-box; }
-        main { width:min(1120px,calc(100% - 32px)); margin:0 auto; padding:26px 0 80px; }
-        header { padding:18px 6px 28px; }
-        a { display:inline-flex; align-items:center; min-height:36px; padding:0 13px; color:var(--stone-theme-accent-strong,#295540); text-decoration:none; border:1px solid var(--stone-theme-line,#dce6d7); border-radius:999px; background:color-mix(in srgb,var(--stone-theme-surface,#fffef9) 82%,transparent); box-shadow:0 10px 28px color-mix(in srgb,var(--stone-theme-accent,#397052) 8%,transparent); font:750 12px var(--stone-theme-font-body,Inter,system-ui,sans-serif); cursor:pointer; }
+        main { width:min(1180px,calc(100% - 40px)); margin:0 auto; padding:22px 0 80px; }
+        header { position:relative; overflow:hidden; margin-bottom:18px; padding:22px 24px 28px; border:1px solid var(--stone-theme-line,#dce6d7); border-radius:var(--stone-theme-radius-lg,20px); background:color-mix(in srgb,var(--stone-theme-surface,#fffef9) 90%,transparent); box-shadow:var(--stone-theme-shadow-card,0 7px 24px rgba(41,85,64,.07)); }
+        header::after { position:absolute; z-index:0; width:190px; height:190px; top:-118px; right:-58px; border:1px solid color-mix(in srgb,var(--stone-theme-accent,#397052) 18%,transparent); border-radius:48% 52% 44% 56%; box-shadow:0 0 0 28px color-mix(in srgb,var(--stone-theme-accent,#397052) 4%,transparent),0 0 0 56px color-mix(in srgb,var(--stone-theme-accent,#397052) 3%,transparent); transform:rotate(18deg); content:""; }
+        header > * { position:relative; z-index:1; }
+        a { display:inline-flex; align-items:center; min-height:36px; padding:0 13px; color:var(--stone-theme-accent-strong,#295540); text-decoration:none; border:1px solid var(--stone-theme-line,#dce6d7); border-radius:var(--stone-theme-radius-sm,10px); background:color-mix(in srgb,var(--stone-theme-surface,#fffef9) 82%,transparent); box-shadow:0 5px 16px color-mix(in srgb,var(--stone-theme-accent,#397052) 7%,transparent); font:750 12px var(--stone-theme-font-body,Inter,system-ui,sans-serif); cursor:pointer; }
         a:hover { border-color:var(--stone-theme-accent,#397052); transform:translateY(-1px); }
-        .eyebrow { margin:28px 0 7px; color:var(--stone-theme-accent,#397052); font:800 12px var(--stone-theme-font-body,Inter,system-ui,sans-serif); letter-spacing:.18em; }
-        h1 { margin:0; font:600 clamp(38px,6vw,58px) var(--stone-theme-font-display,Georgia,"Noto Serif SC",serif); }
-        .description { max-width:750px; margin:18px 0 0; color:var(--stone-theme-ink-soft,#69756d); font:400 14px/1.75 var(--stone-theme-font-body,Inter,system-ui,sans-serif); }
+        .eyebrow { margin:24px 0 7px; color:var(--stone-theme-accent,#397052); font:800 11px var(--stone-theme-font-body,Inter,system-ui,sans-serif); letter-spacing:.18em; }
+        h1 { margin:0; font:600 clamp(34px,5vw,50px) var(--stone-theme-font-display,Georgia,"Noto Serif SC",serif); letter-spacing:-.035em; }
+        .description { max-width:750px; margin:14px 0 0; color:var(--stone-theme-ink-soft,#69756d); font:400 14px/1.7 var(--stone-theme-font-body,Inter,system-ui,sans-serif); }
         .meta { margin-top:12px; }
         @media(max-width:680px) {
-          main { width:min(100% - 20px,1120px); padding-top:14px; }
-          header { padding:12px 2px 22px; }
-          .eyebrow { margin-top:22px; font-size:10px; }
-          h1 { font-size:34px; }
+          main { width:min(100% - 20px,1180px); padding-top:10px; }
+          header { margin-bottom:12px; padding:16px 16px 21px; border-radius:var(--stone-theme-radius-md,16px); }
+          .eyebrow { margin-top:20px; font-size:10px; }
+          h1 { font-size:32px; }
           .description { margin-top:13px; font-size:13px; line-height:1.65; }
         }
-      </style><main><header><a href="/">← 返回插件工坊</a><p class="eyebrow"></p><h1></h1><p class="description"></p><div class="meta"><slot name="meta"></slot></div></header><slot></slot></main>`;
+      </style><main><header><a href="/">← 返回琢石坊</a><p class="eyebrow"></p><h1></h1><p class="description"></p><div class="meta"><slot name="meta"></slot></div></header><slot></slot></main>`;
       root.querySelector(".eyebrow").textContent = eyebrow;
       root.querySelector("h1").textContent = title;
       const descriptionNode = root.querySelector(".description");

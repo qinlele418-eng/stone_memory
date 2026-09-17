@@ -1,7 +1,7 @@
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
-const { getMemoryContext } = require("../config");
+const { getMemoryContext, listMemoryIds } = require("../config");
 const { findThreadSessionFile } = require("../lib/thread-session-file");
 const { MemoryStore } = require("../storage/memory-store");
 const { addBinding: registerBinding } = require("./memory-bindings");
@@ -47,14 +47,24 @@ function validateBindingInput(memoryId, input = {}) {
 function planBindingAdd(memoryId, input) {
   const config = readBindingConfig(memoryId);
   const binding = validateBindingInput(memoryId, input);
+  for (const candidateMemoryId of listMemoryIds()) {
+    if (candidateMemoryId === memoryId) continue;
+    let candidate;
+    try { candidate = readBindingConfig(candidateMemoryId); } catch { continue; }
+    const occupied = candidate.bindings.find(item => item.externalThreadId === binding.externalThreadId);
+    if (occupied) {
+      throw new Error(`当前窗口已绑定到其他记忆体（${candidateMemoryId}），Stone Memory 不支持改绑`);
+    }
+  }
   const existing = config.bindings.find(item => item.id === binding.id);
   return { dryRun: true, action: existing ? "existing" : "create", binding: existing || binding, revision: config.revision };
 }
 
 function applyBindingAdd(memoryId, input) {
   const { context, file } = bindingFile(memoryId);
+  const plan = planBindingAdd(memoryId, input);
   const config = readBindingConfig(memoryId);
-  const candidate = validateBindingInput(memoryId, input);
+  const candidate = plan.binding;
   const existing = config.bindings.find(item => item.id === candidate.id);
   if (existing) return { applied: true, changed: false, binding: existing, config };
   const now = new Date().toISOString();

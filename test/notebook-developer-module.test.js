@@ -16,7 +16,8 @@ test("notebook developer module is detachable and bound to the selected memory t
   for (const file of ["bootstrap.js", "index.html", "app.js", "styles.css", "README.md"]) {
     assert.ok(fs.existsSync(path.join(moduleDir, file)), file);
   }
-  assert.match(main, /loadOptionalScript\("\/notebook-lab\/bootstrap\.js"\)/);
+  assert.match(main, /loadOptionalScript\("\/notebook-lab\/bootstrap\.js(?:\?v=\d+)?"\)/);
+  assert.match(bootstrap, /host\.dataset\.memoryId/);
   assert.match(bootstrap, /workspace["']\)\?\.dataset\.threadId/);
   assert.match(app, /encodeURIComponent\(threadId\)/);
   assert.match(app, /此篇由小机封存中/);

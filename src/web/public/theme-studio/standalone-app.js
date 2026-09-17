@@ -19,7 +19,7 @@
   const MAX_FILE_SIZE = 320 * 1024;
   const MAX_LOGO_FILE_SIZE = 200 * 1024;
   const LOGO_TYPES = new Set(["image/png", "image/webp"]);
-  const CONTRACT_URL = "./contract.json?v=5";
+  const CONTRACT_URL = "./contract.json?v=6";
   const state = { contract: null, theme: null, customThemes: [] };
   const RETIRED_THEME_FINGERPRINTS = new Set(["362qx4", "scef1"]);
   const BUILTIN_PRESETS = {
@@ -895,6 +895,10 @@
         logoStatus("");
         status("已恢复原版石头小花，保存主题后正式保留");
       };
+
+      const focus = new URLSearchParams(location.search).get("focus");
+      const focusTarget = focus === "brand" ? $(".token-group-logo") || $(".theme-logo-row") : $("#theme-palette");
+      if (focusTarget) requestAnimationFrame(() => focusTarget.scrollIntoView({ block: "start" }));
 
     } catch (error) {
       $("#theme-studio-mount").innerHTML = `<section class="theme-card error-card">主题契约加载失败：${escapeHtml(error.message)}</section>`;

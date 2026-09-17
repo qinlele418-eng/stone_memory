@@ -1,0 +1,66 @@
+const fs = require("node:fs");
+const path = require("node:path");
+const test = require("node:test");
+const assert = require("node:assert/strict");
+
+const root = path.join(__dirname, "..", "src", "web");
+
+test("home dashboard maps overview data onto the stable memory lobby", () => {
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const adapter = fs.readFileSync(path.join(root, "public", "developer-kit", "home-dashboard.js"), "utf8");
+  const styles = fs.readFileSync(path.join(root, "public", "developer-kit", "home-dashboard.css"), "utf8");
+  const transition = fs.readFileSync(path.join(root, "public", "developer-kit", "page-transition.js"), "utf8");
+  const transitionStyles = fs.readFileSync(path.join(root, "public", "developer-kit", "page-transition.css"), "utf8");
+  const developerStyles = fs.readFileSync(path.join(root, "public", "theme-studio", "developer-common.css"), "utf8");
+
+  assert.ok(html.indexOf("/app.js?v=16") < html.indexOf("/developer-kit/home-dashboard.js?v=5"));
+  assert.ok(html.indexOf("/developer-kit/page-transition.js?v=1") < html.indexOf("/app.js?v=16"));
+  assert.match(adapter, /fetch\("\/api\/home"/);
+  assert.match(adapter, /今日纹路 · TODAY'S GRAIN/);
+  assert.match(adapter, /library-card--mapped/);
+  assert.match(adapter, /const dashboards = new WeakMap\(\)/);
+  assert.doesNotMatch(adapter, /new WeakSet\(\)/);
+  assert.match(adapter, /function renderDashboard\(lobby, data\)/);
+  assert.match(adapter, /if \(existing\?\.data\) \{[\s\S]*?renderDashboard\(lobby, existing\.data\)/);
+  assert.ok(adapter.indexOf("card.append(content)") < adapter.indexOf('card.classList.add("library-card--mapped")', adapter.indexOf("card.append(content)")));
+  assert.match(adapter, /stone-mark--avatar/);
+  assert.doesNotMatch(adapter, /stone-mark--hero/);
+  const lobbyTemplate = app.match(/function lobby\(\)[\s\S]*?async function openLibrary/)?.[0] || "";
+  assert.match(lobbyTemplate, /—— 蒲苇韧如丝，磐石无转移 ——/);
+  assert.match(lobbyTemplate, /lobby stone-page-transition-pending/);
+  assert.match(lobbyTemplate, /data-transition-message="正在整理今日纹路…" aria-busy="true"/);
+  assert.doesNotMatch(lobbyTemplate, /topbar\(\)|<h1>你的记忆体<\/h1>/);
+  assert.match(adapter, /M15 94C9 73 20 48 39 44/);
+  assert.match(adapter, /M15 94C9 73 20 48 39 44[\s\S]*?fill="none"/);
+  assert.doesNotMatch(adapter, /libraryName \|\| "记"\)\.slice/);
+  assert.match(adapter, /if \(!memory\) return/);
+  assert.doesNotMatch(adapter, /method:\s*["'](?:POST|PUT|PATCH|DELETE)/i);
+  assert.match(styles, /\.today-grain-card/);
+  assert.match(styles, /@media \(max-width: 680px\)/);
+  assert.doesNotMatch(styles, /var\(--stone-(?!theme-)/);
+  assert.match(styles, /\.lobby > \.shell\s*\{[\s\S]*?padding-top:\s*32px/);
+  assert.match(styles, /\.today-grain-card\s*\{[\s\S]*?margin:\s*0 0 22px/);
+  for (const method of ["begin", "complete", "fallback"]) assert.match(transition, new RegExp(`function ${method}\\(`));
+  assert.match(transition, /window\.StonePageTransition/);
+  assert.match(transitionStyles, /\.stone-page-transition-pending::before[\s\S]*?attr\(data-transition-message\)/);
+  assert.match(adapter, /StonePageTransition\?\.begin/);
+  assert.match(adapter, /StonePageTransition\?\.complete/);
+  assert.match(adapter, /StonePageTransition\?\.fallback/);
+  assert.match(styles, /\.lobby \.lobby-head p[\s\S]*?font:\s*600 16px/);
+  assert.doesNotMatch(developerStyles, /today-grain-card/);
+  assert.match(styles, /\.today-grain-card\s*\{[\s\S]*?linear-gradient/);
+  assert.match(styles, /background: linear-gradient\(145deg, var\(--stone-theme-surface\)/);
+  assert.doesNotMatch(styles, /color-mix\(/);
+  assert.doesNotMatch(developerStyles, /color-mix\(/);
+  assert.match(developerStyles, /background-image: radial-gradient\(circle at 18% 16%, var\(--stone-theme-accent-soft\)/);
+  assert.doesNotMatch(styles, /\.today-grain-card::before/);
+});
+
+test("home overview is a read-only endpoint and skips unconfigured memory drafts", () => {
+  const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
+  assert.match(server, /req\.method === "GET" && url\.pathname === "\/api\/home"/);
+  assert.match(server, /if \(!library\.configured \|\| !library\.threadId\) continue/);
+  assert.match(server, /studyCount:/);
+  assert.match(server, /libraries,/);
+});

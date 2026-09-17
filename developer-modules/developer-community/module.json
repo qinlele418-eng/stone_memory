@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "sdkVersion": 1,
   "scope": "global",
+  "workshopSection": "community",
   "permissions": ["process:spawn", "generation:use"],
   "entry": {
     "frontend": "frontend/index.html",

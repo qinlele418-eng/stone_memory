@@ -19,10 +19,9 @@
     card.className = "developer-experiment-card";
     card.dataset.developerModule = MODULE_ID;
     card.dataset.moduleOrder = String(MODULE_ORDER);
-    card.innerHTML = `<div class="developer-experiment-glow" aria-hidden="true"></div><div class="developer-experiment-copy"><div class="developer-experiment-meta"><span class="developer-status active">官方施工通道</span><span class="developer-contributor">Stone Memory Plugin Contract v1</span></div><p class="eyebrow">Plugin workshop · Build inside the boundary</p><h2>插件制作台</h2><p>查看可复用的 CLI、MCP、Watcher 与 SQLite 能力，把想法生成一份带数据边界、测试和 PR 规则的 Agent 工单。</p><div class="developer-experiment-features"><span>能力地图</span><span>AI 工单</span><span>PR / CI 验收</span></div></div><div class="developer-experiment-action"><div class="developer-memory-stack" aria-hidden="true"><i></i><i></i><i></i><b>施工规范</b></div><button class="developer-enter" type="button"><span>Contract · v1</span><strong>进入制作台 →</strong></button></div>`;
+    card.innerHTML = `<div class="developer-experiment-glow" aria-hidden="true"></div><div class="developer-experiment-copy"><div class="developer-experiment-meta"><span class="developer-status active">官方施工通道</span><span class="developer-contributor">Stone Memory Plugin Contract v1</span></div><p class="eyebrow">Plugin workshop · Build inside the boundary</p><h2>制作台</h2><p>查看可复用的 CLI、MCP、Watcher 与 SQLite 能力，把想法生成一份带数据边界、测试和 PR 规则的 Agent 工单。</p><div class="developer-experiment-features"><span>能力地图</span><span>AI 工单</span><span>PR / CI 验收</span></div></div><div class="developer-experiment-action"><div class="developer-memory-stack" aria-hidden="true"><i></i><i></i><i></i><b>施工规范</b></div><button class="developer-enter" type="button"><span>Contract · v1</span><strong>进入制作台 →</strong></button></div>`;
     card.querySelector(".developer-enter").onclick = () => {
-      const threadId = document.querySelector(".workspace")?.dataset.threadId || "";
-      location.href = `/developer-kit/?threadId=${encodeURIComponent(threadId)}`;
+      location.href = "/developer-kit/";
     };
     host.append(card);
     sortModules(host);
@@ -49,7 +48,8 @@
     }
     card.querySelector(".developer-enter").onclick = () => {
       const destination = new URL(module.entry, location.origin);
-      destination.searchParams.set("threadId", document.querySelector(".workspace")?.dataset.threadId || "");
+      const memoryId = host.dataset.memoryId || document.querySelector(".workspace")?.dataset.threadId || "";
+      if (memoryId) destination.searchParams.set("threadId", memoryId);
       location.href = destination.href;
     };
     return card;
@@ -62,6 +62,7 @@
       .then(payload => Array.isArray(payload.modules) ? payload.modules : [])
       .catch(() => []);
     for (const module of await modulesPromise) {
+      if ((module.workshopSection || "plugins") !== host.dataset.moduleSection) continue;
       if (!host.querySelector(`[data-developer-module="${CSS.escape(module.id)}"]`)) host.append(moduleCard(module));
     }
     sortModules(host);
@@ -69,8 +70,8 @@
 
   function mountAll() {
     const host = document.querySelector("#developer-module-host");
-    mount(host);
-    void mountCommunityModules(host);
+    mount(document.querySelector("[data-developer-kit-host]"));
+    document.querySelectorAll("[data-module-section]").forEach(moduleHost => void mountCommunityModules(moduleHost));
   }
 
   const observer = new MutationObserver(mountAll);
