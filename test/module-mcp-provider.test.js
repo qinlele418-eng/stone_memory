@@ -170,3 +170,40 @@ test("loader never executes disabled code; failures and deleted modules preserve
   assert.deepEqual(registry.list().map(tool => tool.name), ["core", "stmem_good_read"]);
   assert.doesNotMatch(JSON.stringify(logs), /SECRET|\/home\/path/);
 });
+
+test("legacy names are host-owned, memory-bound, read-only, and collision checked", async () => {
+  const m = manifest("notebook-lab");
+  const provider = { tools: () => [definition()], call: context => ({ content: [{ type: "text", text: context.memoryId }] }) };
+  const registry = new Registry();
+  registry.registerModule(m, provider, options);
+  assert.equal(registry.list()[0].name, "stmem_notebook_read");
+  assert.equal((await registry.call("stmem_notebook_read", { thread: "alpha", query: "ok" })).content[0].text, "alpha");
+  assert.equal((await registry.call("stmem_notebook_read", { thread: "beta", query: "ok" })).isError, true);
+  const ordinary = new Registry();
+  ordinary.registerModule(manifest("another-module"), provider, options);
+  assert.equal(ordinary.list()[0].name, "stmem_another_module_read");
+  assert.throws(() => validateTools({ ...m, scope: "global" }, [definition()]), /LEGACY_CONTRACT/);
+  assert.throws(() => validateTools({ ...m, permissions: [...m.permissions, "mcp:write"] }, [{ ...definition(), annotations: { ...annotations, readOnlyHint: false } }]), /LEGACY_CONTRACT/);
+  const reserved = definition(); reserved.inputSchema.properties.thread = { type: "string" };
+  assert.throws(() => validateTools(m, [reserved]), /RESERVED/);
+  const collision = new Registry();
+  collision.registerCore({ tools: [{ name: "stmem_notebook_read" }], call() {} });
+  assert.throws(() => collision.registerModule(m, provider, options), /CONFLICT/);
+});
+
+test("missing or failed Notebook provider cannot fall back to migrated Core routes", async t => {
+  const root = fixture(t);
+  const core = require("../src/mcp/core");
+  for (const broken of [false, true]) {
+    if (broken) install(root, manifest("notebook-lab"), 'throw new Error("synthetic load failure")');
+    const registry = new Registry();
+    registry.registerCore(core);
+    const reports = loadModuleProviders(registry, { root, projectRoot: root, config: { modules: { "notebook-lab": options.state } }, memoryIds: options.memoryIds, logger() {} });
+    assert.equal(reports.find(item => item.id === "notebook-lab").provider, broken ? "failed" : "missing");
+    for (const name of ["stmem_notebook_status", "stmem_notebook_query", "stmem_notebook_read"]) {
+      assert.ok(!registry.list().some(tool => tool.name === name));
+      assert.equal((await registry.call(name, { thread: "alpha", query: "synthetic", noteId: "absent" })).isError, true);
+    }
+    assert.ok(registry.list().some(tool => tool.name === "stmem_memory_status"));
+  }
+});

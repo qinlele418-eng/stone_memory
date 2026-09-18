@@ -17,12 +17,19 @@ test("MCP exposes notebook tools and reads sealed notes", t => {
   fs.writeFileSync(path.join(stoneRoot, "stmem.json"), JSON.stringify({
     "thread-test": { runtime: "codex", purpose: "accompany", user: "user", ai: "ai" },
   }));
+  for (const extra of [[], ["--global"]]) {
+    const enabled = spawnSync(process.execPath, [path.join(__dirname, "../bin/stmem"), "module", "mcp", "enable", "--module", "notebook-lab", "--memory", "thread-test", "--apply", ...extra], {
+      env: { ...process.env, HOME: home, USERPROFILE: home, STMEM_DB_PATH: databasePath }, encoding: "utf8", timeout: 10000,
+    });
+    assert.equal(enabled.status, 0, enabled.stderr);
+  }
   const notebookRoot = path.join(stoneRoot, "runtimes", "codex", "accompany", "thread-test", "memory", "notebook");
   const previous = process.env.STMEM_DB_PATH;
   process.env.STMEM_DB_PATH = databasePath;
   const store = new NotebookStore({ threadId: "thread-test", root: notebookRoot });
   const topic = store.createTopic({ name: "论坛笔记" });
   const note = store.writeEntry({ topicId: topic.id, title: "封存的一页", body: "和朋友聊过月亮。", visibility: "sealed" });
+  const expectedReads = [store.status(), store.query({ query: "月亮" }), store.readEntry(note.id)];
   store.close();
   if (previous === undefined) delete process.env.STMEM_DB_PATH;
   else process.env.STMEM_DB_PATH = previous;
@@ -40,6 +47,9 @@ test("MCP exposes notebook tools and reads sealed notes", t => {
   assert.equal(JSON.parse(responses[1].result.content[0].text).topicCount, 1);
   assert.equal(JSON.parse(responses[2].result.content[0].text).matches[0].visibility, "sealed");
   assert.equal(JSON.parse(responses[3].result.content[0].text).body, "和朋友聊过月亮。");
+  expectedReads.forEach((result, index) => assert.deepEqual(responses[index + 1].result, {
+    content: [{ type: "text", text: JSON.stringify(result, null, 2) }], isError: false,
+  }));
 
   const create = callServer([
     { jsonrpc: "2.0", id: 5, method: "tools/call", params: { name: "stmem_notebook_topic_manage", arguments: { thread: "thread-test", action: "create", name: "游戏攻略", isDefault: true } } },
@@ -73,5 +83,5 @@ function callServer(messages, env) {
     timeout: 3_000,
   });
   assert.equal(child.status, 0, child.stderr || child.error?.message);
-  return child.stdout.trim().split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line));
+  return child.stdout.trim().split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line)).sort((a, b) => a.id - b.id);
 }

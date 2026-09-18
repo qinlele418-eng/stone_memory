@@ -1,6 +1,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { assertModuleId } = require("../services/developer-module-contract");
+const { toolIdentity } = require("./legacy-tool-names");
 function fail(code) { throw new Error(code); }
 function equalJson(left, right) {
   if (left === right) return true;
@@ -85,7 +86,8 @@ function validateTools(manifest, tools) {
   const names = new Set();
   for (const tool of tools) {
     if (!tool || typeof tool.name !== "string" || !/^[a-z0-9_]+$/.test(tool.name) || typeof tool.description !== "string") fail("MCP_TOOL_NAME");
-    const name = `stmem_${manifest.id.replaceAll("-", "_")}_${tool.name}`;
+    const { name, memoryArgument, legacy } = toolIdentity(manifest.id, tool.name);
+    if (legacy && (manifest.scope !== "memory" || tool.annotations?.readOnlyHint !== true)) fail("MCP_LEGACY_CONTRACT");
     if (name.length > 128 || names.has(name)) fail("MCP_NAME_CONFLICT");
     names.add(name);
     validateSchema(tool.inputSchema);
@@ -93,6 +95,7 @@ function validateTools(manifest, tools) {
     for (const key of ["readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint"]) if (typeof tool.annotations?.[key] !== "boolean") fail("MCP_ANNOTATIONS");
     if (!tool.annotations.readOnlyHint && !manifest.permissions.includes("mcp:write")) fail("MCP_WRITE_PERMISSION");
     if (manifest.scope === "memory" && Object.hasOwn(tool.inputSchema.properties, "memoryId")) fail("MCP_RESERVED_MEMORY_ID");
+    if (manifest.scope === "memory" && Object.hasOwn(tool.inputSchema.properties, memoryArgument)) fail("MCP_RESERVED_MEMORY_ID");
     if (manifest.scope === "memory" && ["const", "enum"].some(key => Object.hasOwn(tool.inputSchema, key))) fail("MCP_SCHEMA_HOST_FIELD_CONFLICT");
   }
   return structuredClone(tools);

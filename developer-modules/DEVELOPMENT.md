@@ -486,20 +486,22 @@ memory 工具禁止顶层 `const/enum`（否则追加宿主 `memoryId` 后约束
 
 ### 作用域与启停
 
-所有 Module Provider 都默认关闭，现有 Core 工具不受配置影响。
+官方 Canary 和第三方 Provider 都默认关闭，现有 Core 工具不受配置影响。
 `scope: memory` 工具的对外 schema 由宿主追加必填 `memoryId`（Provider
 不得自行定义该保留参数），每次调用都验证该 ID 已配置且在本模块启用。
+迁移的旧工具可由宿主兼容表保留原名和原记忆体参数名；模块不能自行声明任意
+别名。Notebook 的三个旧只读工具沿用 `thread`，同样必填且经过两级授权检查。
 Provider 收到绑定后的 `context.memoryId/threadId`，`args` 不再含宿主参数。
 即便只有一个记忆体也不会自动选择；`scope: global` 工具不绑定记忆体。
 
 ```bash
 stmem module mcp status --json
-stmem module mcp enable --module example-module --memory <id>
-stmem module mcp enable --module example-module --memory <id> --apply
-stmem module mcp enable --module example-module --memory <id> --global --apply
-stmem module mcp disable --module example-module --memory <id> --apply
+stmem module mcp enable --module notebook-lab --memory <id>
+stmem module mcp enable --module notebook-lab --memory <id> --apply
+stmem module mcp enable --module notebook-lab --memory <id> --global --apply
+stmem module mcp disable --module notebook-lab --memory <id> --apply
 # 关闭整个 memory 模块的全局门闩，保留各记忆体选择；仍要求明确 memory
-stmem module mcp disable --module example-module --memory <id> --global --apply
+stmem module mcp disable --module notebook-lab --memory <id> --global --apply
 ```
 
 默认只预览，`--apply` 才修改 `~/.stone_memory/developer-module-mcp.json`。
@@ -510,6 +512,8 @@ stmem module mcp disable --module example-module --memory <id> --global --apply
 
 `status` 显示安装状态、两级开关、权限和本次 CLI 探测的 Provider 加载结果。
 该结果不代表已连接 MCP 会话。每次改动后必须重新连接 Agent/MCP。
+插件工坊的“模块 MCP 管理”提供相同开关，使用宿主当前记忆体；未选择时禁用操作。
+HTTP 仅适配正式 CLI，不能直接改配置。
 
 ### 上下文与写入口
 
@@ -544,6 +548,21 @@ Provider 必须遵守取消信号；同进程模式不能抢占同步死循环�
 显式启用后，`module audit --strict`、`mcp status` 与 MCP 启动都会检查导出、
 工具定义、schema、annotations 和冲突。静态检查不能证明任意依赖安全。
 
+### Notebook Canary 与兼容
+
+Notebook 将原有 `stmem_notebook_status/query/read` 的定义与分派迁入模块
+Provider，Core 不再注册或处理这三个名称。不提供重复的 `stmem_notebook_lab_*`
+工具。`src/mcp/legacy-tool-names.js` 仅记录宿主批准的历史名称和所属模块，
+普通新模块继续自动生成命名空间，无须增加兼容表项。
+
+旧工具名、业务参数与成功返回文本格式保留；`query.limit` 仍允许 1–50。
+迁移后的显式变化：`thread` 必填，默认关闭，须分别开启全局与记忆体开关；
+错误经过 Provider 净化，查询不再初始化/迁移数据库。旧客户端须先开启模块，
+在每次调用中填写 `thread`，然后重连 MCP。缺省线程不再自动推断。
+关闭、删除或加载失败后，这三个工具不会回落至 Core；这不是关闭整个 Notebook
+产品的所有访问。现有写工具、delegate 和 Notebook Steward 受限子模式仍属于
+本轮未迁移的 Core 能力，其行为与调用限制保持不变。
+
 ### 验证
 
 运行 `node scripts/verify-mcp-contract.js`（自动隔离 HOME）、
@@ -551,3 +570,6 @@ Provider 必须遵守取消信号；同进程模式不能抢占同步死循环�
 完整工具定义快照位于 `test/fixtures/mcp/core-tools.json`，覆盖普通、Deep Search
 和 Notebook Steward 三种模式；现有 CI 在 Node 22/25 × Windows/Linux/macOS
 六个组合执行契约检查。受限子 MCP 永不加载 Module Provider。
+原始快照保留以供对照；普通模式默认列表仅移除上述三个迁移项，其他定义不变。
+额外运行 `node scripts/verify-notebook-migration.js <迁移前checkout>`，在隔离
+HOME 与合成笔记下比较旧 Core 和新 Provider 的完整成功响应及主数据库哈希。

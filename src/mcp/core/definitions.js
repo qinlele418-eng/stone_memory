@@ -104,15 +104,6 @@ const TOOLS = [
     },
   },
   {
-    name: "stmem_notebook_status",
-    description: "高级/调试用低层工具：查看当前记忆体的主题目录与安全概览。日常自然语言操作优先使用 stmem_notebook_delegate。封存笔记不返回正文摘要。",
-    inputSchema: {
-      type: "object",
-      properties: { thread: { type: "string", description: "线程 ID；存在多个记忆体时必须提供" } },
-      additionalProperties: false,
-    },
-  },
-  {
     name: "stmem_notebook_topic_manage",
     description: "高级/调试用低层工具：创建或更新主题笔记本。日常归类优先使用 stmem_notebook_delegate。create 需要 name；update 需要 topicId。",
     inputSchema: {
@@ -147,34 +138,6 @@ const TOOLS = [
         tags: { type: "array", items: { type: "string" }, maxItems: 20 },
         visibility: { type: "string", enum: ["visible", "sealed"] },
         expectedRevision: { type: "integer", minimum: 1 },
-      },
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "stmem_notebook_query",
-    description: "高级/调试用低层工具：组合搜索主题笔记。日常查询优先使用 stmem_notebook_delegate。包含封存笔记，因为封存不是 Agent 读取权限。",
-    inputSchema: {
-      type: "object",
-      properties: {
-        thread: { type: "string" },
-        query: { type: "string" },
-        topicId: { type: "string" },
-        tags: { type: "array", items: { type: "string" }, maxItems: 20, description: "需要全部命中的精确标签，可与 query/topicId 组合。" },
-        limit: { type: "integer", minimum: 1, maximum: 50 },
-      },
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "stmem_notebook_read",
-    description: "高级/调试用低层工具：按 noteId 读取完整 Markdown。日常读取优先使用 stmem_notebook_delegate；返回 revision 供安全修改。",
-    inputSchema: {
-      type: "object",
-      required: ["noteId"],
-      properties: {
-        thread: { type: "string" },
-        noteId: { type: "string" },
       },
       additionalProperties: false,
     },

@@ -1,6 +1,7 @@
 const { validateTools, validateInput, validateResult } = require("./provider-contract");
 const { createContext } = require("./context");
 const { safeMemoryId } = require("../services/developer-module-mcp-config");
+const { toolIdentity } = require("./legacy-tool-names");
 function errorResult(code) { return { content: [{ type: "text", text: code }], isError: true }; }
 class Registry {
   constructor() { this.entries = new Map(); }
@@ -23,13 +24,13 @@ class Registry {
     const definitions = validateTools(manifest, declared);
     const pending = [];
     for (const definition of definitions) {
-      const name = `stmem_${manifest.id.replaceAll("-", "_")}_${definition.name}`;
+      const { name, memoryArgument } = toolIdentity(manifest.id, definition.name);
       if (this.entries.has(name)) throw new Error("MCP_NAME_CONFLICT");
       const tool = structuredClone(definition);
       tool.name = name;
       if (manifest.scope === "memory") {
-        tool.inputSchema.properties.memoryId = { type: "string", description: "Explicit enabled memory ID" };
-        tool.inputSchema.required = [...(tool.inputSchema.required || []), "memoryId"];
+        tool.inputSchema.properties[memoryArgument] = { type: "string", description: "Explicit enabled memory ID" };
+        tool.inputSchema.required = [...(tool.inputSchema.required || []), memoryArgument];
       }
       pending.push([name, { tool, call: async (args, signal) => {
         const controller = new AbortController();
@@ -37,11 +38,11 @@ class Registry {
         let cancel;
         try {
           validateInput(tool.inputSchema, args);
-          const memoryId = manifest.scope === "memory" ? safeMemoryId(args.memoryId, memoryIds) : null;
+          const memoryId = manifest.scope === "memory" ? safeMemoryId(args[memoryArgument], memoryIds) : null;
           if (memoryId && state.memories?.[memoryId] !== true) throw new Error("MCP_MEMORY_DISABLED");
           const context = createContext(manifest, { memoryId, signal: controller.signal, writable: !definition.annotations.readOnlyHint, logger });
           const input = { ...args };
-          if (memoryId) delete input.memoryId;
+          if (memoryId) delete input[memoryArgument];
           const timeout = new Promise((_, reject) => {
             timer = setTimeout(() => { controller.abort(); reject(new Error("MCP_CALL_TIMEOUT")); }, timeoutMs);
           });

@@ -3,6 +3,73 @@
   const MODULE_ID = "developer-kit";
   const MODULE_ORDER = 1;
   let modulesPromise = null;
+  function mountMcpControls(host) {
+    if (!host || host.querySelector("[data-module-mcp-controls]")) return;
+    const panel = document.createElement("section");
+    panel.className = "developer-experiment-card";
+    panel.dataset.moduleMcpControls = "true";
+    panel.dataset.developerModule = "developer-mcp-controls";
+    panel.dataset.moduleOrder = "3";
+    const content = document.createElement("div");
+    content.className = "developer-experiment-copy";
+    content.style.minWidth = "0";
+    content.style.overflowWrap = "anywhere";
+    const title = document.createElement("h2");
+    title.textContent = "模块 MCP 管理";
+    const status = document.createElement("p");
+    status.setAttribute("role", "status");
+    const rows = document.createElement("div");
+    const refresh = document.createElement("button");
+    refresh.type = "button";
+    refresh.textContent = "刷新状态";
+    content.append(title, status, rows, refresh);
+    panel.append(content);
+    host.append(panel);
+    async function load() {
+      refresh.disabled = true;
+      status.textContent = "正在读取 MCP 状态…";
+      try {
+        const response = await fetch("/api/developer-modules/mcp");
+        if (!response.ok) throw new Error("状态读取失败，请重试");
+        const result = await response.json();
+        rows.replaceChildren();
+        for (const module of result.modules.filter(item => item.declared || item.provider === "missing")) {
+          const row = document.createElement("div");
+          const description = document.createElement("p");
+          const memoryId = document.querySelector(".workspace")?.dataset.threadId || "";
+          description.textContent = `${module.id} · ${module.scope || "未安装"} · Provider: ${module.provider} · 全局: ${module.globalEnabled ? "开" : "关"} · 当前记忆体选择: ${module.memories?.[memoryId] ? "是" : "否"} · 当前可用: ${module.provider === "loaded" && module.globalEnabled && (module.scope === "global" || module.memories?.[memoryId]) ? "是" : "否"} · 权限: ${(module.permissions || []).join(", ")}`;
+          row.append(description);
+          for (const global of module.scope === "memory" ? [false, true] : [true]) {
+            const button = document.createElement("button");
+            const enabled = global ? module.globalEnabled : module.memories?.[memoryId] === true;
+            button.type = "button";
+            button.textContent = `${enabled ? "关闭" : "启用"}${global ? "全局 MCP" : "当前记忆体 MCP"}`;
+            button.disabled = !module.installed || (module.scope === "memory" && !memoryId);
+            button.onclick = async () => {
+              button.disabled = true;
+              try {
+                const currentMemory = document.querySelector(".workspace")?.dataset.threadId || "";
+                if (module.scope === "memory" && (!currentMemory || currentMemory !== memoryId)) throw new Error("当前记忆体已变化，请刷新状态");
+                const changed = await fetch(`/api/developer-modules/${encodeURIComponent(module.id)}/mcp`, {
+                  method: "POST", headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ enabled: !enabled, global, apply: true, ...(module.scope === "memory" ? { memoryId: currentMemory } : {}) }),
+                });
+                if (!changed.ok) throw new Error("MCP 设置失败，请刷新后重试");
+                await load();
+              } catch (error) { status.textContent = error.message; }
+              finally { button.disabled = false; }
+            };
+            row.append(button);
+          }
+          rows.append(row);
+        }
+        status.textContent = "全局开关与记忆体选择独立；启用记忆体不会自动打开全局开关。 " + result.reconnect + " " + result.note;
+      } catch (error) { status.textContent = error.message; }
+      finally { refresh.disabled = false; }
+    }
+    refresh.onclick = load;
+    void load();
+  }
 
   function sortModules(host) {
     const modules = [...host.querySelectorAll("[data-developer-module]")];
@@ -70,6 +137,7 @@
   function mountAll() {
     const host = document.querySelector("#developer-module-host");
     mount(host);
+    mountMcpControls(host);
     void mountCommunityModules(host);
   }
 

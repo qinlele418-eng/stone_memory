@@ -2,10 +2,10 @@
   "id": "notebook-lab",
   "title": "主题笔记",
   "version": "1.0.0",
-  "sdkVersion": 1,
+  "sdkVersion": 2,
   "scope": "memory",
-  "permissions": ["core:read", "generation:use"],
-  "entry": { "frontend": "index.html", "commands": { "notebook": "backend/commands/notebook.js" } },
+  "permissions": ["core:read", "generation:use", "mcp:tools"],
+  "entry": { "frontend": "index.html", "mcp": "backend/mcp.js", "commands": { "notebook": "backend/commands/notebook.js" } },
   "storage": { "database": "module.sqlite", "documents": "documents", "browser": ["paper-style"] },
   "legacy": {
     "frontend": "src/web/public/notebook-lab",

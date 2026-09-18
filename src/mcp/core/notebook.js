@@ -27,10 +27,6 @@ function withNotebookService(args, operation) {
   return operation(new NotebookService(), threadId);
 }
 
-function toolNotebookStatus(args) {
-  return JSON.stringify(withNotebookService(args, (service, threadId) => service.status({ threadId })), null, 2);
-}
-
 function toolNotebookTopicManage(args) {
   const threadId = resolveNotebookThread(args);
   const action = args.action === "create" ? "topic-create" : "topic-update";
@@ -45,19 +41,6 @@ function toolNotebookWrite(args) {
   const payload = { ...args };
   delete payload.thread;
   return JSON.stringify(runNotebookCli("write", threadId, payload), null, 2);
-}
-
-function toolNotebookQuery(args) {
-  return JSON.stringify(withNotebookService(args, (service, threadId) => service.query({
-    threadId, query: args.query || "", topicId: args.topicId || null, tags: args.tags || [], limit: args.limit,
-  })), null, 2);
-}
-
-function toolNotebookRead(args) {
-  return JSON.stringify(withNotebookService(args, (service, threadId) => {
-    const note = service.read({ threadId, noteId: args.noteId });
-    return note || { found: false, threadId, noteId: args.noteId };
-  }), null, 2);
 }
 
 function toolNotebookDelegate(args) {
@@ -171,4 +154,4 @@ function toolInternalNotebookRead(args) {
 }
 
 
-module.exports = { resolveNotebookThread, runNotebookCli, withNotebookService, toolNotebookStatus, toolNotebookTopicManage, toolNotebookWrite, toolNotebookQuery, toolNotebookRead, toolNotebookDelegate, appendNotebookStewardAudit, toolInternalNotebookCatalog, toolInternalNotebookSearch, toolInternalNotebookRead };
+module.exports = { resolveNotebookThread, runNotebookCli, withNotebookService, toolNotebookTopicManage, toolNotebookWrite, toolNotebookDelegate, appendNotebookStewardAudit, toolInternalNotebookCatalog, toolInternalNotebookSearch, toolInternalNotebookRead };

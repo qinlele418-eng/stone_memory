@@ -14,6 +14,10 @@ for (const [mode, key] of [["normal", "TOOLS"], ["search", "SEARCH_TOOLS"], ["no
       input: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) + "\n", encoding: "utf8", timeout: 10000,
     });
     assert.equal(result.status, 0, result.stderr);
-    assert.deepEqual(JSON.parse(result.stdout).result.tools, snapshots[key]);
+    // The baseline fixture stays intact: only the three migrated public tools
+    // leave Core. Restricted child-mode definitions remain byte-for-byte equal.
+    const migrated = new Set(["stmem_notebook_status", "stmem_notebook_query", "stmem_notebook_read"]);
+    const expected = mode === "normal" ? snapshots[key].filter(tool => !migrated.has(tool.name)) : snapshots[key];
+    assert.deepEqual(JSON.parse(result.stdout).result.tools, expected);
   });
 }

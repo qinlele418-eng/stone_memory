@@ -689,6 +689,22 @@ async function handleDreamSettings(req, url, threadId, resource) {
 }
 
 async function handleApi(req, res, url) {
+  if (url.pathname === "/api/developer-modules/mcp" && req.method === "GET") {
+    return json(res, 200, JSON.parse(runStmem(["module", "mcp", "status", "--json"])));
+  }
+  const moduleMcpMatch = url.pathname.match(/^\/api\/developer-modules\/([a-z0-9][a-z0-9-]*)\/mcp$/u);
+  if (moduleMcpMatch && req.method === "POST") {
+    const body = await readJson(req);
+    if (typeof body.enabled !== "boolean") throw new Error("enabled 必须为布尔值");
+    const args = ["module", "mcp", body.enabled ? "enable" : "disable", "--module", moduleMcpMatch[1], "--json"];
+    if (body.memoryId !== undefined && body.memoryId !== null) {
+      publicThreadSettings(body.memoryId);
+      args.push("--memory", body.memoryId);
+    }
+    if (body.global === true) args.push("--global");
+    if (body.apply === true) args.push("--apply");
+    return json(res, 200, JSON.parse(runStmem(args)));
+  }
   if (req.method === "GET" && url.pathname === "/api/developer-modules") {
     return json(res, 200, { modules: listDeveloperModules() });
   }
