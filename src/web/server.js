@@ -921,9 +921,14 @@ async function handleApi(req, res, url) {
     if (req.method === "GET") {
       let status;
       try {
-        status = JSON.parse(runStmem(["binding", "list", "--thread", threadId]));
+        status = JSON.parse(runStmem(["binding", "list", "--memory", threadId]));
+        if (!status.bindings?.length) {
+          const migrated = JSON.parse(runStmem(["binding", "migrate-legacy", "--memory", threadId, "--apply"]));
+          if (migrated.changed !== false) status = JSON.parse(runStmem(["binding", "list", "--memory", threadId]));
+        }
       } catch {
-        status = { memoryId: settings.memoryId, primaryBindingId: null, bindings: [] };
+        try { status = JSON.parse(runStmem(["binding", "list", "--thread", threadId])); }
+        catch { status = { memoryId: settings.memoryId, primaryBindingId: null, bindings: [] }; }
       }
       const bindings = Array.isArray(status.bindings) ? status.bindings : [];
       if (settings.externalThreadId && !bindings.some(binding => binding.externalThreadId === settings.externalThreadId)) {
@@ -958,10 +963,17 @@ async function handleApi(req, res, url) {
     const bindingId = decodeURIComponent(bindingMatch[2]);
     publicThreadSettings(threadId);
     const body = await readJson(req);
-    const action = body.enabled === false ? "disable" : "enable";
-    const args = ["binding", action, "--thread", threadId, "--id", bindingId];
+    const action = body.action || (body.enabled === false ? "disable" : "enable");
+    if (!["enable", "disable", "primary"].includes(action)) throw new Error("不支持的 Binding 操作");
+    const args = ["binding", action, "--memory", threadId, "--binding", bindingId];
     if (body.apply === true) args.push("--apply");
     return json(res, 200, JSON.parse(runStmem(args)));
+  }
+  if (bindingMatch && req.method === "DELETE") {
+    const threadId = decodeURIComponent(bindingMatch[1]);
+    const bindingId = decodeURIComponent(bindingMatch[2]);
+    publicThreadSettings(threadId);
+    return json(res, 200, JSON.parse(runStmem(["binding", "remove", "--memory", threadId, "--binding", bindingId, "--apply"])));
   }
 
   const bindingImportMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/bindings\/([^/]+)\/import$/);
@@ -1752,6 +1764,8 @@ async function handleApi(req, res, url) {
     if(req.method==="GET"&&action==="dry-run"){
       const windowDays=Math.max(1,Number(url.searchParams.get("windowDays"))||3),toolValue=url.searchParams.get("toolPairs"),toolPairs=Math.max(0,toolValue===null?30:Number(toolValue)),watermark=url.searchParams.get("watermark")==="true",summaryLimit=Math.max(0,Number(url.searchParams.get("summaryLimit"))||0),minImportance=Math.max(0,Math.min(5,Number(url.searchParams.get("minImportance"))||0));
       const rebuildArgs=["rebuild","--thread",threadId,"--window",String(windowDays),"--tool-pairs",String(toolPairs)];
+      const bindingValue=(url.searchParams.get("binding")||"").trim();
+      if(bindingValue)rebuildArgs.push("--binding",bindingValue);
       if(watermark)rebuildArgs.push("--watermark");
       rebuildArgs.push("--summary-limit",String(summaryLimit),"--min-importance",String(minImportance));
       return json(res,200,parseRebuildDryRun(runStmem(rebuildArgs)));
@@ -1764,8 +1778,19 @@ async function handleApi(req, res, url) {
       try{return json(res,200,parseRebuildDryRun(runStmem(rebuildArgs)));}
       finally{fs.rmSync(dir,{recursive:true,force:true});}
     }
-    if (req.method === "GET" && action === "check") return json(res, 200, JSON.parse(runStmem(["rebuild", "--thread", threadId, "--check"])));
-    if (req.method === "POST" && action === "repair") return json(res, 200, JSON.parse(runStmem(["rebuild", "--thread", threadId, "--repair"])));
+    if (req.method === "GET" && action === "check") {
+      const checkArgs = ["rebuild", "--thread", threadId, "--check"];
+      const bindingValue = (url.searchParams.get("binding") || "").trim();
+      if (bindingValue) checkArgs.push("--binding", bindingValue);
+      return json(res, 200, JSON.parse(runStmem(checkArgs)));
+    }
+    if (req.method === "POST" && action === "repair") {
+      const body = await readJson(req);
+      const repairArgs = ["rebuild", "--thread", threadId, "--repair"];
+      const bindingValue = String(body.bindingId || "").trim();
+      if (bindingValue) repairArgs.push("--binding", bindingValue);
+      return json(res, 200, JSON.parse(runStmem(repairArgs)));
+    }
     if (req.method === "POST" && action === "queue") {
       if (threadSettings.runtime === "codex") return json(res, 409, { error: "Codex 不支持延时重建队列，请使用 apply 并在成功后立即重启 Codex/app-server" });
       const body = await readJson(req);
@@ -1788,7 +1813,9 @@ async function handleApi(req, res, url) {
       try {
         const rebuildArgs=["rebuild", "--thread", threadId, ...rebuildRequestCliArgs(request), "--plan", planFile, "--apply"];
         const output = runStmem(rebuildArgs);
-        const integrity = JSON.parse(runStmem(["rebuild", "--thread", threadId, "--check"]));
+        const integrityArgs = ["rebuild", "--thread", threadId, "--check"];
+        if (request.bindingId) integrityArgs.push("--binding", request.bindingId);
+        const integrity = JSON.parse(runStmem(integrityArgs));
         return json(res, 200, { success: true, output, integrity });
       } finally { fs.rmSync(path.dirname(planFile), { recursive: true, force: true }); }
     }

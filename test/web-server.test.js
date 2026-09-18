@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { previewRows, paginate, buildConversationCalendar, miningDatesFromStore, miningCommandArgs, miningCheckCommandArgs, targetedMiningCommandArgs, timelineCommandArgs, compactTimelineReport, compressionCommandArgs, safeStmemFailure, reviewCandidateForWeb, reviewProfileFromInput, reviewBatchPayload, reviewBatchCommandArgs, listDeveloperModules } = require("../src/web/server");
 const { buildStdinCmd } = require("../src/services/subagent-runner");
-const { itemKey, inspectClaude, inspectCodex, conversationWindow, latestConversationDate, trimRows } = require("../src/services/rebuild-workbench");
+const { itemKey, inspectClaude, inspectCodex, conversationWindow, latestConversationDate, trimRows, checkThreadIntegrity } = require("../src/services/rebuild-workbench");
 const { validateThreadInput, validateSessionBinding } = require("../src/services/thread-setup");
 const { INIT_SCHEMA, buildInitTemplate } = require("../src/services/init-contract");
 const { findThreadSessionFile, resolveThreadSession } = require("../src/lib/thread-session-file");
@@ -63,6 +63,20 @@ test("rebuild workbench uses stable selection keys and paginates", () => {
   const result = paginate(Array.from({ length: 47 }, (_, index) => index), 3);
   assert.equal(result.totalPages, 3);
   assert.deepEqual(result.rows, [40, 41, 42, 43, 44, 45, 46]);
+});
+
+test("integrity checks resolve the selected binding thread file", t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-binding-integrity-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const rows = [
+    { type: "system", subtype: "init", session_id: "t1", uuid: "11111111-1111-1111-1111-111111111111", timestamp: "2026-09-18T00:00:00.000Z" },
+    { type: "user", uuid: "22222222-2222-2222-2222-222222222222", parentUuid: "11111111-1111-1111-1111-111111111111", timestamp: "2026-09-18T00:01:00.000Z", message: { content: [{ type: "text", text: "hi" }] } },
+  ];
+  fs.writeFileSync(path.join(dir, "t1.jsonl"), rows.map(JSON.stringify).join("\n") + "\n");
+  const report = checkThreadIntegrity("memory-select", { provider: "claude", externalThreadId: "t1", sessionRoot: dir });
+  assert.equal(report.healthy, true);
+  assert.ok(report.file.endsWith("t1.jsonl"));
+  assert.throws(() => checkThreadIntegrity("memory-select", { provider: "claude", externalThreadId: "missing-id", sessionRoot: dir }), /没有找到线程/);
 });
 
 test("conversation calendar renders complete months newest first", () => {
@@ -443,9 +457,10 @@ test("developer experiments register through removable bootstraps instead of app
   assert.match(themeBootstrap, /dataModule = MODULE_ID|dataset\.developerModule = MODULE_ID/);
 });
 
-test("binding status preserves legacy configured windows without creating a formal binding", () => {
+test("binding status adopts a legacy configured window through the formal CLI", () => {
   const server = fs.readFileSync(path.join(__dirname, "..", "src", "web", "server.js"), "utf8");
   assert.match(server, /layout !== "memory-v1" \? legacyThreadId : null/);
+  assert.match(server, /"binding", "migrate-legacy", "--memory", threadId, "--apply"/);
   assert.match(server, /legacy-config:/);
   assert.match(server, /settings\.externalThreadId/);
   assert.match(server, /source:\s*"legacy-config"/);

@@ -309,9 +309,9 @@ test("new binding configuration is validated, persisted by memory id and mirrore
   assert.equal(afterSwitch.primaryBindingId, second.binding.id);
   assert.equal(afterSwitch.bindings.find(item => item.id === second.binding.id).mode, "primary");
 
-  const rejectPrimaryDisable = run(home, ["binding", "disable", "--memory", created.memoryId, "--binding", second.binding.id, "--apply"]);
-  assert.notEqual(rejectPrimaryDisable.status, 0);
-  assert.match(rejectPrimaryDisable.stderr, /不能停用或移除主 Binding/);
+  const disabledPrimary = JSON.parse(run(home, ["binding", "disable", "--memory", created.memoryId, "--binding", second.binding.id, "--apply"]).stdout);
+  assert.equal(disabledPrimary.config.primaryBindingId, second.binding.id);
+  assert.equal(disabledPrimary.config.bindings.find(item => item.id === second.binding.id).enabled, false);
   const disabled = JSON.parse(run(home, ["binding", "disable", "--memory", created.memoryId, "--binding", result.binding.id, "--apply"]).stdout);
   assert.equal(disabled.changed, true);
   assert.equal(disabled.config.bindings.find(item => item.id === result.binding.id).enabled, false);

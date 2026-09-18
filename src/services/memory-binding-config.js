@@ -7,6 +7,7 @@ const { MemoryStore } = require("../storage/memory-store");
 const { addBinding: registerBinding } = require("./memory-bindings");
 const { writeJson } = require("./memory-setup");
 const { saveConfig } = require("./thread-setup");
+const { validateEnabledBindingLimit } = require("./watcher-bindings");
 
 const PROVIDERS = new Set(["claude", "codex"]);
 const MODES = new Set(["primary", "parallel", "child", "import_only"]);
@@ -58,6 +59,7 @@ function planBindingAdd(memoryId, input) {
     }
   }
   const existing = config.bindings.find(item => item.id === binding.id);
+  if (!existing) validateEnabledBindingLimit([...config.bindings, binding]);
   return { dryRun: true, action: existing ? "existing" : "create", binding: existing || binding, revision: config.revision };
 }
 
@@ -102,6 +104,26 @@ function applyBindingAdd(memoryId, input) {
   return { applied: true, changed: true, binding, config: next };
 }
 
+function legacyBindingInput(memoryId) {
+  const context = getMemoryContext(memoryId);
+  const config = readBindingConfig(memoryId);
+  if (config.bindings.length || !context.legacyKey) return null;
+  const legacy = loadConfig()[context.legacyKey] || {};
+  const provider = legacy.runtime === "codex" ? "codex" : "claude";
+  const externalThreadId = String(legacy.externalThreadId || context.legacyKey || "").trim();
+  const sessionRoot = String(legacy.sessionDir || "").trim();
+  if (!externalThreadId || !sessionRoot) return null;
+  return { provider, externalThreadId, sessionRoot, mode: "primary", enabled: true };
+}
+
+function migrateLegacyBinding(memoryId, { apply = false } = {}) {
+  const config = readBindingConfig(memoryId);
+  if (config.bindings.length) return { memoryId, changed: false, reason: "bindings-exist", config };
+  const input = legacyBindingInput(memoryId);
+  if (!input) return { memoryId, changed: false, reason: "legacy-binding-not-found", config };
+  return apply ? applyBindingAdd(memoryId, input) : planBindingAdd(memoryId, input);
+}
+
 function getConfiguredBinding(memoryId, id) {
   const config = readBindingConfig(memoryId);
   const binding = config.bindings.find(item => item.id === id);
@@ -113,7 +135,7 @@ function resolvePrimaryBinding(memoryId, { requireFile = true } = {}) {
   const config = readBindingConfig(memoryId);
   if (!config.primaryBindingId) throw new Error("记忆体尚未设置主窗口 Binding");
   const binding = config.bindings.find(item => item.id === config.primaryBindingId);
-  if (!binding || binding.enabled === false) throw new Error("主窗口 Binding 不存在或已停用");
+  if (!binding) throw new Error("主窗口 Binding 不存在");
   const resolvedThreadFile = findThreadSessionFile(binding.sessionRoot, binding.externalThreadId);
   if (requireFile && !resolvedThreadFile) throw new Error(`主窗口文件已失效：找不到线程 ${binding.externalThreadId}`);
   return { ...binding, resolvedThreadFile: resolvedThreadFile || null, bindingRevision: config.revision };
@@ -139,6 +161,48 @@ function planBindingSwitch(memoryId, id) {
     binding: { ...binding, resolvedThreadFile }, revision: config.revision,
     planToken: switchToken(memoryId, config, binding, resolvedThreadFile),
   };
+}
+
+function planBindingPrimary(memoryId, id) {
+  const config = readBindingConfig(memoryId);
+  const binding = getConfiguredBinding(memoryId, id);
+  return {
+    dryRun: true, action: config.primaryBindingId === id ? "already-primary" : "set-primary",
+    changed: config.primaryBindingId !== id, memoryId,
+    fromBindingId: config.primaryBindingId, toBindingId: id, binding, revision: config.revision,
+  };
+}
+
+function applyBindingPrimary(memoryId, id) {
+  const plan = planBindingPrimary(memoryId, id);
+  if (!plan.changed) return { ...plan, dryRun: false, applied: true };
+  const { context, file } = bindingFile(memoryId);
+  const config = readBindingConfig(memoryId);
+  const now = new Date().toISOString();
+  const next = {
+    ...config, revision: config.revision + 1, primaryBindingId: id,
+    bindings: config.bindings.map(item => ({
+      ...item,
+      mode: item.id === id ? "primary" : (item.id === config.primaryBindingId && item.mode === "primary" ? "parallel" : item.mode),
+      updatedAt: item.id === id || item.id === config.primaryBindingId ? now : item.updatedAt,
+    })),
+  };
+  const original = fs.readFileSync(file, "utf8");
+  writeJson(file, next);
+  try {
+    const store = new MemoryStore({ memoryDir: path.join(context.root, "memory"), threadId: memoryId });
+    try {
+      store.db.transaction(() => {
+        store.db.prepare("UPDATE memory_bindings SET mode='parallel',updated_at=? WHERE memory_id=? AND mode='primary'").run(now, memoryId);
+        store.db.prepare("UPDATE memory_bindings SET mode='primary',enabled=1,updated_at=? WHERE memory_id=? AND provider=? AND external_thread_id=?")
+          .run(now, memoryId, plan.binding.provider, plan.binding.externalThreadId);
+      })();
+    } finally { store.close(); }
+  } catch (error) {
+    fs.writeFileSync(file, original, { encoding: "utf8", mode: 0o600 });
+    throw error;
+  }
+  return { ...plan, dryRun: false, applied: true, changed: true, config: next };
 }
 
 function applyBindingSwitch(memoryId, id, { confirmedPlan, rebuild } = {}) {
@@ -190,10 +254,13 @@ function planBindingState(memoryId, id, action) {
   if (!["enable", "disable", "remove"].includes(action)) throw new Error(`不支持的 Binding 操作：${action}`);
   const config = readBindingConfig(memoryId);
   const binding = getConfiguredBinding(memoryId, id);
-  if ((action === "disable" || action === "remove") && config.primaryBindingId === id) {
-    throw new Error("不能停用或移除主 Binding；请先安全切换到另一个窗口");
+  if (action === "remove" && config.primaryBindingId === id) {
+    throw new Error("不能删除主 Binding；请先把另一个窗口设为主 Binding");
   }
   const changed = action === "remove" || binding.enabled !== (action === "enable");
+  if (action === "enable" && changed) {
+    validateEnabledBindingLimit(config.bindings.map(item => item.id === id ? { ...item, enabled: true } : item));
+  }
   return { dryRun: true, action, changed, memoryId, binding, revision: config.revision };
 }
 
@@ -227,5 +294,7 @@ function applyBindingState(memoryId, id, action) {
 module.exports = {
   bindingId, readBindingConfig, validateBindingInput, planBindingAdd, applyBindingAdd,
   getConfiguredBinding, resolvePrimaryBinding, planBindingSwitch, applyBindingSwitch,
+  planBindingPrimary, applyBindingPrimary,
   planBindingState, applyBindingState,
+  migrateLegacyBinding,
 };

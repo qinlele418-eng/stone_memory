@@ -370,7 +370,8 @@ stmem memory update --thread <线程ID> --batch-file <json>   # 摘要/锚点编
 stmem rules list --thread <线程ID>           # 规则管理
 
 stmem list                                   # 只读查看
-stmem sync --thread <线程ID>                 # 手动同步
+stmem sync --thread <线程ID>                 # 手动同步主 Binding
+stmem sync --thread <线程ID> --binding <ID>  # 手动同步指定 Binding（独立游标）
 stmem db status --thread <线程ID>            # 数据库维护
 ```
 
@@ -378,7 +379,7 @@ stmem db status --thread <线程ID>            # 数据库维护
 
 安装阶段负责让唯一 watcher supervisor 常驻并自愈（Linux 走 systemd，Windows 走 Task Scheduler）；init 与 watcher CLI 都不负责拉起裸进程。只有 `watcherEnabled=ON` 的记忆体才会拥有 worker；某个记忆体的开关不影响其他记忆体。
 
-线程文件变化后约 300ms 防抖增量同步到 archive；正常追加只读取每个记忆体 `.sync-state.json` 游标后的新字节。若线程经 rebuild 缩短、被替换，或游标前内容被改写，则自动执行一次全量幂等校验并重建游标，不会用"每次完整重读线程"冒充增量。后台仍低频巡检，作为文件系统漏事件时的兜底，并负责自动挖掘和摘要维护。
+线程文件变化后约 300ms 防抖增量同步到 archive；每个记忆体最多同时监听 5 个启用的 Binding，每个 Binding 使用 `.sync-state/<binding-id>.json` 独立游标。多个窗口可以同时报告变化，但同一记忆体始终串行写入 archive 与 SQLite。若线程经 rebuild 缩短、被替换，或游标前内容被改写，则自动执行一次全量幂等校验并重建游标。后台仍低频巡检，作为文件系统漏事件时的兜底，并负责自动挖掘和摘要维护。
 
 ```bash
 stmem watcher status                         # 查看全部记忆体状态

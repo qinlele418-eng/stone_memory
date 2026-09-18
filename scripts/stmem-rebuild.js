@@ -23,6 +23,7 @@ function requestFromArgs(args, threadId, getCfg) {
   const { normalizeRebuildRequest } = require("../src/services/rebuild-request");
   return { threadId, ...normalizeRebuildRequest({
     threadId,
+    bindingId: valueAfter(args, "--binding") || "",
     window: valueAfter(args, "--window") ?? getCfg("windowDays", threadId, 3),
     toolPairs: valueAfter(args, "--tool-pairs") ?? getCfg("keepToolPairs", threadId, 30),
     summaryLimit: valueAfter(args, "--summary-limit") ?? 0,
@@ -38,7 +39,7 @@ function runRuntimeRebuild({ threadId, summary, context, trim, trigger, planFile
   const { getCfg } = require("../src/config");
   if (apply && planFile) {
     const { permanentlyTrimThread } = require("../src/services/rebuild-workbench");
-    const trimmed = permanentlyTrimThread(threadId, readPlan(planFile));
+    const trimmed = permanentlyTrimThread(threadId, readPlan(planFile), binding);
     console.log(`[stmem] permanent trim: messages=${trimmed.removedMessages}, tools=${trimmed.removedTools}, archive=${trimmed.archiveMessages}, full=${trimmed.fullRecords}`);
   }
   const runtime = binding?.provider || getCfg("runtime", threadId, "claude");
@@ -79,7 +80,15 @@ function runQueuedRequest(row) {
         excludedTools: row.trim.excludedTools,
       }), { encoding: "utf8", mode: 0o600 });
     }
-    return runRuntimeRebuild({ ...row, planFile, apply: true });
+    let binding = null;
+    if (row.bindingId) {
+      try { binding = require("../src/services/memory-binding-config").getConfiguredBinding(row.threadId, row.bindingId); }
+      catch (error) {
+        console.error(`[stmem] 排队重建的目标窗口不可用（${row.bindingId}）：${error.message}`);
+        return 1;
+      }
+    }
+    return runRuntimeRebuild({ ...row, planFile, apply: true, binding });
   } finally {
     if (planDir) fs.rmSync(planDir, { recursive: true, force: true });
   }
@@ -146,7 +155,7 @@ function main() {
   }
   if (args.includes("--check") || args.includes("--repair")) {
     const { checkThreadIntegrity, repairThreadIntegrity } = require("../src/services/rebuild-workbench");
-    const result = args.includes("--repair") ? repairThreadIntegrity(threadId) : checkThreadIntegrity(threadId);
+    const result = args.includes("--repair") ? repairThreadIntegrity(threadId, binding) : checkThreadIntegrity(threadId, binding);
     console.log(JSON.stringify(result, null, 2));
     return;
   }
