@@ -398,7 +398,7 @@ test("an unrepairable subagent features result still fails closed", async t => {
 test("a short day is still mined and an empty model result completes successfully", async t => {
   const miner = minerFixture(t, [{}, {}]);
   let called = 0;
-  miner._mineDayWithSubagent = async targetDate => {
+  miner._generatePendingDay = async targetDate => {
     called++;
     miner._saveState({ [`feeling:${targetDate}`]: Date.now(), [`feature:${targetDate}`]: Date.now() });
   };
@@ -414,7 +414,7 @@ test("a short day is still mined and an empty model result completes successfull
 
 test("mining errors propagate to callers", async t => {
   const miner = minerFixture(t, Array.from({ length: 5 }, () => ({ text: "x" })));
-  miner._mineDayWithSubagent = async () => { throw new Error("model unavailable"); };
+  miner._generatePendingDay = async () => { throw new Error("model unavailable"); };
   await assert.rejects(() => miner.mine("2026-06-12"), err => err.code === "MINING_FAILED" && /model unavailable/.test(err.message));
   const state = miner.store.getDayState("2026-06-12");
   assert.equal(state.status, "failed");
@@ -423,7 +423,7 @@ test("mining errors propagate to callers", async t => {
 
 test("a partial channel failure clears temporary completion markers for a full retry", async t => {
   const miner = minerFixture(t, [{ text: "需要挖掘的对话" }]);
-  miner._mineDayWithSubagent = async targetDate => {
+  miner._generatePendingDay = async targetDate => {
     miner._saveState({ [`feeling:${targetDate}`]: Date.now() });
     throw new Error("features failed");
   };
@@ -440,6 +440,7 @@ test("API channel mines large dialogue in chunks and accepts an empty final tail
     text: "x".repeat(2000),
   }));
   const miner = minerFixture(t, []);
+  miner.deepseekConfig = { apiKey: "test-only", model: "test" };
   let calls = 0;
   const prompts = [];
   miner._extractViaSubagent = async (_messages, prompt) => {
@@ -551,7 +552,7 @@ test("a forced remine retry preserves successful chunks from the failed attempt"
   const miner = minerFixture(t, sourceMessages);
   let attempts = 0;
 
-  miner._mineDayWithSubagent = async (targetDate, messages) => {
+  miner._generatePendingDay = async (targetDate, messages) => {
     attempts++;
     const chunks = miner._messageChunks(messages);
     const cache = miner._loadChunkCache(targetDate, "feelings-subagent", messages, chunks.length);
@@ -624,7 +625,7 @@ test("feature date prompt describes summaries and does not require feeling dates
 
 test("a day with a successful chunk is marked partial_failed instead of failed", async t => {
   const miner = minerFixture(t, [{ text: "需要分块的对话" }]);
-  miner._mineDayWithSubagent = async () => {
+  miner._generatePendingDay = async () => {
     throw new MiningError("CHUNK_FAILED", "第 2/3 块失败，已完成 1/3 块", {
       completedChunks: 1, totalChunks: 3, failedChunk: 2,
     });
@@ -635,7 +636,7 @@ test("a day with a successful chunk is marked partial_failed instead of failed",
 
 test("three consecutive failures block automatic retries and enqueue a notification", async t => {
   const miner = minerFixture(t, [{ text: "x" }]);
-  miner._mineDayWithSubagent = async () => { throw new Error("model unavailable"); };
+  miner._generatePendingDay = async () => { throw new Error("model unavailable"); };
   for (let attempt = 0; attempt < 3; attempt++) {
     await assert.rejects(() => miner.mine("2026-06-12"));
   }
@@ -659,7 +660,7 @@ test("forced remine replaces a completed day directly", async t => {
   const date = "2026-06-12";
   miner.store.replaceDay(date, { feelings: [{ content: "old", importance: 3 }] });
   miner.store.setDayState(date, { status: "completed" });
-  miner._mineDayWithSubagent = async targetDate => {
+  miner._generatePendingDay = async targetDate => {
     await miner._saveEntries([{ content: "new", importance: 4 }], { targetDate, stateKey: `feeling:${targetDate}`, label: "feelings", isFeature: false });
     miner._saveState({ [`feature:${targetDate}`]: Date.now() });
   };
@@ -674,7 +675,7 @@ test("failed forced remine restores the previous result and completion state", a
   const date = "2026-06-12";
   miner.store.replaceDay(date, { feelings: [{ content: "old", importance: 3 }] });
   miner.store.setDayState(date, { status: "completed", feelingCount: 1 });
-  miner._mineDayWithSubagent = async () => { throw new Error("remine failed"); };
+  miner._generatePendingDay = async () => { throw new Error("remine failed"); };
   await assert.rejects(() => miner.mine(date, { force: true }), /remine failed/);
   assert.deepEqual(miner.store.listFeelings({ date }).map(row => row.content), ["old"]);
   assert.equal(miner.store.getDayState(date).status, "completed");

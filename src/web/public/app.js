@@ -2,8 +2,8 @@ const app = document.querySelector("#app");
 const toast = document.querySelector("#toast");
 
 const state = {
-  libraries: [], step: 1, imports: [],
-  form: { libraryName: "", threadId: "", ai: "", user: "", userGender: "unspecified", runtime: "codex", purpose: "accompany", sessionDir: "", minerMode: "subagent", apiProvider: "", apiKey: "", baseUrl: "", model: "", windowDays: 3, keepToolPairs: 30, automaticFullMining: true, automaticMemoryMaintenance: true, automaticCompression: false },
+  libraries: [], scenarios: [], step: 1, imports: [],
+  form: { libraryName: "", threadId: "", ai: "", user: "", userGender: "unspecified", runtime: "codex", scenario: "accompany", sessionDir: "", minerMode: "subagent", apiProvider: "", apiKey: "", baseUrl: "", model: "", windowDays: 3, keepToolPairs: 30, automaticFullMining: true, automaticMemoryMaintenance: true, automaticCompression: false },
 };
 
 // 正式发布前在这里补齐公共账号；空值会显示为“待配置”，不会跳往错误地址。
@@ -119,7 +119,7 @@ async function preparePwa() {
 
 function resetCreateForm() {
   state.step = 1; state.imports = [];
-  state.form = { libraryName: "", threadId: "", ai: "", user: "", userGender: "unspecified", runtime: "codex", purpose: "accompany", sessionDir: "", minerMode: "subagent", apiProvider: "", apiKey: "", baseUrl: "", model: "", windowDays: 3, keepToolPairs: 30, automaticFullMining: true, automaticMemoryMaintenance: true, automaticCompression: false };
+  state.form = { libraryName: "", threadId: "", ai: "", user: "", userGender: "unspecified", runtime: "codex", scenario: "accompany", sessionDir: "", minerMode: "subagent", apiProvider: "", apiKey: "", baseUrl: "", model: "", windowDays: 3, keepToolPairs: 30, automaticFullMining: true, automaticMemoryMaintenance: true, automaticCompression: false };
 }
 
 function stoneSvg(className = "hero-stone") {
@@ -175,7 +175,7 @@ async function api(url, options = {}) {
 }
 
 async function loadLibraries() {
-  const data = await api("/api/libraries"); state.libraries = data.libraries;
+  const data = await api("/api/libraries"); state.libraries = data.libraries; state.scenarios = data.scenarios || [];
 }
 
 const optionalScripts = new Map();
@@ -263,7 +263,7 @@ function basicStep() {
       ${field("ai", "AI 名字", "这段记忆属于哪位 AI。", "required")}
       ${field("user", "用户名字", "AI 在记忆中如何称呼你。", "required")}
       <div class="field"><label for="runtime">对话来源</label><select id="runtime" name="runtime"><option value="codex" ${state.form.runtime === "codex" ? "selected" : ""}>Codex</option><option value="claude" ${state.form.runtime === "claude" ? "selected" : ""}>Claude</option></select><small>用于绑定正确的线程文件格式。</small></div>
-      <div class="field"><label for="purpose">记忆用途</label><select id="purpose" name="purpose"><option value="accompany" ${state.form.purpose === "accompany" ? "selected" : ""}>陪伴</option><option value="coding" ${state.form.purpose === "coding" ? "selected" : ""}>编程</option><option value="study" ${state.form.purpose === "study" ? "selected" : ""}>学习</option></select><small>只影响运行目录与默认提示。</small></div>
+      <div class="field"><label for="scenario">记忆场景</label><select id="scenario" name="scenario">${state.scenarios.map(row => `<option value="${escapeHtml(row.id)}" ${state.form.scenario === row.id ? "selected" : ""}>${escapeHtml(row.label)}</option>`).join("")}</select><small>选择挖掘使用的提示词，可在设置中切换。</small></div>
       <div class="field"><label for="minerMode">记忆挖掘方式</label><select id="minerMode" name="minerMode"><option value="subagent" ${state.form.minerMode === "subagent" ? "selected" : ""}>本地 Subagent</option><option value="api" ${state.form.minerMode === "api" ? "selected" : ""}>API</option></select><small>以后可以在设置中调整。</small></div>
       <div class="field"><label for="userGender">用户性别</label><select id="userGender" name="userGender"><option value="unspecified" ${state.form.userGender === "unspecified" ? "selected" : ""}>不指定</option><option value="female" ${state.form.userGender === "female" ? "selected" : ""}>女性</option><option value="male" ${state.form.userGender === "male" ? "selected" : ""}>男性</option></select><small>帮助摘要保持正确的人称。</small></div>
       <div id="runtime-fields" class="field full"></div>
@@ -665,7 +665,7 @@ async function renderSettings(library) {
       <div class="field"><label for="setting-gender">用户性别</label><select id="setting-gender" name="userGender"><option value="unspecified" ${config.userGender === "unspecified" ? "selected" : ""}>不指定</option><option value="female" ${config.userGender === "female" ? "selected" : ""}>女性</option><option value="male" ${config.userGender === "male" ? "selected" : ""}>男性</option></select></div>
       <div class="field"><label for="setting-miner">挖掘方式</label><select id="setting-miner" name="minerMode"><option value="subagent" ${config.minerMode === "subagent" ? "selected" : ""}>本地 Subagent</option><option value="api" ${config.minerMode === "api" ? "selected" : ""}>API</option></select></div>
       <div class="field"><label>运行时</label><input value="${escapeHtml(config.runtime)}" disabled><small>涉及目录迁移，暂不在设置页修改。</small></div>
-      <div class="field"><label>用途</label><input value="${escapeHtml(config.purpose)}" disabled><small>涉及目录迁移，暂不在设置页修改。</small></div>
+      <div class="field"><label>记忆场景</label><select name="scenario">${state.scenarios.map(row => `<option value="${escapeHtml(row.id)}" ${config.scenario === row.id ? "selected" : ""}>${escapeHtml(row.label)}</option>`).join("")}</select><small>只影响后续挖掘，历史记忆和目录保持不变。</small></div>
       <div class="field full"><label for="setting-session">线程文件搜索目录</label><input id="setting-session" name="sessionDir" value="${escapeHtml(config.sessionDir)}" required><small>Stone Memory 会从这里递归查找绑定线程的 JSONL，支持 Codex 的 sessions/年/月/日目录。</small></div>
       <div id="setting-api-fields" class="field full"></div>
       <div class="field"><label for="setting-window">默认保留对话天数</label><input id="setting-window" name="windowDays" type="number" min="1" max="365" value="${config.windowDays}"></div>
@@ -895,8 +895,7 @@ async function renderMining(library,page=1) {
     content.querySelector("#mining-newer")?.addEventListener("click",()=>{miningUi.monthPage=calendar.page-1;renderMining(library,miningUi.page);});content.querySelector("#mining-older")?.addEventListener("click",()=>{miningUi.monthPage=calendar.page+1;renderMining(library,miningUi.page);});
     content.querySelector("#open-targeted")?.addEventListener("click",()=>renderTargetedMining(library,miningUi.selectedDate));
     if(miningUi.selectedDate)bindFeelingCards(content,library,detail.feelings,content.querySelector("#feeling-editor"),()=>renderMining(library,miningUi.page));
-    if(library.purpose==="accompany")loadMiningPrompts(content,library);
-    else content.querySelector(".mining-prompts-section")?.remove();
+    loadMiningPrompts(content,library);
     const reportList=content.querySelector(".mining-report-list");
     const updateCount=()=>{reportList.querySelector("#selected-count").textContent=miningUi.selected.size;reportList.querySelector("#start-mining").disabled=active||!miningUi.selected.size;};
     reportList.querySelectorAll('.mining-report-check input').forEach(input=>input.onchange=()=>{input.checked?miningUi.selected.add(input.value):miningUi.selected.delete(input.value);updateCount();});
@@ -927,6 +926,7 @@ async function loadMiningPrompts(container,library){
   const timelineTa=container.querySelector("#mining-timeline");
   try{
     const data=await api(`/api/libraries/${encodeURIComponent(library.threadId)}/mining/prompts`);
+    status.textContent = `场景：${data.scenario}；保存仅影响当前记忆体。摘要来源：${data.sources.feelings}；特征来源：${data.sources.features}`;
     summaryTa.value=data.summaryPrompt;
     featureTa.value=data.featurePrompt;
     timelineTa.value=(data.timeline||[]).join("\n");

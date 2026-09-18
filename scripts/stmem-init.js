@@ -19,8 +19,9 @@ const readline = require("readline");
 const STONE = path.join(os.homedir(), ".stone_memory");
 const cfgFile = path.join(STONE, "stmem.json");
 const {
-  createThread, validateThreadInput, validateSessionBinding, normalizeName,
+  normalizeThreadInput, createThread, validateThreadInput, validateSessionBinding, normalizeName,
 } = require("../src/services/thread-setup");
+const { listScenarios, getScenario } = require("../src/services/scenario-registry");
 const { INIT_SCHEMA, buildInitTemplate } = require("../src/services/init-contract");
 
 function loadCfg() {
@@ -75,7 +76,8 @@ async function interactiveInit(threadId) {
   }
   const userGender = await askRequired(rl, "用户性别 (male/female)", existing.userGender);
   const runtime = await askRequired(rl, "运行时 (claude/codex)", existing.runtime);
-  const purpose = await askRequired(rl, "用途 (accompany/coding/study)", existing.purpose);
+  const scenario = await askRequired(rl, `场景 (${listScenarios().map(row => `${row.id}: ${row.label}`).join(" / ")})`, existing.scenario || existing.purpose || "accompany");
+  const purpose = existing.purpose || getScenario(scenario).storagePurpose;
   const defaultSessionDir = runtime === "codex" ? path.join(os.homedir(), ".codex", "sessions") : existing.sessionDir;
   const sessionDir = await askRequired(rl, "线程文件搜索目录（会递归查找）", existing.sessionDir || defaultSessionDir);
   const minerMode = await askRequired(rl, "挖掘模式 (api/subagent)", existing.minerMode || "subagent");
@@ -95,7 +97,7 @@ async function interactiveInit(threadId) {
 
   rl.close();
 
-  return { threadId, libraryName: label, ai, user, userGender, runtime, purpose, sessionDir, minerMode,
+  return { threadId, libraryName: label, ai, user, userGender, runtime, purpose, scenario, sessionDir, minerMode,
     apiProvider, apiKey, baseUrl, model, windowDays, keepToolPairs,
     automaticFullMining: existing.automaticFullMining !== false,
     automaticMemoryMaintenance: existing.automaticMemoryMaintenance !== false,
@@ -107,7 +109,8 @@ async function main() {
   const args = process.argv.slice(2);
   if (args.includes("--template")) {
     const runtimeIndex = args.indexOf("--runtime");
-    console.log(JSON.stringify(buildInitTemplate(runtimeIndex >= 0 ? args[runtimeIndex + 1] : "codex"), null, 2));
+    const scenarioIndex = args.indexOf("--scenario");
+    console.log(JSON.stringify(buildInitTemplate(runtimeIndex >= 0 ? args[runtimeIndex + 1] : "codex", scenarioIndex >= 0 ? args[scenarioIndex + 1] : "accompany"), null, 2));
     return;
   }
   if (args.includes("--schema")) {
@@ -127,7 +130,7 @@ async function main() {
     }
     const threadId = argumentThreadId || raw.threadId;
     if (!threadId) throw new Error("batch 文件必须填写真实 threadId");
-    input = { ...raw, threadId, libraryName: raw.libraryName || raw.label || threadId };
+    input = normalizeThreadInput({ ...raw, threadId, libraryName: raw.libraryName || raw.label || threadId }, loadCfg());
     if (args.includes("--validate")) {
       validateThreadInput(input, loadCfg(), { allowExisting: true });
       const sessionFile = validateSessionBinding(input);

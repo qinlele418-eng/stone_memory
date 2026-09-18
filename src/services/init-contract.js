@@ -1,12 +1,15 @@
 const os = require("os");
 const path = require("path");
 
+const { listScenarios, getScenario } = require("./scenario-registry");
+
 const INIT_SCHEMA = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
   title: "Stone Memory init batch",
   type: "object",
   additionalProperties: false,
-  required: ["libraryName", "threadId", "ai", "user", "runtime", "purpose", "sessionDir", "minerMode"],
+  required: ["libraryName", "threadId", "ai", "user", "runtime", "sessionDir", "minerMode"],
+  anyOf: [{ required: ["purpose"] }, { required: ["scenario"] }],
   properties: {
     libraryName: { type: "string", minLength: 1, description: "记忆体显示名称，例如 alisa；不是线程 ID。" },
     threadId: { type: "string", pattern: "^[A-Za-z0-9._:-]+$", description: "Claude/Codex 真实线程 ID，必须能在 sessionDir 下匹配到对应 JSONL 文件。" },
@@ -18,6 +21,7 @@ const INIT_SCHEMA = {
       description: "关系阶段时间线，每行一条；Miner 用于判断当天所处阶段，空数组表示不提供。",
     },
     runtime: { type: "string", enum: ["claude", "codex"] },
+    scenario: { type: "string", enum: listScenarios().map(row => row.id), description: "业务场景，可切换而不改变存储目录。" },
     purpose: { type: "string", enum: ["accompany", "coding", "study"] },
     sessionDir: { type: "string", minLength: 1, description: "线程文件搜索根目录，不是 JSONL 文件名；Stone Memory 会递归查找。" },
     minerMode: { type: "string", enum: ["subagent", "api"] },
@@ -47,7 +51,8 @@ const INIT_SCHEMA = {
   },
 };
 
-function buildInitTemplate(runtime = "codex") {
+function buildInitTemplate(runtime = "codex", scenario = "accompany") {
+  const definition = getScenario(scenario);
   const selected = runtime === "claude" ? "claude" : "codex";
   return {
     libraryName: "记忆体显示名称",
@@ -57,7 +62,8 @@ function buildInitTemplate(runtime = "codex") {
     userGender: "unspecified",
     relationshipTimeline: [],
     runtime: selected,
-    purpose: "accompany",
+    purpose: definition.storagePurpose,
+    scenario: definition.id,
     sessionDir: selected === "codex"
       ? path.join(os.homedir(), ".codex", "sessions")
       : path.join(os.homedir(), ".claude", "projects", "对应项目目录"),

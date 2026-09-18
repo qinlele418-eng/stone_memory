@@ -118,6 +118,7 @@ async function main() {
         userGender: getCfg("userGender", threadId, "female"),
         relationshipTimeline: getCfg("relationshipTimeline", threadId, []),
         purpose: getCfg("purpose", threadId),
+        scenario: getCfg("scenario", threadId),
         runtime: getCfg("runtime", threadId, "claude"),
       },
     });
@@ -172,6 +173,7 @@ async function main() {
         userGender: getCfg("userGender", threadId, "female"),
         relationshipTimeline: getCfg("relationshipTimeline", threadId, []),
         purpose: getCfg("purpose", threadId),
+        scenario: getCfg("scenario", threadId),
         runtime: getCfg("runtime", threadId, "claude"),
       },
     });

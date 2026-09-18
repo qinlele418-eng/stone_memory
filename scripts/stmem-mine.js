@@ -197,6 +197,7 @@ async function main() {
       userGender: getCfg("userGender", tid, "female"),
       relationshipTimeline: getCfg("relationshipTimeline", tid, []),
       purpose: getCfg("purpose", tid),
+      scenario: getCfg("scenario", tid),
       runtime: getCfg("runtime", tid, "claude"),
     },
   });

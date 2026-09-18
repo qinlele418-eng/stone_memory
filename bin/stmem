@@ -14,6 +14,8 @@ if (!cmd || cmd === "--help" || cmd === "-h") {
   stmem capabilities [--json]                  声明内置导入、挖掘与重建能力
   stmem doctor --thread <id> [--json]           只读诊断配置、线程文件与运行状态
   stmem delete --thread <id> [--dry-run]        删除线程配置及数据
+  stmem scenario list|inspect|set              查看与切换业务场景（set 默认预览）
+  stmem prompt show|set --thread <id>           查看与保存记忆体独立提示词
   stmem init --thread <真实线程ID>              交互式初始化
   stmem init --template [--runtime codex]       输出 AI 可填写的 JSON 模板
   stmem init --batch-file <json> --validate     严格校验配置和真实线程文件
@@ -81,6 +83,12 @@ if (!cmd || cmd === "--help" || cmd === "-h") {
 }
 
 switch (cmd) {
+  case "scenario":
+    require(path.join(SCRIPTS, "stmem-scenario"));
+    break;
+  case "prompt":
+    require(path.join(SCRIPTS, "stmem-prompt"));
+    break;
   case "ai-help":
     require(path.join(SCRIPTS, "stmem-ai-help"));
     break;

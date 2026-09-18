@@ -1,3 +1,4 @@
+const { listScenarios, scenarioId } = require("../services/scenario-registry");
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
@@ -27,7 +28,6 @@ const { watcherActions, watcherEnabled } = require("../services/watcher-runtime"
 const { normalizeMiningApiProfile } = require("../services/mining-api-profile");
 const { normalizeModelName } = require("../lib/model-name");
 const { configuredRuntimeIds, MiningReviewBatchStore } = require("../services/mining-review-batch");
-const { buildFeelingPrompt, buildFeaturePrompt } = require("../services/memory-miner");
 const { normalizeRebuildRequest, rebuildRequestCliArgs } = require("../services/rebuild-request");
 const { loadModules, resolveInside } = require("../services/developer-module-contract");
 const { compactTermTimelineReport } = require("../services/term-timeline-report");
@@ -399,6 +399,7 @@ function publicThreadSettings(threadId) {
   const actions = watcherActions(entry);
   return {
     threadId, libraryName: entry.label || threadId, ai: entry.ai || "", user: entry.user || "",
+    scenario: scenarioId(entry), relationshipTimeline: entry.relationshipTimeline || [],
     userGender: entry.userGender || "unspecified", runtime: entry.runtime || "claude", purpose: entry.purpose || "accompany",
     sessionDir: entry.sessionDir || "", minerMode: entry.minerMode || "subagent", apiProvider: entry.apiProvider || "",
     baseUrl: entry.apiProvider ? (config.apiKeys?.[entry.apiProvider]?.baseUrl || "") : "",
@@ -512,7 +513,7 @@ function listLibraries() {
         (SELECT COUNT(*) FROM feelings WHERE thread_id=? AND summary_mode='hidden') hidden`).get(threadId, threadId, threadId, threadId, threadId);
       const latest = store.db.prepare("SELECT MAX(completed_at) completedAt FROM mining_day_state WHERE thread_id=? AND status='completed'").get(threadId);
       return {
-        threadId, libraryName: tc.label || threadId, runtime: tc.runtime || "claude", purpose: tc.purpose || "accompany",
+        threadId, scenario: scenarioId(tc), libraryName: tc.label || threadId, runtime: tc.runtime || "claude", purpose: tc.purpose || "accompany",
         ai: tc.ai || "", user: tc.user || "", counts, lastMinedAt: latest?.completedAt || null,
         watcherEnabled: watcherEnabled(tc),
         automaticFullMining: actions.sync,
@@ -1011,7 +1012,7 @@ async function handleApi(req, res, url) {
       features: result.featureCount,
     } : result);
   }
-  if (req.method === "GET" && url.pathname === "/api/libraries") return json(res, 200, { libraries: listLibraries() });
+  if (req.method === "GET" && url.pathname === "/api/libraries") return json(res, 200, { libraries: listLibraries(), scenarios: listScenarios().map(({ directory, ...row }) => row) });
 
   if (req.method === "POST" && url.pathname === "/api/session-file/check") {
     const body = await readJson(req);
@@ -1316,50 +1317,27 @@ async function handleApi(req, res, url) {
   if (promptsMatch) {
     const threadId = decodeURIComponent(promptsMatch[1]);
     const settings = publicThreadSettings(threadId);
-    if (settings.purpose !== "accompany") throw new Error("提示词与关系时间轴编辑仅适用于陪伴场景");
-    const config = loadConfig(); const entry = config[threadId] || {};
-    const timeline = Array.isArray(entry.relationshipTimeline) ? entry.relationshipTimeline : [];
-    const opsDir = path.join(__dirname, "..", "..", "operations");
-    const overridesDir = path.join(path.dirname(CONFIG_PATH), "prompt-overrides");
-    const summaryDefaultPath = path.join(opsDir, "memory-miner-operations.md");
-    const featureDefaultPath = path.join(opsDir, "memory-miner-feature-operations.md");
-    const summaryPath = path.join(overridesDir, "memory-miner-operations.md");
-    const featurePath = path.join(overridesDir, "memory-miner-feature-operations.md");
-    if (req.method === "GET") {
-      let defaultSummary = buildFeelingPrompt(settings.ai, settings.user, settings.purpose, settings.userGender, timeline);
-      let defaultFeature = buildFeaturePrompt(settings.user, settings.purpose);
-      try { defaultSummary = fs.readFileSync(summaryDefaultPath, "utf8"); } catch {}
-      try { defaultFeature = fs.readFileSync(featureDefaultPath, "utf8"); } catch {}
-      let summaryPrompt = "", featurePrompt = "";
-      try { summaryPrompt = fs.readFileSync(summaryPath, "utf8"); }
-      catch { try { summaryPrompt = fs.readFileSync(summaryDefaultPath, "utf8"); } catch { summaryPrompt = defaultSummary; } }
-      try { featurePrompt = fs.readFileSync(featurePath, "utf8"); }
-      catch { try { featurePrompt = fs.readFileSync(featureDefaultPath, "utf8"); } catch { featurePrompt = defaultFeature; } }
-      return json(res, 200, { summaryPrompt, featurePrompt, defaultSummary, defaultFeature, timeline });
-    }
+    if (req.method === "GET") return json(res, 200, JSON.parse(runStmem(["prompt", "show", "--thread", threadId])));
     if (req.method === "PUT") {
       const body = await readJson(req);
-      let defSummary = buildFeelingPrompt(settings.ai, settings.user, settings.purpose, settings.userGender, timeline);
-      let defFeature = buildFeaturePrompt(settings.user, settings.purpose);
-      try { defSummary = fs.readFileSync(summaryDefaultPath, "utf8"); } catch {}
-      try { defFeature = fs.readFileSync(featureDefaultPath, "utf8"); } catch {}
-      if (String(body.summaryPrompt || "").length > 100000 || String(body.featurePrompt || "").length > 100000) {
-        throw new Error("单份挖掘提示词不能超过 100000 个字符");
-      }
-      fs.mkdirSync(overridesDir, { recursive: true });
-      if (body.summaryPrompt !== undefined) fs.writeFileSync(summaryPath, String(body.summaryPrompt || defSummary), "utf8");
-      if (body.featurePrompt !== undefined) fs.writeFileSync(featurePath, String(body.featurePrompt || defFeature), "utf8");
-      if (Array.isArray(body.timeline)) {
-        const strings = body.timeline.map(String).filter(s => s.trim());
-        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-web-timeline-"));
-        const batchFile = path.join(tmpDir, "config.json");
-        try {
-          const cur = publicThreadSettings(threadId);
-          fs.writeFileSync(batchFile, JSON.stringify({ ...cur, relationshipTimeline: strings, threadId, runtime: cur.runtime, purpose: cur.purpose }), { encoding: "utf8", mode: 0o600 });
-          runStmem(["init", "--thread", threadId, "--batch-file", batchFile]);
-        } finally { fs.rmSync(tmpDir, { recursive: true, force: true }); }
-      }
-      return json(res, 200, { success: true });
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-web-prompts-"));
+      try {
+        const updates = {};
+        if (body.summaryPrompt !== undefined) updates.feelings = body.summaryPrompt;
+        if (body.featurePrompt !== undefined) updates.features = body.featurePrompt;
+        const file = path.join(dir, "prompts.json");
+        if (Object.keys(updates).length) {
+          fs.writeFileSync(file, JSON.stringify(updates), { mode: 0o600 });
+          runStmem(["prompt", "set", "--thread", threadId, "--batch-file", file, "--validate"]);
+        }
+        if (Array.isArray(body.timeline)) {
+          const batch = path.join(dir, "config.json");
+          fs.writeFileSync(batch, JSON.stringify({ ...settings, relationshipTimeline: body.timeline.map(String).filter(row => row.trim()) }), { mode: 0o600 });
+          runStmem(["init", "--thread", threadId, "--batch-file", batch]);
+        }
+        if (Object.keys(updates).length) runStmem(["prompt", "set", "--thread", threadId, "--batch-file", file, "--apply"]);
+        return json(res, 200, { success: true });
+      } finally { fs.rmSync(dir, { recursive: true, force: true }); }
     }
   }
 

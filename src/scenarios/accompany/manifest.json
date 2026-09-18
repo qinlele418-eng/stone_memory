@@ -1,0 +1,18 @@
+{
+  "id": "accompany",
+  "version": 1,
+  "label": "陪伴",
+  "storagePurpose": "accompany",
+  "tasks": [
+    "feelings",
+    "features"
+  ],
+  "prompts": {
+    "feelings": "summary.md",
+    "features": "features.md"
+  },
+  "legacyOverrides": {
+    "feelings": "memory-miner-operations.md",
+    "features": "memory-miner-feature-operations.md"
+  }
+}
