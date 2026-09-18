@@ -3,7 +3,7 @@ const os = require("os");
 const path = require("path");
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { spawnSync } = require("node:child_process");
+const Module = require("node:module");
 
 const {
   MODULE_ROOT,
@@ -12,34 +12,37 @@ const {
   resolveInside,
 } = require("../src/services/developer-module-contract");
 const { auditDeveloperModules } = require("../src/services/developer-module-audit");
-const { readBatchFile } = require("../scripts/stmem-module");
 
-test("module metadata CLI works without loading native dependencies", () => {
-  const projectRoot = path.resolve(__dirname, "..");
-  const source = `
-    const Module = require("node:module");
-    const originalLoad = Module._load;
-    Module._load = function (id, ...args) {
+test("module metadata CLI works without loading native dependencies", async () => {
+  const commandPath = require.resolve("../scripts/stmem-module");
+  const originalLoad = Module._load;
+  const originalLog = console.log;
+  const output = [];
+  try {
+    Module._load = function rejectNativeDependencies(id, ...args) {
       if (id === "better-sqlite3" || id.startsWith("@node-rs/") || id.endsWith(".node")) {
-        throw new Error("Native dependency must not load for metadata commands: " + id);
+        throw new Error(`Native dependency must not load for metadata commands: ${id}`);
       }
       return originalLoad.call(this, id, ...args);
     };
-    process.argv = [process.execPath, "bin/stmem", "module", ...JSON.parse(process.env.STMEM_TEST_MODULE_ARGS)];
-    require("./bin/stmem");
-  `;
-  for (const args of [
-    ["list", "--json"],
-    ["inspect", "continuity-lab"],
-    ["paths", "continuity-lab"],
-    ["audit", "--strict", "--json"],
-  ]) {
-    const result = spawnSync(process.execPath, ["-e", source], {
-      cwd: projectRoot, encoding: "utf8", timeout: 30_000,
-      env: { ...process.env, STMEM_TEST_MODULE_ARGS: JSON.stringify(args) },
-    });
-    assert.equal(result.status, 0, `${args.join(" ")}: ${result.stderr}`);
-    assert.doesNotThrow(() => JSON.parse(result.stdout));
+    console.log = value => output.push(String(value));
+    delete require.cache[commandPath];
+    const { runModuleCommand } = require(commandPath);
+    for (const args of [
+      ["list", "--json"],
+      ["inspect", "continuity-lab"],
+      ["paths", "continuity-lab"],
+      ["audit", "--strict", "--json"],
+    ]) {
+      const before = output.length;
+      await runModuleCommand(args);
+      assert.equal(output.length, before + 1, `${args.join(" ")}: expected one JSON response`);
+      assert.doesNotThrow(() => JSON.parse(output.at(-1)), `${args.join(" ")}: invalid JSON output`);
+    }
+  } finally {
+    Module._load = originalLoad;
+    console.log = originalLog;
+    delete require.cache[commandPath];
   }
 });
 
@@ -69,6 +72,7 @@ test("module paths cannot escape their code directory", () => {
 });
 
 test("module commands accept a bounded JSON object batch without exposing values in argv", () => {
+  const { readBatchFile } = require("../scripts/stmem-module");
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-module-batch-"));
   const file = path.join(root, "input.json");
   fs.writeFileSync(file, JSON.stringify({ comment: "synthetic review", nested: { apply: true } }), { mode: 0o600 });
