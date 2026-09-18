@@ -14,7 +14,7 @@ test("responsive navigation shell delegates to the stable frontend", () => {
   for (const action of ["home", "memory", "workshop", "me"]) {
     assert.match(html, new RegExp(`data-shell-action="${action}"`));
   }
-  assert.ok(html.indexOf("/app.js?v=36") < html.indexOf("/developer-kit/navigation-shell.js?v=3"));
+  assert.ok(html.indexOf("/app.js?v=39") < html.indexOf("/developer-kit/navigation-shell.js?v=3"));
   assert.match(html, /\/developer-kit\/navigation-shell\.css\?v=5/);
   assert.match(adapter, /MutationObserver/);
   assert.match(adapter, /data-view="\$\{view\}"/);
@@ -31,13 +31,23 @@ test("responsive navigation shell delegates to the stable frontend", () => {
   for (const tab of ["概况", "记忆", "上下文状态", "接入", "设置"]) {
     assert.match(app, new RegExp(`<span>${tab}</span>`));
   }
-  for (const content of ["已生长了", "原始对话", "对话文件总体积", "当前对话线程信息", "当前窗口注入", "自动化设置"]) {
+  for (const content of ["已生长了", "原始对话", "对话文件总体积", "当前对话线程信息", "当前窗口上下文", "当前窗口注入", "自动化设置"]) {
     assert.match(app, new RegExp(content));
   }
+  assert.match(app, /contextUsageHint\(usage,data\.automaticFullMining\)/);
+  assert.match(app, /context-usage-track/);
+  assert.match(app, /data\.contextUsage/);
+  assert.match(app, /重建目标窗口/);
+  assert.match(app, /name="rebuild-binding"/);
+  assert.match(app, /bindingId:rebuildState\.bindingMemoryId===library\.threadId\?rebuildState\.bindingId:null/);
   assert.match(app, /automationSwitch\("automaticFullMining"/);
   assert.match(app, /automationSwitch\("automaticMemoryMaintenance"/);
   assert.match(app, /automationSwitch\("automaticCompression"/);
   assert.match(app, /function renderAccess\(library\)/);
+  assert.match(app, /最多同时监听 5 个窗口/);
+  assert.match(app, /data-binding-toggle/);
+  assert.match(app, /data-binding-delete/);
+  assert.match(app, /data-binding-primary/);
   assert.match(app, /settingsRenderVersion/);
   assert.doesNotMatch(app, /querySelector\("\.side-title"\)/);
   assert.match(app, /function showBindingGuide\(library\)/);
