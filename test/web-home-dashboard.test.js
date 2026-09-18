@@ -15,7 +15,7 @@ test("home dashboard maps overview data onto the stable memory lobby", () => {
   const developerStyles = fs.readFileSync(path.join(root, "public", "theme-studio", "developer-common.css"), "utf8");
 
   assert.ok(html.indexOf("/app.js?v=17") < html.indexOf("/developer-kit/home-dashboard.js?v=5"));
-  assert.ok(html.indexOf("/developer-kit/page-transition.js?v=1") < html.indexOf("/app.js?v=17"));
+  assert.ok(html.indexOf("/developer-kit/page-transition.js?v=1") < html.indexOf("/app.js?v=22"));
   assert.match(adapter, /fetch\("\/api\/home"/);
   assert.match(adapter, /今日纹路 · TODAY'S GRAIN/);
   assert.match(adapter, /library-card--mapped/);

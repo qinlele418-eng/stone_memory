@@ -14,8 +14,8 @@ test("responsive navigation shell delegates to the stable frontend", () => {
   for (const action of ["home", "memory", "workshop", "me"]) {
     assert.match(html, new RegExp(`data-shell-action="${action}"`));
   }
-  assert.ok(html.indexOf("/app.js?v=17") < html.indexOf("/developer-kit/navigation-shell.js?v=3"));
-  assert.match(html, /\/developer-kit\/navigation-shell\.css\?v=4/);
+  assert.ok(html.indexOf("/app.js?v=22") < html.indexOf("/developer-kit/navigation-shell.js?v=3"));
+  assert.match(html, /\/developer-kit\/navigation-shell\.css\?v=5/);
   assert.match(adapter, /MutationObserver/);
   assert.match(adapter, /data-view="\$\{view\}"/);
   assert.match(adapter, /openWorkshop/);
@@ -27,7 +27,8 @@ test("responsive navigation shell delegates to the stable frontend", () => {
   assert.match(app, /function renderMyContent/);
   assert.match(app, /关注项目/);
   assert.match(app, /召唤赞赏码/);
-  assert.match(app, /querySelector\('\[data-view="developer"\]'\)\?\.remove\(\)/);
+  assert.match(app, /class="side-nav workspace-nav"/);
+  assert.doesNotMatch(app, /data-view="developer"/);
   const workspaceTemplate = app.match(/function workspace\(data\)[\s\S]*?function renderAboutContent/)?.[0] || "";
   assert.doesNotMatch(workspaceTemplate, /data-view="about"|renderAbout\(/);
   assert.match(app, /function renderGlobalAbout\(\)/);

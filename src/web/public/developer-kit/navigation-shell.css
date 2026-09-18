@@ -183,6 +183,7 @@ body.stone-shell-hidden .stone-application-frame { margin-left: 0; }
 
 /* The existing per-memory navigation remains the secondary navigation. */
 body.stone-shell-visible .workspace-grid { grid-template-columns: 178px minmax(0, 1fr); gap: 24px; }
+body.stone-shell-visible .workspace-grid.workspace-stack { grid-template-columns: minmax(0, 1fr); gap: 0; }
 body.stone-shell-visible .workspace .sidebar { padding: 15px; }
 body.stone-shell-visible .workspace .side-title { font-size: 21px; }
 
