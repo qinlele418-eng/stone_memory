@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { previewRows, paginate, buildConversationCalendar, countFeelingsMinedSince, miningDatesFromStore, miningCommandArgs, miningCheckCommandArgs, targetedMiningCommandArgs, timelineCommandArgs, compactTimelineReport, compressionCommandArgs, safeStmemFailure, reviewCandidateForWeb, reviewProfileFromInput, reviewBatchPayload, reviewBatchCommandArgs, listDeveloperModules } = require("../src/web/server");
+const { previewRows, paginate, buildConversationCalendar, countFeelingsMinedSince, memoryGrowthDays, miningDatesFromStore, miningCommandArgs, miningCheckCommandArgs, targetedMiningCommandArgs, timelineCommandArgs, compactTimelineReport, compressionCommandArgs, safeStmemFailure, reviewCandidateForWeb, reviewProfileFromInput, reviewBatchPayload, reviewBatchCommandArgs, listDeveloperModules } = require("../src/web/server");
 const { buildStdinCmd } = require("../src/services/subagent-runner");
 const { itemKey, inspectClaude, inspectCodex, conversationWindow, latestConversationDate, trimRows, checkThreadIntegrity } = require("../src/services/rebuild-workbench");
 const { validateThreadInput, validateSessionBinding } = require("../src/services/thread-setup");
@@ -92,6 +92,14 @@ test("home overview counts summaries mined today instead of today's conversation
     store.replaceDay(today, { feelings: [{ content: "旧摘要", importance: 3, createdAt: "2020-01-01T00:00:00.000Z" }] });
     assert.equal(countFeelingsMinedSince(store, "memory-1", dayStart), 1);
   } finally { store.close(); }
+});
+
+test("memory growth days anchor on creation or the first conversation date", () => {
+  assert.equal(memoryGrowthDays("2026-04-15T01:30:11.034Z", "2026-04-15", "2026-09-19"), 158);
+  assert.equal(memoryGrowthDays(null, "2026-04-15", "2026-09-19"), 158);
+  assert.equal(memoryGrowthDays(null, "2026-09-19", "2026-09-19"), 1);
+  assert.equal(memoryGrowthDays(null, null, "2026-09-19"), 0);
+  assert.equal(memoryGrowthDays("not-a-date", "bad", "2026-09-19"), 0);
 });
 
 test("conversation calendar renders complete months newest first", () => {

@@ -591,6 +591,15 @@ function countFeelingsMinedSince(store, threadId, sinceIso) {
   return Number(store.db.prepare("SELECT COUNT(*) count FROM feelings WHERE thread_id=? AND created_at>=?").get(threadId, sinceIso)?.count || 0);
 }
 
+// 生长天数锚点：优先记忆体创建日；旧布局没有 createdAt 时取最早对话的日期
+// （messages.created_at 是入库时间，会随导入/重建批次漂移，不能代表记忆年龄）。
+function memoryGrowthDays(createdAt, firstConversationDate, todayKey = localDateKey()) {
+  const createdDate = Number.isFinite(Date.parse(createdAt || "")) ? localDateKey(new Date(createdAt)) : null;
+  const startKey = createdDate || (/^\d{4}-\d{2}-\d{2}$/.test(String(firstConversationDate || "")) ? firstConversationDate : null);
+  if (!startKey) return 0;
+  return Math.max(1, Math.round((Date.parse(`${todayKey}T00:00:00+08:00`) - Date.parse(`${startKey}T00:00:00+08:00`)) / 86400000) + 1);
+}
+
 function homeOverview() {
   const libraries = listLibraries();
   const today = localDateKey();
@@ -782,8 +791,8 @@ function overview(identifier) {
     let anchors={retain:{},eventAnchors:{}};
     try { anchors={...anchors,...JSON.parse(fs.readFileSync(path.join(getThreadDir(threadId),"memory","retain-config.json"),"utf8"))}; } catch {}
     const createdAt=library.createdAt||store.db.prepare("SELECT MIN(created_at) createdAt FROM messages WHERE thread_id=?").get(threadId)?.createdAt||null;
-    const createdTime=Date.parse(createdAt||"");
-    const growthDays=Number.isFinite(createdTime)?Math.max(1,Math.floor((Date.now()-createdTime)/86400000)+1):0;
+    const firstConversationDate=store.db.prepare("SELECT MIN(source_date) d FROM messages WHERE thread_id=? AND source_date IS NOT NULL").get(threadId)?.d||null;
+    const growthDays=memoryGrowthDays(library.createdAt,firstConversationDate);
     return {
       ...library,
       createdAt,
@@ -1990,7 +1999,7 @@ function startWebServer({ host = "127.0.0.1", port = 4173 } = {}) {
 }
 
 module.exports = {
-  startWebServer, listLibraries, homeOverview, countFeelingsMinedSince, overview, previewRows, paginate, buildConversationCalendar,
+  startWebServer, listLibraries, homeOverview, countFeelingsMinedSince, memoryGrowthDays, overview, previewRows, paginate, buildConversationCalendar,
   listDeveloperModules, developerModuleDetail,
   miningDatesFromStore, miningCommandArgs, miningCheckCommandArgs, targetedMiningCommandArgs,
   timelineCommandArgs, compactTimelineReport, compressionCommandArgs, safeStmemFailure, runStmem,
