@@ -6,7 +6,7 @@
     "stmem": "./bin/stmem"
   },
   "engines": {
-    "node": "22.x"
+    "node": ">=22"
   },
   "scripts": {
     "preinstall": "node scripts/check-node-version.js",
@@ -25,7 +25,7 @@
   "license": "AGPL-3.0-only",
   "dependencies": {
     "@node-rs/jieba": "^2.0.1",
-    "better-sqlite3": "^11.10.0",
+    "better-sqlite3": "^13.0.3",
     "opencc-js": "^1.4.1"
   }
 }
