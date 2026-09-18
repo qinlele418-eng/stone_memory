@@ -23,6 +23,14 @@
 
 历史模块仍可能通过主前端加载独立 `bootstrap.js`，这是已登记的迁移债，不是新模块应复制的注册方式。若新模块只有修改 `app.js` 才能出现，说明 manifest、前端入口或模块发现契约存在问题，应先修通用宿主，不得给单个模块增加硬编码加载项。
 
+### 模块工具如何提供给 Agent
+
+需要 MCP 的模块必须声明 `module.json.entry.mcp`，走第 17 节的通用 Provider
+注册通道。模块没有 MCP 需求时无需声明入口；不能因为目前没有入口就认定它永远
+不需要 MCP。新增工具不得向根 `mcp-server.js` 或 `src/mcp/core/` 添加模块专属
+导入、定义、路由分支，不得另起 MCP 服务或要求用户增加一份客户端连接配置。
+宿主自动发现模块、生成工具名称、合并列表并按权限分派调用。
+
 ## 2. 标准目录
 
 ```text
@@ -34,6 +42,7 @@ developer-modules/
     │   ├── app.js
     │   └── styles.css
     ├── backend/
+    │   ├── mcp.js          # 按需：MCP Provider，SDK v2
     │   └── commands/
     │       └── <action>.js
     ├── prompts/
@@ -440,10 +449,38 @@ PR 描述至少包含：
 
 ## 17. MCP Provider（SDK v2）
 
+### 给实现 Agent 的接入顺序
+
+1. 确认哪些能力确实需要 Agent 调用，列出短名、作用域、输入和读写属性。
+2. 写能力先落实为本模块 `entry.commands` 登记的正式 CLI，再编写 Provider。
+   只读能力复用已有 reader；宿主未开放的能力应提出公共接口扩展，不做旁路。
+3. 只修改模块自身 manifest、Provider、业务文件和测试即可接入；普通新模块
+   不添加宿主白名单、不修改历史兼容表。以下 manifest 与 Provider 示例配套。
+4. 使用临时 HOME/USERPROFILE 和合成记忆体执行 CLI dry-run、显式启用、真实
+   MCP 调用、停用与重连回归。不要在真实用户配置中自动开启模块来测试。
+5. 提交前按本节“验证”执行；迁移任务必须对照旧工具，不能只测新名字可注册。
+
 Agent 仍只配置根 `mcp-server.js` 一个服务。模块声明 `sdkVersion: 2`、
 `permissions: ["mcp:tools"]` 和 `entry.mcp: "backend/mcp.js"` 即可接入。
 无 `entry.mcp` 的 SDK v1 模块保持原行为。Provider 入口禁止绝对路径、
 `..` 路径段和符号链接，必须位于模块内且文件存在。
+
+最小只读示例 `developer-modules/example-module/module.json`：
+
+```json
+{
+  "id": "example-module",
+  "title": "示例 MCP 模块",
+  "version": "1.0.0",
+  "sdkVersion": 2,
+  "scope": "memory",
+  "permissions": ["mcp:tools"],
+  "entry": { "mcp": "backend/mcp.js", "commands": {} },
+  "storage": {}
+}
+```
+
+配套 `backend/mcp.js`（示例只回显输入；读取 Core 数据时另声明 `core:read`）：
 
 ```js
 module.exports = {
@@ -474,6 +511,11 @@ module.exports = {
 `stmem_<模块ID中的连字符换成下划线>_<短名>`，最长 128 字符。
 一个 Provider 的任意工具验证失败或命名冲突时，整组拒绝注册，Core 不受影响。
 
+以上示例启用并重连后，对外工具名为 `stmem_example_module_lookup`，调用参数为
+`{"memoryId":"<明确选择的已配置记忆体ID>","key":"example"}`。
+`memoryId` 由宿主追加，不要写进 Provider 的 schema；Provider 收到 `args.key`
+和已绑定的 `context.memoryId`。
+
 `tools()` 必须同步返回纯 JSON 定义，不得执行写入、启动子进程或调用模型。
 所有对象 schema 都必须设置 `additionalProperties: false`。首版验证的 schema
 子集包含 `type`、`properties`、`required`、`items`、`enum`、`const`、
@@ -496,12 +538,12 @@ Provider 收到绑定后的 `context.memoryId/threadId`，`args` 不再含宿主
 
 ```bash
 stmem module mcp status --json
-stmem module mcp enable --module notebook-lab --memory <id>
-stmem module mcp enable --module notebook-lab --memory <id> --apply
-stmem module mcp enable --module notebook-lab --memory <id> --global --apply
-stmem module mcp disable --module notebook-lab --memory <id> --apply
+stmem module mcp enable --module example-module --memory <id>
+stmem module mcp enable --module example-module --memory <id> --apply
+stmem module mcp enable --module example-module --memory <id> --global --apply
+stmem module mcp disable --module example-module --memory <id> --apply
 # 关闭整个 memory 模块的全局门闩，保留各记忆体选择；仍要求明确 memory
-stmem module mcp disable --module notebook-lab --memory <id> --global --apply
+stmem module mcp disable --module example-module --memory <id> --global --apply
 ```
 
 默认只预览，`--apply` 才修改 `~/.stone_memory/developer-module-mcp.json`。
@@ -575,6 +617,21 @@ Dream 状态查询使用只读 MemoryStore，不注册线程、不清理历史�
 Deep Search 与 Notebook Steward 的内部受限工具保留原列表、调用上限与模式隔离。
 
 ### 验证
+
+验收必须包含真实 MCP 进程调用，不以直接调用 Provider 函数代替：
+
+| 场景 | 必须证明 |
+|---|---|
+| 默认关闭、显式启用、停用后新会话 | tools/list 与 tools/call 都符合启停状态 |
+| memory 工具 | 缺少 ID、非法 ID、未授权记忆体被拒绝；不自动选择第一项 |
+| 正常与失败调用 | 参数约束、完整返回结构、错误净化、异常后后续调用可用 |
+| 只读调用 | 缺库不创建文件；现有库记录/schema/主库文件不变 |
+| 写工具 | 经正式 CLI 写入、revision/确认规则有效、正文不进 argv、batch 清理 |
+| 删除或损坏 Provider | 不影响其他模块/Core，不保留隐藏的旧调用入口 |
+| 迁移旧工具 | 对照旧名称、业务参数及结果；兼容差异有记录，无重复注册或 Core 回退 |
+
+新模块在自身 `test/` 增加场景；共享宿主与跨模块场景放根 `test/`。
+本机测试和 CI 的平台/Node 版本应分开报告；使用合成规划器时明确标注。
 
 运行 `node scripts/verify-mcp-contract.js`（自动隔离 HOME）、
 `npm run audit:developer-modules` 和隔离 HOME 下的 `npm test`。
