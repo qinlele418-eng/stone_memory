@@ -27,6 +27,7 @@
       "update-official": "backend/commands/community.js",
       "resolve-official-update": "backend/commands/community.js",
       "remove-change": "backend/commands/community.js",
+      "remove-pr": "backend/commands/community.js",
       "restart-plan": "backend/commands/community.js",
       "supervisor-control": "backend/commands/community.js"
     }

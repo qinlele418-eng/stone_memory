@@ -40,6 +40,7 @@ textarea { resize:vertical; line-height:1.55; }
 .card { width:100%; padding:14px; text-align:left; color:inherit; border:1px solid var(--stone-theme-line-soft,#e8eee5); border-radius:var(--stone-theme-radius-md,16px); background:var(--stone-theme-surface-soft,#faf8f2); }
 .card strong { display:block; margin-bottom:6px; }.card span,.card small { color:var(--stone-theme-ink-soft,#69756d); line-height:1.5; }
 .card.update { border-color:var(--stone-theme-warning,#c58a28); }
+.tracked-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
 .restart { width:100%; margin:15px 0 8px; color:var(--stone-theme-surface,#fff); background:var(--stone-theme-accent,#397052); }
 .full-action { width:100%; margin-top:15px; }
 .notice { padding:12px; margin-bottom:14px; border-radius:12px; }.danger { color:var(--stone-theme-danger,#a64238); background:color-mix(in srgb,var(--stone-theme-danger,#a64238) 10%,transparent); }
