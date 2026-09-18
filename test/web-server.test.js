@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { previewRows, paginate, buildConversationCalendar, miningDatesFromStore, miningCommandArgs, miningCheckCommandArgs, targetedMiningCommandArgs, timelineCommandArgs, compactTimelineReport, compressionCommandArgs, safeStmemFailure, reviewCandidateForWeb, reviewProfileFromInput, reviewBatchPayload, reviewBatchCommandArgs, listDeveloperModules } = require("../src/web/server");
+const { previewRows, paginate, buildConversationCalendar, countFeelingsMinedSince, memoryGrowthDays, miningDatesFromStore, miningCommandArgs, miningCheckCommandArgs, targetedMiningCommandArgs, timelineCommandArgs, compactTimelineReport, compressionCommandArgs, safeStmemFailure, reviewCandidateForWeb, reviewProfileFromInput, reviewBatchPayload, reviewBatchCommandArgs, listDeveloperModules } = require("../src/web/server");
 const { buildStdinCmd } = require("../src/services/subagent-runner");
 const { itemKey, inspectClaude, inspectCodex, conversationWindow, latestConversationDate, trimRows, checkThreadIntegrity } = require("../src/services/rebuild-workbench");
 const { validateThreadInput, validateSessionBinding } = require("../src/services/thread-setup");
@@ -77,6 +77,29 @@ test("integrity checks resolve the selected binding thread file", t => {
   assert.equal(report.healthy, true);
   assert.ok(report.file.endsWith("t1.jsonl"));
   assert.throws(() => checkThreadIntegrity("memory-select", { provider: "claude", externalThreadId: "missing-id", sessionRoot: dir }), /没有找到线程/);
+});
+
+test("home overview counts summaries mined today instead of today's conversation date", t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-home-feelings-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const store = new MemoryStore({ memoryDir: dir, threadId: "memory-1" });
+  try {
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+    const dayStart = new Date(`${today}T00:00:00+08:00`).toISOString();
+    // 自动挖掘只挖过去：夜里挖出的历史对话，应以"今天挖出"计入
+    store.replaceDay("2026-01-05", { feelings: [{ content: "昨夜挖出的摘要", importance: 3 }] });
+    // 对话日期是今天但很久以前就挖过的旧摘要，不应计入
+    store.replaceDay(today, { feelings: [{ content: "旧摘要", importance: 3, createdAt: "2020-01-01T00:00:00.000Z" }] });
+    assert.equal(countFeelingsMinedSince(store, "memory-1", dayStart), 1);
+  } finally { store.close(); }
+});
+
+test("memory growth days anchor on creation or the first conversation date", () => {
+  assert.equal(memoryGrowthDays("2026-04-15T01:30:11.034Z", "2026-04-15", "2026-09-19"), 158);
+  assert.equal(memoryGrowthDays(null, "2026-04-15", "2026-09-19"), 158);
+  assert.equal(memoryGrowthDays(null, "2026-09-19", "2026-09-19"), 1);
+  assert.equal(memoryGrowthDays(null, null, "2026-09-19"), 0);
+  assert.equal(memoryGrowthDays("not-a-date", "bad", "2026-09-19"), 0);
 });
 
 test("conversation calendar renders complete months newest first", () => {
