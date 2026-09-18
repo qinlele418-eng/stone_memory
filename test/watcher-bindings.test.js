@@ -1,6 +1,9 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
+const { spawnSync } = require("node:child_process");
 const {
   MAX_ENABLED_BINDINGS,
   bindingCursorFile,
@@ -21,4 +24,32 @@ test("each formal binding receives an independent sync cursor", () => {
   assert.notEqual(first, second);
   assert.equal(path.basename(first), "binding-one.json");
   assert.match(first, /[\\/]\.sync-state[\\/]/u);
+});
+
+function runWithHome(home, code) {
+  const env = { ...process.env, HOME: home };
+  if (process.platform === "win32") env.USERPROFILE = home;
+  delete env.NODE_TEST_CONTEXT;
+  return spawnSync(process.execPath, ["-e", code], { cwd: path.resolve(__dirname, ".."), env, encoding: "utf8" });
+}
+
+test("legacy windows without an explicit external thread id keep their memory-id fallback", t => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-watcher-legacy-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const memoryId = "019d9abc-ea95-7312-9354-4e44ec138aae";
+  const sessionDir = path.join(home, "sessions");
+  fs.mkdirSync(sessionDir, { recursive: true });
+  fs.writeFileSync(path.join(sessionDir, `${memoryId}.jsonl`), `${JSON.stringify({ session_id: memoryId })}\n`);
+  fs.mkdirSync(path.join(home, ".stone_memory"), { recursive: true });
+  fs.writeFileSync(path.join(home, ".stone_memory", "stmem.json"), JSON.stringify({
+    [memoryId]: { sessionDir, runtime: "claude", label: "legacy memory" },
+  }));
+  const modulePath = path.join(__dirname, "..", "src", "services", "watcher-bindings");
+  const result = runWithHome(home, `const { enabledWatcherBindings } = require(${JSON.stringify(modulePath)}); console.log(JSON.stringify(enabledWatcherBindings(${JSON.stringify(memoryId)})));`);
+  assert.equal(result.status, 0, result.stderr);
+  const bindings = JSON.parse(result.stdout);
+  assert.equal(bindings.length, 1);
+  assert.equal(bindings[0].id, "legacy-primary");
+  assert.equal(bindings[0].externalThreadId, memoryId);
+  assert.ok(bindings[0].threadFile.endsWith(`${memoryId}.jsonl`));
 });

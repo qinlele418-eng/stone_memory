@@ -20,13 +20,14 @@ function enabledWatcherBindings(memoryId) {
       }));
   }
   const config = getMemoryRuntimeConfig(memoryId);
-  if (!config.sessionDir || !config.externalThreadId) return [];
+  const externalThreadId = String(config.externalThreadId || memoryId).trim();
+  if (!config.sessionDir || !externalThreadId) return [];
   return [{
     id: "legacy-primary",
     provider: config.runtime,
-    externalThreadId: config.externalThreadId,
+    externalThreadId,
     sessionRoot: config.sessionDir,
-    threadFile: findThreadSessionFile(config.sessionDir, config.externalThreadId),
+    threadFile: findThreadSessionFile(config.sessionDir, externalThreadId),
     primary: true,
     legacy: true,
   }];
