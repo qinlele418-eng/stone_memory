@@ -333,4 +333,19 @@ function migrateColumns(db) {
   db.exec("CREATE INDEX IF NOT EXISTS idx_messages_import_batch ON messages(thread_id,import_batch_id)");
 }
 
-module.exports = { openDatabase, SCHEMA_VERSION };
+// Read adapters must never initialize or migrate persistent storage.
+function openReadDatabase(memoryDir) {
+  const dbPath = resolveDatabasePath(memoryDir);
+  try { fs.statSync(dbPath); }
+  catch (error) { if (error.code === "ENOENT") return null; throw error; }
+  const db = new Database(dbPath, { readonly: true, fileMustExist: true });
+  try {
+    let version = 0;
+    try { version = db.prepare("SELECT MAX(version) version FROM schema_migrations").get()?.version || 0; }
+    catch { /* An uninitialized/legacy database must be upgraded by the CLI. */ }
+    if (version < SCHEMA_VERSION) throw new Error("STORAGE_UPGRADE_REQUIRED");
+    return db;
+  } catch (error) { db.close(); throw error; }
+}
+
+module.exports = { openDatabase, openReadDatabase, SCHEMA_VERSION };

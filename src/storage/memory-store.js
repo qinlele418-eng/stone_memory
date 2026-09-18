@@ -1,7 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
-const { openDatabase } = require("./database");
+const { openDatabase, openReadDatabase } = require("./database");
 const { listDateFiles } = require("../lib/archive-paths");
 const { isInjectedMemoryBlock } = require("../lib/system-injection");
 const { messageIdentity } = require("../lib/message-identity");
@@ -22,10 +22,12 @@ function dateFromFeeling(entry) {
 }
 
 class MemoryStore {
-  constructor({ memoryDir, threadId }) {
+  constructor({ memoryDir, threadId, readonly = false }) {
     this.memoryDir = memoryDir;
     this.threadId = threadId;
-    this.db = openDatabase(memoryDir);
+    this.db = readonly ? openReadDatabase(memoryDir) : openDatabase(memoryDir);
+    this.removedInjectedMemoryBlocks = 0;
+    if (readonly) return;
     const now = new Date().toISOString();
     this.db.prepare(`INSERT OR IGNORE INTO threads(id,created_at,updated_at) VALUES (?,?,?)`).run(threadId, now, now);
     // 迁移期曾把 rebuild 注入的 <memory_context> 当普通 user 文本写入 messages。
@@ -63,7 +65,7 @@ class MemoryStore {
     return this.getThread();
   }
 
-  close() { this.db.close(); }
+  close() { this.db?.close(); }
 
   insertMessagesDetailed(rows, {
     source = "archive",
@@ -285,6 +287,7 @@ class MemoryStore {
   }
 
   listFeelings({ date } = {}) {
+    if (!this.db) return [];
     const where = date ? "AND source_date = ?" : "";
     const params = date ? [this.threadId, date] : [this.threadId];
     return this.db.prepare(`SELECT *,

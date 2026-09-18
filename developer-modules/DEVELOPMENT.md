@@ -108,6 +108,7 @@ my_module          错误
 | `permissions` | 是 | 模块实际需要的最小权限，即使为空也要写 `[]` |
 | `entry.frontend` | 按需 | 模块前端入口，相对于模块目录 |
 | `entry.commands` | 按需 | 可被统一 CLI 调度的命令 |
+| `entry.mcp` | 按需 | SDK v2 CommonJS Provider，须声明 `mcp:tools`，默认关闭 |
 | `storage` | 按需 | 数据库、文档、文件和浏览器持久化声明 |
 | `watcher` | 按需 | 开发者 Watcher 插件声明 |
 | `coreExtensions` | 极少 | 模块确实需要修改 Core 时，逐文件声明 `path` 与 `reason` |
@@ -333,6 +334,8 @@ manifest 只能声明实际需要的权限。典型能力包括：
 - `theme:write`：修改全局主题；
 - `watcher:plugin`：注册开发者 Watcher；
 - `process:spawn`：确有必要时启动受控子进程。
+- `mcp:tools`：向统一 Stone MCP 注册工具，用户显式启用后才加载；
+- `mcp:write`：允许非只读 MCP 工具通过 `context.runCommand` 调用本模块已登记命令。
 
 不得因为“以后可能用到”而申请宽权限。
 
@@ -434,3 +437,117 @@ PR 描述至少包含：
 6. 是否建议进入官方主线。
 
 模块不得提交真实对话、threadId、用户名、AI 名、API Key、本机路径、服务器地址或未经脱敏的截图与 fixture。
+
+## 17. MCP Provider（SDK v2）
+
+Agent 仍只配置根 `mcp-server.js` 一个服务。模块声明 `sdkVersion: 2`、
+`permissions: ["mcp:tools"]` 和 `entry.mcp: "backend/mcp.js"` 即可接入。
+无 `entry.mcp` 的 SDK v1 模块保持原行为。Provider 入口禁止绝对路径、
+`..` 路径段和符号链接，必须位于模块内且文件存在。
+
+```js
+module.exports = {
+  tools() {
+    return [{
+      name: "lookup",
+      description: "Read a module record",
+      inputSchema: {
+        type: "object",
+        properties: { key: { type: "string", minLength: 1 } },
+        required: ["key"],
+        additionalProperties: false
+      },
+      annotations: {
+        readOnlyHint: true, destructiveHint: false,
+        idempotentHint: true, openWorldHint: false
+      }
+    }];
+  },
+  async call(context, name, args) {
+    // Read via context.resolveDataPath() or authorized context.core readers.
+    return { content: [{ type: "text", text: args.key }], isError: false };
+  }
+};
+```
+
+工具短名只接受小写字母、数字和下划线。对外名称为
+`stmem_<模块ID中的连字符换成下划线>_<短名>`，最长 128 字符。
+一个 Provider 的任意工具验证失败或命名冲突时，整组拒绝注册，Core 不受影响。
+
+`tools()` 必须同步返回纯 JSON 定义，不得执行写入、启动子进程或调用模型。
+所有对象 schema 都必须设置 `additionalProperties: false`。首版验证的 schema
+子集包含 `type`、`properties`、`required`、`items`、`enum`、`const`、
+`minimum/maximum`、`minLength/maxLength`、`minItems/maxItems`，以及
+`title/description/default` 元数据。不支持的关键字会拒绝加载，而非忽略验证。
+默认值仅用于描述，不会由宿主填入参数。
+`const/enum` 对象值按结构比较，不依赖键顺序；数组顺序仍有意义。
+memory 工具禁止顶层 `const/enum`（否则追加宿主 `memoryId` 后约束不可满足），
+嵌套属性中的 `const/enum` 正常支持。
+
+### 作用域与启停
+
+所有 Module Provider 都默认关闭，现有 Core 工具不受配置影响。
+`scope: memory` 工具的对外 schema 由宿主追加必填 `memoryId`（Provider
+不得自行定义该保留参数），每次调用都验证该 ID 已配置且在本模块启用。
+Provider 收到绑定后的 `context.memoryId/threadId`，`args` 不再含宿主参数。
+即便只有一个记忆体也不会自动选择；`scope: global` 工具不绑定记忆体。
+
+```bash
+stmem module mcp status --json
+stmem module mcp enable --module example-module --memory <id>
+stmem module mcp enable --module example-module --memory <id> --apply
+stmem module mcp enable --module example-module --memory <id> --global --apply
+stmem module mcp disable --module example-module --memory <id> --apply
+# 关闭整个 memory 模块的全局门闩，保留各记忆体选择；仍要求明确 memory
+stmem module mcp disable --module example-module --memory <id> --global --apply
+```
+
+默认只预览，`--apply` 才修改 `~/.stone_memory/developer-module-mcp.json`。
+启用或停用某记忆体只修改该项，不改变全局门闩。首次启用须分别打开两级开关。
+`--global` 单独调整门闩，不改变记忆体选择。全局作用域模块不接受 `--memory`。
+配置使用独占写锁、revision 冲突检查、0600 临时文件和原子替换。
+若进程崩溃留下锁，确认无写入进程后才由管理员清理锁文件，不自动抢锁。
+
+`status` 显示安装状态、两级开关、权限和本次 CLI 探测的 Provider 加载结果。
+该结果不代表已连接 MCP 会话。每次改动后必须重新连接 Agent/MCP。
+
+### 上下文与写入口
+
+`context` 提供模块 ID、绑定记忆体、私有数据路径、`signal`、`logger` 和
+`runCommand(action, payload)`。声明 `core:read` 才提供绑定当前记忆体的
+`core.listBindings()`、`core.getBinding(id)`、`core.listFeelings()` 和
+`core.notebook.catalog/search/read`，不接受跨记忆体参数。
+枚举工具时没有记忆体，也没有 Core reader。
+这些模块 reader 以 SQLite 只读连接打开现有库，不注册线程、不迁移、不触发历史
+消息清理。缺库时列表/笔记查询返回空结果，单个不存在的 Binding 仍报未找到。
+旧库需要升级时返回 `MCP_STORAGE_UPGRADE_REQUIRED`，须通过正式 CLI 完成升级。
+
+首版 Provider 不允许直接写私有缓存或正式数据。写工具必须声明 `mcp:write`
+并将 `readOnlyHint` 设为 `false`，通过 `context.runCommand` 调用本模块
+`entry.commands` 中的动作。宿主将 JSON 写入临时 0600 batch 文件，执行
+`stmem module <id> <action> --memory <id> --batch-file <file>`，结束后清理。
+正文和秘密不能进入 argv；命令输入上限 1 MiB。只读工具无法调用该写接口。
+
+### 隔离与审计
+
+单次模块调用上限 30 秒，支持 MCP `notifications/cancelled`，通过 AbortSignal
+通知 Provider，并取消宿主启动的 CLI 子进程。异步超时后仍可处理后续工具。
+Provider 必须遵守取消信号；同进程模式不能抢占同步死循环，也不能强制停止
+忽略信号的本地代码。这是已安装可信代码的契约，不是第三方代码安全沙箱。
+
+只通过 `context.logger` 记录日志。宿主日志仅含模块 ID、版本、固定错误码与
+时间，不回显 Provider 异常、绝对路径、正文或堆栈。返回值必须是标准
+`CallToolResult`，支持 text/image/audio/resource 内容；异常或非法返回值转为
+`isError: true`。模块不要自行运行 stdio、监听端口或修改客户端配置。
+
+审计先静态验证入口和常见写入/stdout 违规；关闭的 Provider 不会被 require。
+显式启用后，`module audit --strict`、`mcp status` 与 MCP 启动都会检查导出、
+工具定义、schema、annotations 和冲突。静态检查不能证明任意依赖安全。
+
+### 验证
+
+运行 `node scripts/verify-mcp-contract.js`（自动隔离 HOME）、
+`npm run audit:developer-modules` 和隔离 HOME 下的 `npm test`。
+完整工具定义快照位于 `test/fixtures/mcp/core-tools.json`，覆盖普通、Deep Search
+和 Notebook Steward 三种模式；现有 CI 在 Node 22/25 × Windows/Linux/macOS
+六个组合执行契约检查。受限子 MCP 永不加载 Module Provider。

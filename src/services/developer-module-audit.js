@@ -75,6 +75,17 @@ function auditModule(moduleDir, { projectRoot = PROJECT_ROOT } = {}) {
   const findings = validateManifest(manifest, { directoryName })
     .map(message => finding("error", "manifest-contract", id, message, manifestFile));
   const legacy = manifest.legacy || {};
+  if (manifest.entry?.mcp !== undefined) {
+    try {
+      const file = require("../mcp/provider-contract").resolveProvider(moduleDir, manifest.entry.mcp);
+      const source = fs.readFileSync(file, "utf8");
+      if (/console\.(?:log|info|debug)\s*\(|process\.stdout\s*\./u.test(source)) findings.push(finding("error", "mcp-stdout", id, "Provider 必须使用 context.logger", manifestFile));
+      if (/(?:writeFile(?:Sync)?|appendFile(?:Sync)?|unlink(?:Sync)?|rename(?:Sync)?|mkdir(?:Sync)?|rm(?:Sync)?)\s*\(|require\(["'](?:node:)?child_process["']\)/u.test(source)) findings.push(finding("error", "mcp-write-boundary", id, "Provider 写操作必须经过 context.runCommand 与正式模块 CLI", manifestFile));
+    }
+    catch { findings.push(finding("error", "mcp-entry", id, "MCP Provider 入口不存在或越界", manifestFile)); }
+    // Never require a disabled provider during static audit. Export/schema checks
+    // run only after explicit activation, inside the loader.
+  }
   for (const storage of legacy.storage || []) {
     findings.push(finding(
       "warning",
@@ -143,4 +154,4 @@ function auditDeveloperModules({ root = MODULE_ROOT, projectRoot = PROJECT_ROOT 
   return { ok: errors === 0, root, modules: listModuleDirectories(root).length, errors, warnings, findings };
 }
 
-module.exports = { auditDeveloperModules };
+module.exports = { auditDeveloperModules, auditModule };

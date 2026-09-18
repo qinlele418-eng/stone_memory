@@ -1,54 +1,38 @@
+// A frame's Content-Length counts UTF-8 bytes, including across pipe chunks.
 function startTransport(handle, { input = process.stdin, output = process.stdout } = {}) {
-  function respond(id, result) {
-    const body = JSON.stringify({ jsonrpc: "2.0", id, result });
-    const byteLength = Buffer.byteLength(body, "utf8");
-
-    if (rpcMode === "jsonl") {
-      output.write(`${body}\n`);
-      return;
-    }
-
-    output.write(`Content-Length: ${byteLength}\r\n\r\n${body}`);
-  }
-
-  let rpcMode = "content-length";
-  let data = "";
-  // Some launchers create the stdio pipe before they write the first MCP frame.
-  // Keep the server alive during that short gap instead of exiting with code 0.
-  const stdioKeepAlive = setInterval(() => {}, 60_000);
-  input.setEncoding("utf8");
-  input.resume();
-  input.once("end", () => clearInterval(stdioKeepAlive));
-  input.on("data", (chunk) => {
-    data += chunk;
-    while (true) {
-      // 优先解析 Content-Length 头（标准 MCP stdio 协议）
-      const clMatch = data.match(/^Content-Length:\s*(\d+)\r?\n\r?\n/);
-      if (clMatch) {
-        rpcMode = "content-length";
-
-        const len = parseInt(clMatch[1], 10);
-        const hdrEnd = clMatch[0].length;
-        if (data.length < hdrEnd + len) break;
-        try { handle(JSON.parse(data.slice(hdrEnd, hdrEnd + len)), respond); } catch {}
-        data = data.slice(hdrEnd + len);
-        continue;
+  let data = Buffer.alloc(0);
+  const keepAlive = setInterval(() => {}, 60_000);
+  input.once("end", () => clearInterval(keepAlive));
+  input.on("data", chunk => {
+    data = Buffer.concat([data, Buffer.from(chunk)]);
+    while (data.length) {
+      const header = data.toString("ascii").match(/^Content-Length:\s*(\d+)\r?\n\r?\n/);
+      let body, mode;
+      if (header) {
+        const end = header[0].length + Number(header[1]);
+        if (data.length < end) break;
+        body = data.subarray(header[0].length, end).toString("utf8");
+        data = data.subarray(end);
+        mode = "content-length";
+      } else {
+        if (data.toString("ascii").startsWith("Content-Length:") || "Content-Length:".startsWith(data.toString("ascii"))) break;
+        const end = data.indexOf(10);
+        if (end < 0) break;
+        body = data.subarray(0, end).toString("utf8").trim();
+        data = data.subarray(end + 1);
+        mode = "jsonl";
       }
-      // fallback: newline-delimited JSON
-      const nlIdx = data.indexOf("\n");
-      if (nlIdx >= 0) {
-        const line = data.slice(0, nlIdx).trim();
-        data = data.slice(nlIdx + 1);
-        if (line) {
-          rpcMode = "jsonl";
-          try { handle(JSON.parse(line), respond); } catch {}
-        }
-        continue;
-      }
-      break;
+      if (!body) continue;
+      let message;
+      try { message = JSON.parse(body); } catch { continue; }
+      const respond = (id, result) => {
+        const text = JSON.stringify({ jsonrpc: "2.0", id, result });
+        output.write(mode === "jsonl" ? `${text}\n` : `Content-Length: ${Buffer.byteLength(text)}\r\n\r\n${text}`);
+      };
+      Promise.resolve(handle(message, respond)).catch(() => {});
     }
   });
-
-  return () => clearInterval(stdioKeepAlive);
+  input.resume();
+  return () => clearInterval(keepAlive);
 }
 module.exports = { startTransport };
