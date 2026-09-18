@@ -21,14 +21,33 @@ function run(args, t) {
   return { result, preferences, lines };
 }
 
-test("dream preferences reports defaults and normalized probabilities", t => {
+test("dream preferences reports safe defaults", t => {
   const { result, lines } = run(["preferences", "--thread", "thread-a"], t);
   assert.equal(result.threadId, "thread-a");
-  assert.equal(result.guard, false);
+  assert.equal(result.nsfwEnabled, false);
+  assert.deepEqual(result.excludedTypes, []);
   assert.equal(result.oneShot, null);
   assert.equal(result.multipliers.beautiful, 1);
-  assert.ok(result.probabilities.beautiful > 0.63 && result.probabilities.beautiful < 0.65);
+  assert.equal(result.distribution.mode, "safe");
+  assert.ok(result.distribution.final.beautiful > 0.88 && result.distribution.final.beautiful < 0.90);
   assert.deepEqual(JSON.parse(lines[0]), result);
+});
+
+test("dream nsfw explicitly enables and disables the full policy", t => {
+  const enabled = run(["nsfw", "--thread", "thread-a", "on"], t);
+  assert.equal(enabled.result.nsfwEnabled, true);
+  assert.equal(enabled.result.distribution.mode, "nsfw");
+
+  const disabled = run(["nsfw", "--thread", "thread-a", "off"], t);
+  assert.equal(disabled.result.nsfwEnabled, false);
+  assert.equal(disabled.result.distribution.mode, "safe");
+});
+
+test("dream pin rejects NSFW types while the capability is disabled", t => {
+  assert.throws(
+    () => run(["pin", "--thread", "thread-a", "--type", "erotic"], t),
+    error => error.code === "DREAM_NSFW_DISABLED",
+  );
 });
 
 test("dream pin sets a one-shot override and unpin clears it", t => {
@@ -39,14 +58,14 @@ test("dream pin sets a one-shot override and unpin clears it", t => {
   assert.equal(second.result.oneShot, null);
 });
 
-test("dream guard flips the nightmare guard", t => {
-  const on = run(["guard", "--thread", "thread-a", "on"], t);
-  assert.equal(on.result.guard, true);
-  assert.equal(on.result.probabilities.nightmare, 0);
-  assert.equal(on.result.probabilities.nightmare_erotic, 0);
+test("dream guard sets a custom exclusion set and clears it", t => {
+  const on = run(["guard", "--thread", "thread-a", "--exclude", "nightmare", "--exclude", "nightmare_erotic"], t);
+  assert.deepEqual(on.result.excludedTypes, ["nightmare", "nightmare_erotic"]);
+  assert.equal(on.result.distribution.final.nightmare, 0);
+  assert.equal(on.result.distribution.final.nightmare_erotic, 0);
 
-  const off = run(["guard", "--thread", "thread-a", "off"], t);
-  assert.equal(off.result.guard, false);
+  const off = run(["guard", "--thread", "thread-a"], t);
+  assert.deepEqual(off.result.excludedTypes, []);
 });
 
 test("dream multiplier updates weights and rejects unknown steps", t => {
@@ -73,6 +92,13 @@ test("dream prompt reads bundled, writes override, and resets", t => {
 
   const reset = run(["prompt", "--thread", "thread-a", "--type", "beautiful", "--reset"], t);
   assert.equal(reset.result.custom, false);
+});
+
+test("safe bundled prompts do not disclose NSFW dream capabilities", t => {
+  for (const type of ["common-core", "beautiful", "nightmare"]) {
+    const { result } = run(["prompt", "--thread", "thread-a", "--type", type], t);
+    assert.doesNotMatch(result.content, /绮梦|绮染|亲密内容|欲望/u, `${type} should remain safe while NSFW is off`);
+  }
 });
 
 test("prompt write rejects a common rule that drops the type slot", t => {

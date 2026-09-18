@@ -21,6 +21,8 @@ const { editFusionCandidate } = require("../services/review-fusion");
 const { isArchiveConversation } = require("../services/thread-ingest");
 const { DreamReader } = require("../services/dream-reader");
 const { NotebookService } = require("../services/notebook-service");
+const { planDreamDistribution } = require("../services/dream-policy");
+const { DreamPreferences } = require("../services/dream-preferences");
 const { watcherActions, watcherEnabled } = require("../services/watcher-runtime");
 const { normalizeMiningApiProfile } = require("../services/mining-api-profile");
 const { normalizeModelName } = require("../lib/model-name");
@@ -591,6 +593,16 @@ function serveCanonicalDeveloperModule(req, res, pathname) {
   return true;
 }
 
+function serveLegacyDreamLab(res, url) {
+  const { pathname } = url;
+  if (!/^\/dream-lab(?:\/|$)/u.test(pathname)) return false;
+  const suffix = pathname.slice("/dream-lab".length).replace(/^\//u, "");
+  const location = `/developer-modules/dream-lab/${suffix}`.replace(/\/$/u, "/") + url.search;
+  res.writeHead(302, { location });
+  res.end();
+  return true;
+}
+
 function overview(threadId) {
   const library = listLibraries().find(item => item.threadId === threadId);
   if (!library) return null;
@@ -658,13 +670,19 @@ async function handleDreamSettings(req, url, threadId, resource) {
   }
   if (resource === "guard" && req.method === "PUT") {
     const body = await readJson(req);
-    return JSON.parse(runStmem(["dream", "guard", "--thread", threadId, body.enabled ? "on" : "off"]));
+    const args = ["dream", "guard", "--thread", threadId];
+    for (const type of (body.excludedTypes || [])) args.push("--exclude", String(type));
+    return JSON.parse(runStmem(args));
   }
   if (resource === "multiplier" && req.method === "PUT") {
     const body = await readJson(req);
     const args = ["dream", "multiplier", "--thread", threadId];
     for (const [type, value] of Object.entries(body.multipliers || {})) args.push(`--${type}`, String(value));
     return JSON.parse(runStmem(args));
+  }
+  if (resource === "nsfw" && req.method === "PUT") {
+    const body = await readJson(req);
+    return JSON.parse(runStmem(["dream", "nsfw", "--thread", threadId, body.enabled === true ? "on" : "off"]));
   }
   if (resource === "prompt") {
     if (req.method === "GET") {
@@ -1035,14 +1053,12 @@ async function handleApi(req, res, url) {
       const reader = new DreamReader();
       const dreamDates = reader.listDates(threadId);
       const selectedDate = String(url.searchParams.get("date") || "");
+      const selectedDream = selectedDate ? reader.get(threadId, selectedDate) : null;
+      if (selectedDate && !selectedDream) return json(res, 404, { error: "梦境不存在或当前不可见" });
       return json(res, 200, {
         enabled: settings.automaticDream,
-        latest: selectedDate && dreamDates.includes(selectedDate)
-          ? reader.get(threadId, selectedDate)
-          : reader.latest(threadId),
-        selectedDate: selectedDate && dreamDates.includes(selectedDate)
-          ? selectedDate
-          : dreamDates.at(-1) || null,
+        latest: selectedDream || reader.latest(threadId),
+        selectedDate: selectedDream ? selectedDate : dreamDates.at(-1) || null,
         dreamDates,
         entries: reader.list(threadId),
         coverage: reader.coverage(threadId),
@@ -1077,9 +1093,28 @@ async function handleApi(req, res, url) {
     }
   }
 
-  const dreamSettingsMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/dreams\/(preferences|pin|guard|multiplier|prompt)$/);
+  const dreamPreviewMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/dreams\/policy-preview$/);
+  if (dreamPreviewMatch && req.method === "POST") {
+    const threadId = decodeURIComponent(dreamPreviewMatch[1]);
+    publicThreadSettings(threadId);
+    const body = await readJson(req);
+    const prefs = new DreamPreferences().read(threadId);
+    try {
+      return json(res, 200, planDreamDistribution({
+        multipliers: body.multipliers || {},
+        excludedTypes: body.excludedTypes || [],
+        nsfwEnabled: prefs.nsfwEnabled,
+      }));
+    } catch (error) {
+      if (error.code === "DREAM_NO_CANDIDATE") return json(res, 200, { valid: false, error: error.message });
+      throw error;
+    }
+  }
+
+  const dreamSettingsMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/dreams\/(preferences|pin|guard|multiplier|nsfw|prompt)$/);
   if (dreamSettingsMatch) {
     const threadId = decodeURIComponent(dreamSettingsMatch[1]);
+    publicThreadSettings(threadId);
     return json(res, 200, await handleDreamSettings(req, url, threadId, dreamSettingsMatch[2]));
   }
 
@@ -1575,6 +1610,7 @@ function startWebServer({ host = "127.0.0.1", port = 4173 } = {}) {
     const url = new URL(req.url, `http://${req.headers.host || `${host}:${port}`}`);
     try {
       if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/review-lab/api/")) return await handleApi(req, res, url);
+      if (serveLegacyDreamLab(res, url)) return;
       if (serveCanonicalDeveloperModule(req, res, url.pathname)) return;
       if (serveStatic(req, res, url.pathname)) return;
       if (!path.extname(url.pathname)) return serveStatic(req, res, "/");
