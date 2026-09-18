@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-const { getCfg, listMemoryIds, getThreadDir } = require("../src/config");
+const { getCfg, listMemoryIds, getMemoryContext, getThreadDir } = require("../src/config");
 const path = require("path");
 const { MemoryStore } = require("../src/storage/memory-store");
 
@@ -20,9 +20,12 @@ for (const tid of threads) {
   store.close();
 
   const label = getCfg("label", tid, tid);
+  let layout = "legacy-runtime-v0";
+  try { layout = getMemoryContext(tid).layout; } catch {}
+  const primaryBinding = getCfg("externalThreadId", tid, null) || (layout === "memory-v1" ? "未绑定" : tid);
   console.log(`  ${label}`);
   console.log(`    记忆体 ID: ${tid}`);
-  console.log(`    主 Binding: ${getCfg("externalThreadId", tid, "未绑定")}`);
+  console.log(`    主 Binding: ${primaryBinding}`);
   console.log(`    AI: ${getCfg("ai", tid)}  用户: ${getCfg("user", tid)} (${getCfg("userGender", tid, "female")})`);
   console.log(`    runtime: ${getCfg("runtime", tid)} | purpose: ${getCfg("purpose", tid)}`);
   console.log(`    sessionDir: ${getCfg("sessionDir", tid)}`);
