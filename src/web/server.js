@@ -587,9 +587,14 @@ function localDateKey(date = new Date()) {
   }).format(date);
 }
 
+function countFeelingsMinedSince(store, threadId, sinceIso) {
+  return Number(store.db.prepare("SELECT COUNT(*) count FROM feelings WHERE thread_id=? AND created_at>=?").get(threadId, sinceIso)?.count || 0);
+}
+
 function homeOverview() {
   const libraries = listLibraries();
   const today = localDateKey();
+  const todayStart = new Date(`${today}T00:00:00+08:00`).toISOString();
   const totals = {
     todayMessages: 0, todayFeelings: 0, totalFeelings: 0, pendingMiningDays: 0,
     latestMessageAt: null, latestMinedAt: null, caredDays: 0,
@@ -607,12 +612,12 @@ function homeOverview() {
         SUM(CASE WHEN source_date=? THEN 1 ELSE 0 END) count, MAX(timestamp) latest,
         COUNT(DISTINCT source_date) caredDays
         FROM messages WHERE thread_id=?`).get(today, library.threadId);
-      const feeling = store.db.prepare("SELECT COUNT(*) count FROM feelings WHERE thread_id=? AND source_date=?").get(library.threadId, today);
+      const feelingCount = countFeelingsMinedSince(store, library.threadId, todayStart);
       const pending = store.db.prepare(`SELECT COUNT(DISTINCT m.source_date) count FROM messages m
         LEFT JOIN mining_day_state s ON s.thread_id=m.thread_id AND s.source_date=m.source_date AND s.status IN ('completed','completed_empty')
         WHERE m.thread_id=? AND s.source_date IS NULL`).get(library.threadId);
       totals.todayMessages += Number(message?.count || 0);
-      totals.todayFeelings += Number(feeling?.count || 0);
+      totals.todayFeelings += feelingCount;
       totals.pendingMiningDays += Number(pending?.count || 0);
       totals.caredDays = Math.max(totals.caredDays, Number(message?.caredDays || 0));
       if (message?.latest && (!totals.latestMessageAt || message.latest > totals.latestMessageAt)) totals.latestMessageAt = message.latest;
@@ -1985,7 +1990,7 @@ function startWebServer({ host = "127.0.0.1", port = 4173 } = {}) {
 }
 
 module.exports = {
-  startWebServer, listLibraries, homeOverview, overview, previewRows, paginate, buildConversationCalendar,
+  startWebServer, listLibraries, homeOverview, countFeelingsMinedSince, overview, previewRows, paginate, buildConversationCalendar,
   listDeveloperModules, developerModuleDetail,
   miningDatesFromStore, miningCommandArgs, miningCheckCommandArgs, targetedMiningCommandArgs,
   timelineCommandArgs, compactTimelineReport, compressionCommandArgs, safeStmemFailure, runStmem,
