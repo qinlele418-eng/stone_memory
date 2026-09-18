@@ -147,12 +147,13 @@ test("notebook steward restores a trashed note without rewriting its content", (
 });
 
 test("notebook steward MCP mode exposes only three read-only internal tools", () => {
-  const source = fs.readFileSync(path.join(__dirname, "..", "mcp-server.js"), "utf8");
+  const source = ["mcp-server.js", "src/mcp/core/index.js", "src/mcp/core/notebook.js"]
+    .map(file => fs.readFileSync(path.join(__dirname, "..", file), "utf8")).join("\n");
   assert.match(source, /STMEM_NOTEBOOK_STEWARD/u);
   assert.match(source, /NOTEBOOK_STEWARD_TOOLS/u);
   assert.match(source, /mcp__stone_notebook_steward__notebook_catalog/u);
   assert.match(source, /mcp__stone_notebook_steward__notebook_search/u);
   assert.match(source, /mcp__stone_notebook_steward__notebook_read/u);
-  assert.match(source, /!SEARCH_ONLY\s*&&\s*!NOTEBOOK_STEWARD_MODE\s*&&/u);
+  assert.match(source, /!restricted\s*&&\s*process\.env\.STMEM_SKIP_PENDING_REBUILDS/u);
   assert.doesNotMatch(source.match(/allowedTools:\s*\[([\s\S]*?)\]\s*,\n\s*\}\);/u)?.[1] || "", /notebook_write/u);
 });
