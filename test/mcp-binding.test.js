@@ -1,0 +1,67 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const { spawnSync } = require("node:child_process");
+const { childEnvWithHome } = require("../test-support/child-env");
+
+const root = path.resolve(__dirname, "..");
+const stmem = path.join(root, "bin", "stmem");
+const server = path.join(root, "mcp-server.js");
+
+function run(home, args) {
+  return spawnSync(process.execPath, [stmem, ...args], {
+    cwd: root, env: childEnvWithHome(home), encoding: "utf8",
+  });
+}
+
+function createMemory(home, label) {
+  const created = run(home, ["memory", "create", "--name", label]);
+  assert.equal(created.status, 0, created.stderr);
+  return JSON.parse(created.stdout).memory;
+}
+
+function callMcp(home, messages, env = {}) {
+  const input = `${messages.map(message => JSON.stringify(message)).join("\n")}\n`;
+  const child = spawnSync(process.execPath, [server], {
+    cwd: root,
+    env: childEnvWithHome(home, { STMEM_SKIP_PENDING_REBUILDS: "1", ...env }),
+    input, encoding: "utf8", timeout: 10_000,
+  });
+  assert.equal(child.status, 0, child.stderr || child.error?.message);
+  return child.stdout.trim().split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line));
+}
+
+test("MCP exposes one current-window bind tool and refuses cross-memory rebinding", t => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-mcp-bind-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const first = createMemory(home, "第一记忆体");
+  const second = createMemory(home, "第二记忆体");
+  const sessions = path.join(home, "sessions");
+  fs.mkdirSync(sessions, { recursive: true });
+  fs.writeFileSync(path.join(sessions, "rollout-current-window.jsonl"), "{}\n");
+  const environment = {
+    CODEX_THREAD_ID: "current-window",
+    STMEM_CURRENT_SESSION_ROOT: sessions,
+  };
+
+  const responses = callMcp(home, [
+    { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} },
+    { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "stmem_memory_bind", arguments: { memory: "第一记忆体" } } },
+    { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "stmem_memory_bind", arguments: { memory: second.memoryId } } },
+  ], environment);
+
+  const bindTool = responses[0].result.tools.find(tool => tool.name === "stmem_memory_bind");
+  assert.deepEqual(bindTool.inputSchema.required, ["memory"]);
+  assert.deepEqual(Object.keys(bindTool.inputSchema.properties), ["memory"]);
+  assert.match(responses[1].result.content[0].text, /已绑定到记忆体“第一记忆体”/);
+  assert.equal(responses[1].result.isError, false);
+  assert.equal(responses[2].result.isError, true);
+  assert.match(responses[2].result.content[0].text, /已绑定到其他记忆体.*不支持改绑/);
+
+  const firstBindings = JSON.parse(run(home, ["binding", "list", "--memory", first.memoryId]).stdout);
+  const secondBindings = JSON.parse(run(home, ["binding", "list", "--memory", second.memoryId]).stdout);
+  assert.equal(firstBindings.bindings[0].externalThreadId, "current-window");
+  assert.equal(secondBindings.bindings.length, 0);
+});

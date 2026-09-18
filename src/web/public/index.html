@@ -14,20 +14,43 @@
   <link rel="shortcut icon" type="image/png" href="/pwa-icon-192.png">
   <link rel="apple-touch-icon" sizes="192x192" href="/pwa-icon-192.png">
   <style>html:not(.stone-theme-first-frame-ready) body { visibility:hidden; }</style>
-  <script src="/theme-studio/first-frame.js?v=2" data-stone-theme-entry></script>
-  <link rel="stylesheet" href="/styles.css?v=13">
-  <link rel="stylesheet" href="/theme-studio/theme-tokens.css?v=11" data-stone-theme-style="theme-tokens.css" data-stone-theme-entry>
+  <script src="/theme-studio/first-frame.js?v=4" data-stone-theme-entry></script>
+  <link rel="stylesheet" href="/styles.css?v=32">
+  <link rel="stylesheet" href="/theme-studio/theme-tokens.css?v=14" data-stone-theme-style="theme-tokens.css" data-stone-theme-entry>
   <link rel="stylesheet" href="/theme-studio/theme-coverage.css?v=11" data-stone-theme-style="theme-coverage.css" data-stone-theme-entry>
-  <link rel="stylesheet" href="/theme-studio/theme-workbench.css?v=11" data-stone-theme-style="theme-workbench.css" data-stone-theme-entry>
+  <link rel="stylesheet" href="/theme-studio/theme-workbench.css?v=14" data-stone-theme-style="theme-workbench.css" data-stone-theme-entry>
   <link rel="stylesheet" href="/theme-studio/developer-theme.css?v=11" data-stone-theme-style="developer-theme.css" data-stone-theme-entry>
-  <link rel="stylesheet" href="/theme-studio/developer-common.css?v=11" data-stone-theme-style="developer-common.css" data-stone-theme-entry>
+  <link rel="stylesheet" href="/theme-studio/developer-common.css?v=31" data-stone-theme-style="developer-common.css" data-stone-theme-entry>
   <link rel="stylesheet" href="/theme-studio/developer-radius.css?v=11" data-stone-theme-style="developer-radius.css" data-stone-theme-entry>
+  <link rel="stylesheet" href="/developer-kit/navigation-shell.css?v=5">
+  <link rel="stylesheet" href="/developer-kit/page-transition.css?v=1">
+  <link rel="stylesheet" href="/developer-kit/home-dashboard.css?v=14">
 </head>
 <body class="stone-theme-enabled">
   <a class="skip-link" href="#app">跳到主要内容</a>
-  <main id="app" tabindex="-1" aria-live="polite"></main>
+  <aside class="stone-global-nav" aria-label="Stone Memory 全局导航">
+    <div class="stone-global-brand" aria-hidden="true">
+      <span class="stone-global-mark">石</span>
+      <span><b>STONE MEMORY</b><small>磐石记忆</small></span>
+    </div>
+    <nav class="stone-global-links">
+      <button type="button" data-shell-action="home"><span aria-hidden="true">⌂</span><b>记忆体</b></button>
+      <button type="button" data-shell-action="memory"><span aria-hidden="true">◇</span><b>当前记忆</b></button>
+      <button type="button" data-shell-action="workshop"><span aria-hidden="true">⌘</span><b>琢石坊</b></button>
+    </nav>
+    <div class="stone-global-bottom">
+      <button type="button" data-shell-action="me"><span aria-hidden="true">○</span><b>我的</b></button>
+      <small class="stone-global-local"><i></i>本地运行</small>
+    </div>
+  </aside>
+  <div class="stone-application-frame">
+    <main id="app" tabindex="-1" aria-live="polite"></main>
+  </div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="/theme-studio/bootstrap.js" defer data-stone-theme-entry></script>
-  <script src="/app.js?v=11" defer></script>
+  <script src="/theme-studio/bootstrap.js?v=18" defer data-stone-theme-entry></script>
+  <script src="/developer-kit/page-transition.js?v=1" defer></script>
+  <script src="/app.js?v=39" defer></script>
+  <script src="/developer-kit/navigation-shell.js?v=3" defer></script>
+  <script src="/developer-kit/home-dashboard.js?v=5" defer></script>
 </body>
 </html>

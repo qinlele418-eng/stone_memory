@@ -37,13 +37,15 @@ let ARCHIVE_DIR = null;
 let RULES_DIR = null;
 let DEFAULT_WINDOW_DAYS = 3;
 let currentThreadId = null;
+let currentExternalThreadId = null;
 
 function initThreadPaths(threadId) {
   if (currentThreadId === threadId && THREAD_BASE) return;
   currentThreadId = threadId;
+  currentExternalThreadId = process.env.STMEM_REBUILD_EXTERNAL_THREAD_ID || getCfg("externalThreadId", threadId, threadId);
   THREAD_BASE = getThreadDir(threadId);
   FULL_ARCHIVE = new FullArchive(path.join(THREAD_BASE, "memory"));
-  SESSION_DIR = getCfg("sessionDir", threadId);
+  SESSION_DIR = process.env.STMEM_REBUILD_SESSION_ROOT || getCfg("sessionDir", threadId);
   if (!SESSION_DIR) throw new Error("请在 stmem.json 中配置 sessionDir");
   RETAIN_CONFIG_FILE = path.join(THREAD_BASE, "memory", "retain-config.json");
   ARCHIVE_DIR = path.join(THREAD_BASE, "memory", "archive");
@@ -663,14 +665,14 @@ function main() {
     for (const entry of entries) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) { const found = searchSessionFile(full); if (found) return found; }
-      if (entry.isFile() && entry.name.endsWith(".jsonl") && (threadId ? entry.name.includes(threadId) : true) && !entry.name.includes("compressed") && !entry.name.includes("rebuilt")) return full;
+      if (entry.isFile() && entry.name.endsWith(".jsonl") && (currentExternalThreadId ? entry.name.includes(currentExternalThreadId) : true) && !entry.name.includes("compressed") && !entry.name.includes("rebuilt")) return full;
     }
     return null;
   }
 
   let inputFile;
   if (threadId) {
-    inputFile = searchSessionFile(SESSION_DIR) || path.join(SESSION_DIR, `${threadId}.jsonl`);
+    inputFile = searchSessionFile(SESSION_DIR) || path.join(SESSION_DIR, `${currentExternalThreadId}.jsonl`);
   } else {
     inputFile = searchSessionFile(SESSION_DIR);
     if (!inputFile) {
@@ -680,7 +682,7 @@ function main() {
   }
 
   if (!fs.existsSync(inputFile)) {
-    console.error(`无法重建：在 ${SESSION_DIR} 中没有找到线程 ${threadId}。请修改线程文件目录或检查文件是否存在`);
+    console.error(`无法重建：在 ${SESSION_DIR} 中没有找到窗口线程 ${currentExternalThreadId}（记忆体 ${threadId}）。请修改 Binding 或检查文件是否存在`);
     process.exit(1);
   }
 

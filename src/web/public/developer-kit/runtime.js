@@ -2,11 +2,15 @@
   "use strict";
 
   const MODULE_THEME_BRIDGE_KEY = "stone-memory-developer-semantic-theme-v1";
-  const sharedThemeStyle = document.createElement("link");
-  sharedThemeStyle.rel = "stylesheet";
-  sharedThemeStyle.href = "/theme-studio/theme-tokens.css?v=11";
-  sharedThemeStyle.dataset.stoneSharedTheme = "";
-  document.head.append(sharedThemeStyle);
+  const appendSharedStyle = (href, marker) => {
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = href;
+    link.dataset[marker] = "";
+    document.head.append(link);
+  };
+  appendSharedStyle("/theme-studio/theme-tokens.css?v=14", "stoneSharedTheme");
+  appendSharedStyle("/developer-kit/module-theme.css?v=2", "stoneModuleTheme");
   const ALLOWED_SEMANTIC_PROPERTIES = new Set([
     "--stone-theme-canvas", "--stone-theme-canvas-warm",
     "--stone-theme-ink", "--stone-theme-ink-soft", "--stone-theme-ink-faint",
@@ -48,7 +52,7 @@
 
   const params = new URLSearchParams(location.search);
   const THREAD_KEY = "stone-memory-developer-thread";
-  const requestedThreadId = params.get("threadId") || "";
+  const requestedThreadId = params.get("memoryId") || params.get("threadId") || "";
   if (requestedThreadId) {
     try { sessionStorage.setItem(THREAD_KEY, requestedThreadId); } catch {}
   }
@@ -58,10 +62,8 @@
 
   function returnToDeveloperMode() {
     const url = new URL("/", location.origin);
-    if (threadId) {
-      url.searchParams.set("threadId", threadId);
-      url.searchParams.set("view", "developer");
-    }
+    url.searchParams.set("view", "workshop");
+    if (threadId) url.searchParams.set("threadId", threadId);
     location.href = url;
   }
 
@@ -78,7 +80,7 @@
   async function currentLibrary() {
     if (!threadId) return null;
     const data = await api(`/review-lab/api/libraries?threadId=${encodeURIComponent(threadId)}`);
-    return data.libraries?.find(row => row.threadId === threadId) || data.libraries?.[0] || null;
+    return data.libraries?.find(row => row.memoryId === threadId || row.threadId === threadId) || null;
   }
 
   class StoneModulePage extends HTMLElement {
@@ -91,22 +93,23 @@
       root.innerHTML = `<style>
         :host { display:block; min-height:100dvh; color:var(--stone-theme-ink,#18372b); }
         * { box-sizing:border-box; }
-        main { width:min(1120px,calc(100% - 32px)); margin:0 auto; padding:26px 0 80px; }
-        header { padding:18px 6px 28px; }
-        a { display:inline-flex; align-items:center; min-height:36px; padding:0 13px; color:var(--stone-theme-accent-strong,#295540); text-decoration:none; border:1px solid var(--stone-theme-line,#dce6d7); border-radius:999px; background:color-mix(in srgb,var(--stone-theme-surface,#fffef9) 82%,transparent); box-shadow:0 10px 28px color-mix(in srgb,var(--stone-theme-accent,#397052) 8%,transparent); font:750 12px var(--stone-theme-font-body,Inter,system-ui,sans-serif); cursor:pointer; }
+        main { width:min(1180px,calc(100% - 40px)); margin:0 auto; padding:22px 0 80px; }
+        header { position:relative; margin-bottom:18px; padding:10px 6px 22px; border:0; border-radius:0; background:transparent; box-shadow:none; }
+        header > * { position:relative; z-index:1; }
+        a { display:inline-flex; align-items:center; min-height:36px; padding:0 13px; color:var(--stone-theme-accent-strong,#295540); text-decoration:none; border:1px solid var(--stone-theme-line,#dce6d7); border-radius:var(--stone-theme-radius-sm,10px); background:color-mix(in srgb,var(--stone-theme-surface,#fffef9) 82%,transparent); box-shadow:0 5px 16px color-mix(in srgb,var(--stone-theme-accent,#397052) 7%,transparent); font:750 12px var(--stone-theme-font-body,Inter,system-ui,sans-serif); cursor:pointer; }
         a:hover { border-color:var(--stone-theme-accent,#397052); transform:translateY(-1px); }
-        .eyebrow { margin:28px 0 7px; color:var(--stone-theme-accent,#397052); font:800 12px var(--stone-theme-font-body,Inter,system-ui,sans-serif); letter-spacing:.18em; }
-        h1 { margin:0; font:600 clamp(38px,6vw,58px) var(--stone-theme-font-display,Georgia,"Noto Serif SC",serif); }
-        .description { max-width:750px; margin:18px 0 0; color:var(--stone-theme-ink-soft,#69756d); font:400 14px/1.75 var(--stone-theme-font-body,Inter,system-ui,sans-serif); }
+        .eyebrow { margin:24px 0 7px; color:var(--stone-theme-accent,#397052); font:800 11px var(--stone-theme-font-body,Inter,system-ui,sans-serif); letter-spacing:.18em; }
+        h1 { margin:0; font:600 clamp(34px,5vw,50px) var(--stone-theme-font-display,Georgia,"Noto Serif SC",serif); letter-spacing:-.035em; }
+        .description { max-width:750px; margin:14px 0 0; color:var(--stone-theme-ink-soft,#69756d); font:400 14px/1.7 var(--stone-theme-font-body,Inter,system-ui,sans-serif); }
         .meta { margin-top:12px; }
         @media(max-width:680px) {
-          main { width:min(100% - 20px,1120px); padding-top:14px; }
-          header { padding:12px 2px 22px; }
-          .eyebrow { margin-top:22px; font-size:10px; }
-          h1 { font-size:34px; }
+          main { width:min(100% - 20px,1180px); padding-top:10px; }
+          header { margin-bottom:12px; padding:6px 2px 18px; }
+          .eyebrow { margin-top:20px; font-size:10px; }
+          h1 { font-size:32px; }
           .description { margin-top:13px; font-size:13px; line-height:1.65; }
         }
-      </style><main><header><a href="/">← 返回插件工坊</a><p class="eyebrow"></p><h1></h1><p class="description"></p><div class="meta"><slot name="meta"></slot></div></header><slot></slot></main>`;
+      </style><main><header><a href="/">← 返回琢石坊</a><p class="eyebrow"></p><h1></h1><p class="description"></p><div class="meta"><slot name="meta"></slot></div></header><slot></slot></main>`;
       root.querySelector(".eyebrow").textContent = eyebrow;
       root.querySelector("h1").textContent = title;
       const descriptionNode = root.querySelector(".description");
@@ -139,6 +142,7 @@
   });
 
   window.StoneDeveloperModule = Object.freeze({
+    memoryId: threadId,
     threadId,
     api,
     currentLibrary,

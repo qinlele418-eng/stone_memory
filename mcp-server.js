@@ -11,7 +11,7 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const { execFileSync } = require("child_process");
-const { getCfg, getThreadDir, listThreadIds } = require("./src/config");
+const { getCfg, getThreadDir, listMemoryIds, getMemoryRuntimeConfig } = require("./src/config");
 const { runSubagent } = require("./src/services/subagent-runner");
 const { readFeelings: readDatabaseFeelings, readFeatures: readDatabaseFeatures } = require("./src/storage/memory-reader");
 const { MemoryStore } = require("./src/storage/memory-store");
@@ -20,6 +20,7 @@ const { buildMcpRebuildRequest, buildMcpRebuildPreviewArgs, buildMcpRebuildExecu
 const { buildMcpMineArgs } = require("./src/services/mcp-mine-command");
 const { DreamReader } = require("./src/services/dream-reader");
 const { NotebookService } = require("./src/services/notebook-service");
+const { listMemories } = require("./src/services/memory-setup");
 const {
   buildNotebookStewardPrompt,
   parseNotebookStewardPlan,
@@ -83,10 +84,24 @@ function respond(id, result) {
   process.stdout.write(`Content-Length: ${byteLength}\r\n\r\n${body}`);
 }
 
-function resolveThread(args, cfg) {
+function resolveThread(args, cfg, { allowSoleMemory = true } = {}) {
   const config = cfg || {};
-  const sessionId = SEARCH_THREAD_ID || resolveMcpThread(args, config, listThreadIds());
-  const tc = config[sessionId] || {};
+  const memoryIds = listMemoryIds();
+  const identities = { ...config };
+  for (const memoryId of memoryIds) {
+    const runtime = getMemoryRuntimeConfig(memoryId);
+    identities[memoryId] = { ...(identities[memoryId] || {}), memoryId };
+    if (runtime.externalThreadId) {
+      const prior = identities[runtime.externalThreadId];
+      if (prior?.memoryId && prior.memoryId !== memoryId) throw new Error(`外部线程 Binding 冲突：${runtime.externalThreadId}`);
+      identities[runtime.externalThreadId] = { memoryId };
+    }
+  }
+  const sessionId = resolveMcpThread(args, identities, memoryIds, {
+    ...process.env,
+    STMEM_THREAD_ID: SEARCH_THREAD_ID || process.env.STMEM_THREAD_ID,
+  }, { allowSoleMemory });
+  const tc = getMemoryRuntimeConfig(sessionId);
   return {
     threadId: sessionId,
     runtime: tc.runtime || "claude",
@@ -102,7 +117,7 @@ function toolTriggersCheck(args) {
   if (!cfg) return "未配置 stmem.json";
   const lines = ["📋 系统待办检查", ""];
   let found = false;
-  for (const tid of listThreadIds()) {
+  for (const tid of listMemoryIds()) {
     const memoryDir = path.join(getThreadDir(tid), "memory");
     const store = new MemoryStore({ memoryDir, threadId: tid });
     try {
@@ -138,10 +153,10 @@ function toolTriggersCheck(args) {
   }
 }
 
-function resolveNotebookThread(args) {
+function resolveNotebookThread(args, options) {
   const cfg = loadConfig();
   if (!cfg) throw new Error("未配置 stmem.json");
-  return resolveThread(args || {}, cfg).threadId;
+  return resolveThread(args || {}, cfg, options).threadId;
 }
 
 function runNotebookCli(action, threadId, payload) {
@@ -170,7 +185,7 @@ function toolNotebookStatus(args) {
 }
 
 function toolNotebookTopicManage(args) {
-  const threadId = resolveNotebookThread(args);
+  const threadId = resolveNotebookThread(args, { allowSoleMemory: false });
   const action = args.action === "create" ? "topic-create" : "topic-update";
   const payload = { ...args };
   delete payload.thread;
@@ -179,7 +194,7 @@ function toolNotebookTopicManage(args) {
 }
 
 function toolNotebookWrite(args) {
-  const threadId = resolveNotebookThread(args);
+  const threadId = resolveNotebookThread(args, { allowSoleMemory: false });
   const payload = { ...args };
   delete payload.thread;
   return JSON.stringify(runNotebookCli("write", threadId, payload), null, 2);
@@ -201,7 +216,7 @@ function toolNotebookRead(args) {
 function toolNotebookDelegate(args) {
   const cfg = loadConfig();
   if (!cfg) throw new Error("未配置 stmem.json");
-  const resolved = resolveThread(args || {}, cfg);
+  const resolved = resolveThread(args || {}, cfg, { allowSoleMemory: false });
   const threadId = resolved.threadId;
   const input = {
     request: args.request,
@@ -317,7 +332,7 @@ function resolveRebuildCommand(args, builder) {
   if (!resolved) throw new Error("无法确定线程 ID");
   const cli = path.join(PROJECT_ROOT, "bin", "stmem");
   if (!fs.existsSync(cli)) throw new Error("找不到 stmem CLI");
-  const tc = cfg[resolved.threadId] || {};
+  const tc = getMemoryRuntimeConfig(resolved.threadId);
   const useDefaults = tc.mcpRebuildDefaultsEnabled === true;
   const effectiveArgs = args.summary ? { ...args } : {
       ...args,
@@ -364,7 +379,7 @@ function toolRebuildPreview(args) {
 function toolRebuild(args) {
   const cfg = loadConfig();
   if (!cfg) throw new Error("未配置 stmem.json");
-  const resolved = resolveThread(args, cfg);
+  const resolved = resolveThread(args, cfg, { allowSoleMemory: false });
   if (!resolved?.threadId) throw new Error("无法确定线程 ID");
   const request = rebuildPreviews.get(resolved.threadId);
   if (!request) {
@@ -401,7 +416,7 @@ function toolRebuild(args) {
 
 function toolMine(args) {
   const cfg = loadConfig();
-  const resolved = resolveThread(args, cfg);
+  const resolved = resolveThread(args, cfg, { allowSoleMemory: false });
   const tid = resolved?.threadId || args.thread;
   const cli = path.join(PROJECT_ROOT, "bin", "stmem");
   if (!fs.existsSync(cli)) throw new Error("找不到 stmem CLI");
@@ -416,13 +431,64 @@ function toolMine(args) {
   }
 }
 
+function resolveBindTarget(value) {
+  const requested = String(value || "").trim();
+  if (!requested) throw new Error("请指定要绑定的记忆体名称或 memoryId");
+  const memories = listMemories();
+  const exactId = memories.find(item => item.memoryId === requested);
+  if (exactId) return exactId;
+  const matches = memories.filter(item => item.label.toLocaleLowerCase() === requested.toLocaleLowerCase());
+  if (matches.length === 1) return matches[0];
+  if (matches.length > 1) throw new Error(`存在多个同名记忆体“${requested}”，请改用 memoryId`);
+  throw new Error(`找不到记忆体“${requested}”`);
+}
+
+function currentBindingSession(env = process.env) {
+  const explicitThread = String(env.STMEM_CURRENT_THREAD_ID || "").trim();
+  const codexThread = String(env.CODEX_THREAD_ID || "").trim();
+  const claudeThread = String(env.CLAUDE_CODE_SESSION_ID || "").trim();
+  const externalThreadId = explicitThread || codexThread || claudeThread;
+  if (!externalThreadId) throw new Error("无法识别当前窗口 ID；请从 Codex 或 Claude Code 的当前会话调用此工具");
+  const explicitProvider = String(env.STMEM_CURRENT_PROVIDER || "").trim().toLowerCase();
+  const provider = explicitProvider || (codexThread ? "codex" : claudeThread ? "claude" : "");
+  if (!new Set(["codex", "claude"]).has(provider)) throw new Error("无法识别当前窗口属于 Codex 还是 Claude Code");
+  const explicitRoot = String(env.STMEM_CURRENT_SESSION_ROOT || "").trim();
+  const sessionRoot = explicitRoot || (provider === "codex"
+    ? path.join(env.CODEX_HOME || path.join(os.homedir(), ".codex"), "sessions")
+    : path.join(env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude"), "projects"));
+  return { provider, externalThreadId, sessionRoot };
+}
+
+function toolMemoryBind(args) {
+  const memory = resolveBindTarget(args.memory);
+  const binding = currentBindingSession();
+  const cli = path.join(PROJECT_ROOT, "bin", "stmem");
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-mcp-bind-"));
+  const batchFile = path.join(directory, "binding.json");
+  fs.writeFileSync(batchFile, JSON.stringify({ ...binding, mode: "parallel" }), { encoding: "utf8", mode: 0o600 });
+  try {
+    const output = execFileSync(process.execPath, [
+      cli, "binding", "add", "--memory", memory.memoryId,
+      "--batch-file", batchFile, "--apply",
+    ], { encoding: "utf8", timeout: 30_000, maxBuffer: 5 * 1024 * 1024, cwd: PROJECT_ROOT, windowsHide: true });
+    const result = JSON.parse(output);
+    return result.changed
+      ? `当前窗口已绑定到记忆体“${memory.label}”（${memory.memoryId}）。`
+      : `当前窗口此前已经绑定到记忆体“${memory.label}”（${memory.memoryId}）。`;
+  } catch (error) {
+    throw new Error(`绑定失败：${String(error.stderr || error.message).trim()}`);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+}
+
 function toolStatus() {
   try {
   const cfg = loadConfig();
-  if (!cfg || listThreadIds().length === 0) return "未配置 stmem.json 或无线程";
+  if (!cfg || listMemoryIds().length === 0) return "未配置 stmem.json 或无记忆体";
 
   const lines = [];
-  for (const tid of listThreadIds()) {
+  for (const tid of listMemoryIds()) {
     const dir = getThreadDir(tid);
     let archiveCount = 0, feelingCount = 0, featureCount = 0, blockedCount = 0;
     try {
@@ -601,9 +667,9 @@ function toolInternalArchiveContext(args) {
 
 // ── audit 工具 ──
 
-function auditResolvePaths(args) {
+function auditResolvePaths(args, options) {
   const cfg = loadConfig();
-  const resolved = resolveThread(args, cfg);
+  const resolved = resolveThread(args, cfg, options);
   const tid = resolved?.threadId || args.thread;
   if (!tid) throw new Error("无法确定线程 ID");
   const dir = getThreadDir(tid);
@@ -684,7 +750,7 @@ function toolAuditList(args) {
 
 function toolAuditMark(args) {
   try {
-    const p = auditResolvePaths(args);
+    const p = auditResolvePaths(args, { allowSoleMemory: false });
     const marks = auditLoadMarks(p);
     marks.retainMarks = marks.retainMarks || {};
     const cutoffDate = (args.cutoffDate || "").trim();
@@ -835,6 +901,24 @@ const TOOLS = [
     name: "stmem_memory_status",
     description: "查看 stmem 记忆系统当前状态",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "stmem_memory_bind",
+    description: "把发起本次 MCP 调用的当前 Codex/Claude Code 窗口绑定到指定记忆体。只支持首次绑定；如果当前窗口已属于其他记忆体会直接拒绝，不提供改绑。正式写入由 stmem binding CLI 完成。",
+    inputSchema: {
+      type: "object",
+      required: ["memory"],
+      properties: {
+        memory: { type: "string", description: "目标记忆体的显示名称或 memoryId；名称必须唯一" },
+      },
+      additionalProperties: false,
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
   },
   {
     name: "stmem_dream_latest",
@@ -1183,6 +1267,7 @@ function handle(msg) {
       else if (name === "stmem_memory_rebuild_preview") text = toolRebuildPreview(args);
       else if (name === "stmem_memory_mine") text = toolMine(args);
       else if (name === "stmem_memory_status") text = toolStatus();
+      else if (name === "stmem_memory_bind") text = toolMemoryBind(args);
       else if (name === "stmem_dream_latest") text = toolDreamLatest(args);
       else if (name === "stmem_dream_status") text = toolDreamStatus(args);
       else if (name === "stmem_dream_get") text = toolDreamGet(args);

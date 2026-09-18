@@ -11,11 +11,37 @@ test("main page enables the semantic theme bridge", () => {
   assert.match(html, /<body[^>]*\bclass="[^"]*\bstone-theme-enabled\b[^"]*"/);
 });
 
+test("switching back to the original theme keeps the semantic visual layer enabled", () => {
+  const bootstrap = fs.readFileSync(
+    path.join(__dirname, "..", "src", "web", "public", "theme-studio", "bootstrap.js"),
+    "utf8",
+  );
+  assert.match(bootstrap, /classList\.add\("stone-theme-enabled"\)/);
+  assert.doesNotMatch(bootstrap, /classList\.(?:remove|toggle)\("stone-theme-enabled"/);
+  assert.match(bootstrap, /meta\[name="theme-color"\]/);
+  const firstFrame = fs.readFileSync(
+    path.join(__dirname, "..", "src", "web", "public", "theme-studio", "first-frame.js"),
+    "utf8",
+  );
+  assert.match(firstFrame, /meta\[name="theme-color"\]/);
+});
+
+test("material-library brand icons survive main-page validation and first-frame restore", () => {
+  const themeDir = path.join(__dirname, "..", "src", "web", "public", "theme-studio");
+  const studio = fs.readFileSync(path.join(themeDir, "standalone-app.js"), "utf8");
+  const bootstrap = fs.readFileSync(path.join(themeDir, "bootstrap.js"), "utf8");
+  const firstFrame = fs.readFileSync(path.join(themeDir, "first-frame.js"), "utf8");
+  for (const source of [studio, bootstrap, firstFrame]) assert.match(source, /brand-icons/);
+  const html = fs.readFileSync(path.join(__dirname, "..", "src", "web", "public", "index.html"), "utf8");
+  assert.match(html, /first-frame\.js\?v=4/);
+  assert.match(html, /bootstrap\.js\?v=18/);
+});
+
 test("desktop shortcut reads its independent custom icon", () => {
   const app = fs.readFileSync(path.join(__dirname, "..", "src", "web", "public", "app.js"), "utf8");
   assert.match(app, /localStorage\.getItem\(DESKTOP_ICON_STORAGE_KEY\)/);
   assert.match(app, /stone-memory-desktop-icon-v1/);
-  assert.match(app, /DEFAULT_DESKTOP_ICON = "\/desktop-icon-default\.svg"/);
+  assert.match(app, /DEFAULT_DESKTOP_ICON = "\/app-logo\.jpg"/);
   assert.match(app, /data:image\\\/\(\?:png\|webp\)/);
 });
 
@@ -26,6 +52,16 @@ test("theme studio offers a real independent desktop icon picker", () => {
   assert.match(studio, /localStorage\.setItem\(DESKTOP_ICON_STORAGE_KEY, dataUrl\)/);
   assert.match(studio, /id="use-brand-desktop-icon"/);
   assert.match(studio, /id="reset-desktop-icon"/);
+});
+
+test("mobile theme workbench keeps the shared card visuals instead of restoring the legacy wrapper", () => {
+  const publicDir = path.join(__dirname, "..", "src", "web", "public");
+  const styles = fs.readFileSync(path.join(publicDir, "theme-studio", "standalone.css"), "utf8");
+  const html = fs.readFileSync(path.join(publicDir, "theme-studio", "index.html"), "utf8");
+  assert.match(styles, /\.theme-workbench-card\s*\{[\s\S]*?background:\s*transparent;[\s\S]*?box-shadow:\s*none;/);
+  assert.match(styles, /\.theme-card:not\(\.theme-workbench-card\)/);
+  assert.doesNotMatch(styles, /@media \(max-width: 620px\)[\s\S]*?\.community-logo-assets button > img/);
+  assert.match(html, /standalone\.css\?v=40/);
 });
 
 test("add-to-desktop updates browser shortcut icon from the active logo", () => {
@@ -49,6 +85,36 @@ test("mobile workspace navigation keeps two-character labels centered", () => {
   assert.match(mobileNav, /white-space:\s*normal/);
   assert.match(mobileNav, /overflow-wrap:\s*normal/);
   assert.match(mobileNav, /\.side-nav button span\s*\{[^}]*white-space:\s*nowrap/);
+});
+
+test("responsive component patches preserve desktop theme colors and effects", () => {
+  const publicDir = path.join(__dirname, "..", "src", "web", "public");
+  const workbench = fs.readFileSync(path.join(publicDir, "theme-studio", "theme-workbench.css"), "utf8");
+  const developer = fs.readFileSync(path.join(publicDir, "theme-studio", "developer-common.css"), "utf8");
+  const dashboard = fs.readFileSync(path.join(publicDir, "developer-kit", "home-dashboard.css"), "utf8");
+  const moduleTheme = fs.readFileSync(path.join(publicDir, "developer-kit", "module-theme.css"), "utf8");
+  const viewportMedia = source => {
+    const blocks = [];
+    const matcher = /@media\s*\([^)]*(?:max|min)-width:[^)]*\)\s*\{/g;
+    for (const match of source.matchAll(matcher)) {
+      let depth = 1;
+      let cursor = match.index + match[0].length;
+      while (cursor < source.length && depth) {
+        if (source[cursor] === "{") depth += 1;
+        else if (source[cursor] === "}") depth -= 1;
+        cursor += 1;
+      }
+      blocks.push(source.slice(match.index, cursor));
+    }
+    return blocks.join("\n");
+  };
+  const forbiddenVisualProperty = /^\s*(?:color|background(?:-image|-color)?|border-color|box-shadow|filter|backdrop-filter|-webkit-backdrop-filter)\s*:/m;
+
+  for (const [name, source] of [["workbench", workbench], ["developer", developer], ["dashboard", dashboard], ["module", moduleTheme]]) {
+    assert.doesNotMatch(viewportMedia(source), forbiddenVisualProperty, `${name} responsive CSS must stay layout-only`);
+  }
+  const mobileDashboard = viewportMedia(dashboard);
+  assert.match(mobileDashboard, /\.library-card--mapped[\s\S]*?min-height:\s*0/);
 });
 
 test("mobile mining remains contained while input zoom overrides stay removed", () => {
@@ -213,9 +279,11 @@ test("semantic theme covers mining calendar states and preserves the developer l
   const topbarRule = workbench.match(/body\.stone-theme-enabled \.topbar\s*\{([\s\S]*?)\}/)?.[1] || "";
   const sidebarRule = workbench.match(/body\.stone-theme-enabled \.sidebar\s*\{([\s\S]*?)\}/)?.[1] || "";
   assert.doesNotMatch(topbarRule, /\b(?:margin|padding)\s*:/);
-  assert.doesNotMatch(sidebarRule, /\b(?:margin|padding)\s*:/);
+  assert.doesNotMatch(sidebarRule, /\bmargin\s*:/);
   assert.match(topbarRule, /background:\s*transparent/);
-  assert.match(sidebarRule, /background:\s*transparent/);
+  assert.match(sidebarRule, /padding:\s*18px/);
+  assert.match(sidebarRule, /background:\s*color-mix\([^;]*stone-theme-surface/);
+  assert.match(sidebarRule, /box-shadow:\s*var\(--stone-theme-shadow-card\)/);
   assert.match(tokens, /--stone-theme-font-display:\s*Georgia,\s*"Noto Serif SC",\s*serif/);
   assert.match(tokens, /--stone-theme-font-body:\s*Inter,\s*"Noto Sans SC",\s*"Microsoft YaHei",\s*system-ui,\s*sans-serif/);
   assert.doesNotMatch(bootstrap, /path:\s*"tokens\.typography\./);
@@ -224,7 +292,7 @@ test("semantic theme covers mining calendar states and preserves the developer l
   assert.match(standalone, /garden:[\s\S]*shadows:\s*\{[\s\S]*rgba\(153,\s*95,\s*143/);
   assert.match(standalone, /sakuraNight:[\s\S]*name:\s*"樱夜黑粉"[\s\S]*contributor:\s*"@钦天监秋"/);
   assert.match(standalone, /data-community-theme="sakuraNight"[\s\S]*贡献人：@钦天监秋/);
-  assert.match(standalone, /tokens:\s*\{\s*colors:\s*preset\.colors,\s*shadows:\s*preset\.shadows\s*\}/);
+  assert.match(standalone, /tokens:\s*\{\s*colors:\s*preset\.colors,\s*radii:\s*preset\.radii,\s*shadows:\s*preset\.shadows,\s*spacing:\s*preset\.spacing,\s*motion:\s*preset\.motion\s*\}/);
   assert.match(bootstrap, /theme-studio\/\$\{file\}\?v=\$\{THEME_STYLE_VERSION\}/);
 
   assert.match(tokens, /--stone-theme-page-background:/);
@@ -378,12 +446,11 @@ test("semantic theme covers mining calendar states and preserves the developer l
   assert.match(tokenFields, /align-content:\s*start/);
   assert.match(standaloneCss, /\.theme-groups > \.token-group:first-child\s*\{\s*border-top:\s*0;\s*\}/);
   assert.match(standaloneCss, /@media \(min-width:\s*900px\)[\s\S]*?grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
-  assert.match(standaloneCss, /@media \(min-width:\s*900px\)[\s\S]*?\.theme-workbench-card\s*\{[\s\S]*?background:\s*transparent;[\s\S]*?box-shadow:\s*none/);
+  assert.match(standaloneCss, /\.theme-workbench-card\s*\{[\s\S]*?background:\s*transparent;[\s\S]*?box-shadow:\s*none/);
   assert.match(standaloneCss, /\.theme-groups::before,\s*\.theme-groups::after\s*\{[\s\S]*?inset-block:\s*0;[\s\S]*?width:\s*calc\(\(100%\s*-\s*22px\)\s*\/\s*2\)/);
   assert.match(standaloneCss, /\.theme-groups::before\s*\{\s*left:\s*0;\s*\}[\s\S]*?\.theme-groups::after\s*\{\s*right:\s*0;\s*\}/);
   assert.match(standaloneCss, /\.token-group-logo,\s*\.theme-token-groups > \.token-group:nth-child\(even\)\s*\{[\s\S]*?border-left:\s*0/);
-  assert.match(standaloneCss, /\.theme-support-card\s*\{\s*display:\s*contents;\s*\}/);
-  assert.match(standaloneCss, /@media \(min-width:\s*900px\)[\s\S]*?\.theme-support-card\s*\{[\s\S]*?border:\s*1px solid var\(--stone-theme-line-soft\);[\s\S]*?background:\s*var\(--stone-theme-surface\);[\s\S]*?box-shadow:\s*var\(--stone-theme-shadow-card\)/);
+  assert.match(standaloneCss, /\.theme-support-card\s*\{[\s\S]*?border:\s*1px solid var\(--stone-theme-line-soft\);[\s\S]*?background:\s*var\(--stone-theme-surface\);[\s\S]*?box-shadow:\s*var\(--stone-theme-shadow-card\)/);
   assert.match(standaloneCss, /\.token-group-head\s*\{[\s\S]*?justify-content:\s*space-between/);
   assert.doesNotMatch(standaloneCss, /\.token-group-head > span/);
   assert.match(standalone, /const displayValue = definition\.kind === "color" \? colorToHex\(value\)\.toLowerCase\(\) : value/);

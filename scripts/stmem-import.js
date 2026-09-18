@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 const fs = require("fs");
 const path = require("path");
-const { getThreadDir, listThreadIds } = require("../src/config");
+const { getThreadDir, listMemoryIds } = require("../src/config");
 const { ingestRecords } = require("../src/services/thread-ingest");
 const { readImportSource } = require("../src/services/import-source");
 const { MemoryStore } = require("../src/storage/memory-store");
@@ -10,7 +10,7 @@ function parseArgs(argv) {
   const args = [...argv];
   if (args[0] === "import") args.shift();
   const options = { apply: false };
-  const values = { "--thread": "thread", "--source": "source", "--dir": "dir", "--table": "table", "--map-time": "timeField", "--map-role": "roleField", "--map-content": "contentField" };
+  const values = { "--thread": "thread", "--memory": "memory", "--source": "source", "--dir": "dir", "--table": "table", "--map-time": "timeField", "--map-role": "roleField", "--map-content": "contentField" };
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--apply") { options.apply = true; continue; }
     if (args[i] === "--dry-run") { options.apply = false; continue; }
@@ -49,8 +49,12 @@ function printPreview(fp, preview) {
 
 function main() {
   const options = parseArgs(process.argv.slice(2));
-  const tid = options.thread || listThreadIds()[0];
-  if (!tid) throw new Error("未指定线程，请用 --thread <id> 或先 stmem init");
+  if (options.thread && options.memory && options.thread !== options.memory) throw new Error("--memory 与兼容参数 --thread 不能指向不同记忆体");
+  const configured = listMemoryIds();
+  if (!options.memory && !options.thread && options.apply) throw new Error("导入写入必须显式指定 --memory <id>");
+  if (!options.memory && !options.thread && configured.length > 1) throw new Error("存在多个记忆体，请显式指定 --memory <id>");
+  const tid = options.memory || options.thread || (configured.length === 1 ? configured[0] : null);
+  if (!tid) throw new Error("未指定记忆体，请用 --memory <id> 或先创建记忆体");
   const threadDir = getThreadDir(tid);
   const memoryDir = path.join(threadDir, "memory");
   const fullDir = path.join(memoryDir, "archive", "full");

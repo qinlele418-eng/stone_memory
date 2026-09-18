@@ -1,0 +1,290 @@
+/* Responsive application shell around the stable legacy frontend. */
+
+.stone-global-nav {
+  position: fixed;
+  z-index: 35;
+  inset: 0 auto 0 0;
+  display: flex;
+  flex-direction: column;
+  width: 220px;
+  padding: 26px 16px 20px;
+  color: var(--stone-theme-ink);
+  border-right: 1px solid var(--stone-theme-line);
+  background: color-mix(in srgb, var(--stone-theme-surface) 94%, var(--stone-theme-canvas));
+  transition: transform var(--stone-theme-motion-normal) var(--stone-theme-ease-soft);
+}
+
+.stone-application-frame {
+  min-width: 0;
+  min-height: 100dvh;
+  margin-left: 220px;
+  transition: margin var(--stone-theme-motion-normal) var(--stone-theme-ease-soft);
+}
+
+.global-about,
+.global-workshop { min-height: 100dvh; padding: 32px 0 72px; }
+.global-about-main,
+.global-workshop-main { min-width: 0; }
+
+.workshop-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin: 18px 0;
+  padding: 6px;
+  border: 1px solid var(--stone-theme-line);
+  border-radius: var(--stone-theme-radius-md);
+  background: var(--stone-theme-surface-soft);
+}
+.workshop-tabs button {
+  min-height: 42px;
+  color: var(--stone-theme-ink-soft);
+  border: 0;
+  border-radius: var(--stone-theme-radius-sm);
+  background: transparent;
+  font: inherit;
+  font-weight: 700;
+}
+.workshop-tabs button.active { color: var(--stone-theme-accent-strong); background: var(--stone-theme-surface); box-shadow: var(--stone-theme-shadow-card); }
+.workshop-panel[hidden] { display: none; }
+.workshop-panel-head { margin: 20px 2px 14px; }
+.workshop-panel-head h2 { margin: 0 0 5px; font-family: var(--stone-theme-font-display); }
+.workshop-panel-head p,
+.workshop-destination p { margin: 0; color: var(--stone-theme-ink-soft); line-height: 1.6; }
+.workshop-destination {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 20px;
+  padding: 24px;
+  border: 1px solid var(--stone-theme-line);
+  border-radius: var(--stone-theme-radius-md);
+  background: var(--stone-theme-surface);
+  box-shadow: var(--stone-theme-shadow-card);
+}
+.workshop-destination h2 { margin: 4px 0 7px; }
+.workshop-destination a { text-decoration: none; }
+.workshop-memory-picker { display: grid; grid-template-columns: minmax(0, 1fr) minmax(180px, 300px); align-items: center; gap: 14px; margin: 0 0 14px; padding: 13px 15px; color: var(--stone-theme-ink-soft); border: 1px solid var(--stone-theme-line); border-radius: var(--stone-theme-radius-sm); background: var(--stone-theme-surface); font-size: 12px; }
+.workshop-memory-picker select { min-height: 38px; padding: 0 10px; color: var(--stone-theme-ink); border: 1px solid var(--stone-theme-line); border-radius: var(--stone-theme-radius-sm); background: var(--stone-theme-surface); font: inherit; }
+
+.me-panel {
+  max-width: 860px;
+  margin: 18px auto 0;
+  overflow: hidden;
+  border: 1px solid var(--stone-theme-line);
+  border-radius: var(--stone-theme-radius-md);
+  background: var(--stone-theme-surface);
+}
+.me-menu-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  min-height: 74px;
+  padding: 17px 22px;
+  color: var(--stone-theme-ink);
+  border: 0;
+  border-bottom: 1px solid var(--stone-theme-line-soft);
+  background: transparent;
+  text-align: left;
+  font: inherit;
+}
+.me-panel > :last-child { border-bottom: 0; }
+.me-menu-row:hover { background: var(--stone-theme-surface-soft); }
+.me-menu-icon { display: grid; place-items: center; flex: 0 0 30px; width: 30px; height: 30px; font-size: 21px; }
+.me-menu-copy { display: grid; flex: 1; gap: 3px; min-width: 0; }
+.me-menu-copy strong { font-size: 14px; }
+.me-menu-copy small { color: var(--stone-theme-ink-soft); font-size: 11px; }
+.theme-entry-row { cursor: pointer; }
+.me-inline-links { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 7px; }
+.me-inline-links a { padding: 4px 9px; color: var(--stone-theme-accent-strong); border-radius: var(--stone-theme-radius-pill); background: var(--stone-theme-accent-soft); font-size: 11px; text-decoration: none; }
+.me-inline-links button { min-height: 28px; padding: 4px 9px; color: var(--stone-theme-accent-strong); border: 0; border-radius: var(--stone-theme-radius-pill); background: var(--stone-theme-accent-soft); font: 700 11px var(--stone-theme-font-body); }
+.support-dialog { width: min(420px, calc(100% - 32px)); padding: 24px; color: var(--stone-theme-ink); border: 1px solid var(--stone-theme-line); border-radius: var(--stone-theme-radius-md); background: var(--stone-theme-surface); }
+.support-dialog::backdrop { background: color-mix(in srgb, var(--stone-theme-ink) 34%, transparent); }
+.support-dialog .dialog-close { float: right; border: 0; background: transparent; font-size: 24px; }
+.support-dialog .support-code { margin: 18px auto 0; }
+
+.stone-global-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px 24px;
+  color: var(--stone-theme-ink);
+}
+
+.stone-global-brand > span:last-child { display: grid; gap: 2px; }
+.stone-global-brand b { font: 700 12px/1 var(--stone-theme-font-display); letter-spacing: .1em; }
+.stone-global-brand small { color: var(--stone-theme-ink-soft); font-size: 9px; letter-spacing: .16em; }
+.stone-global-mark {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  color: var(--stone-theme-surface);
+  border-radius: 12px 10px 13px 9px;
+  background: var(--stone-theme-accent-strong);
+  box-shadow: var(--stone-theme-shadow-button);
+  font: 600 15px var(--stone-theme-font-display);
+  transform: rotate(-3deg);
+}
+
+.stone-global-links { display: grid; gap: 5px; padding-top: 18px; border-top: 1px solid var(--stone-theme-line-soft); }
+.stone-global-bottom { display: grid; gap: 14px; margin-top: auto; }
+.stone-global-links button,
+.stone-global-bottom button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 13px;
+  color: var(--stone-theme-ink-soft);
+  border: 0;
+  border-radius: var(--stone-theme-radius-sm);
+  background: transparent;
+  text-align: left;
+  font: inherit;
+}
+
+.stone-global-links button > span,
+.stone-global-bottom button > span {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  font-size: 18px;
+}
+
+.stone-global-links button b,
+.stone-global-bottom button b { font-size: 13px; font-weight: 700; }
+.stone-global-links button:hover,
+.stone-global-bottom button:hover { color: var(--stone-theme-ink); background: var(--stone-theme-surface-soft); }
+.stone-global-links button.active,
+.stone-global-bottom button.active {
+  color: var(--stone-theme-accent-strong);
+  background: var(--stone-theme-accent-soft);
+  box-shadow: inset 3px 0 var(--stone-theme-accent);
+}
+.stone-global-links button:disabled,
+.stone-global-bottom button:disabled { cursor: not-allowed; opacity: .42; }
+
+.stone-global-local { padding: 0 13px; color: var(--stone-theme-ink-soft); font-size: 10px; }
+.stone-global-local i {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--stone-theme-status);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--stone-theme-status) 16%, transparent);
+}
+
+body.stone-shell-hidden .stone-global-nav { transform: translateX(-105%); }
+body.stone-shell-hidden .stone-application-frame { margin-left: 0; }
+
+/* The existing per-memory navigation remains the secondary navigation. */
+body.stone-shell-visible .workspace-grid { grid-template-columns: 178px minmax(0, 1fr); gap: 24px; }
+body.stone-shell-visible .workspace-grid.workspace-stack { grid-template-columns: minmax(0, 1fr); gap: 0; }
+body.stone-shell-visible .workspace .sidebar { padding: 15px; }
+body.stone-shell-visible .workspace .side-title { font-size: 21px; }
+
+@media (max-width: 1100px) and (min-width: 701px) {
+  .stone-global-nav { width: 184px; padding-inline: 12px; }
+  .stone-application-frame { margin-left: 184px; }
+  .stone-global-brand b { font-size: 10px; }
+  body.stone-shell-visible .workspace-grid { grid-template-columns: 1fr; }
+  body.stone-shell-visible .workspace .sidebar { position: static; }
+}
+
+/* The only responsive visual exception: the desktop rail becomes a mobile
+ * bottom navigation surface. Component colors remain owned by their base CSS. */
+@media (max-width: 700px) {
+  .stone-global-nav {
+    inset: auto 0 0;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    align-items: center;
+    width: 100%;
+    height: calc(68px + env(safe-area-inset-bottom));
+    padding: 6px 8px env(safe-area-inset-bottom);
+    border-top: 0;
+    border-right: 0;
+    background: var(--stone-theme-surface);
+    box-shadow: 0 -8px 28px color-mix(in srgb, var(--stone-theme-ink) 8%, transparent);
+  }
+
+  .stone-global-brand,
+  .stone-global-local { display: none; }
+  .stone-global-links {
+    display: grid;
+    grid-column: 1 / 4;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-self: stretch;
+    gap: 0;
+    padding-top: 0;
+    border-top: 0;
+  }
+  .stone-global-bottom {
+    display: grid;
+    grid-column: 4;
+    align-self: stretch;
+    gap: 0;
+    margin-top: 0;
+  }
+  .stone-global-links button,
+  .stone-global-bottom button {
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+    min-width: 0;
+    min-height: 0;
+    height: 100%;
+    padding: 5px 2px;
+    text-align: center;
+  }
+  .stone-global-links button,
+  .stone-global-bottom button,
+  .stone-global-links button:hover,
+  .stone-global-bottom button:hover {
+    background: transparent;
+  }
+  .stone-global-links button > span,
+  .stone-global-bottom button > span { width: auto; font-size: 17px; line-height: 1; }
+  .stone-global-links button b,
+  .stone-global-bottom button b { font-size: 10px; white-space: nowrap; }
+  .stone-global-links button.active,
+  .stone-global-bottom button.active {
+    position: relative;
+    color: var(--stone-theme-accent-strong);
+    background: transparent;
+    box-shadow: none;
+  }
+  .stone-global-links button.active::before,
+  .stone-global-bottom button.active::before {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    width: 24px;
+    height: 3px;
+    border-radius: var(--stone-theme-radius-pill);
+    background: var(--stone-theme-accent);
+    content: "";
+    transform: translateX(-50%);
+  }
+
+  .stone-application-frame { margin-left: 0; padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
+  body.stone-shell-hidden .stone-global-nav { transform: translateY(110%); }
+  body.stone-shell-hidden .stone-application-frame { padding-bottom: 0; }
+  body.stone-shell-visible .workspace-grid { grid-template-columns: 1fr; gap: 16px; }
+  .global-about,
+  .global-workshop { padding: 18px 0 28px; }
+  .workshop-tabs { position: sticky; z-index: 2; top: 6px; }
+  .workshop-destination { grid-template-columns: 1fr; padding: 19px; }
+  .workshop-memory-picker { grid-template-columns: 1fr; }
+  .workshop-destination a { width: 100%; text-align: center; }
+  .me-menu-row { min-height: 68px; padding: 15px 17px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stone-global-nav,
+  .stone-application-frame { transition-duration: .01ms; }
+}

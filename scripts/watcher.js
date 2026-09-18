@@ -18,7 +18,7 @@ const path = require("path");
 const os = require("os");
 const { execFile, execSync } = require("child_process");
 
-const { loadConfig, getCfg, getThreadDir, listThreadIds } = require("../src/config");
+const { getCfg, getThreadDir, listMemoryIds, getMemoryRuntimeConfig } = require("../src/config");
 const { listJsonlRecursive } = require("../src/lib/archive-paths");
 const { requiresRemine, shouldAttempt } = require("../src/services/mining-state");
 const { resolveAutoCompactConfig } = require("../src/services/auto-compact-config");
@@ -27,11 +27,11 @@ const { resolveAutomaticActions, shouldAutoMineDate } = require("../src/services
 const { runPostMiningHooks } = require("../src/services/post-mining-hooks");
 const { processMatches } = require("../src/lib/process-identity");
 const { acquireProcessLock } = require("../src/lib/process-lock");
-const { findThreadSessionFile } = require("../src/lib/thread-session-file");
 const { latestContextUsage } = require("../src/lib/thread-context-usage");
 const { updateContextUsage } = require("../src/services/rebuild-log");
 const { MemoryStore } = require("../src/storage/memory-store");
 const { watcherActions, watcherEnabled, watcherPaths, writeWatcherState } = require("../src/services/watcher-runtime");
+const { enabledWatcherBindings } = require("../src/services/watcher-bindings");
 const LOG_DIR = path.join(os.homedir(), ".stone_memory", "logs");
 let workerLockDir = null;
 let workerLease = null;
@@ -136,7 +136,7 @@ async function runMining(tid, dateStr, { force = false, threadConfig = {} } = {}
 }
 
 function runAutoCompact(tid) {
-  const config = resolveAutoCompactConfig(loadConfig()[tid]);
+  const config = resolveAutoCompactConfig(getMemoryRuntimeConfig(tid));
   if (config.error) {
     log(`[${tid}] 自动 compact 未启用：${config.error}`);
     return Promise.resolve(false);
@@ -203,47 +203,54 @@ async function checkImports(tid) {
   }
 }
 
-function syncFromThread(tid) {
+function syncFromThread(tid, bindingId) {
   const syncScript = path.join(__dirname, "stmem-sync.js");
   if (!fs.existsSync(syncScript)) return Promise.resolve();
+  const args = [syncScript, "--thread", tid];
+  if (bindingId) args.push("--binding", bindingId);
   return new Promise(resolve => {
-    execFile(process.execPath, [syncScript, "--thread", tid], {
+    execFile(process.execPath, args, {
       encoding: "utf8", timeout: 120_000, cwd: path.dirname(__dirname), windowsHide: true,
     }, (err, stdout, stderr) => {
       if (err) {
-        log(`[${tid}] sync 失败: ${(stderr || err.message).trim().slice(0, 300)}`);
+        log(`[${tid}/${bindingId || "primary"}] sync 失败: ${(stderr || err.message).trim().slice(0, 300)}`);
         resolve();
         return;
       }
       const trimmed = (stdout || "").trim();
       if (trimmed && trimmed !== "已是最新" && !trimmed.includes("(no new messages)")) {
-        log(`[${tid}] sync: ${trimmed.split("\n").pop()}`);
+        log(`[${tid}/${bindingId || "primary"}] sync: ${trimmed.split("\n").pop()}`);
       }
       resolve();
     });
   });
 }
 
-// 同一线程同一时间只跑一个 sync；运行期间再次变化则结束后立刻补跑一次。
+// 同一记忆体只运行一个写入队列；各窗口可同时报告变化，但顺序写入共享归档与 SQLite。
 const syncStates = new Map();
 
 function getSyncState(tid) {
-  if (!syncStates.has(tid)) syncStates.set(tid, { running: false, dirty: false, timer: null, latestArchiveDate: null });
+  if (!syncStates.has(tid)) syncStates.set(tid, { running: false, allDirty: false, dirtyBindings: new Set(), timer: null, latestArchiveDate: null });
   return syncStates.get(tid);
 }
 
-async function flushSync(tid) {
+async function flushSync(tid, bindingId = null) {
   const state = getSyncState(tid);
-  state.dirty = true;
+  if (bindingId) state.dirtyBindings.add(bindingId);
+  else state.allDirty = true;
   if (state.running) return;
   state.running = true;
   try {
-    while (state.dirty) {
-      state.dirty = false;
-      const config = loadConfig()[tid] || {};
+    while (state.allDirty || state.dirtyBindings.size) {
+      const requestedIds = state.allDirty ? null : [...state.dirtyBindings];
+      state.allDirty = false;
+      state.dirtyBindings.clear();
+      const config = getMemoryRuntimeConfig(tid);
       const actions = resolveAutomaticActions(config);
       if (actions.sync) {
-        await syncFromThread(tid);
+        const targets = enabledWatcherBindings(tid)
+          .filter(binding => !requestedIds || requestedIds.includes(binding.id));
+        for (const binding of targets) await syncFromThread(tid, binding.id);
       }
       const latestArchiveDate = scanArchiveDates(tid).at(-1) || null;
       const dateChanged = state.latestArchiveDate && latestArchiveDate && state.latestArchiveDate !== latestArchiveDate;
@@ -253,7 +260,8 @@ async function flushSync(tid) {
         await checkAndMine(tid);
       }
       if (actions.sync) {
-        const usage = latestContextUsage(findThreadSessionFile(config.sessionDir, tid), config.runtime || "claude");
+        const primary = enabledWatcherBindings(tid).find(binding => binding.primary);
+        const usage = latestContextUsage(primary?.threadFile, primary?.provider || config.runtime || "claude");
         if (usage) updateContextUsage(tid, usage);
       }
     }
@@ -262,38 +270,55 @@ async function flushSync(tid) {
   }
 }
 
-function scheduleSync(tid, debounceMs = 300) {
+function scheduleSync(tid, bindingId, debounceMs = 300) {
   const state = getSyncState(tid);
-  state.dirty = true;
+  state.dirtyBindings.add(bindingId);
   if (state.timer) clearTimeout(state.timer);
   state.timer = setTimeout(() => {
     state.timer = null;
-    flushSync(tid).catch(err => log(`[${tid}] 实时同步失败: ${err.message}`));
+    flushSync(tid, bindingId).catch(err => log(`[${tid}/${bindingId}] 实时同步失败: ${err.message}`));
   }, debounceMs);
 }
 
-function watchThreadFile(tid) {
-  const sessionDir = getCfg("sessionDir", tid);
-  if (!sessionDir || !fs.existsSync(sessionDir)) {
-    log(`[${tid}] 无法实时监听：sessionDir 不存在 (${sessionDir || "未配置"})`);
-    return null;
-  }
-  let currentFile=null,currentWatcher=null;
-  const attach=()=>{
-    const targetFile=findThreadSessionFile(sessionDir,tid);
-    if(!targetFile){if(!currentFile)log(`[${tid}] 无法实时监听：在 ${sessionDir} 中没有递归找到绑定线程文件`);return;}
-    if(targetFile===currentFile)return;
-    currentWatcher?.close();currentFile=targetFile;
-    const targetDir=path.dirname(targetFile),targetName=path.basename(targetFile);
-    try{
-      currentWatcher=fs.watch(targetDir,{persistent:true},(_eventType,filename)=>{if(!filename||path.basename(String(filename))===targetName)scheduleSync(tid);});
-      currentWatcher.on("error",err=>log(`[${tid}] 文件监听异常，将依靠巡检兜底: ${err.message}`));
-      log(`[${tid}] 实时监听: ${targetFile}`);scheduleSync(tid,0);
-    }catch(err){currentWatcher=null;log(`[${tid}] 文件监听启动失败，将依靠巡检兜底: ${err.message}`);}
+function watchMemoryBindings(tid) {
+  const watchers = new Map();
+  const reconcile = () => {
+    const active = new Set();
+    for (const binding of enabledWatcherBindings(tid)) {
+      active.add(binding.id);
+      const signature = `${binding.sessionRoot || ""}\0${binding.externalThreadId || ""}\0${binding.threadFile || ""}`;
+      if (watchers.get(binding.id)?.signature === signature) continue;
+      watchers.get(binding.id)?.watcher?.close();
+      if (!binding.threadFile) {
+        if (!watchers.has(binding.id)) log(`[${tid}/${binding.id}] 找不到绑定线程文件，将等待巡检重新发现`);
+        watchers.set(binding.id, { signature, watcher: null });
+        continue;
+      }
+      const targetDir = path.dirname(binding.threadFile), targetName = path.basename(binding.threadFile);
+      try {
+        const watcher = fs.watch(targetDir, { persistent: true }, (_eventType, filename) => {
+          if (!filename || path.basename(String(filename)) === targetName) scheduleSync(tid, binding.id);
+        });
+        watcher.on("error", err => log(`[${tid}/${binding.id}] 文件监听异常，将依靠巡检兜底: ${err.message}`));
+        watchers.set(binding.id, { signature, watcher });
+        log(`[${tid}/${binding.id}] 实时监听: ${binding.threadFile}`);
+        scheduleSync(tid, binding.id, 0);
+      } catch (err) {
+        watchers.set(binding.id, { signature, watcher: null });
+        log(`[${tid}/${binding.id}] 文件监听启动失败，将依靠巡检兜底: ${err.message}`);
+      }
+    }
+    for (const [bindingId, entry] of watchers) {
+      if (active.has(bindingId)) continue;
+      entry.watcher?.close();
+      watchers.delete(bindingId);
+      log(`[${tid}/${bindingId}] 已停止监听`);
+    }
   };
-  attach();
-  const lineageTimer=setInterval(attach,5000);lineageTimer.unref();
-  return {close(){clearInterval(lineageTimer);currentWatcher?.close();}};
+  reconcile();
+  const timer = setInterval(reconcile, 5000);
+  timer.unref();
+  return { close() { clearInterval(timer); for (const entry of watchers.values()) entry.watcher?.close(); } };
 }
 
 async function checkAndMine(tid) {
@@ -302,7 +327,7 @@ async function checkAndMine(tid) {
   if (!archiveDates.length) return false;
   const miningState = loadMiningState(tid);
   const bjToday = beijingToday();
-  const threadConfig = loadConfig()[tid] || {};
+  const threadConfig = getMemoryRuntimeConfig(tid);
   const actions = resolveAutomaticActions(threadConfig);
   if (!actions.mine) return false;
 
@@ -342,7 +367,7 @@ async function main() {
   if (!threadFlag && !once) {
     throw new Error("watcher worker 必须指定 --thread；多线程请启动 watcher-supervisor.js");
   }
-  const threadIds = threadFlag ? [threadFlag] : listThreadIds();
+  const threadIds = threadFlag ? [threadFlag] : listMemoryIds();
   if (!threadIds.length) {
     log("没有配置任何线程，请先运行 stmem init --thread <id>");
     process.exit(1);
@@ -353,7 +378,7 @@ async function main() {
       log(`[${threadFlag}] 已有 worker 正在运行，本进程退出`);
       return;
     }
-    const initialConfig = loadConfig()[threadFlag] || {};
+    const initialConfig = getMemoryRuntimeConfig(threadFlag);
     if (!watcherEnabled(initialConfig) && !once) {
       log(`[${threadFlag}] 自动化已全部关闭，worker 不启动`);
       releaseWorkerLock();
@@ -386,7 +411,7 @@ async function main() {
   log(`线程: ${threadIds.join(", ")}`);
   log(`归档模式: 文件变化实时同步；兜底巡检: ${intervalSec}s`);
 
-  const fileWatchers = once ? [] : threadIds.map(watchThreadFile).filter(Boolean);
+  const fileWatchers = once ? [] : threadIds.map(watchMemoryBindings).filter(Boolean);
   const compactChecked = new Set();
 
   while (true) {
@@ -395,7 +420,7 @@ async function main() {
         // 启动时同步一次，之后这里只承担低频漏事件兜底。
         await flushSync(tid);
         const minedAny = await checkAndMine(tid);
-        const actions = resolveAutomaticActions(loadConfig()[tid] || {});
+        const actions = resolveAutomaticActions(getMemoryRuntimeConfig(tid));
         if (actions.compact && (!compactChecked.has(tid) || minedAny)) {
           compactChecked.add(tid);
           await runAutoCompact(tid);

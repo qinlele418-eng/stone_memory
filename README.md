@@ -4,6 +4,8 @@
 
 Stone Memory 是一个本地优先、可解释的 AI 记忆与线程生命周期管理系统。它从 Claude Code、Codex 等聊天线程中归档纯对话，挖掘 feelings（事件摘要）和 features（长期特征），再按关系阶段、项目证据、主副核心与 importance 对旧摘要精简或隐藏，并把人设、摘要、原文锚点、近期上下文和工具调用安全地重建回线程。
 
+> 当前 `main` 为 `1.2.0-beta.1` 测试版：引入稳定 `memoryId`、多 Binding 接入和新版 Web 工作台。升级前建议备份 `~/.stone_memory`；旧线程配置会继续以兼容模式读取。
+
 它不依赖 embedding 黑箱召回：用户可以查看系统保存了什么、为什么保留、对应哪段原文、位于怎样的时间曲线，以及下一次 rebuild 会实际注入哪些内容。
 
 主要能力：
@@ -368,7 +370,8 @@ stmem memory update --thread <线程ID> --batch-file <json>   # 摘要/锚点编
 stmem rules list --thread <线程ID>           # 规则管理
 
 stmem list                                   # 只读查看
-stmem sync --thread <线程ID>                 # 手动同步
+stmem sync --thread <线程ID>                 # 手动同步主 Binding
+stmem sync --thread <线程ID> --binding <ID>  # 手动同步指定 Binding（独立游标）
 stmem db status --thread <线程ID>            # 数据库维护
 ```
 
@@ -376,7 +379,7 @@ stmem db status --thread <线程ID>            # 数据库维护
 
 安装阶段负责让唯一 watcher supervisor 常驻并自愈（Linux 走 systemd，Windows 走 Task Scheduler）；init 与 watcher CLI 都不负责拉起裸进程。只有 `watcherEnabled=ON` 的记忆体才会拥有 worker；某个记忆体的开关不影响其他记忆体。
 
-线程文件变化后约 300ms 防抖增量同步到 archive；正常追加只读取每个记忆体 `.sync-state.json` 游标后的新字节。若线程经 rebuild 缩短、被替换，或游标前内容被改写，则自动执行一次全量幂等校验并重建游标，不会用"每次完整重读线程"冒充增量。后台仍低频巡检，作为文件系统漏事件时的兜底，并负责自动挖掘和摘要维护。
+线程文件变化后约 300ms 防抖增量同步到 archive；每个记忆体最多同时监听 5 个启用的 Binding，每个 Binding 使用 `.sync-state/<binding-id>.json` 独立游标。多个窗口可以同时报告变化，但同一记忆体始终串行写入 archive 与 SQLite。若线程经 rebuild 缩短、被替换，或游标前内容被改写，则自动执行一次全量幂等校验并重建游标。后台仍低频巡检，作为文件系统漏事件时的兜底，并负责自动挖掘和摘要维护。
 
 ```bash
 stmem watcher status                         # 查看全部记忆体状态
@@ -509,7 +512,7 @@ codex mcp add stmem -- node ~/stone_memory/mcp-server.js
 
 > 以上操作均可交由 AI 助手完成。注意注册的是 `mcp-server.js`，不是 `stmem` CLI。
 
-### 可用工具（共 13 个）
+### 可用工具
 
 | 工具 | 功能 |
 |------|------|
@@ -517,6 +520,7 @@ codex mcp add stmem -- node ~/stone_memory/mcp-server.js
 | `stmem_memory_rebuild` | 应用刚刚预览的参数：Codex 立即 apply，Claude Code 写入 queue |
 | `stmem_memory_mine` | 触发单日挖掘（feelings + features） |
 | `stmem_memory_status` | 查看当前 stmem 状态，含各线程 archive/feelings/features 数量 |
+| `stmem_memory_bind` | 将发起调用的当前 Codex/Claude Code 窗口绑定到指定记忆体；已属于其他记忆体时拒绝改绑 |
 | `stmem_dream_latest` / `stmem_dream_status` / `stmem_dream_get` | 查看最近梦境、织梦状态或指定日期梦境 |
 | `stmem_memory_search` | 关键词搜索 feelings + 回溯原文 archive |
 | `stmem_memory_deep_search` | 深度检索（子 agent 多级搜索 + 原文回溯） |

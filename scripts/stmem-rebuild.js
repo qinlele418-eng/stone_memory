@@ -6,6 +6,7 @@ const { spawnSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
+const { resolveMemoryArg } = require("../src/lib/memory-cli");
 
 function valueAfter(args, flag) {
   const index = args.indexOf(flag);
@@ -22,6 +23,7 @@ function requestFromArgs(args, threadId, getCfg) {
   const { normalizeRebuildRequest } = require("../src/services/rebuild-request");
   return { threadId, ...normalizeRebuildRequest({
     threadId,
+    bindingId: valueAfter(args, "--binding") || "",
     window: valueAfter(args, "--window") ?? getCfg("windowDays", threadId, 3),
     toolPairs: valueAfter(args, "--tool-pairs") ?? getCfg("keepToolPairs", threadId, 30),
     summaryLimit: valueAfter(args, "--summary-limit") ?? 0,
@@ -33,14 +35,14 @@ function requestFromArgs(args, threadId, getCfg) {
   }, { trigger: "cli" }) };
 }
 
-function runRuntimeRebuild({ threadId, summary, context, trim, trigger, planFile = "", apply = false }) {
+function runRuntimeRebuild({ threadId, summary, context, trim, trigger, planFile = "", apply = false, binding = null }) {
   const { getCfg } = require("../src/config");
   if (apply && planFile) {
     const { permanentlyTrimThread } = require("../src/services/rebuild-workbench");
-    const trimmed = permanentlyTrimThread(threadId, readPlan(planFile));
+    const trimmed = permanentlyTrimThread(threadId, readPlan(planFile), binding);
     console.log(`[stmem] permanent trim: messages=${trimmed.removedMessages}, tools=${trimmed.removedTools}, archive=${trimmed.archiveMessages}, full=${trimmed.fullRecords}`);
   }
-  const runtime = getCfg("runtime", threadId, "claude");
+  const runtime = binding?.provider || getCfg("runtime", threadId, "claude");
   const script = path.join(__dirname, runtime === "codex" ? "rebuild-codex-thread.js" : "rebuild-thread.js");
   const spawnArgs = [script, "--thread", threadId];
   if (apply) spawnArgs.push("--apply");
@@ -52,7 +54,13 @@ function runRuntimeRebuild({ threadId, summary, context, trim, trigger, planFile
   spawnArgs.push("--min-importance", String(summary.minImportance));
   if (trigger) spawnArgs.push("--trigger", String(trigger));
   console.log(`[stmem] ${runtime} rebuild ${threadId}, window=${context.windowDays}, pairs=${context.toolPairs}${context.mode === "watermark" ? ", watermark" : ""}...`);
-  const result = spawnSync(process.execPath, spawnArgs, { stdio: "inherit", cwd: path.dirname(__dirname) });
+  const env = binding ? {
+    ...process.env,
+    STMEM_REBUILD_PROVIDER: binding.provider,
+    STMEM_REBUILD_EXTERNAL_THREAD_ID: binding.externalThreadId,
+    STMEM_REBUILD_SESSION_ROOT: binding.sessionRoot,
+  } : process.env;
+  const result = spawnSync(process.execPath, spawnArgs, { stdio: "inherit", cwd: path.dirname(__dirname), env });
   if (result.error) {
     console.error(result.error.message);
     return 1;
@@ -72,7 +80,15 @@ function runQueuedRequest(row) {
         excludedTools: row.trim.excludedTools,
       }), { encoding: "utf8", mode: 0o600 });
     }
-    return runRuntimeRebuild({ ...row, planFile, apply: true });
+    let binding = null;
+    if (row.bindingId) {
+      try { binding = require("../src/services/memory-binding-config").getConfiguredBinding(row.threadId, row.bindingId); }
+      catch (error) {
+        console.error(`[stmem] 排队重建的目标窗口不可用（${row.bindingId}）：${error.message}`);
+        return 1;
+      }
+    }
+    return runRuntimeRebuild({ ...row, planFile, apply: true, binding });
   } finally {
     if (planDir) fs.rmSync(planDir, { recursive: true, force: true });
   }
@@ -103,7 +119,7 @@ function main() {
       let failed = false;
       let deferred = 0;
       const mcpStartup = args.includes("--mcp-startup");
-      const selectedThread = valueAfter(args, "--thread");
+      const selectedThread = valueAfter(args, "--memory") || valueAfter(args, "--thread");
       const { getCfg } = require("../src/config");
       for (const row of claim.rows) {
         if (selectedThread && row.threadId !== selectedThread) continue;
@@ -124,13 +140,10 @@ function main() {
     return;
   }
   const apply = args.includes("--apply");
-  const threadId = args.find((a, i) => a === "--thread" && i + 1 < args.length)
-    ? args[args.indexOf("--thread") + 1] : null;
+  const threadId = resolveMemoryArg(args, { allowDefault: false });
   const { getCfg } = require("../src/config");
-  if (!threadId) {
-    console.log("请指定 --thread <id>");
-    process.exit(1);
-  }
+  const bindingId = valueAfter(args, "--binding");
+  const binding = bindingId ? require("../src/services/memory-binding-config").getConfiguredBinding(threadId, bindingId) : null;
   if (args.includes("--queue")) {
     if (getCfg("runtime", threadId, "claude") === "codex") {
       console.error("Codex 不支持 rebuild queue：请使用 --apply，并在成功后立即完全重启 Codex/app-server");
@@ -142,14 +155,14 @@ function main() {
   }
   if (args.includes("--check") || args.includes("--repair")) {
     const { checkThreadIntegrity, repairThreadIntegrity } = require("../src/services/rebuild-workbench");
-    const result = args.includes("--repair") ? repairThreadIntegrity(threadId) : checkThreadIntegrity(threadId);
+    const result = args.includes("--repair") ? repairThreadIntegrity(threadId, binding) : checkThreadIntegrity(threadId, binding);
     console.log(JSON.stringify(result, null, 2));
     return;
   }
 
   const request = requestFromArgs(args, threadId, getCfg);
   if (apply) {
-    const runtime = getCfg("runtime", threadId, "claude");
+    const runtime = binding?.provider || getCfg("runtime", threadId, "claude");
     if (runtime !== "codex" && request.trigger !== "cli") {
       console.error("Claude Code 的 Web/MCP 重建必须使用 --queue，以避免 UUID 链断裂");
       process.exit(1);
@@ -157,10 +170,10 @@ function main() {
     // apply 是同步写入，不借道队列。Codex 应用前清除该线程遗留任务，
     // 避免旧请求在后续 MCP 启动时复活并再次替换线程文件。
     if (runtime === "codex") discardQueuedRebuild(threadId);
-    const status = runRuntimeRebuild({ ...request, planFile: valueAfter(args, "--plan"), apply: true });
+    const status = runRuntimeRebuild({ ...request, planFile: valueAfter(args, "--plan"), apply: true, binding });
     process.exit(status);
   }
-  const status = runRuntimeRebuild({ ...request, planFile: valueAfter(args, "--plan"), apply: false });
+  const status = runRuntimeRebuild({ ...request, planFile: valueAfter(args, "--plan"), apply: false, binding });
   process.exit(status);
 }
 
