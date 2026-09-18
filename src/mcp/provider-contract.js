@@ -86,8 +86,8 @@ function validateTools(manifest, tools) {
   const names = new Set();
   for (const tool of tools) {
     if (!tool || typeof tool.name !== "string" || !/^[a-z0-9_]+$/.test(tool.name) || typeof tool.description !== "string") fail("MCP_TOOL_NAME");
-    const { name, memoryArgument, legacy } = toolIdentity(manifest.id, tool.name);
-    if (legacy && (manifest.scope !== "memory" || tool.annotations?.readOnlyHint !== true)) fail("MCP_LEGACY_CONTRACT");
+    const { name, memoryArgument, legacy, readOnly } = toolIdentity(manifest.id, tool.name);
+    if (legacy && (manifest.scope !== "memory" || tool.annotations?.readOnlyHint !== readOnly)) fail("MCP_LEGACY_CONTRACT");
     if (name.length > 128 || names.has(name)) fail("MCP_NAME_CONFLICT");
     names.add(name);
     validateSchema(tool.inputSchema);

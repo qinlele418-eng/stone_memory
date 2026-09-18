@@ -13,7 +13,7 @@ class Registry {
     }
   }
   list() { return [...this.entries.values()].map(entry => entry.tool); }
-  registerModule(manifest, provider, { state, memoryIds, timeoutMs = 30000, logger = () => {} } = {}) {
+  registerModule(manifest, provider, { state, memoryIds, timeoutMs, logger = () => {} } = {}) {
     if (!state?.globalEnabled || (manifest.scope === "memory" && !memoryIds.some(id => state.memories?.[id] === true))) return;
     if (typeof provider?.tools !== "function" || typeof provider?.call !== "function") throw new Error("MCP_PROVIDER_EXPORTS");
     const declared = provider.tools(createContext(manifest, { logger }));
@@ -24,7 +24,9 @@ class Registry {
     const definitions = validateTools(manifest, declared);
     const pending = [];
     for (const definition of definitions) {
-      const { name, memoryArgument } = toolIdentity(manifest.id, definition.name);
+      const identity = toolIdentity(manifest.id, definition.name);
+      const { name, memoryArgument } = identity;
+      const callTimeout = timeoutMs ?? identity.timeoutMs ?? 30000;
       if (this.entries.has(name)) throw new Error("MCP_NAME_CONFLICT");
       const tool = structuredClone(definition);
       tool.name = name;
@@ -40,11 +42,11 @@ class Registry {
           validateInput(tool.inputSchema, args);
           const memoryId = manifest.scope === "memory" ? safeMemoryId(args[memoryArgument], memoryIds) : null;
           if (memoryId && state.memories?.[memoryId] !== true) throw new Error("MCP_MEMORY_DISABLED");
-          const context = createContext(manifest, { memoryId, signal: controller.signal, writable: !definition.annotations.readOnlyHint, logger });
+          const context = createContext(manifest, { memoryId, signal: controller.signal, writable: !definition.annotations.readOnlyHint, logger, timeoutMs: callTimeout });
           const input = { ...args };
           if (memoryId) delete input[memoryArgument];
           const timeout = new Promise((_, reject) => {
-            timer = setTimeout(() => { controller.abort(); reject(new Error("MCP_CALL_TIMEOUT")); }, timeoutMs);
+            timer = setTimeout(() => { controller.abort(); reject(new Error("MCP_CALL_TIMEOUT")); }, callTimeout);
           });
           const cancelled = new Promise((_, reject) => {
             cancel = () => { controller.abort(); reject(new Error("MCP_CANCELLED")); };

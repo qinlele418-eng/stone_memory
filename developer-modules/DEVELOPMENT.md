@@ -490,7 +490,7 @@ memory 工具禁止顶层 `const/enum`（否则追加宿主 `memoryId` 后约束
 `scope: memory` 工具的对外 schema 由宿主追加必填 `memoryId`（Provider
 不得自行定义该保留参数），每次调用都验证该 ID 已配置且在本模块启用。
 迁移的旧工具可由宿主兼容表保留原名和原记忆体参数名；模块不能自行声明任意
-别名。Notebook 的三个旧只读工具沿用 `thread`，同样必填且经过两级授权检查。
+别名。Notebook 和 Dream 的九个迁移工具沿用 `thread`，同样必填且经过两级授权检查。
 Provider 收到绑定后的 `context.memoryId/threadId`，`args` 不再含宿主参数。
 即便只有一个记忆体也不会自动选择；`scope: global` 工具不绑定记忆体。
 
@@ -520,7 +520,7 @@ HTTP 仅适配正式 CLI，不能直接改配置。
 `context` 提供模块 ID、绑定记忆体、私有数据路径、`signal`、`logger` 和
 `runCommand(action, payload)`。声明 `core:read` 才提供绑定当前记忆体的
 `core.listBindings()`、`core.getBinding(id)`、`core.listFeelings()` 和
-`core.notebook.catalog/search/read`，不接受跨记忆体参数。
+`core.notebook.catalog/search/read`、`core.dream.latest/status/get`，不接受跨记忆体参数。
 枚举工具时没有记忆体，也没有 Core reader。
 这些模块 reader 以 SQLite 只读连接打开现有库，不注册线程、不迁移、不触发历史
 消息清理。缺库时列表/笔记查询返回空结果，单个不存在的 Binding 仍报未找到。
@@ -534,7 +534,9 @@ HTTP 仅适配正式 CLI，不能直接改配置。
 
 ### 隔离与审计
 
-单次模块调用上限 30 秒，支持 MCP `notifications/cancelled`，通过 AbortSignal
+普通模块调用上限 30 秒。宿主兼容表为 Notebook delegate 保留 120 秒规划预算，
+外层 Provider 与 CLI 上限为 180 秒，包含后续校验和写入；模块不能自行提高上限。
+支持 MCP `notifications/cancelled`，通过 AbortSignal
 通知 Provider，并取消宿主启动的 CLI 子进程。异步超时后仍可处理后续工具。
 Provider 必须遵守取消信号；同进程模式不能抢占同步死循环，也不能强制停止
 忽略信号的本地代码。这是已安装可信代码的契约，不是第三方代码安全沙箱。
@@ -548,20 +550,29 @@ Provider 必须遵守取消信号；同进程模式不能抢占同步死循环�
 显式启用后，`module audit --strict`、`mcp status` 与 MCP 启动都会检查导出、
 工具定义、schema、annotations 和冲突。静态检查不能证明任意依赖安全。
 
-### Notebook Canary 与兼容
+### Notebook / Dream 迁移与兼容
 
-Notebook 将原有 `stmem_notebook_status/query/read` 的定义与分派迁入模块
-Provider，Core 不再注册或处理这三个名称。不提供重复的 `stmem_notebook_lab_*`
-工具。`src/mcp/legacy-tool-names.js` 仅记录宿主批准的历史名称和所属模块，
+Notebook 将原有 `stmem_notebook_status/query/read/topic_manage/write/delegate`
+六个公共工具迁入模块 Provider；Dream 将 `stmem_dream_latest/status/get` 三个
+公共工具迁入模块 Provider。Core 不再注册或处理这九个名称。不提供重复的
+`stmem_notebook_lab_*` / `stmem_dream_lab_*` 工具。
+`src/mcp/legacy-tool-names.js` 仅记录宿主批准的历史名称、所属模块与兼容约束，
 普通新模块继续自动生成命名空间，无须增加兼容表项。
 
 旧工具名、业务参数与成功返回文本格式保留；`query.limit` 仍允许 1–50。
 迁移后的显式变化：`thread` 必填，默认关闭，须分别开启全局与记忆体开关；
 错误经过 Provider 净化，查询不再初始化/迁移数据库。旧客户端须先开启模块，
 在每次调用中填写 `thread`，然后重连 MCP。缺省线程不再自动推断。
-关闭、删除或加载失败后，这三个工具不会回落至 Core；这不是关闭整个 Notebook
-产品的所有访问。现有写工具、delegate 和 Notebook Steward 受限子模式仍属于
-本轮未迁移的 Core 能力，其行为与调用限制保持不变。
+关闭、删除或加载失败后，九个公共工具不会回落至 Core。开关只控制公共模块
+MCP，不关闭 Web/终端 CLI，也不改变内部 Notebook Steward 受限子会话。
+Notebook 写工具声明 `mcp:write`，通过 `context.runCommand` →
+`stmem module notebook-lab topic_manage|write|delegate` → 共享服务/正式 Notebook
+CLI 执行。管家继续只向规划器发送正文长度和哈希，执行器负责 revision 复核与
+正文写入。模块 CLI 拒绝 payload 中的 thread/threadId/memoryId，避免覆盖绑定。
+Dream 状态查询使用只读 MemoryStore，不注册线程、不清理历史消息；缺库不建库。
+
+记忆重建、挖掘、搜索、审计、状态和触发检查属于 Core，不为它们虚构开发者模块。
+Deep Search 与 Notebook Steward 的内部受限工具保留原列表、调用上限与模式隔离。
 
 ### 验证
 
@@ -570,6 +581,8 @@ Provider，Core 不再注册或处理这三个名称。不提供重复的 `stmem
 完整工具定义快照位于 `test/fixtures/mcp/core-tools.json`，覆盖普通、Deep Search
 和 Notebook Steward 三种模式；现有 CI 在 Node 22/25 × Windows/Linux/macOS
 六个组合执行契约检查。受限子 MCP 永不加载 Module Provider。
-原始快照保留以供对照；普通模式默认列表仅移除上述三个迁移项，其他定义不变。
-额外运行 `node scripts/verify-notebook-migration.js <迁移前checkout>`，在隔离
-HOME 与合成笔记下比较旧 Core 和新 Provider 的完整成功响应及主数据库哈希。
+原始快照保留以供对照；普通模式默认列表仅移除上述九个迁移项，其他定义不变。
+额外运行 `node scripts/verify-module-migration.js <迁移前checkout>`，在隔离
+HOME 与合成笔记/梦境下比较旧 Core 和新 Provider 的完整成功响应及主数据库哈希。
+`test/module-mcp-migration.test.js` 通过真实 MCP/CLI 进程验证写入与错误路径，
+Claude/Codex 规划器使用本地合成程序，不调用实际模型服务。

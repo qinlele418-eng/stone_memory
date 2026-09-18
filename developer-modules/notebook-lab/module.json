@@ -4,16 +4,47 @@
   "version": "1.0.0",
   "sdkVersion": 2,
   "scope": "memory",
-  "permissions": ["core:read", "generation:use", "mcp:tools"],
-  "entry": { "frontend": "index.html", "mcp": "backend/mcp.js", "commands": { "notebook": "backend/commands/notebook.js" } },
-  "storage": { "database": "module.sqlite", "documents": "documents", "browser": ["paper-style"] },
+  "permissions": [
+    "core:read",
+    "generation:use",
+    "mcp:tools",
+    "mcp:write"
+  ],
+  "entry": {
+    "frontend": "index.html",
+    "mcp": "backend/mcp.js",
+    "commands": {
+      "notebook": "backend/commands/notebook.js",
+      "topic_manage": "backend/commands/mcp.js",
+      "write": "backend/commands/mcp.js",
+      "delegate": "backend/commands/mcp.js"
+    }
+  },
+  "storage": {
+    "database": "module.sqlite",
+    "documents": "documents",
+    "browser": [
+      "paper-style"
+    ]
+  },
   "legacy": {
     "frontend": "src/web/public/notebook-lab",
-    "commands": { "notebook": "scripts/stmem-notebook.js" },
+    "commands": {
+      "notebook": "scripts/stmem-notebook.js"
+    },
     "storage": [
-      { "path": "<thread-dir>/memory/memory.sqlite", "mode": "notebook_topics/notebook_entries 表" },
-      { "path": "<thread-dir>/memory/notebook/", "mode": "Markdown、附件与历史版本" },
-      { "path": "浏览器 localStorage", "mode": "纸张样式" }
+      {
+        "path": "<thread-dir>/memory/memory.sqlite",
+        "mode": "notebook_topics/notebook_entries 表"
+      },
+      {
+        "path": "<thread-dir>/memory/notebook/",
+        "mode": "Markdown、附件与历史版本"
+      },
+      {
+        "path": "浏览器 localStorage",
+        "mode": "纸张样式"
+      }
     ]
   }
 }

@@ -147,7 +147,7 @@ test("notebook steward restores a trashed note without rewriting its content", (
 });
 
 test("notebook steward MCP mode exposes only three read-only internal tools", () => {
-  const source = ["mcp-server.js", "src/mcp/core/index.js", "src/mcp/core/notebook.js"]
+  const source = ["mcp-server.js", "src/mcp/core/index.js", "src/mcp/core/notebook.js", "src/services/notebook-module-command.js"]
     .map(file => fs.readFileSync(path.join(__dirname, "..", file), "utf8")).join("\n");
   assert.match(source, /STMEM_NOTEBOOK_STEWARD/u);
   assert.match(source, /NOTEBOOK_STEWARD_TOOLS/u);

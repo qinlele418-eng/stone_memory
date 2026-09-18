@@ -4,7 +4,7 @@ const path = require("node:path");
 const { execFile } = require("node:child_process");
 const { PROJECT_ROOT, moduleDataDir, resolveInside } = require("../services/developer-module-contract");
 const { jsonValue } = require("./provider-contract");
-function createContext(manifest, { memoryId = null, signal, writable = false, logger = () => {}, projectRoot = PROJECT_ROOT } = {}) {
+function createContext(manifest, { memoryId = null, signal, writable = false, logger = () => {}, projectRoot = PROJECT_ROOT, timeoutMs = 30000 } = {}) {
   const dataDir = manifest.scope === "global" || memoryId ? moduleDataDir(manifest, { threadId: memoryId }) : null;
   const context = {
     moduleId: manifest.id, memoryId, threadId: memoryId, moduleDataDir: dataDir, signal,
@@ -24,7 +24,9 @@ function createContext(manifest, { memoryId = null, signal, writable = false, lo
         const args = [path.join(projectRoot, "bin/stmem"), "module", manifest.id, action, "--batch-file", batch];
         if (memoryId) args.push("--memory", memoryId);
         return await new Promise((resolve, reject) => {
-          execFile(process.execPath, args, { cwd: projectRoot, windowsHide: true, signal, timeout: 30000, maxBuffer: 1024 * 1024, encoding: "utf8" }, (error, stdout) => {
+          // A valid 1 MiB batch may produce a larger JSON receipt (body plus
+          // metadata/escaping). Preserve the existing Notebook CLI output cap.
+          execFile(process.execPath, args, { cwd: projectRoot, windowsHide: true, signal, timeout: timeoutMs, maxBuffer: 5 * 1024 * 1024, encoding: "utf8" }, (error, stdout) => {
             if (error) return reject(new Error("MCP_COMMAND_FAILED"));
             try { resolve(JSON.parse(stdout)); } catch { reject(new Error("MCP_COMMAND_RESULT")); }
           });

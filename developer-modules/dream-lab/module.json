@@ -2,19 +2,48 @@
   "id": "dream-lab",
   "title": "自动织梦",
   "version": "1.0.0",
-  "sdkVersion": 1,
+  "sdkVersion": 2,
   "scope": "memory",
-  "permissions": ["core:read", "generation:use", "watcher:plugin"],
-  "entry": { "frontend": "index.html", "commands": { "dream": "backend/commands/dream.js" } },
-  "storage": { "files": ["preferences.json", "dreams"] },
-  "watcher": { "plugin": "dev-dream" },
+  "permissions": [
+    "core:read",
+    "generation:use",
+    "watcher:plugin",
+    "mcp:tools"
+  ],
+  "entry": {
+    "frontend": "index.html",
+    "commands": {
+      "dream": "backend/commands/dream.js"
+    },
+    "mcp": "backend/mcp.js"
+  },
+  "storage": {
+    "files": [
+      "preferences.json",
+      "dreams"
+    ]
+  },
+  "watcher": {
+    "plugin": "dev-dream"
+  },
   "legacy": {
     "frontend": "src/web/public/dream-lab",
-    "commands": { "dream": "scripts/stmem-dream.js" },
+    "commands": {
+      "dream": "scripts/stmem-dream.js"
+    },
     "storage": [
-      { "path": "~/.stone_memory/dream/<thread-id>/<date>.md", "mode": "梦境正文" },
-      { "path": "<thread-dir>/dream/", "mode": "偏好与 Prompt 覆盖" },
-      { "path": "<thread-dir>/tmp/", "mode": "生成临时文件" }
+      {
+        "path": "~/.stone_memory/dream/<thread-id>/<date>.md",
+        "mode": "梦境正文"
+      },
+      {
+        "path": "<thread-dir>/dream/",
+        "mode": "偏好与 Prompt 覆盖"
+      },
+      {
+        "path": "<thread-dir>/tmp/",
+        "mode": "生成临时文件"
+      }
     ]
   }
 }

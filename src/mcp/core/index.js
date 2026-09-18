@@ -1,10 +1,9 @@
 const { SEARCH_ONLY, NOTEBOOK_STEWARD_MODE, MAX_DEEP_SEARCH_TOOL_CALLS, MAX_NOTEBOOK_STEWARD_TOOL_CALLS } = require("./shared");
 const { TOOLS, SEARCH_TOOLS, NOTEBOOK_STEWARD_TOOLS } = require("./definitions");
 const { toolTriggersCheck, toolStatus } = require("./memory");
-const { toolNotebookTopicManage, toolNotebookWrite, toolNotebookDelegate, toolInternalNotebookCatalog, toolInternalNotebookSearch, toolInternalNotebookRead } = require("./notebook");
+const { toolInternalNotebookCatalog, toolInternalNotebookSearch, toolInternalNotebookRead } = require("./notebook");
 const { toolRebuildPreview, toolRebuild } = require("./rebuild");
 const { toolMine } = require("./mining");
-const { toolDreamLatest, toolDreamStatus, toolDreamGet } = require("./dream");
 const { toolMemorySearch, toolDeepSearch, toolInternalKeywordSearch, toolInternalArchiveContext } = require("./search");
 const { toolAuditList, toolAuditMark, toolAuditQuery } = require("./audit");
 let deepSearchToolCalls = 0;
@@ -32,12 +31,6 @@ function call(name, args = {}) {
     else if (name === "stmem_memory_rebuild_preview") text = toolRebuildPreview(args);
     else if (name === "stmem_memory_mine") text = toolMine(args);
     else if (name === "stmem_memory_status") text = toolStatus();
-    else if (name === "stmem_dream_latest") text = toolDreamLatest(args);
-    else if (name === "stmem_dream_status") text = toolDreamStatus(args);
-    else if (name === "stmem_dream_get") text = toolDreamGet(args);
-    else if (name === "stmem_notebook_topic_manage") text = toolNotebookTopicManage(args);
-    else if (name === "stmem_notebook_write") text = toolNotebookWrite(args);
-    else if (name === "stmem_notebook_delegate") text = toolNotebookDelegate(args);
     else if (name === "stmem_memory_search") text = toolMemorySearch(args);
     else if (name === "stmem_memory_deep_search") text = toolDeepSearch(args);
     else if (name === "stmem_memory_audit_list") text = toolAuditList(args);

@@ -1,5 +1,5 @@
 // Compare the actual pre-migration server with the migrated provider.
-// Usage: node scripts/verify-notebook-migration.js <pre-migration-checkout>
+// Usage: node scripts/verify-module-migration.js <pre-migration-checkout>
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -34,6 +34,13 @@ try {
     const topic = store.createTopic({name:'Synthetic migration'});
     const note = store.writeEntry({topicId:topic.id,title:'Synthetic sealed',body:'synthetic migration body',tags:['regression'],visibility:'sealed'});
     store.close();
+    const { MemoryStore } = require('./src/storage/memory-store');
+    const memory = new MemoryStore({threadId:'alpha',memoryDir});
+    for (const date of ['2026-01-01','2026-01-02','2026-01-03']) memory.replaceDay(date, {feelings:[],dayState:{status:'completed',feelingCount:0}});
+    memory.close();
+    const { DreamStore } = require('./src/storage/dream-store');
+    const dreams = new DreamStore();
+    for (const date of ['2026-01-01','2026-01-03']) dreams.save({threadId:'alpha',date,dreamType:'beautiful',title:'Synthetic dream',body:'synthetic dream body'});
     process.stdout.write(JSON.stringify({topic,note}));
   `]));
   const calls = [
@@ -41,19 +48,26 @@ try {
     ["query", { tags: ["regression"], topicId: topic.id, limit: 50 }],
     ["query", { query: "absent" }], ["read", { noteId: note.id }],
     ["read", { noteId: "absent" }], ["status", { thread: "beta" }],
-  ];
-  const input = calls.map(([name, args], i) => JSON.stringify({ id: i + 1, method: "tools/call", params: { name: `stmem_notebook_${name}`, arguments: { thread: "alpha", ...args } } })).join("\n") + "\n";
+  ].map(([name, args]) => [`stmem_notebook_${name}`, args]);
+  calls.push(...[
+    ["stmem_dream_latest", {}], ["stmem_dream_status", {}],
+    ["stmem_dream_get", { date: "2026-01-01" }], ["stmem_dream_get", { date: "2026-01-02" }],
+    ["stmem_dream_latest", { thread: "beta" }], ["stmem_dream_status", { thread: "beta" }],
+  ]);
+  const input = calls.map(([name, args], i) => JSON.stringify({ id: i + 1, method: "tools/call", params: { name, arguments: { thread: "alpha", ...args } } })).join("\n") + "\n";
   const invoke = repo => run([path.join(repo, "mcp-server.js")], { cwd: repo, input }).trim().split("\n").map(JSON.parse).sort((a, b) => a.id - b.id);
   const before = invoke(baseline);
   assert.equal(before.length, calls.length);
   for (const response of before) assert.equal(response.result.isError, false, "Baseline must successfully read the seeded notes");
-  for (const memory of ["alpha", "beta"]) {
-    run([path.join(root, "bin/stmem"), "module", "mcp", "enable", "--module", "notebook-lab", "--memory", memory, "--apply"]);
+  for (const module of ["notebook-lab", "dream-lab"]) {
+    for (const memory of ["alpha", "beta"]) {
+      run([path.join(root, "bin/stmem"), "module", "mcp", "enable", "--module", module, "--memory", memory, "--apply"]);
+    }
+    run([path.join(root, "bin/stmem"), "module", "mcp", "enable", "--module", module, "--memory", "alpha", "--global", "--apply"]);
   }
-  run([path.join(root, "bin/stmem"), "module", "mcp", "enable", "--module", "notebook-lab", "--memory", "alpha", "--global", "--apply"]);
   const hash = () => crypto.createHash("sha256").update(fs.readFileSync(env.STMEM_DB_PATH)).digest("hex");
   const initial = hash();
   assert.deepEqual(invoke(root), before);
   assert.equal(hash(), initial);
-  console.log("Notebook migration: 7/7 complete responses identical to old Core; main database hash unchanged.");
+  console.log(`Notebook + Dream migration: ${calls.length}/${calls.length} complete responses identical to old Core; main database hash unchanged.`);
 } finally { fs.rmSync(home, { recursive: true, force: true }); }

@@ -43,6 +43,12 @@ test("MCP exposes latest, coverage, and exact-date dream reads", t => {
   }
 
   const dreamStore = new DreamStore({ root: path.join(stoneRoot, "dream") });
+  for (const extra of [[], ["--global"]]) {
+    const result = spawnSync(process.execPath, [path.join(__dirname, "../bin/stmem"), "module", "mcp", "enable", "--module", "dream-lab", "--memory", "thread-test", "--apply", ...extra], {
+      env: childEnvWithHome(home, { STMEM_DB_PATH: databasePath }), encoding: "utf8", timeout: 10000,
+    });
+    assert.equal(result.status, 0, result.stderr);
+  }
   dreamStore.save({
     threadId: "thread-test",
     date: "2026-07-27",
@@ -104,7 +110,7 @@ test("MCP exposes latest, coverage, and exact-date dream reads", t => {
   const tools = new Map(responses[0].result.tools.map(tool => [tool.name, tool]));
   assert.ok(tools.has("stmem_dream_latest"));
   assert.ok(tools.has("stmem_dream_status"));
-  assert.deepEqual(tools.get("stmem_dream_get").inputSchema.required, ["date"]);
+  assert.deepEqual(tools.get("stmem_dream_get").inputSchema.required, ["date", "thread"]);
 
   assert.deepEqual(JSON.parse(responses[1].result.content[0].text), {
     found: true,
@@ -133,7 +139,7 @@ test("MCP exposes latest, coverage, and exact-date dream reads", t => {
     message: "指定日期没有梦境",
   });
   assert.equal(responses[5].result.isError, true);
-  assert.match(responses[5].result.content[0].text, /YYYY-MM-DD/);
+  assert.match(responses[5].result.content[0].text, /MCP_INPUT_REQUIRED/);
 });
 
 function callServer(messages, env) {
@@ -152,5 +158,5 @@ function callServer(messages, env) {
     timeout: 2_000,
   });
   assert.equal(child.status, 0, child.stderr || child.error?.message);
-  return child.stdout.trim().split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line));
+  return child.stdout.trim().split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line)).sort((a,b) => a.id - b.id);
 }

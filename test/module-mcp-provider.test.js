@@ -191,18 +191,21 @@ test("legacy names are host-owned, memory-bound, read-only, and collision checke
   assert.throws(() => collision.registerModule(m, provider, options), /CONFLICT/);
 });
 
-test("missing or failed Notebook provider cannot fall back to migrated Core routes", async t => {
+test("missing or failed module providers cannot fall back to migrated Core routes", async t => {
   const root = fixture(t);
   const core = require("../src/mcp/core");
   for (const broken of [false, true]) {
-    if (broken) install(root, manifest("notebook-lab"), 'throw new Error("synthetic load failure")');
+    if (broken) for (const id of ["notebook-lab", "dream-lab"]) install(root, manifest(id), 'throw new Error("synthetic load failure")');
     const registry = new Registry();
     registry.registerCore(core);
-    const reports = loadModuleProviders(registry, { root, projectRoot: root, config: { modules: { "notebook-lab": options.state } }, memoryIds: options.memoryIds, logger() {} });
+    const reports = loadModuleProviders(registry, { root, projectRoot: root, config: { modules: { "notebook-lab": options.state, "dream-lab": options.state } }, memoryIds: options.memoryIds, logger() {} });
     assert.equal(reports.find(item => item.id === "notebook-lab").provider, broken ? "failed" : "missing");
-    for (const name of ["stmem_notebook_status", "stmem_notebook_query", "stmem_notebook_read"]) {
+    assert.equal(reports.find(item => item.id === "dream-lab").provider, broken ? "failed" : "missing");
+    for (const name of ["stmem_notebook_status", "stmem_notebook_query", "stmem_notebook_read", "stmem_notebook_topic_manage", "stmem_notebook_write", "stmem_notebook_delegate", "stmem_dream_latest", "stmem_dream_status", "stmem_dream_get"]) {
       assert.ok(!registry.list().some(tool => tool.name === name));
-      assert.equal((await registry.call(name, { thread: "alpha", query: "synthetic", noteId: "absent" })).isError, true);
+      const result = await registry.call(name, { thread: "alpha", query: "synthetic", noteId: "absent" });
+      assert.equal(result.isError, true);
+      assert.match(result.content[0].text, /未知工具|MCP_UNKNOWN_TOOL/);
     }
     assert.ok(registry.list().some(tool => tool.name === "stmem_memory_status"));
   }

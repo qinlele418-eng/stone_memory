@@ -31,6 +31,9 @@ async function scenario(mode) {
     assert.deepEqual(core.notebook.catalog(), { threadId: memoryId, topicCount: 0, entryCount: 0, defaultTopicId: null, topics: [] });
     assert.deepEqual(core.notebook.search({ query: "synthetic" }), { threadId: memoryId, query: "synthetic", topicId: null, tags: [], matchCount: 0, matches: [] });
     assert.equal(core.notebook.read("absent"), null);
+    assert.equal(core.dream.latest(), null);
+    assert.equal(core.dream.get("2026-01-01"), null);
+    assert.deepEqual(core.dream.status(), { threadId: memoryId, from: null, to: null, availableDates: [], missingDates: [] });
     assert.throws(() => core.notebook.search({}), /query/);
     assert.deepEqual(fs.readdirSync(process.env.HOME), []);
     return;
@@ -41,7 +44,7 @@ async function scenario(mode) {
     db.exec("CREATE TABLE schema_migrations(version INTEGER); INSERT INTO schema_migrations VALUES(1); CREATE TABLE evidence(value TEXT); INSERT INTO evidence VALUES('synthetic')");
     db.close();
     const before = hash();
-    for (const operation of [core => core.listFeelings(), core => core.listBindings(), core => core.getBinding("absent"), core => core.notebook.catalog(), core => core.notebook.search({ query: "synthetic" }), core => core.notebook.read("absent")]) {
+    for (const operation of [core => core.listFeelings(), core => core.listBindings(), core => core.getBinding("absent"), core => core.notebook.catalog(), core => core.notebook.search({ query: "synthetic" }), core => core.notebook.read("absent"), core => core.dream.status()]) {
       assert.throws(() => operation(reader()), /MCP_STORAGE_UPGRADE_REQUIRED/);
     }
     const registry = new Registry();
@@ -80,6 +83,7 @@ async function scenario(mode) {
   assert.equal(core.listBindings().length, 1);
   assert.equal(core.getBinding("binding-fixture").memoryId, memoryId);
   assert.deepEqual(core.listFeelings(), []);
+  assert.deepEqual(core.dream.status(), { threadId: memoryId, from: null, to: null, availableDates: [], missingDates: [] });
   // Even a configured memory with no row must not be auto-registered by a read.
   const other = createContext(manifest, { memoryId: "synthetic-other" }).core;
   assert.deepEqual(other.listBindings(), []);

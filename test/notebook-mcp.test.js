@@ -68,7 +68,7 @@ test("MCP exposes notebook tools and reads sealed notes", t => {
   assert.equal(JSON.parse(reread[0].result.content[0].text).body, "先观察，再发言。");
   assert.equal(JSON.parse(reread[1].result.content[0].text).matches[0].id, writtenNote.id);
   const listedWrite = responses[0].result.tools.find(tool => tool.name === "stmem_notebook_write");
-  assert.deepEqual(listedWrite.inputSchema.required, ["title", "body"]);
+  assert.deepEqual(listedWrite.inputSchema.required, ["title", "body", "thread"]);
 });
 
 function callServer(messages, env) {
