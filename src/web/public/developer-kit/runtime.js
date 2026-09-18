@@ -94,8 +94,7 @@
         :host { display:block; min-height:100dvh; color:var(--stone-theme-ink,#18372b); }
         * { box-sizing:border-box; }
         main { width:min(1180px,calc(100% - 40px)); margin:0 auto; padding:22px 0 80px; }
-        header { position:relative; overflow:hidden; margin-bottom:18px; padding:22px 24px 28px; border:1px solid var(--stone-theme-line,#dce6d7); border-radius:var(--stone-theme-radius-lg,20px); background:color-mix(in srgb,var(--stone-theme-surface,#fffef9) 90%,transparent); box-shadow:var(--stone-theme-shadow-card,0 7px 24px rgba(41,85,64,.07)); }
-        header::after { position:absolute; z-index:0; width:190px; height:190px; top:-118px; right:-58px; border:1px solid color-mix(in srgb,var(--stone-theme-accent,#397052) 18%,transparent); border-radius:48% 52% 44% 56%; box-shadow:0 0 0 28px color-mix(in srgb,var(--stone-theme-accent,#397052) 4%,transparent),0 0 0 56px color-mix(in srgb,var(--stone-theme-accent,#397052) 3%,transparent); transform:rotate(18deg); content:""; }
+        header { position:relative; margin-bottom:18px; padding:10px 6px 22px; border:0; border-radius:0; background:transparent; box-shadow:none; }
         header > * { position:relative; z-index:1; }
         a { display:inline-flex; align-items:center; min-height:36px; padding:0 13px; color:var(--stone-theme-accent-strong,#295540); text-decoration:none; border:1px solid var(--stone-theme-line,#dce6d7); border-radius:var(--stone-theme-radius-sm,10px); background:color-mix(in srgb,var(--stone-theme-surface,#fffef9) 82%,transparent); box-shadow:0 5px 16px color-mix(in srgb,var(--stone-theme-accent,#397052) 7%,transparent); font:750 12px var(--stone-theme-font-body,Inter,system-ui,sans-serif); cursor:pointer; }
         a:hover { border-color:var(--stone-theme-accent,#397052); transform:translateY(-1px); }
@@ -105,7 +104,7 @@
         .meta { margin-top:12px; }
         @media(max-width:680px) {
           main { width:min(100% - 20px,1180px); padding-top:10px; }
-          header { margin-bottom:12px; padding:16px 16px 21px; border-radius:var(--stone-theme-radius-md,16px); }
+          header { margin-bottom:12px; padding:6px 2px 18px; }
           .eyebrow { margin-top:20px; font-size:10px; }
           h1 { font-size:32px; }
           .description { margin-top:13px; font-size:13px; line-height:1.65; }

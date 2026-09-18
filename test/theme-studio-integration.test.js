@@ -26,11 +26,22 @@ test("switching back to the original theme keeps the semantic visual layer enabl
   assert.match(firstFrame, /meta\[name="theme-color"\]/);
 });
 
+test("material-library brand icons survive main-page validation and first-frame restore", () => {
+  const themeDir = path.join(__dirname, "..", "src", "web", "public", "theme-studio");
+  const studio = fs.readFileSync(path.join(themeDir, "standalone-app.js"), "utf8");
+  const bootstrap = fs.readFileSync(path.join(themeDir, "bootstrap.js"), "utf8");
+  const firstFrame = fs.readFileSync(path.join(themeDir, "first-frame.js"), "utf8");
+  for (const source of [studio, bootstrap, firstFrame]) assert.match(source, /brand-icons/);
+  const html = fs.readFileSync(path.join(__dirname, "..", "src", "web", "public", "index.html"), "utf8");
+  assert.match(html, /first-frame\.js\?v=4/);
+  assert.match(html, /bootstrap\.js\?v=18/);
+});
+
 test("desktop shortcut reads its independent custom icon", () => {
   const app = fs.readFileSync(path.join(__dirname, "..", "src", "web", "public", "app.js"), "utf8");
   assert.match(app, /localStorage\.getItem\(DESKTOP_ICON_STORAGE_KEY\)/);
   assert.match(app, /stone-memory-desktop-icon-v1/);
-  assert.match(app, /DEFAULT_DESKTOP_ICON = "\/desktop-icon-default\.svg"/);
+  assert.match(app, /DEFAULT_DESKTOP_ICON = "\/app-logo\.jpg"/);
   assert.match(app, /data:image\\\/\(\?:png\|webp\)/);
 });
 
@@ -41,6 +52,16 @@ test("theme studio offers a real independent desktop icon picker", () => {
   assert.match(studio, /localStorage\.setItem\(DESKTOP_ICON_STORAGE_KEY, dataUrl\)/);
   assert.match(studio, /id="use-brand-desktop-icon"/);
   assert.match(studio, /id="reset-desktop-icon"/);
+});
+
+test("mobile theme workbench keeps the shared card visuals instead of restoring the legacy wrapper", () => {
+  const publicDir = path.join(__dirname, "..", "src", "web", "public");
+  const styles = fs.readFileSync(path.join(publicDir, "theme-studio", "standalone.css"), "utf8");
+  const html = fs.readFileSync(path.join(publicDir, "theme-studio", "index.html"), "utf8");
+  assert.match(styles, /\.theme-workbench-card\s*\{[\s\S]*?background:\s*transparent;[\s\S]*?box-shadow:\s*none;/);
+  assert.match(styles, /\.theme-card:not\(\.theme-workbench-card\)/);
+  assert.doesNotMatch(styles, /@media \(max-width: 620px\)[\s\S]*?\.community-logo-assets button > img/);
+  assert.match(html, /standalone\.css\?v=40/);
 });
 
 test("add-to-desktop updates browser shortcut icon from the active logo", () => {
@@ -271,7 +292,7 @@ test("semantic theme covers mining calendar states and preserves the developer l
   assert.match(standalone, /garden:[\s\S]*shadows:\s*\{[\s\S]*rgba\(153,\s*95,\s*143/);
   assert.match(standalone, /sakuraNight:[\s\S]*name:\s*"樱夜黑粉"[\s\S]*contributor:\s*"@钦天监秋"/);
   assert.match(standalone, /data-community-theme="sakuraNight"[\s\S]*贡献人：@钦天监秋/);
-  assert.match(standalone, /tokens:\s*\{\s*colors:\s*preset\.colors,\s*shadows:\s*preset\.shadows\s*\}/);
+  assert.match(standalone, /tokens:\s*\{\s*colors:\s*preset\.colors,\s*radii:\s*preset\.radii,\s*shadows:\s*preset\.shadows,\s*spacing:\s*preset\.spacing,\s*motion:\s*preset\.motion\s*\}/);
   assert.match(bootstrap, /theme-studio\/\$\{file\}\?v=\$\{THEME_STYLE_VERSION\}/);
 
   assert.match(tokens, /--stone-theme-page-background:/);
@@ -425,12 +446,11 @@ test("semantic theme covers mining calendar states and preserves the developer l
   assert.match(tokenFields, /align-content:\s*start/);
   assert.match(standaloneCss, /\.theme-groups > \.token-group:first-child\s*\{\s*border-top:\s*0;\s*\}/);
   assert.match(standaloneCss, /@media \(min-width:\s*900px\)[\s\S]*?grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
-  assert.match(standaloneCss, /@media \(min-width:\s*900px\)[\s\S]*?\.theme-workbench-card\s*\{[\s\S]*?background:\s*transparent;[\s\S]*?box-shadow:\s*none/);
+  assert.match(standaloneCss, /\.theme-workbench-card\s*\{[\s\S]*?background:\s*transparent;[\s\S]*?box-shadow:\s*none/);
   assert.match(standaloneCss, /\.theme-groups::before,\s*\.theme-groups::after\s*\{[\s\S]*?inset-block:\s*0;[\s\S]*?width:\s*calc\(\(100%\s*-\s*22px\)\s*\/\s*2\)/);
   assert.match(standaloneCss, /\.theme-groups::before\s*\{\s*left:\s*0;\s*\}[\s\S]*?\.theme-groups::after\s*\{\s*right:\s*0;\s*\}/);
   assert.match(standaloneCss, /\.token-group-logo,\s*\.theme-token-groups > \.token-group:nth-child\(even\)\s*\{[\s\S]*?border-left:\s*0/);
-  assert.match(standaloneCss, /\.theme-support-card\s*\{\s*display:\s*contents;\s*\}/);
-  assert.match(standaloneCss, /@media \(min-width:\s*900px\)[\s\S]*?\.theme-support-card\s*\{[\s\S]*?border:\s*1px solid var\(--stone-theme-line-soft\);[\s\S]*?background:\s*var\(--stone-theme-surface\);[\s\S]*?box-shadow:\s*var\(--stone-theme-shadow-card\)/);
+  assert.match(standaloneCss, /\.theme-support-card\s*\{[\s\S]*?border:\s*1px solid var\(--stone-theme-line-soft\);[\s\S]*?background:\s*var\(--stone-theme-surface\);[\s\S]*?box-shadow:\s*var\(--stone-theme-shadow-card\)/);
   assert.match(standaloneCss, /\.token-group-head\s*\{[\s\S]*?justify-content:\s*space-between/);
   assert.doesNotMatch(standaloneCss, /\.token-group-head > span/);
   assert.match(standalone, /const displayValue = definition\.kind === "color" \? colorToHex\(value\)\.toLowerCase\(\) : value/);

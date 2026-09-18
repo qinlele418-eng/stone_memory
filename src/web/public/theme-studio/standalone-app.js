@@ -15,7 +15,7 @@
   const CUSTOM_THEMES_KEY = "stone-memory-ui-themes-v1";
   const MODULE_THEME_BRIDGE_KEY = "stone-memory-developer-semantic-theme-v1";
   const DESKTOP_ICON_STORAGE_KEY = "stone-memory-desktop-icon-v1";
-  const DEFAULT_DESKTOP_ICON = "/desktop-icon-default.svg";
+  const DEFAULT_DESKTOP_ICON = "/app-logo.jpg";
   const MAX_FILE_SIZE = 320 * 1024;
   const MAX_LOGO_FILE_SIZE = 200 * 1024;
   const LOGO_TYPES = new Set(["image/png", "image/webp"]);
@@ -101,6 +101,24 @@
         button: "0 10px 24px rgba(240, 217, 228, 0.12)",
       },
     },
+    roseManor: {
+      name: "玫瑰庄园",
+      description: "柔和玫瑰粉与暖白表面的庄园主题。",
+      contributor: "Stone Memory 素材库",
+      colors: {
+        canvas: "#fbf5f1", canvasWarm: "#fffef9", ink: "#574b49", inkSoft: "#887678", inkFaint: "#aa9698",
+        accent: "#dca1af", accentStrong: "#c68191", accentSoft: "#f7e5e8", calendarBloom: "#dca1af",
+        surface: "#fffdfb", surfaceSoft: "#f8efec", line: "#e7d1c2", lineSoft: "#f1e4dc",
+        status: "#8fa58e", danger: "#b66767", warning: "#b58a63", info: "#8490a8", conflict: "#c0787b", fusion: "#a08094",
+      },
+      radii: { extraSmall: "9px", small: "16px", medium: "26px", large: "36px", pill: "999px" },
+      shadows: {
+        card: "0 10px 30px 0 rgba(200, 174, 176, 0.06)", panel: "0 16px 44px 0 rgba(185, 154, 158, 0.08)",
+        floating: "0 20px 56px rgba(185, 154, 158, 0.10)", button: "0 10px 24px rgba(198, 143, 155, 0.12)",
+      },
+      spacing: { one: "6px", two: "10px", three: "14px", four: "18px", five: "24px", six: "32px" },
+      motion: { fast: "180ms", normal: "200ms", easing: "ease" },
+    },
   };
   const COMMUNITY_LOGO = {
     name: "花体藤蔓 Stone Memory",
@@ -111,6 +129,19 @@
     dataUrl: "",
     builtinUrl: "/stone-memory-logo.png",
     contributor: "@小绒太尉",
+  };
+  const COMMUNITY_LOGOS = {
+    original: COMMUNITY_LOGO,
+    sweet1: { name: "甜酷石头 1", type: "image/png", size: 162786, width: 450, height: 450, dataUrl: "", builtinUrl: "/brand-icons/sweet-stone-1.png", contributor: "Stone Memory 素材库" },
+    sweet2: { name: "甜酷石头 2", type: "image/png", size: 170700, width: 450, height: 450, dataUrl: "", builtinUrl: "/brand-icons/sweet-stone-2.png", contributor: "Stone Memory 素材库" },
+    stone1: { name: "花园石头 1", type: "image/png", size: 191799, width: 900, height: 900, dataUrl: "", builtinUrl: "/brand-icons/stone-1.png", contributor: "Stone Memory 素材库" },
+    stone2: { name: "花园石头 2", type: "image/png", size: 197543, width: 900, height: 900, dataUrl: "", builtinUrl: "/brand-icons/stone-2.png", contributor: "Stone Memory 素材库" },
+    stone3: { name: "花园石头 3", type: "image/png", size: 193473, width: 900, height: 900, dataUrl: "", builtinUrl: "/brand-icons/stone-3.png", contributor: "Stone Memory 素材库" },
+    stone4: { name: "花园石头 4", type: "image/png", size: 186958, width: 900, height: 900, dataUrl: "", builtinUrl: "/brand-icons/stone-4.png", contributor: "Stone Memory 素材库" },
+    stone5: { name: "花园石头 5", type: "image/png", size: 167135, width: 450, height: 450, dataUrl: "", builtinUrl: "/brand-icons/stone-5.png", contributor: "Stone Memory 素材库" },
+    stone6: { name: "花园石头 6", type: "image/png", size: 200309, width: 450, height: 450, dataUrl: "", builtinUrl: "/brand-icons/stone-6.png", contributor: "Stone Memory 素材库" },
+    stone7: { name: "花园石头 7", type: "image/png", size: 185058, width: 450, height: 450, dataUrl: "", builtinUrl: "/brand-icons/stone-7.png", contributor: "Stone Memory 素材库" },
+    stone8: { name: "花园石头 8", type: "image/png", size: 175683, width: 450, height: 450, dataUrl: "", builtinUrl: "/brand-icons/stone-8.png", contributor: "Stone Memory 素材库" },
   };
 
   const FIELD_GROUPS = [
@@ -234,7 +265,7 @@
     if (!Number.isInteger(width) || !Number.isInteger(height) || width < 320 || width > 1600 || height < 160 || height > 1000) {
       throw new Error("主题 Logo 尺寸应为宽 320–1600px、高 160–1000px");
     }
-    if (builtinUrl && builtinUrl !== "/stone-memory-logo.png") throw new Error("主题 Logo 内置路径不合法");
+    if (builtinUrl && builtinUrl !== "/stone-memory-logo.png" && !/^\/brand-icons\/[a-z0-9-]+\.png$/.test(builtinUrl)) throw new Error("主题 Logo 内置路径不合法");
     if (!builtinUrl && (!dataUrl.startsWith(`data:${type};base64,`) || dataUrl.length > 280000)) throw new Error("主题 Logo 数据格式不合法");
     return {
       name: String(input.name || "theme-logo").slice(0, 120),
@@ -505,7 +536,7 @@
     state.theme = normalize(merge(state.contract.defaults, {
       name: preset.name,
       description: preset.description,
-      tokens: { colors: preset.colors, shadows: preset.shadows },
+      tokens: { colors: preset.colors, radii: preset.radii, shadows: preset.shadows, spacing: preset.spacing, motion: preset.motion },
     }));
     applyTheme();
     persistActiveTheme();
@@ -513,11 +544,13 @@
     status(`已切换到“${preset.name}” · 贡献人：${preset.contributor}`);
   }
 
-  function chooseCommunityLogo() {
-    state.theme.assets = { logo: normalizeLogoAsset(COMMUNITY_LOGO) };
+  function chooseCommunityLogo(key = "original") {
+    const logo = COMMUNITY_LOGOS[key];
+    if (!logo) return;
+    state.theme.assets = { logo: normalizeLogoAsset(logo) };
     renderLogoMeta();
     logoStatus("");
-    status("已选用花体藤蔓 Logo · 贡献人：@小绒太尉；保存主题后正式保留");
+    status(`已选用${logo.name} · 贡献人：${logo.contributor}；保存主题后正式保留`);
   }
 
   function readCustomThemes() {
@@ -743,8 +776,12 @@
     status(`已切换到“${state.theme.name}”`);
   }
 
+  function communityLogoButtons() {
+    return Object.entries(COMMUNITY_LOGOS).map(([key, logo]) => `<button type="button" data-community-logo="${escapeHtml(key)}"><img src="${escapeHtml(logo.builtinUrl)}" alt=""><span><strong>${escapeHtml(logo.name)}</strong><small>${logo.width}×${logo.height} · ${(logo.size / 1024).toFixed(1)}KB · 贡献人：${escapeHtml(logo.contributor)}</small></span></button>`).join("");
+  }
+
   function render() {
-    $("#theme-studio-mount").innerHTML = `<section class="theme-card"><div class="theme-card-head"><p class="eyebrow">THEME STRUCTURE</p><h2>按视觉职责调整</h2><p class="theme-card-intro">每一排只处理一种视觉职责。颜色项可点左侧色块打开色盘，也可以直接输入 HEX、RGB 或 HSL。</p><div class="theme-card-meta"><small class="theme-credit">工作台贡献人：@钦天监秋</small><span class="theme-file-badge">TOKEN v${state.contract.version}</span></div></div><div class="theme-topbar"><div class="theme-name-row"><label class="theme-field theme-name-field"><span>主题名称</span><input id="theme-name" maxlength="60"></label><div class="theme-inline-actions"><button class="primary" id="save-theme" type="button">保存自定义主题</button><button class="secondary" id="export-theme" type="button">导出目前主题</button><label class="secondary theme-inline-upload" for="import-theme">导入主题 JSON</label><input id="import-theme" type="file" accept="application/json,.json" hidden></div></div><div class="theme-palette-row"><span class="theme-palette-label">主题</span><div id="theme-palette" class="theme-palette"></div></div><div id="community-theme-panel" class="community-assets" hidden><button type="button" data-community-theme="garden"><i style="--community-a:#f5f0eb;--community-b:#db9ed3;--community-c:#a965a0"></i><span><strong>苔粉花园</strong><small>贡献人：@小绒太尉</small></span></button><button type="button" data-community-theme="purpleGray"><i style="--community-a:#f4f3f7;--community-b:#6e4f9a;--community-c:#523c78"></i><span><strong>紫灰仪表盘</strong><small>贡献人：@小绒太尉</small></span></button><button type="button" data-community-theme="sakuraNight"><i style="--community-a:#16131F;--community-b:#F0D9E4;--community-c:#C1A0AC"></i><span><strong>樱夜黑粉</strong><small>贡献人：@钦天监秋</small></span></button></div><section class="theme-logo-row"><div><span class="theme-palette-label">品牌图标</span><p id="theme-logo-meta">推荐透明背景；参考规格 1079×507、约 140KB</p></div><div class="theme-logo-controls"><div id="theme-logo-preview" class="theme-logo-preview empty"><span>使用磐石原版石头小花</span></div><div class="theme-logo-buttons"><label class="secondary theme-inline-upload" for="import-theme-logo">选择图片</label><input id="import-theme-logo" type="file" accept="image/png,image/webp,.png,.webp" hidden><button class="secondary" id="more-theme-images" type="button">更多图片</button><button class="ghost" id="remove-theme-logo" type="button" hidden>恢复原图</button></div></div></section><div id="community-logo-panel" class="community-assets community-logo-assets" hidden><button type="button" id="use-community-logo"><img src="/stone-memory-logo.png" alt=""><span><strong>花体藤蔓 Stone Memory</strong><small>1079×507 · 139.7KB · 贡献人：@小绒太尉</small></span></button></div><div id="theme-fields" class="theme-groups"></div><section class="theme-state-preview" aria-label="主题状态预览"><div><span class="theme-palette-label">月历强度</span><div class="theme-calendar-preview"><i class="level-0" title="无活动"></i><i class="level-1" title="低活动"></i><i class="level-2" title="中活动"></i><i class="level-3" title="高活动"></i></div></div><div><span class="theme-palette-label">业务状态</span><div class="theme-status-preview"><i class="status">正常</i><i class="warning">警告</i><i class="info">信息</i><i class="conflict">冲突</i><i class="fusion">融合</i><i class="danger">危险</i></div></div></section><details class="advanced-json"><summary><span><strong>高级 JSON 与兼容性</strong><small>完整令牌、版本契约与跨版本适配</small></span><i>⌄</i></summary><div class="advanced-copy"><p>导出的 JSON 使用 version 3 契约，包含完整的业务状态色与品牌图标。</p><p>已有 version 1 和 version 2 主题仍可导入，并会自动补齐缺少字段后迁移到 version 3；未知字段不会写入 CSS。</p><p>Logo 随主题 JSON 一同导出；支持 PNG/WebP，最大 200KB，宽 320–1600px、高 160–1000px。</p></div></details><div class="theme-actions"><button class="ghost" id="reset-theme" type="button">恢复磐石记忆原版</button><span id="theme-status" role="status" aria-live="polite"></span></div></section>`;
+      $("#theme-studio-mount").innerHTML = `<section class="theme-card"><div class="theme-card-head"><p class="eyebrow">THEME STRUCTURE</p><h2>按视觉职责调整</h2><p class="theme-card-intro">每一排只处理一种视觉职责。颜色项可点左侧色块打开色盘，也可以直接输入 HEX、RGB 或 HSL。</p><div class="theme-card-meta"><small class="theme-credit">工作台贡献人：@钦天监秋</small><span class="theme-file-badge">TOKEN v${state.contract.version}</span></div></div><div class="theme-topbar"><div class="theme-name-row"><label class="theme-field theme-name-field"><span>主题名称</span><input id="theme-name" maxlength="60"></label><div class="theme-inline-actions"><button class="primary" id="save-theme" type="button">保存自定义主题</button><button class="secondary" id="export-theme" type="button">导出目前主题</button><label class="secondary theme-inline-upload" for="import-theme">导入主题 JSON</label><input id="import-theme" type="file" accept="application/json,.json" hidden></div></div><div class="theme-palette-row"><span class="theme-palette-label">主题</span><div id="theme-palette" class="theme-palette"></div></div><div id="community-theme-panel" class="community-assets" hidden><button type="button" data-community-theme="garden"><i style="--community-a:#f5f0eb;--community-b:#db9ed3;--community-c:#a965a0"></i><span><strong>苔粉花园</strong><small>贡献人：@小绒太尉</small></span></button><button type="button" data-community-theme="purpleGray"><i style="--community-a:#f4f3f7;--community-b:#6e4f9a;--community-c:#523c78"></i><span><strong>紫灰仪表盘</strong><small>贡献人：@小绒太尉</small></span></button><button type="button" data-community-theme="sakuraNight"><i style="--community-a:#16131F;--community-b:#F0D9E4;--community-c:#C1A0AC"></i><span><strong>樱夜黑粉</strong><small>贡献人：@钦天监秋</small></span></button><button type="button" data-community-theme="roseManor"><i style="--community-a:#fbf5f1;--community-b:#dca1af;--community-c:#c68191"></i><span><strong>玫瑰庄园</strong><small>Stone Memory 素材库</small></span></button></div><section class="theme-logo-row"><div><span class="theme-palette-label">品牌图标</span><p id="theme-logo-meta">推荐透明背景；参考规格 1079×507、约 140KB</p></div><div class="theme-logo-controls"><div id="theme-logo-preview" class="theme-logo-preview empty"><span>使用磐石原版石头小花</span></div><div class="theme-logo-buttons"><label class="secondary theme-inline-upload" for="import-theme-logo">选择图片</label><input id="import-theme-logo" type="file" accept="image/png,image/webp,.png,.webp" hidden><button class="secondary" id="more-theme-images" type="button">更多图片</button><button class="ghost" id="remove-theme-logo" type="button" hidden>恢复原图</button></div></div></section><div id="community-logo-panel" class="community-assets community-logo-assets" hidden>${communityLogoButtons()}</div><div id="theme-fields" class="theme-groups"></div><section class="theme-state-preview" aria-label="主题状态预览"><div><span class="theme-palette-label">月历强度</span><div class="theme-calendar-preview"><i class="level-0" title="无活动"></i><i class="level-1" title="低活动"></i><i class="level-2" title="中活动"></i><i class="level-3" title="高活动"></i></div></div><div><span class="theme-palette-label">业务状态</span><div class="theme-status-preview"><i class="status">正常</i><i class="warning">警告</i><i class="info">信息</i><i class="conflict">冲突</i><i class="fusion">融合</i><i class="danger">危险</i></div></div></section><details class="advanced-json"><summary><span><strong>高级 JSON 与兼容性</strong><small>完整令牌、版本契约与跨版本适配</small></span><i>⌄</i></summary><div class="advanced-copy"><p>导出的 JSON 使用 version 3 契约，包含完整的业务状态色与品牌图标。</p><p>已有 version 1 和 version 2 主题仍可导入，并会自动补齐缺少字段后迁移到 version 3；未知字段不会写入 CSS。</p><p>Logo 随主题 JSON 一同导出；支持 PNG/WebP，最大 200KB，宽 320–1600px、高 160–1000px。</p></div></details><div class="theme-actions"><button class="ghost" id="reset-theme" type="button">恢复磐石记忆原版</button><span id="theme-status" role="status" aria-live="polite"></span></div></section>`;
     const calendarPreview = $(".theme-calendar-preview");
     calendarPreview.parentElement.querySelector(".theme-palette-label").textContent = "记忆月历";
     calendarPreview.innerHTML = `<span><i class="mining-none"></i><small>无对话</small></span><span><i class="mining-pending selected"></i><small>未挖掘</small></span><span><i class="mining-light"></i><small>&lt;10 摘要</small></span><span><i class="mining-deep"></i><small>≥10 摘要</small></span>`;
@@ -888,7 +925,9 @@
         const panel = $("#community-logo-panel");
         panel.hidden = !panel.hidden;
       };
-      $("#use-community-logo").onclick = chooseCommunityLogo;
+      document.querySelectorAll("[data-community-logo]").forEach(button => {
+        button.onclick = () => chooseCommunityLogo(button.dataset.communityLogo);
+      });
       $("#remove-theme-logo").onclick = () => {
         state.theme.assets = { logo: null };
         renderLogoMeta();

@@ -401,15 +401,19 @@ function publicThreadSettings(threadId) {
   const config = loadConfig();
   let entry = config[threadId];
   let memoryId = entry?.memoryId || threadId;
+  let layout = "legacy";
+  let legacyThreadId = threadId;
   try {
     const context = getMemoryContext(threadId);
     memoryId = context.memoryId;
+    layout = context.layout;
+    legacyThreadId = context.legacyKey || threadId;
     if (context.layout === "memory-v1") entry = getMemoryRuntimeConfig(memoryId);
   } catch {}
   if (!entry) throw new Error(`记忆体不存在：${threadId}`);
   const actions = watcherActions(entry);
   return {
-    memoryId, threadId: memoryId, externalThreadId: entry.externalThreadId || (memoryId === threadId ? null : threadId),
+    memoryId, threadId: memoryId, externalThreadId: entry.externalThreadId || (layout !== "memory-v1" ? legacyThreadId : null),
     libraryName: entry.label || memoryId, ai: entry.ai || "", user: entry.user || "",
     userGender: entry.userGender || "unspecified", runtime: entry.runtime || "claude", purpose: entry.purpose || "accompany",
     sessionDir: entry.sessionDir || "", minerMode: entry.minerMode || "subagent", apiProvider: entry.apiProvider || "",
@@ -513,7 +517,7 @@ function listLibraries() {
   const configured = listMemoryIds().flatMap(memoryId => {
     let context;
     try { context = getMemoryContext(memoryId); } catch { return []; }
-    let tc, threadId, bound, bindingCount;
+    let tc, threadId, bound, bindingCount, createdAt;
     if (context.layout === "memory-v1") {
       let bindings;
       try { bindings = readBindingConfig(memoryId); } catch { return []; }
@@ -526,10 +530,12 @@ function listLibraries() {
       tc = getMemoryRuntimeConfig(memoryId); threadId = memoryId;
       bound = !!primary?.externalThreadId;
       bindingCount = enabledBindings.length;
+      createdAt = memory.createdAt || null;
     } else {
       tc = context.config || {}; threadId = context.legacyKey || memoryId;
       bound = !!threadId;
       bindingCount = bound ? 1 : 0;
+      createdAt = tc.createdAt || null;
     }
     const actions = watcherActions(tc);
     const memoryDir = path.join(getThreadDir(threadId), "memory");
@@ -543,7 +549,7 @@ function listLibraries() {
         (SELECT COUNT(*) FROM feelings WHERE thread_id=? AND summary_mode='hidden') hidden`).get(threadId, threadId, threadId, threadId, threadId);
       const latest = store.db.prepare("SELECT MAX(completed_at) completedAt FROM mining_day_state WHERE thread_id=? AND status='completed'").get(threadId);
       return {
-        memoryId, configured: true, bound, bindingCount, threadId, externalThreadId: tc.externalThreadId || (context.layout !== "memory-v1" ? threadId : null), libraryName: tc.label || memoryId, runtime: tc.runtime || null, purpose: tc.purpose || "accompany",
+        memoryId, configured: true, bound, bindingCount, threadId, externalThreadId: tc.externalThreadId || (context.layout !== "memory-v1" ? threadId : null), libraryName: tc.label || memoryId, runtime: tc.runtime || null, purpose: tc.purpose || "accompany", createdAt,
         ai: tc.ai || "", user: tc.user || "", counts, lastMinedAt: latest?.completedAt || null,
         watcherEnabled: watcherEnabled(tc),
         automaticFullMining: actions.sync,
@@ -562,6 +568,17 @@ function listLibraries() {
     automaticCompression: false, automaticDream: false,
   }));
   return [...drafts, ...configured];
+}
+
+function directoryBytes(root) {
+  if (!fs.existsSync(root)) return 0;
+  let total = 0;
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    const file = path.join(root, entry.name);
+    if (entry.isDirectory()) total += directoryBytes(file);
+    else if (entry.isFile()) total += fs.statSync(file).size;
+  }
+  return total;
 }
 
 function localDateKey(date = new Date()) {
@@ -645,25 +662,66 @@ function listDeveloperModules(publicDir = PUBLIC_DIR) {
     })
     .sort((left, right) => left.order - right.order || left.id.localeCompare(right.id));
   const canonicalModules = loadModules()
-    .filter(item => !item.errors.length && item.manifest.entry?.frontend && !item.manifest.legacy?.frontend)
-    .map(item => ({
+    .filter(item => !item.errors.length && item.manifest.entry?.frontend)
+    .map(item => {
+      const legacyFrontend = item.manifest.legacy?.frontend;
+      const legacyRoot = legacyFrontend ? path.resolve(PROJECT_ROOT, legacyFrontend) : null;
+      const legacyRelative = legacyRoot ? path.relative(publicDir, legacyRoot) : "";
+      const entry = legacyRoot && !legacyRelative.startsWith("..") && !path.isAbsolute(legacyRelative)
+        ? `/${legacyRelative.split(path.sep).join("/")}/`
+        : `/developer-modules/${item.id}/`;
+      let legacyManifest = {};
+      if (legacyRoot) {
+        try { legacyManifest = JSON.parse(fs.readFileSync(path.join(legacyRoot, "module.json"), "utf8")); } catch {}
+      }
+      const readmeCandidates = [path.join(item.moduleDir, "README.md")];
+      if (legacyRoot) readmeCandidates.push(path.join(legacyRoot, "README.md"));
+      const readmeFile = readmeCandidates.find(file => fs.existsSync(file));
+      const readme = readmeFile ? fs.readFileSync(readmeFile, "utf8") : "";
+      const readmeContributor = readme.match(/^贡献人[：:]\s*(.+)$/mu)?.[1]?.replace(/[`*_]/gu, "").trim() || "";
+      const readmeSummary = readme.split(/\r?\n\r?\n/u)
+        .map(block => block.replace(/^#+\s+.*$/gmu, "").replace(/\r?\n/gu, " ").trim())
+        .find(block => block && !/^(?:贡献人|```|[-*]\s)/u.test(block) && (block.match(/[\u3400-\u9fff]/gu) || []).length >= 8)
+        ?.replace(/[`*_#]/gu, "") || "";
+      return {
       id: item.id,
       scope: String(item.manifest.scope || "memory"),
-      title: String(item.manifest.title || item.id),
-      summary: String(item.manifest.summary || ""),
-      contributor: String(item.manifest.contributor || "Stone Memory"),
-      status: String(item.manifest.status || "官方实验"),
-      eyebrow: String(item.manifest.eyebrow || "STONE MEMORY LAB"),
-      actionLabel: String(item.manifest.actionLabel || "进入实验室 →"),
-      metaLabel: String(item.manifest.metaLabel || `Module · v${item.manifest.version}`),
-      features: Array.isArray(item.manifest.features) ? item.manifest.features.map(String).slice(0, 6) : [],
-      order: Number.isFinite(Number(item.manifest.order)) ? Number(item.manifest.order) : 100,
+      title: String(item.manifest.title || legacyManifest.title || legacyManifest.name || item.id),
+      summary: String(item.manifest.summary || legacyManifest.summary || legacyManifest.description || readmeSummary || `${item.manifest.title || item.id} 的功能、能力与使用说明请查看 README。`),
+      contributor: String(item.manifest.contributor || legacyManifest.contributor || readmeContributor || "未署名"),
+      status: String(item.manifest.status || legacyManifest.status || "开发者模块"),
+      eyebrow: String(item.manifest.eyebrow || legacyManifest.eyebrow || "STONE MEMORY MODULE"),
+      actionLabel: String(item.manifest.actionLabel || legacyManifest.actionLabel || "进入 →"),
+      metaLabel: String(item.manifest.metaLabel || legacyManifest.metaLabel || `Module · v${item.manifest.version}`),
+      features: Array.isArray(item.manifest.features) ? item.manifest.features.map(String).slice(0, 6) : Array.isArray(legacyManifest.features) ? legacyManifest.features.map(String).slice(0, 6) : [],
+      order: Number.isFinite(Number(item.manifest.order)) ? Number(item.manifest.order) : Number.isFinite(Number(legacyManifest.order)) ? Number(legacyManifest.order) : 100,
       workshopSection: String(item.manifest.workshopSection || "plugins"),
-      entry: `/developer-modules/${item.id}/`,
-    }));
-  const byId = new Map(legacyModules.map(item => [item.id, item]));
+      entry,
+    };
+    });
+  const canonicalEntries = new Set(canonicalModules.map(item => item.entry));
+  const byId = new Map(legacyModules.filter(item => !canonicalEntries.has(item.entry)).map(item => [item.id, item]));
   for (const item of canonicalModules) byId.set(item.id, item);
   return [...byId.values()].sort((left, right) => left.order - right.order || left.id.localeCompare(right.id));
+}
+
+function developerModuleDetail(id) {
+  const loaded = loadModules().find(item => item.id === id && !item.errors.length);
+  if (!loaded) return null;
+  const manifest = loaded.manifest;
+  const readmeCandidates = [path.join(loaded.moduleDir, "README.md")];
+  if (manifest.legacy?.frontend) readmeCandidates.push(path.join(path.resolve(PROJECT_ROOT, manifest.legacy.frontend), "README.md"));
+  const readmeFile = readmeCandidates.find(file => fs.existsSync(file));
+  return {
+    module: listDeveloperModules().find(item => item.id === id) || null,
+    version: String(manifest.version || ""),
+    scope: String(manifest.scope || "memory"),
+    permissions: Array.isArray(manifest.permissions) ? manifest.permissions.map(String) : [],
+    commands: Object.keys(manifest.entry?.commands || {}),
+    storage: manifest.storage && typeof manifest.storage === "object" ? manifest.storage : {},
+    watcher: manifest.watcher && typeof manifest.watcher === "object" ? manifest.watcher : null,
+    readme: readmeFile ? fs.readFileSync(readmeFile, "utf8") : "这个模块暂未提供 README。",
+  };
 }
 
 function serveCanonicalDeveloperModule(req, res, pathname) {
@@ -715,7 +773,28 @@ function overview(identifier) {
     const contextUsage=rawUsage?{...rawUsage,maxTokens:configuredMax>0?configuredMax:rawUsage.detectedMaxTokens||null}:null;
     if(contextUsage?.maxTokens)contextUsage.percent=contextUsage.usedTokens/contextUsage.maxTokens*100;
     const pendingMiningDays=store.db.prepare(`SELECT COUNT(DISTINCT m.source_date) count FROM messages m LEFT JOIN mining_day_state s ON s.thread_id=m.thread_id AND s.source_date=m.source_date AND s.status IN ('completed','completed_empty') WHERE m.thread_id=? AND s.source_date IS NULL`).get(threadId).count;
-    return { ...library, counts: { ...library.counts, daily }, recent, rebuild, contextUsage, threadFileFound:!!file, pendingMiningDays, attention: failed ? `${failed} 个日期挖掘失败` : null };
+    const rules=listRules(threadId),enabledRules=rules.filter(rule=>rule.injected).length;
+    let anchors={retain:{},eventAnchors:{}};
+    try { anchors={...anchors,...JSON.parse(fs.readFileSync(path.join(getThreadDir(threadId),"memory","retain-config.json"),"utf8"))}; } catch {}
+    const createdAt=library.createdAt||store.db.prepare("SELECT MIN(created_at) createdAt FROM messages WHERE thread_id=?").get(threadId)?.createdAt||null;
+    const createdTime=Date.parse(createdAt||"");
+    const growthDays=Number.isFinite(createdTime)?Math.max(1,Math.floor((Date.now()-createdTime)/86400000)+1):0;
+    return {
+      ...library,
+      createdAt,
+      growthDays,
+      counts: {
+        ...library.counts,
+        daily,
+        rules: rules.length,
+        disabledRules: rules.length-enabledRules,
+        retainAnchors: Object.keys(anchors.retain||{}).length,
+        eventAnchors: Object.keys(anchors.eventAnchors||{}).length,
+      },
+      archiveFullBytes: directoryBytes(path.join(getThreadDir(threadId),"memory","archive","full")),
+      recent, rebuild, contextUsage, threadFileFound:!!file, pendingMiningDays,
+      attention: failed ? `${failed} 个日期挖掘失败` : null,
+    };
   } finally { store.close(); }
 }
 
@@ -829,13 +908,38 @@ async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/developer-modules") {
     return json(res, 200, { modules: listDeveloperModules() });
   }
+  const moduleDetailMatch = url.pathname.match(/^\/api\/developer-modules\/([a-z0-9][a-z0-9-]*)$/u);
+  if (req.method === "GET" && moduleDetailMatch) {
+    const detail = developerModuleDetail(moduleDetailMatch[1]);
+    return detail ? json(res, 200, detail) : error(res, 404, "开发者模块不存在");
+  }
 
   const bindingsMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/bindings$/);
   if (bindingsMatch) {
     const threadId = decodeURIComponent(bindingsMatch[1]);
-    publicThreadSettings(threadId);
+    const settings = publicThreadSettings(threadId);
     if (req.method === "GET") {
-      return json(res, 200, JSON.parse(runStmem(["binding", "list", "--thread", threadId])));
+      let status;
+      try {
+        status = JSON.parse(runStmem(["binding", "list", "--thread", threadId]));
+      } catch {
+        status = { memoryId: settings.memoryId, primaryBindingId: null, bindings: [] };
+      }
+      const bindings = Array.isArray(status.bindings) ? status.bindings : [];
+      if (settings.externalThreadId && !bindings.some(binding => binding.externalThreadId === settings.externalThreadId)) {
+        const legacyId = `legacy-config:${settings.externalThreadId}`;
+        bindings.unshift({
+          id: legacyId,
+          provider: settings.runtime,
+          externalThreadId: settings.externalThreadId,
+          enabled: true,
+          mode: "primary",
+          source: "legacy-config",
+          readOnly: true,
+        });
+        if (!status.primaryBindingId) status.primaryBindingId = legacyId;
+      }
+      return json(res, 200, { ...status, memoryId: status.memoryId || settings.memoryId, bindings });
     }
     if (req.method === "POST") {
       const body = await readJson(req);
@@ -1855,7 +1959,7 @@ function startWebServer({ host = "127.0.0.1", port = 4173 } = {}) {
 
 module.exports = {
   startWebServer, listLibraries, homeOverview, overview, previewRows, paginate, buildConversationCalendar,
-  listDeveloperModules,
+  listDeveloperModules, developerModuleDetail,
   miningDatesFromStore, miningCommandArgs, miningCheckCommandArgs, targetedMiningCommandArgs,
   timelineCommandArgs, compactTimelineReport, compressionCommandArgs, safeStmemFailure, runStmem,
   reviewCandidateForWeb, reviewProfileFromInput, reviewBatchPayload, reviewBatchCommandArgs,

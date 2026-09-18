@@ -443,8 +443,18 @@ test("developer experiments register through removable bootstraps instead of app
   assert.match(themeBootstrap, /dataModule = MODULE_ID|dataset\.developerModule = MODULE_ID/);
 });
 
+test("binding status preserves legacy configured windows without creating a formal binding", () => {
+  const server = fs.readFileSync(path.join(__dirname, "..", "src", "web", "server.js"), "utf8");
+  assert.match(server, /layout !== "memory-v1" \? legacyThreadId : null/);
+  assert.match(server, /legacy-config:/);
+  assert.match(server, /settings\.externalThreadId/);
+  assert.match(server, /source:\s*"legacy-config"/);
+  assert.match(server, /readOnly:\s*true/);
+});
+
 test("canonical developer modules are discovered without copying frontend code into public", () => {
-  const continuity = listDeveloperModules().find(module => module.id === "continuity-lab");
+  const modules = listDeveloperModules();
+  const continuity = modules.find(module => module.id === "continuity-lab");
   assert.ok(continuity);
   assert.equal(continuity.entry, "/developer-modules/continuity-lab/");
   assert.equal(continuity.scope, "memory");
@@ -452,4 +462,9 @@ test("canonical developer modules are discovered without copying frontend code i
   const root = path.join(__dirname, "..", "developer-modules", "continuity-lab");
   assert.ok(fs.existsSync(path.join(root, "frontend", "index.html")));
   assert.equal(fs.existsSync(path.join(__dirname, "..", "src", "web", "public", "developer-modules", "continuity-lab")), false);
+  assert.equal(modules.length, 8);
+  assert.equal(modules.filter(module => module.entry === "/developer-modules/my-module/").length, 1);
+  assert.equal(modules.find(module => module.id === "dream-lab").entry, "/developer-modules/dream-lab/");
+  assert.equal(modules.find(module => module.id === "notebook-lab").entry, "/notebook-lab/");
+  assert.equal(modules.find(module => module.id === "theme-studio").entry, "/theme-studio/");
 });

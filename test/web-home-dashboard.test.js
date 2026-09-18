@@ -14,8 +14,8 @@ test("home dashboard maps overview data onto the stable memory lobby", () => {
   const transitionStyles = fs.readFileSync(path.join(root, "public", "developer-kit", "page-transition.css"), "utf8");
   const developerStyles = fs.readFileSync(path.join(root, "public", "theme-studio", "developer-common.css"), "utf8");
 
-  assert.ok(html.indexOf("/app.js?v=17") < html.indexOf("/developer-kit/home-dashboard.js?v=5"));
-  assert.ok(html.indexOf("/developer-kit/page-transition.js?v=1") < html.indexOf("/app.js?v=22"));
+  assert.ok(html.indexOf("/app.js?v=36") < html.indexOf("/developer-kit/home-dashboard.js?v=5"));
+  assert.ok(html.indexOf("/developer-kit/page-transition.js?v=1") < html.indexOf("/app.js?v=36"));
   assert.match(adapter, /fetch\("\/api\/home"/);
   assert.match(adapter, /今日纹路 · TODAY'S GRAIN/);
   assert.match(adapter, /library-card--mapped/);
@@ -52,8 +52,8 @@ test("home dashboard maps overview data onto the stable memory lobby", () => {
   assert.match(styles, /\.today-grain-card\s*\{[\s\S]*?linear-gradient/);
   assert.match(styles, /background: linear-gradient\(145deg, var\(--stone-theme-surface\)/);
   assert.doesNotMatch(styles, /color-mix\(/);
-  assert.doesNotMatch(developerStyles, /color-mix\(/);
-  assert.match(developerStyles, /background-image: radial-gradient\(circle at 18% 16%, var\(--stone-theme-accent-soft\)/);
+  assert.match(developerStyles, /color-mix\(in srgb, var\(--stone-theme-surface\) 92%, var\(--stone-theme-accent-soft\)\)/);
+  assert.match(developerStyles, /background-image: radial-gradient\(circle at 18% 16%, color-mix\(in srgb, var\(--stone-theme-accent\) 18%, transparent\)/);
   assert.doesNotMatch(styles, /\.today-grain-card::before/);
 });
 
@@ -76,4 +76,7 @@ test("home overview is a read-only endpoint and skips unconfigured memory drafts
   assert.match(server, /if \(!library\.configured \|\| !library\.threadId\) continue/);
   assert.match(server, /studyCount:/);
   assert.match(server, /libraries,/);
+  assert.match(server, /archiveFullBytes: directoryBytes/);
+  assert.match(server, /retainAnchors: Object\.keys/);
+  assert.match(server, /eventAnchors: Object\.keys/);
 });

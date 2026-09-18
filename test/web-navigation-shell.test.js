@@ -14,7 +14,7 @@ test("responsive navigation shell delegates to the stable frontend", () => {
   for (const action of ["home", "memory", "workshop", "me"]) {
     assert.match(html, new RegExp(`data-shell-action="${action}"`));
   }
-  assert.ok(html.indexOf("/app.js?v=22") < html.indexOf("/developer-kit/navigation-shell.js?v=3"));
+  assert.ok(html.indexOf("/app.js?v=36") < html.indexOf("/developer-kit/navigation-shell.js?v=3"));
   assert.match(html, /\/developer-kit\/navigation-shell\.css\?v=5/);
   assert.match(adapter, /MutationObserver/);
   assert.match(adapter, /data-view="\$\{view\}"/);
@@ -27,7 +27,24 @@ test("responsive navigation shell delegates to the stable frontend", () => {
   assert.match(app, /function renderMyContent/);
   assert.match(app, /关注项目/);
   assert.match(app, /召唤赞赏码/);
-  assert.match(app, /class="side-nav workspace-nav"/);
+  assert.match(app, /class="workspace-nav"/);
+  for (const tab of ["概况", "记忆", "上下文状态", "接入", "设置"]) {
+    assert.match(app, new RegExp(`<span>${tab}</span>`));
+  }
+  for (const content of ["已生长了", "原始对话", "对话文件总体积", "当前对话线程信息", "当前窗口注入", "自动化设置"]) {
+    assert.match(app, new RegExp(content));
+  }
+  assert.match(app, /automationSwitch\("automaticFullMining"/);
+  assert.match(app, /automationSwitch\("automaticMemoryMaintenance"/);
+  assert.match(app, /automationSwitch\("automaticCompression"/);
+  assert.match(app, /function renderAccess\(library\)/);
+  assert.match(app, /settingsRenderVersion/);
+  assert.doesNotMatch(app, /querySelector\("\.side-title"\)/);
+  assert.match(app, /function showBindingGuide\(library\)/);
+  assert.match(app, /请用bind mcp将该窗口和\$\{memoryName\}记忆体绑定/);
+  assert.match(app, /copy-binding-command/);
+  assert.match(app, /#check-thread, #overview-repair/);
+  assert.match(app, /showIntegrity\(library, true\)/);
   assert.doesNotMatch(app, /data-view="developer"/);
   const workspaceTemplate = app.match(/function workspace\(data\)[\s\S]*?function renderAboutContent/)?.[0] || "";
   assert.doesNotMatch(workspaceTemplate, /data-view="about"|renderAbout\(/);

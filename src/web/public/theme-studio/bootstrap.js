@@ -229,7 +229,9 @@
     if (!Number.isInteger(width) || !Number.isInteger(height) || width < 320 || width > 1600 || height < 160 || height > 1000) {
       throw new Error("主题 Logo 尺寸不合法");
     }
-    if (builtinUrl && builtinUrl !== "/stone-memory-logo.png") throw new Error("主题 Logo 内置路径不合法");
+    if (builtinUrl && builtinUrl !== "/stone-memory-logo.png" && !/^\/brand-icons\/[a-z0-9-]+\.png$/.test(builtinUrl)) {
+      throw new Error("主题 Logo 内置路径不合法");
+    }
     if (!builtinUrl && (!dataUrl.startsWith(`data:${type};base64,`) || dataUrl.length > 280000)) {
       throw new Error("主题 Logo 数据格式不合法");
     }

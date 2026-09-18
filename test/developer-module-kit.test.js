@@ -100,7 +100,7 @@ test("global workshop lazy-loads plugin entries and keeps the maker separate", (
   const app = fs.readFileSync(path.join(publicDir, "app.js"), "utf8");
   assert.doesNotMatch(html, /developer-kit\/bootstrap\.js/);
   assert.match(app, /loadOptionalScript\("\/developer-kit\/bootstrap\.js(?:\?v=\d+)?"\)/);
-  assert.match(app, /loadOptionalScript\("\/developer-modules\/stone-memory-assistant\/bootstrap\.js(?:\?v=\d+)?"\)/);
+  assert.doesNotMatch(app, /loadOptionalScript\("\/(?:dream-lab|notebook-lab|developer-modules\/stone-memory-assistant)\/bootstrap\.js/);
   assert.doesNotMatch(app, /loadOptionalScript\("\/review-lab\/bootstrap\.js"\)/);
   const bootstrap = fs.readFileSync(path.join(publicDir, "developer-kit", "bootstrap.js"), "utf8");
   assert.match(bootstrap, /MODULE_ORDER = 1/);
@@ -108,6 +108,17 @@ test("global workshop lazy-loads plugin entries and keeps the maker separate", (
   assert.match(app, /data-workshop-tab="plugins"[\s\S]*data-workshop-tab="community"[\s\S]*data-workshop-tab="maker"/);
   assert.match(bootstrap, /data-developer-kit-host/);
   assert.match(bootstrap, /module\.workshopSection \|\| "plugins"/);
+  assert.match(bootstrap, /plugin-detail-button/);
+  assert.match(bootstrap, /function pluginIconName\(module\)/);
+  assert.match(bootstrap, /return "star"/);
+  assert.doesNotMatch(bootstrap, /const moduleIcon/);
+  assert.match(bootstrap, /stone-memory-plugin-order-v1/);
+  assert.match(bootstrap, /pointerdown/);
+  assert.match(bootstrap, /pointermove/);
+  assert.match(bootstrap, /persistModuleOrder/);
+  assert.match(bootstrap, /ArrowLeft/);
+  assert.match(bootstrap, /plugin-sort-host-active/);
+  assert.match(bootstrap, /dragCenterX/);
   assert.match(app, /data-module-section="plugins"[\s\S]*data-module-section="community"/);
 });
 
