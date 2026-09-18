@@ -21,6 +21,8 @@ const { editFusionCandidate } = require("../services/review-fusion");
 const { isArchiveConversation } = require("../services/thread-ingest");
 const { DreamReader } = require("../services/dream-reader");
 const { NotebookService } = require("../services/notebook-service");
+const { planDreamDistribution } = require("../services/dream-policy");
+const { DreamPreferences } = require("../services/dream-preferences");
 const { watcherActions, watcherEnabled } = require("../services/watcher-runtime");
 const { normalizeMiningApiProfile } = require("../services/mining-api-profile");
 const { normalizeModelName } = require("../lib/model-name");
@@ -34,6 +36,7 @@ const { readBindingConfig } = require("../services/memory-binding-config");
 
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MAX_UPLOAD = 512 * 1024 * 1024;
+const MAX_NOTEBOOK_ASSET_UPLOAD = 20 * 1024 * 1024;
 const previews = new Map();
 const miningJobs = new Map();
 const compressionJobs = new Set();
@@ -685,6 +688,16 @@ function serveCanonicalDeveloperModule(req, res, pathname) {
   return true;
 }
 
+function serveLegacyDreamLab(res, url) {
+  const { pathname } = url;
+  if (!/^\/dream-lab(?:\/|$)/u.test(pathname)) return false;
+  const suffix = pathname.slice("/dream-lab".length).replace(/^\//u, "");
+  const location = `/developer-modules/dream-lab/${suffix}`.replace(/\/$/u, "/") + url.search;
+  res.writeHead(302, { location });
+  res.end();
+  return true;
+}
+
 function overview(identifier) {
   const library = listLibraries().find(item => item.threadId === identifier || item.memoryId === identifier);
   if (!library) return null;
@@ -755,13 +768,19 @@ async function handleDreamSettings(req, url, threadId, resource) {
   }
   if (resource === "guard" && req.method === "PUT") {
     const body = await readJson(req);
-    return JSON.parse(runStmem(["dream", "guard", "--thread", threadId, body.enabled ? "on" : "off"]));
+    const args = ["dream", "guard", "--thread", threadId];
+    for (const type of (body.excludedTypes || [])) args.push("--exclude", String(type));
+    return JSON.parse(runStmem(args));
   }
   if (resource === "multiplier" && req.method === "PUT") {
     const body = await readJson(req);
     const args = ["dream", "multiplier", "--thread", threadId];
     for (const [type, value] of Object.entries(body.multipliers || {})) args.push(`--${type}`, String(value));
     return JSON.parse(runStmem(args));
+  }
+  if (resource === "nsfw" && req.method === "PUT") {
+    const body = await readJson(req);
+    return JSON.parse(runStmem(["dream", "nsfw", "--thread", threadId, body.enabled === true ? "on" : "off"]));
   }
   if (resource === "prompt") {
     if (req.method === "GET") {
@@ -783,6 +802,27 @@ async function handleDreamSettings(req, url, threadId, resource) {
     }
   }
   throw new Error("不支持的织梦设置请求");
+}
+
+function serveNotebookAsset(req, res, asset) {
+  if (!asset) return false;
+  const etag = `W/"${asset.size.toString(16)}-${Math.floor(asset.modifiedAt.getTime()).toString(16)}"`;
+  const headers = {
+    "content-type": asset.contentType,
+    "content-length": asset.size,
+    "cache-control": "private, max-age=300",
+    "x-content-type-options": "nosniff",
+    etag,
+  };
+  if (req.headers["if-none-match"] === etag) {
+    delete headers["content-length"];
+    res.writeHead(304, headers);
+    res.end();
+    return true;
+  }
+  res.writeHead(200, headers);
+  fs.createReadStream(asset.absolutePath).pipe(res);
+  return true;
 }
 
 async function handleApi(req, res, url) {
@@ -1156,14 +1196,12 @@ async function handleApi(req, res, url) {
       const reader = new DreamReader();
       const dreamDates = reader.listDates(threadId);
       const selectedDate = String(url.searchParams.get("date") || "");
+      const selectedDream = selectedDate ? reader.get(threadId, selectedDate) : null;
+      if (selectedDate && !selectedDream) return json(res, 404, { error: "梦境不存在或当前不可见" });
       return json(res, 200, {
         enabled: settings.automaticDream,
-        latest: selectedDate && dreamDates.includes(selectedDate)
-          ? reader.get(threadId, selectedDate)
-          : reader.latest(threadId),
-        selectedDate: selectedDate && dreamDates.includes(selectedDate)
-          ? selectedDate
-          : dreamDates.at(-1) || null,
+        latest: selectedDream || reader.latest(threadId),
+        selectedDate: selectedDream ? selectedDate : dreamDates.at(-1) || null,
         dreamDates,
         entries: reader.list(threadId),
         coverage: reader.coverage(threadId),
@@ -1198,9 +1236,28 @@ async function handleApi(req, res, url) {
     }
   }
 
-  const dreamSettingsMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/dreams\/(preferences|pin|guard|multiplier|prompt)$/);
+  const dreamPreviewMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/dreams\/policy-preview$/);
+  if (dreamPreviewMatch && req.method === "POST") {
+    const threadId = decodeURIComponent(dreamPreviewMatch[1]);
+    publicThreadSettings(threadId);
+    const body = await readJson(req);
+    const prefs = new DreamPreferences().read(threadId);
+    try {
+      return json(res, 200, planDreamDistribution({
+        multipliers: body.multipliers || {},
+        excludedTypes: body.excludedTypes || [],
+        nsfwEnabled: prefs.nsfwEnabled,
+      }));
+    } catch (error) {
+      if (error.code === "DREAM_NO_CANDIDATE") return json(res, 200, { valid: false, error: error.message });
+      throw error;
+    }
+  }
+
+  const dreamSettingsMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/dreams\/(preferences|pin|guard|multiplier|nsfw|prompt)$/);
   if (dreamSettingsMatch) {
     const threadId = decodeURIComponent(dreamSettingsMatch[1]);
+    publicThreadSettings(threadId);
     return json(res, 200, await handleDreamSettings(req, url, threadId, dreamSettingsMatch[2]));
   }
 
@@ -1216,6 +1273,29 @@ async function handleApi(req, res, url) {
     if (req.method === "POST" && parts[0] === "topics" && parts.length === 1) {
       const body = await readJson(req);
       return json(res, 201, runStmemBatch(["notebook", "topic-create", "--thread", threadId], body));
+    }
+    if (req.method === "GET" && parts[0] === "assets" && parts.length === 3) {
+      const asset = service.asset({ threadId, topicId: parts[1], filename: parts[2] });
+      if (!asset) return json(res, 404, { found: false });
+      return serveNotebookAsset(req, res, asset);
+    }
+    if (req.method === "POST" && parts[0] === "assets" && parts.length === 2) {
+      const contentLength = Number(req.headers["content-length"] || 0);
+      if (contentLength > MAX_NOTEBOOK_ASSET_UPLOAD) throw new Error("notebook asset exceeds 20 MB limit");
+      const filename = safeFileName(req.headers["x-file-name"] || "image");
+      let altText = "笔记图片";
+      try { altText = decodeURIComponent(String(req.headers["x-alt-text"] || altText)); } catch {}
+      const buffer = await readBody(req, MAX_NOTEBOOK_ASSET_UPLOAD);
+      const directory = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-notebook-asset-"));
+      const sourcePath = path.join(directory, filename);
+      fs.writeFileSync(sourcePath, buffer, { mode: 0o600, flag: "wx" });
+      try {
+        return json(res, 201, runStmemBatch(["notebook", "asset-import", "--thread", threadId], {
+          topicId: parts[1], sourcePath, filename, altText,
+        }));
+      } finally {
+        fs.rmSync(directory, { recursive: true, force: true });
+      }
     }
     if (req.method === "PATCH" && parts[0] === "topics" && parts[1]) {
       const body = await readJson(req);
@@ -1757,6 +1837,7 @@ function startWebServer({ host = "127.0.0.1", port = 4173 } = {}) {
     const url = new URL(req.url, `http://${req.headers.host || `${host}:${port}`}`);
     try {
       if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/review-lab/api/")) return await handleApi(req, res, url);
+      if (serveLegacyDreamLab(res, url)) return;
       if (serveCanonicalDeveloperModule(req, res, url.pathname)) return;
       if (serveStatic(req, res, url.pathname)) return;
       if (!path.extname(url.pathname)) return serveStatic(req, res, "/");

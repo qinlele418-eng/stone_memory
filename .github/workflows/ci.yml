@@ -221,7 +221,7 @@ jobs:
           fi
 
   test:
-    name: Test / ${{ matrix.name }}
+    name: Test / ${{ matrix.name }} / Node ${{ matrix.node }}
     if: >-
       needs.resolve_pr.result == 'success' &&
       (github.event_name == 'workflow_dispatch' ||
@@ -239,10 +239,22 @@ jobs:
         include:
           - name: Ubuntu
             os: ubuntu-latest
+            node: 22.x
+          - name: Ubuntu
+            os: ubuntu-latest
+            node: 25.x
           - name: Windows
             os: windows-latest
+            node: 22.x
+          - name: Windows
+            os: windows-latest
+            node: 25.x
           - name: macOS
             os: macos-latest
+            node: 22.x
+          - name: macOS
+            os: macos-latest
+            node: 25.x
 
     steps:
       - name: Check out current main as test base
@@ -288,7 +300,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: ${{ matrix.node }}
           cache: npm
           cache-dependency-path: pr-worktree/package-lock.json
 

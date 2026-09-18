@@ -4,6 +4,7 @@ const { MemoryStore } = require("../storage/memory-store");
 const { listBindings, getBinding } = require("./memory-bindings");
 const { readBindingConfig, getConfiguredBinding } = require("./memory-binding-config");
 const { moduleDataDir, resolveInside } = require("./developer-module-contract");
+const { MIGRATION_STATE_ROOT } = require("./developer-module-migration-state");
 
 function withStore(threadId, action) {
   const store = new MemoryStore({ memoryDir: path.join(getThreadDir(threadId), "memory"), threadId });
@@ -35,6 +36,8 @@ function createModuleContext(manifest, { memoryId = null, threadId = null } = {}
     memoryId: selectedMemoryId,
     threadId: selectedMemoryId,
     moduleDataDir: dataDir,
+    migrationStateRoot: MIGRATION_STATE_ROOT,
+    legacyThreadDir: threadId ? getThreadDir(threadId) : null,
     resolveDataPath(relativePath) {
       if (!dataDir) throw new Error("该命令需要 --memory <记忆体ID>");
       return resolveInside(dataDir, relativePath, "module data path");

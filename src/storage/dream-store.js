@@ -3,6 +3,7 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { readyBackendFor, withModuleMutation, dataPathFor } = require("../services/developer-module-data");
 
 const DREAM_TYPES = new Set([
   "beautiful",
@@ -13,12 +14,25 @@ const DREAM_TYPES = new Set([
 ]);
 
 class DreamStore {
-  constructor({ root = path.join(os.homedir(), ".stone_memory", "dream") } = {}) {
-    this.root = root;
+  constructor(options = {}) {
+    this.managed = !options.root && !options.rootForThread;
+    this.customRootForThread = typeof options.rootForThread === "function";
+    this.root = options.root || null;
+    this.rootForThread = options.rootForThread || (threadId => dataPathFor("dream-lab", threadId, "dreams"));
+    this.legacyRootForThread = options.legacyRootForThread || (threadId => path.join(os.homedir(), ".stone_memory", "dream", assertThreadId(threadId)));
+    this.backendForThread = options.backendForThread || (threadId => readyBackendFor("dream-lab", threadId));
   }
 
   save({ threadId, date, dreamType, title = "", body }) {
-    const file = this.fileFor(threadId, date);
+    const normalizedThreadId = assertThreadId(threadId);
+    if (this.managed) {
+      this.backendForThread(normalizedThreadId);
+      return withModuleMutation("dream-lab", normalizedThreadId, backend => this.saveFile({ file: this.fileForBackend(normalizedThreadId, date, backend), threadId: normalizedThreadId, date, dreamType, title, body }));
+    }
+    return this.saveFile({ file: this.fileFor(normalizedThreadId, date), threadId: normalizedThreadId, date, dreamType, title, body });
+  }
+
+  saveFile({ file, threadId, date, dreamType, title = "", body }) {
     if (!DREAM_TYPES.has(dreamType)) throw new Error(`invalid dream type: ${dreamType}`);
     const normalizedTitle = singleLine(title);
     const normalizedBody = String(body || "").trim();
@@ -51,7 +65,7 @@ class DreamStore {
     } finally {
       try { fs.unlinkSync(temporary); } catch {}
     }
-    return this.get(threadId, date);
+    return parseDreamFile(fs.readFileSync(file, "utf8"), { threadId, date });
   }
 
   get(threadId, date) {
@@ -87,7 +101,7 @@ class DreamStore {
   }
 
   listDates(threadId) {
-    const threadRoot = path.join(this.root, assertThreadId(threadId));
+    const threadRoot = this.selectedRootForThread(threadId);
     const dates = [];
     for (const year of directoryNames(threadRoot, /^\d{4}$/)) {
       for (const month of directoryNames(path.join(threadRoot, year), /^\d{2}$/)) {
@@ -105,7 +119,25 @@ class DreamStore {
     const normalizedThreadId = assertThreadId(threadId);
     const normalizedDate = assertDate(date);
     const [year, month] = normalizedDate.split("-");
-    return path.join(this.root, normalizedThreadId, year, month, `${normalizedDate}.txt`);
+    const root = this.managed || this.customRootForThread
+      ? this.selectedRootForThread(normalizedThreadId)
+      : path.join(this.root, normalizedThreadId);
+    return path.join(root, year, month, `${normalizedDate}.txt`);
+  }
+
+  fileForBackend(threadId, date, backend) {
+    const normalizedDate = assertDate(date);
+    const [year, month] = normalizedDate.split("-");
+    const root = backend === "module" ? this.rootForThread(threadId) : this.legacyRootForThread(threadId);
+    return path.join(root, year, month, `${normalizedDate}.txt`);
+  }
+
+  selectedRootForThread(threadId) {
+    const normalizedThreadId = assertThreadId(threadId);
+    if (!this.managed && !this.customRootForThread) return path.join(this.root, normalizedThreadId);
+    return this.backendForThread(normalizedThreadId) === "module"
+      ? this.rootForThread(normalizedThreadId)
+      : this.legacyRootForThread(normalizedThreadId);
   }
 }
 

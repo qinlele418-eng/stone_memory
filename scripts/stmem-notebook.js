@@ -17,6 +17,7 @@ function runNotebookCommand(args = process.argv.slice(2), {
   else if (action === "topic-create") result = service.createTopic({ threadId, ...batch });
   else if (action === "topic-update") result = service.updateTopic({ threadId, ...batch });
   else if (action === "write") result = service.write({ threadId, ...batch });
+  else if (action === "asset-import") result = service.importAsset({ threadId, ...batch });
   else if (action === "query") result = service.query({
     threadId,
     query: batch.query ?? optionValue(args, "--query"),

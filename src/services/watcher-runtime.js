@@ -9,14 +9,19 @@ const { processMatches } = require("../lib/process-identity");
 function watcherActions(threadConfig = {}) {
   const actions = resolveAutomaticActions(threadConfig);
   const modules = threadConfig.watcherModules || {};
-  const dream = Object.hasOwn(modules, "dream") ? modules.dream === true : threadConfig.automaticDream === true;
-  return { ...actions, dream };
+  const legacyDream = Object.hasOwn(modules, "dream") ? modules.dream === true : threadConfig.automaticDream === true;
+  return { ...actions, dream: legacyDream };
+}
+
+function developerWatcherEnabled(threadConfig = {}) {
+  return Object.entries(threadConfig.watcherModules || {})
+    .some(([moduleId, enabled]) => /^dev-[a-z0-9][a-z0-9-]*$/u.test(moduleId) && enabled === true);
 }
 
 function watcherEnabled(threadConfig = {}) {
   if (typeof threadConfig.watcherEnabled === "boolean") return threadConfig.watcherEnabled;
   // 升级兼容：旧配置没有总开关时，仅第一次按旧 automatic* 推断。
-  return Object.values(watcherActions(threadConfig)).some(Boolean);
+  return Object.values(watcherActions(threadConfig)).some(Boolean) || developerWatcherEnabled(threadConfig);
 }
 
 function watcherModuleEnabled(threadConfig = {}, moduleId) {
@@ -59,6 +64,7 @@ function readWatcherState(threadId, { verifyProcess = true } = {}) {
 
 module.exports = {
   watcherActions,
+  developerWatcherEnabled,
   watcherEnabled,
   watcherModuleEnabled,
   enabledThreadIds,

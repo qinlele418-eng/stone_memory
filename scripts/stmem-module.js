@@ -1,7 +1,6 @@
 const fs = require("fs");
 const path = require("path");
 const { loadModules, findModule, moduleDataDir, resolveInside } = require("../src/services/developer-module-contract");
-const { createModuleContext } = require("../src/services/developer-module-runtime");
 const { auditDeveloperModules } = require("../src/services/developer-module-audit");
 
 function valueAfter(args, flag) {
@@ -94,10 +93,14 @@ async function runModuleCommand(args = process.argv.slice(3)) {
   const implementation = require(commandFile);
   if (typeof implementation.run !== "function") throw new Error(`模块命令 ${moduleAction} 未导出 run(context,input)`);
   const input = commandInput(args.slice(1), moduleAction);
+  if (args.includes("--apply")) input.apply = true;
+  if (args.includes("--dry-run")) input.apply = false;
   if (moduleAction === "hook") {
     try { input.stdin = await readStdin(); }
     catch { return console.log("{}"); }
   }
+  // Metadata commands and contract checks do not need the database runtime.
+  const { createModuleContext } = require("../src/services/developer-module-runtime");
   const context = createModuleContext(loaded.manifest, { memoryId: input.memoryId });
   const output = await implementation.run(context, input);
   console.log(JSON.stringify(output ?? {}, null, moduleAction === "hook" ? 0 : 2));

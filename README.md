@@ -99,10 +99,10 @@ stone_memory/
 
 ## 安装
 
-**只支持 Node.js 22.x LTS。** 不要用 Node 24：锁定的 `better-sqlite3` 在 Windows + Node 24 下可能没有预编译包，会转为本地 C++ 编译并因缺少 Visual Studio Build Tools 而失败。`npm install` / `npm ci` 会在版本不符时直接停止。
+**需要 Node.js 22 或更高版本。** `better-sqlite3` 使用支持现代 Node.js 的预编译原生模块；`npm install` / `npm ci` 会在版本过低时直接停止。正式 CI 同时覆盖 Node 22 与 Node 25。
 
 ```bash
-node --version   # 应显示 v22.x.x
+node --version   # 应显示 v22.x.x 或更高版本
 ```
 
 运行时依赖只有 3 个：`better-sqlite3`（共享数据库）、`@node-rs/jieba`（中文特征词提取）、`opencc-js`（简繁归一化）。内置前端用 Node 原生 HTTP + 原生 HTML/CSS/JS，无需 Web 框架。首次安装建议 `npm ci --omit=dev`。
@@ -121,7 +121,7 @@ stmem web                                   # 4. 启动前端；首次记忆体�
 
 ### Windows
 
-先安装 Node.js 22 LTS 并确认 `v22.x.x`；已装 Node 24 请先降级。不需要 Visual Studio C++ 工具链。
+先安装 Node.js 22 或更高版本并确认版本号。不需要 Visual Studio C++ 工具链。
 
 **方式一：将 bin/ 加入 PATH（推荐）**
 
@@ -216,7 +216,7 @@ stmem web stop                 # 后台 Web 已运行时先停止
 stmem web dev                  # 或 npm run dev
 ```
 
-开发模式在前台运行，并使用 Node.js 22 内置的 watch 能力。修改后端 JS 后 Web 会自动重启；HTML、CSS 和前端 JS 本来就从磁盘按请求读取且禁用浏览器强缓存，修改后直接刷新页面即可，不需要重启服务。按 `Ctrl+C` 退出开发模式。它与后台 `stmem web start/restart` 使用同一个端口和 PID 防重机制，不会同时启动两个 Web 实例。
+开发模式在前台运行，并使用 Node.js 内置的 watch 能力。修改后端 JS 后 Web 会自动重启；HTML、CSS 和前端 JS 本来就从磁盘按请求读取且禁用浏览器强缓存，修改后直接刷新页面即可，不需要重启服务。按 `Ctrl+C` 退出开发模式。它与后台 `stmem web start/restart` 使用同一个端口和 PID 防重机制，不会同时启动两个 Web 实例。
 
 后台的 `stmem web start` 与 `stmem web restart` 使用同一套 Web 专属 watch 管理器，只是把日志写入 `~/.stone_memory/web.log`。因此协作者首次用新版执行一次 `stmem web restart` 后，后续 Web 后端源码更新会自动重启；watcher supervisor、前端静态文件和用户数据不在这条进程管理链中。
 
@@ -361,7 +361,9 @@ stmem mine-review preview --thread <线程ID> --date <YYYY-MM-DD>   # 审阅候�
 stmem mine-review list --thread <线程ID>
 stmem mine-review apply --thread <线程ID> --candidate <候选ID>
 
-stmem dream --thread <线程ID>                # 手动织梦
+stmem dream --thread <线程ID> --date <YYYY-MM-DD>  # 手动织梦
+stmem dream preferences --thread <线程ID>          # 查看织梦偏好与安全模式分布
+stmem dream nsfw --thread <线程ID> on|off           # 显式开启或关闭成年亲密主题梦境
 stmem memory update --thread <线程ID> --batch-file <json>   # 摘要/锚点编辑
 stmem rules list --thread <线程ID>           # 规则管理
 

@@ -38,6 +38,12 @@ test("notebook developer module is detachable and bound to the selected memory t
   assert.match(html, /name="isDefault"/);
   assert.match(html, /id="search-topic"/);
   assert.match(html, /id="search-tags"/);
+  assert.match(html, /id="note-image"/);
+  assert.match(html, /id="note-image-alt"/);
+  assert.match(html, /id="upload-note-image"/);
+  assert.match(app, /20 \* 1024 \* 1024/);
+  assert.match(app, /insertAtCursor/);
+  assert.match(app, /application\/octet-stream/);
   assert.match(app, /latestEntry/);
   assert.match(app, /URLSearchParams/);
   assert.equal((html.match(/type="button" data-close-dialog/g) || []).length, 2);

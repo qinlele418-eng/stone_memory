@@ -141,16 +141,35 @@
 
   function renderTracked(items) {
     $("#tracked").classList.toggle("empty", !items.length);
-    $("#tracked").innerHTML = items.length ? items.map(item => `<article class="card ${item.hasUpdate ? "update" : ""}"><strong>PR #${item.number} · ${escapeHtml(item.title)}</strong><span>${escapeHtml(item.targetBranch)} · ${escapeHtml(item.mergeCommit.slice(0,7))}${item.hasUpdate ? " · 有新动态" : ""}${item.removedAt ? " · 已移除" : ""}</span>${item.removedAt ? "" : `<button class="secondary remove-change" data-number="${item.number}" data-commit="${escapeHtml(item.mergeCommit)}">删除对应更改</button>`}</article>`).join("") : "还没有通过琢石坊合入的 PR";
-    document.querySelectorAll(".remove-change").forEach(button => button.addEventListener("click", async () => {
-      if (!confirm("确认通过 revert 提交移除这份 PR 对应的更改？不会重写历史。")) return;
-      try { await command("remove-change", { number:Number(button.dataset.number), mergeCommit:button.dataset.commit }); toast("已创建反向提交"); await loadTracked(); }
+    $("#tracked").innerHTML = items.length ? items.map(item => `<article class="card ${item.hasUpdate ? "update" : ""}"><strong>PR #${item.number} · ${escapeHtml(item.title)}</strong><span>${escapeHtml(item.targetBranch)} · ${escapeHtml(item.mergeCommit.slice(0,7))}${item.versionCount > 1 ? ` · 已拉取 ${item.versionCount} 个版本` : ""}${item.hasUpdate ? " · 有新动态" : ""}${item.removedAt ? " · 已移除" : ""}</span>${item.removedAt ? "" : `<div class="tracked-actions">${item.hasUpdate ? `<button class="primary update-change" data-number="${item.number}" data-branch="${escapeHtml(item.targetBranch)}">拉取更新</button>` : ""}<button class="secondary remove-pr" data-number="${item.number}" data-branch="${escapeHtml(item.targetBranch)}">删除对应更改</button></div>`}</article>`).join("") : "还没有通过琢石坊合入的 PR";
+    document.querySelectorAll(".update-change").forEach(button => button.addEventListener("click", async () => {
+      if (!confirm(`确认把 PR #${button.dataset.number} 的最新提交合并到 ${button.dataset.branch}？`)) return;
+      try { const result=await command("apply-pr", { number:Number(button.dataset.number), targetBranch:button.dataset.branch }); if(result.conflict){showMergeConflict(result,"pr");return;} toast("PR 更新已合入本地分支"); await loadTracked(); }
+      catch (error) { toast(error.message); }
+    }));
+    document.querySelectorAll(".remove-pr").forEach(button => button.addEventListener("click", async () => {
+      if (!confirm("确认通过一个 revert 提交移除这份 PR 的全部已拉取版本？不会重写历史。")) return;
+      try { await command("remove-pr", { number:Number(button.dataset.number), targetBranch:button.dataset.branch }); toast("已创建反向提交"); await loadTracked(); }
       catch (error) { toast(error.message); }
     }));
   }
 
   async function loadTracked() { try { renderTracked((await command("tracked")).tracked); } catch (error) { toast(error.message); } }
-  async function loadStatus() { try { renderStatus(await command("status")); } catch (error) { toast(error.message); } }
+  async function loadStatus() {
+    try {
+      const status = await command("status");
+      renderStatus(status);
+      return status;
+    } catch (error) {
+      toast(error.message);
+      return null;
+    }
+  }
+
+  async function loadAuthenticatedViews(status = state.status) {
+    if (!status?.auth?.authenticated) return;
+    await Promise.all([loadLocalOverview(), loadContributions()]);
+  }
 
   function showMergeConflict(result, kind) {
     state.mergeConflict = { ...result, kind };
@@ -214,7 +233,9 @@
         const result = await command("oauth-poll", { flowId });
         if (result.status === "authorized") {
           $("#oauth-state").textContent = `登录成功：@${result.identity.login}`;
-          await loadStatus(); setTimeout(() => $("#oauth-dialog").close(), 700); return;
+          const status = await loadStatus();
+          await loadAuthenticatedViews(status);
+          setTimeout(() => $("#oauth-dialog").close(), 700); return;
         }
         if (result.status === "denied" || result.status === "expired") {
           $("#oauth-state").textContent = result.status === "denied" ? "你取消了 GitHub 授权。" : "验证码已经过期，请重新登录。"; return;
@@ -289,7 +310,10 @@
     if (!confirm(`确认${labels[action]} watcher supervisor？`)) return;
     try { const result=await command("supervisor-control", { action }); $("#supervisor-state").textContent=result.output; toast(`Supervisor 已${labels[action]}`); } catch(error) { toast(error.message); }
   }));
-  loadStatus();
-  loadLocalOverview();
-  loadContributions();
+  async function bootstrap() {
+    const status = await loadStatus();
+    await loadAuthenticatedViews(status);
+  }
+
+  bootstrap();
 })();
