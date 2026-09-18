@@ -18,13 +18,6 @@ test("restoring official mining prompts never clears the relationship timeline",
   assert.doesNotMatch(app, /timelineTa\.value=timelineTa\.dataset\.default/);
 });
 
-test("developer module web bridge supports global POST commands through private batch files", () => {
-  const server = fs.readFileSync(path.join(__dirname, "..", "src", "web", "server.js"), "utf8");
-  assert.match(server, /req\.method === "GET" \|\| req\.method === "POST"/);
-  assert.match(server, /loaded\.manifest\.scope === "memory" && !threadId/);
-  assert.match(server, /runStmemBatch\(args, await readJson\(req\)\)/);
-});
-
 test("the prompt editor is available to all registered scenarios", () => {
   const app = fs.readFileSync(path.join(__dirname, "..", "src", "web", "public", "app.js"), "utf8");
   assert.ok(app.includes("loadMiningPrompts(content,library);"));

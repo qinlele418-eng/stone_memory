@@ -49,11 +49,12 @@ test("scratch styles use only Stone Memory theme colors, fonts, radii and shadow
 
 test("scratch backend is dispatched through stmem and the shared Web adapter", () => {
   const cli = fs.readFileSync(path.join(__dirname, "..", "bin", "stmem"), "utf8");
-  const server = fs.readFileSync(path.join(__dirname, "..", "src", "web", "server.js"), "utf8");
+  const scratch = fs.readFileSync(path.join(__dirname, "..", "src", "web", "scratch.js"), "utf8");
+  const modules = fs.readFileSync(path.join(__dirname, "..", "src", "web", "routes", "developer-modules.js"), "utf8");
   const bootstrap = fs.readFileSync(path.join(root, "developer-kit", "bootstrap.js"), "utf8");
 
   assert.match(cli, /case "scratch"/);
-  assert.match(server, /\["scratch", "generate"/);
-  assert.match(server, /\/api\/developer-modules/);
+  assert.match(scratch, /\["scratch", "generate"/);
+  assert.match(modules, /\/api\/developer-modules/);
   assert.match(bootstrap, /fetch\("\/api\/developer-modules"\)/);
 });
