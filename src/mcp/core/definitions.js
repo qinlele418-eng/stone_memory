@@ -69,6 +69,12 @@ const TOOLS = [
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
+    name: "stmem_memory_bind",
+    description: "把发起本次 MCP 调用的当前 Codex/Claude Code 窗口绑定到指定记忆体。只支持首次绑定，不提供改绑。",
+    inputSchema: { type: "object", required: ["memory"], properties: { memory: { type: "string", description: "目标记忆体的显示名称或 memoryId" } }, additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
     name: "stmem_memory_search",
     description: "关键词搜索记忆 feelings + 回溯原文 archive",
     inputSchema: {

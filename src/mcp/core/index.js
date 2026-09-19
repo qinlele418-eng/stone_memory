@@ -6,6 +6,7 @@ const { toolRebuildPreview, toolRebuild } = require("./rebuild");
 const { toolMine } = require("./mining");
 const { toolMemorySearch, toolDeepSearch, toolInternalKeywordSearch, toolInternalArchiveContext } = require("./search");
 const { toolAuditList, toolAuditMark, toolAuditQuery } = require("./audit");
+const { toolMemoryBind } = require("./binding");
 let deepSearchToolCalls = 0;
 let notebookStewardToolCalls = 0;
 function call(name, args = {}) {
@@ -31,6 +32,7 @@ function call(name, args = {}) {
     else if (name === "stmem_memory_rebuild_preview") text = toolRebuildPreview(args);
     else if (name === "stmem_memory_mine") text = toolMine(args);
     else if (name === "stmem_memory_status") text = toolStatus();
+    else if (name === "stmem_memory_bind") text = toolMemoryBind(args);
     else if (name === "stmem_memory_search") text = toolMemorySearch(args);
     else if (name === "stmem_memory_deep_search") text = toolDeepSearch(args);
     else if (name === "stmem_memory_audit_list") text = toolAuditList(args);

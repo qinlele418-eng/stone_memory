@@ -1,69 +1,56 @@
+const { findModule } = require("./developer-module-contract");
 const fs = require("node:fs");
 const path = require("node:path");
-const os = require("node:os");
-const { randomUUID } = require("node:crypto");
-const { findModule } = require("./developer-module-contract");
-const CONFIG_FILE = path.join(os.homedir(), ".stone_memory", "developer-module-mcp.json");
+const { getMemoryContext } = require("../config");
 const reconnect = "修改仅对新 MCP 会话生效，请重新连接 Agent/MCP 客户端。";
-function safeMemoryId(id, memoryIds) {
+
+function safeMemoryId(id, memoryIds = require("../config").listMemoryIds()) {
   if (typeof id !== "string" || !id || /[\\/\0:]/.test(id) || [".", "..", "__proto__", "constructor", "prototype"].includes(id) || !memoryIds.includes(id)) throw new Error("MCP_MEMORY_ID");
   return id;
 }
-function checkPath(file) {
-  // Trust the OS HOME prefix (including macOS /var), but not Stone-owned links.
-  for (const target of [path.dirname(file), file]) {
-    try { if (fs.lstatSync(target).isSymbolicLink()) throw new Error("MCP_CONFIG_SYMLINK"); }
-    catch (error) { if (error.code !== "ENOENT") throw error; }
-  }
+
+function memoryFile(memoryId) { return path.join(getMemoryContext(memoryId).root, "memory.json"); }
+function moduleIdsForMemory(memoryId) {
+  try { const value = JSON.parse(fs.readFileSync(memoryFile(memoryId), "utf8")); return Array.isArray(value.mcpModules) ? value.mcpModules : []; } catch { return []; }
 }
-function readConfig(file = CONFIG_FILE) {
-  checkPath(file);
-  let config;
-  try { config = JSON.parse(fs.readFileSync(file, "utf8")); }
-  catch (error) { if (error.code === "ENOENT") return { schemaVersion: 1, revision: 0, modules: {} }; throw new Error("MCP_CONFIG_INVALID"); }
-  if (config?.schemaVersion !== 1 || !Number.isSafeInteger(config.revision) || config.revision < 0 || !config.modules || typeof config.modules !== "object" || Array.isArray(config.modules)) throw new Error("MCP_CONFIG_INVALID");
-  for (const [id, state] of Object.entries(config.modules)) {
-    if (!/^[a-z0-9][a-z0-9-]*$/.test(id) || !state || typeof state.globalEnabled !== "boolean" || !state.memories || typeof state.memories !== "object" || Array.isArray(state.memories) || Object.values(state.memories).some(value => typeof value !== "boolean")) throw new Error("MCP_CONFIG_INVALID");
+
+function resolveCurrentBinding(env = process.env, memoryIds = require("../config").listMemoryIds()) {
+  const explicit = String(env.STMEM_CURRENT_THREAD_ID || "").trim();
+  const codex = String(env.CODEX_THREAD_ID || "").trim();
+  const claude = String(env.CLAUDE_CODE_SESSION_ID || "").trim();
+  const externalThreadId = explicit || codex || claude;
+  const explicitMemoryId = String(env.STMEM_MEMORY_ID || "").trim();
+  const explicitBindingId = String(env.STMEM_BINDING_ID || "").trim();
+  for (const memoryId of explicitMemoryId ? [safeMemoryId(explicitMemoryId, memoryIds)] : memoryIds) {
+    const { readBindingConfig } = require("./memory-binding-config"); let config; try { config = readBindingConfig(memoryId); } catch { continue; }
+    const binding = config.bindings.find(item => explicitBindingId ? item.id === explicitBindingId : item.externalThreadId === externalThreadId);
+    if (binding && binding.enabled !== false) return { memoryId, bindingId: binding.id, binding, modules: moduleIdsForMemory(memoryId) };
   }
-  return config;
+  return null;
 }
-function planChange({ moduleId, memoryId, enabled, global = false, root, file = CONFIG_FILE, memoryIds = require("../config").listThreadIds() }) {
+
+function readConfig({ memoryId } = {}) {
+  safeMemoryId(memoryId);
+  const file = memoryFile(memoryId); const stat = fs.statSync(file);
+  return { schemaVersion: 2, revision: Math.floor(stat.mtimeMs), memoryId, modules: moduleIdsForMemory(memoryId) };
+}
+
+function planChange({ moduleId, memoryId, enabled, root, memoryIds = require("../config").listMemoryIds() }) {
+  safeMemoryId(memoryId, memoryIds);
   const loaded = findModule(moduleId, root);
-  const manifest = loaded.manifest;
-  if (!manifest.entry.mcp) throw new Error("MCP_PROVIDER_NOT_DECLARED");
-  if (manifest.scope === "memory") safeMemoryId(memoryId, memoryIds);
-  else if (memoryId !== undefined && memoryId !== null) throw new Error("MCP_GLOBAL_MEMORY_ARGUMENT");
-  const before = readConfig(file);
-  const after = structuredClone(before);
-  const state = Object.hasOwn(after.modules, moduleId) ? after.modules[moduleId] : { globalEnabled: false, memories: {} };
-  if (manifest.scope === "global" || global) state.globalEnabled = enabled;
-  else {
-    state.memories[memoryId] = enabled;
-  }
-  Object.defineProperty(after.modules, moduleId, { value: state, enumerable: true, configurable: true, writable: true });
-  after.revision++;
-  return { moduleId, memoryId: memoryId ?? null, scope: manifest.scope, before, after, reconnect };
+  if (!loaded.manifest.entry.mcp) throw new Error("MCP_PROVIDER_NOT_DECLARED");
+  const before = moduleIdsForMemory(memoryId);
+  const after = enabled ? [...new Set([...before, moduleId])] : before.filter(id => id !== moduleId);
+  return { moduleId, memoryId, enabled: Boolean(enabled), before, after, revision: readConfig({ memoryId }).revision, reconnect };
 }
-function applyChange(plan, file = CONFIG_FILE) {
-  checkPath(file);
-  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-  const lock = `${file}.lock`;
-  let fd;
-  try { fd = fs.openSync(lock, "wx", 0o600); } catch { throw new Error("MCP_CONFIG_BUSY"); }
-  const temp = `${file}.${randomUUID()}.tmp`;
-  try {
-    const current = readConfig(file);
-    if (JSON.stringify(current) !== JSON.stringify(plan.before)) throw new Error("MCP_CONFIG_REVISION_CONFLICT");
-    const out = fs.openSync(temp, "wx", 0o600);
-    try { fs.writeFileSync(out, JSON.stringify(plan.after, null, 2) + "\n"); fs.fsyncSync(out); }
-    finally { fs.closeSync(out); }
-    checkPath(file);
-    fs.renameSync(temp, file);
-  } finally {
-    fs.closeSync(fd);
-    fs.rmSync(temp, { force: true });
-    fs.unlinkSync(lock);
-  }
-  return plan.after;
+
+function applyChange(plan) {
+  const file = memoryFile(plan.memoryId); const value = JSON.parse(fs.readFileSync(file, "utf8"));
+  const current = moduleIdsForMemory(plan.memoryId);
+  if (JSON.stringify(current) !== JSON.stringify(plan.before)) throw new Error("MCP_CONFIG_REVISION_CONFLICT");
+  const next = { ...value, mcpModules: plan.after, updatedAt: new Date().toISOString() };
+  fs.writeFileSync(file, JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
+  return { applied: true, changed: true, memoryId: plan.memoryId, modules: plan.after, config: next };
 }
-module.exports = { CONFIG_FILE, reconnect, safeMemoryId, readConfig, planChange, applyChange };
+
+module.exports = { reconnect, safeMemoryId, moduleIdsForMemory, resolveCurrentBinding, readConfig, planChange, applyChange };

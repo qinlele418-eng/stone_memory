@@ -13,8 +13,8 @@ class Registry {
     }
   }
   list() { return [...this.entries.values()].map(entry => entry.tool); }
-  registerModule(manifest, provider, { state, memoryIds, timeoutMs, logger = () => {} } = {}) {
-    if (!state?.globalEnabled || (manifest.scope === "memory" && !memoryIds.some(id => state.memories?.[id] === true))) return;
+  registerModule(manifest, provider, { session, memoryIds, timeoutMs, logger = () => {} } = {}) {
+    if (!session || (manifest.scope === "memory" && !memoryIds.includes(session.memoryId))) return;
     if (typeof provider?.tools !== "function" || typeof provider?.call !== "function") throw new Error("MCP_PROVIDER_EXPORTS");
     const declared = provider.tools(createContext(manifest, { logger }));
     if (declared && typeof declared.then === "function") {
@@ -30,21 +30,15 @@ class Registry {
       if (this.entries.has(name)) throw new Error("MCP_NAME_CONFLICT");
       const tool = structuredClone(definition);
       tool.name = name;
-      if (manifest.scope === "memory") {
-        tool.inputSchema.properties[memoryArgument] = { type: "string", description: "Explicit enabled memory ID" };
-        tool.inputSchema.required = [...(tool.inputSchema.required || []), memoryArgument];
-      }
       pending.push([name, { tool, call: async (args, signal) => {
         const controller = new AbortController();
         let timer;
         let cancel;
         try {
           validateInput(tool.inputSchema, args);
-          const memoryId = manifest.scope === "memory" ? safeMemoryId(args[memoryArgument], memoryIds) : null;
-          if (memoryId && state.memories?.[memoryId] !== true) throw new Error("MCP_MEMORY_DISABLED");
+          const memoryId = manifest.scope === "memory" ? safeMemoryId(session.memoryId, memoryIds) : null;
           const context = createContext(manifest, { memoryId, signal: controller.signal, writable: !definition.annotations.readOnlyHint, logger, timeoutMs: callTimeout });
           const input = { ...args };
-          if (memoryId) delete input[memoryArgument];
           const timeout = new Promise((_, reject) => {
             timer = setTimeout(() => { controller.abort(); reject(new Error("MCP_CALL_TIMEOUT")); }, callTimeout);
           });

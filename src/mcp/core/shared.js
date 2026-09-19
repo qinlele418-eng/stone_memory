@@ -10,6 +10,8 @@ const { resolveMcpThread } = require("../../services/mcp-thread-resolution");
 const { buildMcpRebuildRequest, buildMcpRebuildPreviewArgs, buildMcpRebuildExecuteArgs } = require("../../services/mcp-rebuild-preview");
 const { buildMcpMineArgs } = require("../../services/mcp-mine-command");
 const { NotebookService } = require("../../services/notebook-service");
+const { listMemories } = require("../../services/memory-setup");
+const { resolveCurrentBinding } = require("../../services/developer-module-mcp-config");
 
 const CONFIG_PATH = path.join(os.homedir(), ".stone_memory", "stmem.json");
 const PROJECT_ROOT = path.resolve(__dirname, "../../..");
@@ -38,7 +40,11 @@ function log(msg) {
 
 function resolveThread(args, cfg) {
   const config = cfg || {};
-  const sessionId = SEARCH_THREAD_ID || resolveMcpThread(args, config, listThreadIds());
+  let sessionId = SEARCH_THREAD_ID;
+  if (!sessionId && !args?.thread && !args?.memoryId) {
+    try { sessionId = resolveCurrentBinding()?.memoryId || null; } catch {}
+  }
+  sessionId = sessionId || resolveMcpThread(args, config, listThreadIds());
   const tc = config[sessionId] || {};
   return {
     threadId: sessionId,
@@ -49,4 +55,4 @@ function resolveThread(args, cfg) {
 }
 
 
-module.exports = { fs, path, os, execFileSync, getCfg, getThreadDir, listThreadIds, runSubagent, readDatabaseFeelings, readDatabaseFeatures, MemoryStore, resolveMcpThread, buildMcpRebuildRequest, buildMcpRebuildPreviewArgs, buildMcpRebuildExecuteArgs, buildMcpMineArgs, NotebookService, PROJECT_ROOT, SEARCH_ONLY, NOTEBOOK_STEWARD_MODE, SEARCH_THREAD_ID, MAX_DEEP_SEARCH_TOOL_CALLS, MAX_NOTEBOOK_STEWARD_TOOL_CALLS, rebuildPreviews, feelingDate, loadConfig, log, resolveThread };
+module.exports = { fs, path, os, execFileSync, getCfg, getThreadDir, listThreadIds, runSubagent, readDatabaseFeelings, readDatabaseFeatures, MemoryStore, resolveMcpThread, buildMcpRebuildRequest, buildMcpRebuildPreviewArgs, buildMcpRebuildExecuteArgs, buildMcpMineArgs, NotebookService, listMemories, PROJECT_ROOT, SEARCH_ONLY, NOTEBOOK_STEWARD_MODE, SEARCH_THREAD_ID, MAX_DEEP_SEARCH_TOOL_CALLS, MAX_NOTEBOOK_STEWARD_TOOL_CALLS, rebuildPreviews, feelingDate, loadConfig, log, resolveThread };

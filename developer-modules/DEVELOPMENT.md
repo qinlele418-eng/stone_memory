@@ -537,22 +537,18 @@ Provider 收到绑定后的 `context.memoryId/threadId`，`args` 不再含宿主
 即便只有一个记忆体也不会自动选择；`scope: global` 工具不绑定记忆体。
 
 ```bash
-stmem module mcp status --json
+stmem module mcp status --memory <id> --json
 stmem module mcp enable --module example-module --memory <id>
 stmem module mcp enable --module example-module --memory <id> --apply
-stmem module mcp enable --module example-module --memory <id> --global --apply
 stmem module mcp disable --module example-module --memory <id> --apply
-# 关闭整个 memory 模块的全局门闩，保留各记忆体选择；仍要求明确 memory
-stmem module mcp disable --module example-module --memory <id> --global --apply
 ```
 
-默认只预览，`--apply` 才修改 `~/.stone_memory/developer-module-mcp.json`。
-启用或停用某记忆体只修改该项，不改变全局门闩。首次启用须分别打开两级开关。
-`--global` 单独调整门闩，不改变记忆体选择。全局作用域模块不接受 `--memory`。
+默认只预览，`--apply` 才修改该记忆体 `bindings.json` 中对应 Binding 的 MCP 权限；不再存在全局 MCP 总闸。
+启用或停用某 Binding 只修改该 Binding 的 `mcpModules`。当前 MCP session 未绑定或未获授权时不加载第三方 Provider。
 配置使用独占写锁、revision 冲突检查、0600 临时文件和原子替换。
 若进程崩溃留下锁，确认无写入进程后才由管理员清理锁文件，不自动抢锁。
 
-`status` 显示安装状态、两级开关、权限和本次 CLI 探测的 Provider 加载结果。
+`status` 显示该 Binding 的安装状态、权限和 Provider 加载结果。
 该结果不代表已连接 MCP 会话。每次改动后必须重新连接 Agent/MCP。
 MCP 配置通过上述后端 CLI 管理，不提供工坊管理面板。
 授权按“模块 × 记忆体”分别保存：为记忆体 A 启用模块 X，不会启用模块 Y，

@@ -922,21 +922,23 @@ function serveNotebookAsset(req, res, asset) {
 }
 
 async function handleApi(req, res, url) {
-  if (url.pathname === "/api/developer-modules/mcp" && req.method === "GET") {
-    return json(res, 200, JSON.parse(runStmem(["module", "mcp", "status", "--json"])));
+  const bindingMcpMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/mcp$/u);
+  if (bindingMcpMatch && req.method === "GET") {
+    const memoryId = decodeURIComponent(bindingMcpMatch[1]);
+    publicThreadSettings(memoryId);
+    return json(res, 200, JSON.parse(runStmem(["module", "mcp", "status", "--memory", memoryId, "--json"])));
   }
-  const moduleMcpMatch = url.pathname.match(/^\/api\/developer-modules\/([a-z0-9][a-z0-9-]*)\/mcp$/u);
-  if (moduleMcpMatch && req.method === "POST") {
+  if (bindingMcpMatch && req.method === "POST") {
+    const memoryId = decodeURIComponent(bindingMcpMatch[1]);
     const body = await readJson(req);
-    if (typeof body.enabled !== "boolean") throw new Error("enabled 必须为布尔值");
-    const args = ["module", "mcp", body.enabled ? "enable" : "disable", "--module", moduleMcpMatch[1], "--json"];
-    if (body.memoryId !== undefined && body.memoryId !== null) {
-      publicThreadSettings(body.memoryId);
-      args.push("--memory", body.memoryId);
-    }
-    if (body.global === true) args.push("--global");
+    if (typeof body.enabled !== "boolean" || !/^[a-z0-9][a-z0-9-]*$/u.test(String(body.moduleId || ""))) throw new Error("需要合法的 moduleId 和 enabled");
+    publicThreadSettings(memoryId);
+    const args = ["module", "mcp", body.enabled ? "enable" : "disable", "--module", body.moduleId, "--memory", memoryId, "--json"];
     if (body.apply === true) args.push("--apply");
     return json(res, 200, JSON.parse(runStmem(args)));
+  }
+  if (url.pathname === "/api/developer-modules/mcp" || /^\/api\/developer-modules\/[a-z0-9][a-z0-9-]*\/mcp$/u.test(url.pathname)) {
+    return json(res, 410, { error: "模块 MCP 权限已迁移到记忆体接入线程，请使用 Binding MCP 接口" });
   }
   if (req.method === "GET" && url.pathname === "/api/developer-modules") {
     return json(res, 200, { modules: listDeveloperModules() });

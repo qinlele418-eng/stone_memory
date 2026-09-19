@@ -170,34 +170,28 @@ notebook-lab + search_notes
 
 ## 5. MCP 启停与作用域
 
-### 5.1 两级启用状态
+### 5.1 Binding 级启用状态
 
 MCP 启用状态与“已安装”“前端可见”“watcher 启用”是不同概念。
 
-需要支持：
-
-1. 全局状态：是否允许该模块向 MCP 暴露任何工具；
-2. 记忆体状态：`scope: memory` 模块是否对指定 `memoryId` 暴露工具。
-
-`scope: global` 模块只有全局状态。`scope: memory` 模块必须在调用时解析明确的记忆体，不得默认选择列表第一项。
+插件是否暴露 MCP 工具由记忆体决定。当前 MCP session 找到 Binding 后加载该记忆体的 `mcpModules`，所有 Binding 自动继承；未绑定或未授权时不加载。
 
 ### 5.2 正式 CLI
 
 所有状态修改经 CLI：
 
 ```bash
-stmem module mcp status [--json]
-stmem module mcp enable --module <module-id> [--memory <memory-id>] [--apply]
-stmem module mcp disable --module <module-id> [--memory <memory-id>] [--apply]
+stmem module mcp status --memory <memory-id> [--json]
+stmem module mcp enable --module <module-id> --memory <memory-id> [--apply]
+stmem module mcp disable --module <module-id> --memory <memory-id> [--apply]
 ```
 
 具体参数名可在实现前统一，但必须满足：
 
 - 默认 dry-run，`--apply` 才写入；
-- memory scope 写操作必须显式传 `--memory`；
-- global scope 传 `--memory` 应报错；
+- 写操作必须显式传 `--memory`；
 - 未声明 `entry.mcp` 的模块不能启用；
-- status 同时展示“已安装 / 全局启用 / 记忆体启用 / Provider 加载结果”；
+- status 展示“已安装 / Binding 授权 / Provider 加载结果”；
 - 修改后提示 MCP 客户端重新连接，不能伪称当前会话已热更新。
 
 ### 5.3 配置归属
@@ -205,7 +199,7 @@ stmem module mcp disable --module <module-id> [--memory <memory-id>] [--apply]
 建议由 Core 管理独立配置：
 
 ```text
-~/.stone_memory/developer-module-mcp.json
+<memory-root>/memory.json（记忆体级 `mcpModules`，所有 Binding 自动继承）
 ```
 
 示例：
@@ -214,14 +208,7 @@ stmem module mcp disable --module <module-id> [--memory <memory-id>] [--apply]
 {
   "schemaVersion": 1,
   "revision": 3,
-  "modules": {
-    "notebook-lab": {
-      "globalEnabled": true,
-      "memories": {
-        "memory-abc": true
-      }
-    }
-  }
+  "mcpModules": ["notebook-lab"]
 }
 ```
 

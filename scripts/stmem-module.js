@@ -62,6 +62,28 @@ function commandInput(args, action) {
 async function runModuleCommand(args = process.argv.slice(3)) {
   const action = args[0] || "list";
   const json = args.includes("--json");
+  if (action === "mcp") {
+    const operation = args[1] || "status";
+    const memoryId = valueAfter(args, "--memory") || valueAfter(args, "--thread");
+    if (!memoryId) throw new Error("MCP 设置必须指定 --memory");
+    const { planChange, applyChange, reconnect } = require("../src/services/developer-module-mcp-config");
+    if (operation === "status") {
+      const { Registry } = require("../src/mcp/registry");
+      const registry = new Registry();
+      registry.registerCore({ tools: require("../src/mcp/core/definitions").TOOLS, call() {} });
+      const modules = require("../src/mcp/module-provider-loader").loadModuleProviders(registry, { session: { memoryId } });
+      const result = { memoryId, revision: require("../src/services/developer-module-mcp-config").readConfig({ memoryId }).revision, modules, reconnect };
+      console.log(JSON.stringify(result, null, 2));
+      return result;
+    }
+    if (!["enable", "disable"].includes(operation)) throw new Error("MCP_OPERATION_INVALID");
+    const plan = planChange({ moduleId: valueAfter(args, "--module"), memoryId, enabled: operation === "enable" });
+    const apply = args.includes("--apply");
+    const applied = apply ? applyChange(plan) : null;
+    const result = { applied: apply, dryRun: !apply, moduleId: plan.moduleId, memoryId, enabled: plan.enabled, revision: applied?.config?.updatedAt ?? plan.revision, reconnect };
+    console.log(JSON.stringify(result, null, 2));
+    return result;
+  }
   if (action === "list") {
     const modules = loadModules().map(item => ({ id: item.id, title: item.manifest.title, scope: item.manifest.scope, version: item.manifest.version, valid: !item.errors.length }));
     return console.log(json ? JSON.stringify(modules, null, 2) : modules.map(item => `${item.id}\t${item.scope}\tv${item.version}\t${item.title || ""}`).join("\n"));
