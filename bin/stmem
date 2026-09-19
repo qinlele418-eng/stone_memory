@@ -65,6 +65,7 @@ if (!cmd || cmd === "--help" || cmd === "-h") {
   stmem notebook status|topic-create|topic-update|write|query|read|list --thread <id>
                                                 管理主题 Markdown 笔记本
   stmem module list|inspect|paths|audit          查看模块、统一路径与执行模块契约审计
+  stmem module mcp status|enable|disable        模块 MCP 状态与显式启停（默认 dry-run，--apply 写入）
   stmem web [--host 地址] [--port 4173]          前台启动本地记忆管理前端（兼容旧用法）
   stmem web start|stop|restart|status            管理后台前端进程；后台自动监听 Web 后端源码
   stmem web dev [--host 地址] [--port 4173]      前台开发模式；后端源码变化自动重启

@@ -15,6 +15,10 @@ const {
   installWindowsWatcherService, windowsWatcherServiceStatus,
   repairWindowsWatcherService, removeWindowsWatcherService,
 } = require("../src/services/windows-watcher-service");
+const {
+  installSystemdWatcherService, systemdWatcherServiceStatus,
+  repairSystemdWatcherService, removeSystemdWatcherService,
+} = require("../src/services/systemd-watcher-service");
 
 const STONE = path.join(os.homedir(), ".stone_memory");
 const LEGACY_KEYS = {
@@ -78,8 +82,26 @@ if (subcmd === "service") {
   if (!new Set(["install", "status", "repair", "remove"]).has(action)) {
     throw new Error("用法：stmem watcher service <install|status|repair|remove>");
   }
-  if (process.platform !== "win32") throw new Error("watcher service 子命令当前仅支持 Windows；Linux 请使用 systemd user service");
   const projectDir = path.resolve(__dirname, "..");
+  if (process.platform === "linux") {
+    const options = { projectDir };
+    if (action === "install") {
+      const result = installSystemdWatcherService(options);
+      console.log(`watcher systemd 用户服务已安装并启动：${result.unit}`);
+    } else if (action === "status") {
+      const result = systemdWatcherServiceStatus(options);
+      console.log(`watcher service: ${result.healthy ? "正常" : "需要修复"}`);
+      console.log(`  unit: ${result.installed ? "已安装" : "未安装"} · ${result.enabled ? "已启用" : "未启用"} · ${result.running ? "运行中" : "未运行"}`);
+    } else if (action === "repair") {
+      const result = repairSystemdWatcherService(options);
+      console.log(result.repaired === false ? "watcher service 已正常" : `watcher service 已修复：${result.unit}`);
+    } else {
+      const result = removeSystemdWatcherService(options);
+      console.log(result.removed ? "watcher systemd 用户服务已移除" : "watcher systemd 用户服务原本未安装");
+    }
+    return;
+  }
+  if (process.platform !== "win32") throw new Error("watcher service 当前支持 Linux systemd 与 Windows Task Scheduler");
   if (action === "install") {
     const result = installWindowsWatcherService({ projectDir });
     console.log(`watcher Task Scheduler 服务已安装并启动：${result.taskName}`);

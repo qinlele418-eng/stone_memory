@@ -9,9 +9,10 @@
 3. [contributing.md](./contributing.md)：Issue、文档与代码 PR 的提交方式。
 4. [frontend-modules.md](./frontend-modules.md)：开发者模式前端的可拆卸接入、统一卡片与主题契约。
 5. [watcher-plugins.md](./watcher-plugins.md)：每日挖掘完成后的可插拔自动模块契约。
-5. [test-reports/](./test-reports/)：社区模型对比、挖掘效果与真实使用测试。
-6. [proposals/](./proposals/)：尚未进入正式实现的新功能建议。
-7. [Stone Memory Maintainer Skill](./skills/stone-memory-maintainer/SKILL.md)：给编码 Agent 使用的脱敏维护流程与架构护栏。
+6. [模块接入规范](../developer-modules/DEVELOPMENT.md)：manifest、CLI、MCP Provider 注册；第 17 节提供最小示例和验收要求。
+7. [test-reports/](./test-reports/)：社区模型对比、挖掘效果与真实使用测试。
+8. [proposals/](./proposals/)：尚未进入正式实现的新功能建议。
+9. [Stone Memory Maintainer Skill](./skills/stone-memory-maintainer/SKILL.md)：给编码 Agent 使用的脱敏维护流程与架构护栏。
 
 ## 让 Agent 参与开发
 
@@ -21,6 +22,15 @@
 保护私人数据、按风险运行测试，并区分本地修改、提交与推送权限。
 
 Skill不会提供任何内测用户对话、真实线程、私人路径或未公开设计，只包含可以跨贡献者复用的维护方法。
+
+开发模块时，还应让 Agent 遵守 [模块 AGENTS.md](../developer-modules/AGENTS.md)。
+需要 MCP 能力就通过 manifest + Provider 注册，不向 Core 增加模块专属路由。
+可以直接给 Agent 以下任务约束：
+
+> 按 developer-modules/AGENTS.md 和 DEVELOPMENT.md 第 17 节实现本模块 MCP。
+> 新工具走 entry.mcp 注册；写入走 context.runCommand → 正式模块 CLI；补齐真实
+> tools/list、tools/call 与启停/授权回归。如果迁移旧工具，要验证旧工具行为和
+> 删除原 Core 路由，不能另外新增一套同功能入口冒充迁移。
 
 ## 最重要的原则
 

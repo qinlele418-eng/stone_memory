@@ -177,6 +177,16 @@ Stone Memory优先从现有原文、摘要和特征中重算解释，不为每�
 5. 运行相关测试和完整 `npm test`。
 6. 提交PR，说明风险、验证结果及是否涉及数据迁移。
 
+## 模块 MCP 注册
+
+- 模块的 MCP 工具必须走 [模块接入规范](../developer-modules/DEVELOPMENT.md)
+  第 17 节：SDK v2、`entry.mcp`、权限、Provider 与正式模块 CLI。
+- 模块目录的自动加载指引见 [developer-modules/AGENTS.md](../developer-modules/AGENTS.md)。
+- 禁止在根 `mcp-server.js` 或 `src/mcp/core/` 为新模块硬编码工具定义和路由；
+  禁止另起模块 MCP 服务或手改客户端配置。旧名称兼容表不是普通模块注册入口。
+- 必须测试真实 MCP 列表/调用、两级启停和权限。迁移旧工具时，还须对照旧行为、
+  移除 Core 路由并验证关闭后不能回退，不能用新增一套同功能工具代替迁移。
+
 ## 前端实验模块
 
 - 开发者模式中的实验前端必须遵守 [前端实验模块规范](frontend-modules.md)。

@@ -1,0 +1,17 @@
+{
+  "id": "coding",
+  "version": 1,
+  "label": "编程",
+  "storagePurpose": "coding",
+  "tasks": [
+    "feelings",
+    "features"
+  ],
+  "prompts": {
+    "feelings": "summary.md",
+    "features": "features.md"
+  },
+  "legacyOverrides": {
+    "features": "memory-miner-feature-operations.md"
+  }
+}

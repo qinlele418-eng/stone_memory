@@ -14,7 +14,7 @@ test("responsive navigation shell delegates to the stable frontend", () => {
   for (const action of ["home", "memory", "workshop", "me"]) {
     assert.match(html, new RegExp(`data-shell-action="${action}"`));
   }
-  assert.ok(html.indexOf("/app.js?v=39") < html.indexOf("/developer-kit/navigation-shell.js?v=3"));
+  assert.ok(html.indexOf("/app.js?v=40") < html.indexOf("/developer-kit/navigation-shell.js?v=3"));
   assert.match(html, /\/developer-kit\/navigation-shell\.css\?v=5/);
   assert.match(adapter, /MutationObserver/);
   assert.match(adapter, /data-view="\$\{view\}"/);
@@ -31,7 +31,7 @@ test("responsive navigation shell delegates to the stable frontend", () => {
   for (const tab of ["概况", "记忆", "上下文状态", "接入", "设置"]) {
     assert.match(app, new RegExp(`<span>${tab}</span>`));
   }
-  for (const content of ["已生长了", "原始对话", "对话文件总体积", "当前对话线程信息", "当前窗口上下文", "当前窗口注入", "自动化设置"]) {
+  for (const content of ["已生长了", "原始对话", "原始线程总体积", "当前对话线程信息", "当前窗口上下文", "当前窗口注入", "自动化设置"]) {
     assert.match(app, new RegExp(content));
   }
   assert.match(app, /contextUsageHint\(usage,data\.automaticFullMining\)/);
@@ -43,6 +43,27 @@ test("responsive navigation shell delegates to the stable frontend", () => {
   assert.match(app, /automationSwitch\("automaticFullMining"/);
   assert.match(app, /automationSwitch\("automaticMemoryMaintenance"/);
   assert.match(app, /automationSwitch\("automaticCompression"/);
+  const managementTabs = app.match(/function managementNav\(active="overview"\)[\s\S]*?let settingsRenderVersion/)?.[0] || "";
+  assert.match(managementTabs, /return ""/);
+  assert.doesNotMatch(managementTabs, /管理二级导航|data-management-view|管理概览|摘要记忆|对话档案|上下文与线程|数据维护/);
+  const managementOverview = app.match(/function renderManagement\(library\)[\s\S]*?async function renderAutomation/)?.[0] || "";
+  assert.doesNotMatch(managementOverview, /查看记忆、原文和当前上下文/);
+  for (const content of ["记忆档案", "人设 / 规则", "摘要", "全量对话", "时间轴", "记忆维护", "数据导入", "管理挖掘素材", "记忆挖掘台", "记忆压缩（测试功能）"]) {
+    assert.match(managementOverview, new RegExp(content));
+  }
+  for (const count of ["counts.rules", "counts.feelings", "counts.messages"]) assert.match(managementOverview, new RegExp(count.replace(".", "\\.")));
+  assert.doesNotMatch(managementOverview, /counts\.features|条特征/);
+  assert.match(managementOverview, /支持直接导入线程文件或符合格式的对话文件/);
+  assert.match(managementOverview, /决定哪些对话、工具链成为挖掘摘要的素材，同时避免反复注入的内容污染摘要库/);
+  assert.match(managementOverview, /手动生成多日摘要并审核/);
+  assert.match(managementOverview, /renderMemorySection\(library,"rules"\)/);
+  assert.match(managementOverview, /renderMemorySection\(library,"feelings"\)/);
+  assert.match(managementOverview, /renderConversations\(library\)/);
+  assert.match(managementOverview, /renderTimeline\(library\)/);
+  assert.match(managementOverview, /renderConversationImport\(library\)/);
+  assert.match(managementOverview, /renderToolPolicy\(library\)/);
+  assert.match(managementOverview, /renderMining\(library\)/);
+  assert.match(managementOverview, /renderCompression\(library\)/);
   assert.match(app, /function renderAccess\(library\)/);
   assert.match(app, /最多同时监听 5 个窗口/);
   assert.match(app, /data-binding-toggle/);

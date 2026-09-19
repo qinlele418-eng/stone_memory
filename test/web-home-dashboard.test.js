@@ -14,9 +14,11 @@ test("home dashboard maps overview data onto the stable memory lobby", () => {
   const transitionStyles = fs.readFileSync(path.join(root, "public", "developer-kit", "page-transition.css"), "utf8");
   const developerStyles = fs.readFileSync(path.join(root, "public", "theme-studio", "developer-common.css"), "utf8");
 
-  assert.ok(html.indexOf("/app.js?v=39") < html.indexOf("/developer-kit/home-dashboard.js?v=5"));
-  assert.ok(html.indexOf("/developer-kit/page-transition.js?v=1") < html.indexOf("/app.js?v=39"));
+  assert.ok(html.indexOf("/app.js?v=40") < html.indexOf("/developer-kit/home-dashboard.js?v=6"));
+  assert.ok(html.indexOf("/developer-kit/page-transition.js?v=1") < html.indexOf("/app.js?v=40"));
   assert.match(adapter, /fetch\("\/api\/home"/);
+  assert.match(adapter, /lastSync\(memory\.lastArchivedAt\)/);
+  assert.doesNotMatch(adapter, /最近对话同步[^\n]*lastMinedAt/);
   assert.match(adapter, /今日纹路 · TODAY'S GRAIN/);
   assert.match(adapter, /library-card--mapped/);
   assert.match(adapter, /const dashboards = new WeakMap\(\)/);
@@ -76,6 +78,8 @@ test("home overview is a read-only endpoint and skips unconfigured memory drafts
   assert.match(server, /if \(!library\.configured \|\| !library\.threadId\) continue/);
   assert.match(server, /studyCount:/);
   assert.match(server, /libraries,/);
+  assert.match(server, /SELECT MAX\(timestamp\) timestamp FROM messages WHERE thread_id=\?/);
+  assert.match(server, /lastArchivedAt: latestArchived\?\.timestamp \|\| null/);
   assert.match(server, /archiveFullBytes: directoryBytes/);
   assert.match(server, /retainAnchors: Object\.keys/);
   assert.match(server, /eventAnchors: Object\.keys/);

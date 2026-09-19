@@ -50,11 +50,15 @@ Check:
 
 ### Modify MCP
 
+- For developer-module tools, follow [the module contract](../../../../developer-modules/DEVELOPMENT.md), section 17, and [module AGENTS.md](../../../../developer-modules/AGENTS.md).
+- Register through the module's SDK v2 manifest `entry.mcp` and Provider. Do not add module-specific imports, definitions or routing branches to the root server or Core; do not create a separate MCP server/client configuration.
+- Keep ordinary registration independent of the host's legacy-name compatibility table. For migrations, move the actual old tools, remove the old Core routes, and compare behavior; registering duplicate tools under new names is not a completed migration.
 - Keep tool schema and implementation semantics aligned.
 - Return actual protocol errors as errors.
 - Route writes through CLI.
 - Prevent read-only child MCPs from exposing or consuming write capabilities.
 - Test initialize, tools/list, valid calls, and invalid calls.
+- Exercise real MCP subprocess calls, independent global/memory gates, disabled or missing providers, and CLI write boundaries in an isolated HOME. Distinguish synthetic planner coverage from live model verification.
 - Avoid stdout noise outside protocol frames.
 
 ### Modify watcher or automation

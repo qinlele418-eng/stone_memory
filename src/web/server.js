@@ -547,10 +547,12 @@ function listLibraries() {
         (SELECT COUNT(*) FROM features WHERE thread_id=?) features,
         (SELECT COUNT(*) FROM feelings WHERE thread_id=? AND summary_mode='coarse') coarse,
         (SELECT COUNT(*) FROM feelings WHERE thread_id=? AND summary_mode='hidden') hidden`).get(threadId, threadId, threadId, threadId, threadId);
+      const latestArchived = store.db.prepare("SELECT MAX(timestamp) timestamp FROM messages WHERE thread_id=?").get(threadId);
       const latest = store.db.prepare("SELECT MAX(completed_at) completedAt FROM mining_day_state WHERE thread_id=? AND status='completed'").get(threadId);
       return {
         memoryId, configured: true, bound, bindingCount, threadId, externalThreadId: tc.externalThreadId || (context.layout !== "memory-v1" ? threadId : null), libraryName: tc.label || memoryId, runtime: tc.runtime || null, purpose: tc.purpose || "accompany", createdAt,
-        ai: tc.ai || "", user: tc.user || "", counts, lastMinedAt: latest?.completedAt || null,
+        ai: tc.ai || "", user: tc.user || "", counts,
+        lastArchivedAt: latestArchived?.timestamp || null, lastMinedAt: latest?.completedAt || null,
         watcherEnabled: watcherEnabled(tc),
         automaticFullMining: actions.sync,
         automaticMemoryMaintenance: actions.mine,
@@ -563,7 +565,8 @@ function listLibraries() {
   const drafts = listMemories(config).filter(memory => !configuredMemoryIds.has(memory.memoryId)).map(memory => ({
     memoryId: memory.memoryId, configured: false, threadId: null, libraryName: memory.label,
     runtime: null, purpose: null, ai: "", user: "", createdAt: memory.createdAt,
-    counts: { messages: 0, feelings: 0, features: 0, coarse: 0, hidden: 0 }, lastMinedAt: null,
+    counts: { messages: 0, feelings: 0, features: 0, coarse: 0, hidden: 0 },
+    lastArchivedAt: null, lastMinedAt: null,
     watcherEnabled: false, automaticFullMining: false, automaticMemoryMaintenance: false,
     automaticCompression: false, automaticDream: false,
   }));
@@ -919,6 +922,24 @@ function serveNotebookAsset(req, res, asset) {
 }
 
 async function handleApi(req, res, url) {
+  const bindingMcpMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/mcp$/u);
+  if (bindingMcpMatch && req.method === "GET") {
+    const memoryId = decodeURIComponent(bindingMcpMatch[1]);
+    publicThreadSettings(memoryId);
+    return json(res, 200, JSON.parse(runStmem(["module", "mcp", "status", "--memory", memoryId, "--json"])));
+  }
+  if (bindingMcpMatch && req.method === "POST") {
+    const memoryId = decodeURIComponent(bindingMcpMatch[1]);
+    const body = await readJson(req);
+    if (typeof body.enabled !== "boolean" || !/^[a-z0-9][a-z0-9-]*$/u.test(String(body.moduleId || ""))) throw new Error("需要合法的 moduleId 和 enabled");
+    publicThreadSettings(memoryId);
+    const args = ["module", "mcp", body.enabled ? "enable" : "disable", "--module", body.moduleId, "--memory", memoryId, "--json"];
+    if (body.apply === true) args.push("--apply");
+    return json(res, 200, JSON.parse(runStmem(args)));
+  }
+  if (url.pathname === "/api/developer-modules/mcp" || /^\/api\/developer-modules\/[a-z0-9][a-z0-9-]*\/mcp$/u.test(url.pathname)) {
+    return json(res, 410, { error: "模块 MCP 权限已迁移到记忆体接入线程，请使用 Binding MCP 接口" });
+  }
   if (req.method === "GET" && url.pathname === "/api/developer-modules") {
     return json(res, 200, { modules: listDeveloperModules() });
   }
@@ -1571,7 +1592,8 @@ async function handleApi(req, res, url) {
     const threadId = decodeURIComponent(promptsMatch[1]);
     const settings = publicThreadSettings(threadId);
     if (settings.purpose !== "accompany") throw new Error("提示词与关系时间轴编辑仅适用于陪伴场景");
-    const config = loadConfig(); const entry = config[threadId] || {};
+    const config = loadConfig(); const context = getMemoryContext(threadId);
+    const entry = context.layout === "memory-v1" ? getMemoryRuntimeConfig(threadId) : (config[threadId] || {});
     const timeline = Array.isArray(entry.relationshipTimeline) ? entry.relationshipTimeline : [];
     const opsDir = path.join(__dirname, "..", "..", "operations");
     const overridesDir = path.join(path.dirname(CONFIG_PATH), "prompt-overrides");
@@ -1608,9 +1630,14 @@ async function handleApi(req, res, url) {
         const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-web-timeline-"));
         const batchFile = path.join(tmpDir, "config.json");
         try {
-          const cur = publicThreadSettings(threadId);
-          fs.writeFileSync(batchFile, JSON.stringify({ ...cur, relationshipTimeline: strings, threadId, runtime: cur.runtime, purpose: cur.purpose }), { encoding: "utf8", mode: 0o600 });
-          runStmem(["init", "--thread", threadId, "--batch-file", batchFile]);
+          if (context.layout === "memory-v1") {
+            fs.writeFileSync(batchFile, JSON.stringify({ relationshipTimeline: strings }), { encoding: "utf8", mode: 0o600 });
+            runStmem(["memory", "settings", "--memory", threadId, "--batch-file", batchFile, "--apply"]);
+          } else {
+            const cur = publicThreadSettings(threadId);
+            fs.writeFileSync(batchFile, JSON.stringify({ ...cur, relationshipTimeline: strings, threadId, runtime: cur.runtime, purpose: cur.purpose }), { encoding: "utf8", mode: 0o600 });
+            runStmem(["init", "--thread", threadId, "--batch-file", batchFile]);
+          }
         } finally { fs.rmSync(tmpDir, { recursive: true, force: true }); }
       }
       return json(res, 200, { success: true });

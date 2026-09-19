@@ -4,6 +4,7 @@ const path = require("path");
 const { getMemoryContext, listMemoryIds, loadConfig } = require("../config");
 const { findThreadSessionFile } = require("../lib/thread-session-file");
 const { MemoryStore } = require("../storage/memory-store");
+const { openDatabase } = require("../storage/database");
 const { addBinding: registerBinding } = require("./memory-bindings");
 const { writeJson } = require("./memory-setup");
 const { saveConfig } = require("./thread-setup");
@@ -76,32 +77,54 @@ function applyBindingAdd(memoryId, input) {
   const original = fs.readFileSync(file, "utf8");
   const memoryFile = path.join(context.root, "memory.json");
   const originalMemory = fs.readFileSync(memoryFile, "utf8");
-  writeJson(file, next);
+  const watcherFile = path.join(context.root, "watcher.json");
+  const originalWatcher = fs.readFileSync(watcherFile, "utf8");
+  const originalRegistry = loadConfig();
+  const firstBinding = config.bindings.length === 0;
+  const memoryDir = path.join(context.root, "memory");
+  const probe = openDatabase(memoryDir);
+  const threadExisted = !!probe.prepare("SELECT 1 FROM threads WHERE id=?").get(memoryId);
+  probe.close();
+  const store = new MemoryStore({ memoryDir, threadId: memoryId });
   try {
-    const store = new MemoryStore({ memoryDir: path.join(context.root, "memory"), threadId: memoryId });
-    try {
+    store.db.transaction(() => {
+      writeJson(file, next);
       store.registerThread({ runtime: binding.provider, purpose: null, label: null });
       registerBinding(store, { provider: binding.provider, externalThreadId: binding.externalThreadId, threadFile: binding.resolvedThreadFile, mode: next.primaryBindingId === binding.id ? "primary" : binding.mode });
-    } finally { store.close(); }
-    const memory = JSON.parse(originalMemory);
-    if (memory.status !== "active") {
-      memory.status = "active";
-      memory.updatedAt = now;
-      writeJson(memoryFile, memory);
-      const registry = loadConfig();
-      registry.memories = registry.memories || {};
-      registry.memories[memoryId] = {
-        ...(registry.memories[memoryId] || {}), memoryId, label: memory.label,
-        status: "active", createdAt: memory.createdAt, updatedAt: now,
-      };
-      saveConfig(registry);
-    }
+      const memory = JSON.parse(originalMemory);
+      if (memory.status !== "active") {
+        memory.status = "active";
+        memory.updatedAt = now;
+        writeJson(memoryFile, memory);
+        const registry = loadConfig();
+        registry.memories = registry.memories || {};
+        registry.memories[memoryId] = {
+          ...(registry.memories[memoryId] || {}), memoryId, label: memory.label,
+          status: "active", createdAt: memory.createdAt, updatedAt: now,
+        };
+        saveConfig(registry);
+      }
+      if (firstBinding) {
+        const watcher = JSON.parse(originalWatcher);
+        writeJson(watcherFile, {
+          ...watcher,
+          enabled: true,
+          modules: { ...(watcher.modules || {}), archive: true, miner: true },
+          updatedAt: now,
+        });
+      }
+    })();
   } catch (error) {
     fs.writeFileSync(file, original, { encoding: "utf8", mode: 0o600 });
     fs.writeFileSync(memoryFile, originalMemory, { encoding: "utf8", mode: 0o600 });
+    fs.writeFileSync(watcherFile, originalWatcher, { encoding: "utf8", mode: 0o600 });
+    saveConfig(originalRegistry);
+    if (!threadExisted) store.db.prepare("DELETE FROM threads WHERE id=?").run(memoryId);
     throw error;
+  } finally {
+    store.close();
   }
-  return { applied: true, changed: true, binding, config: next };
+  return { applied: true, changed: true, binding, config: next, automationEnabled: firstBinding };
 }
 
 function legacyBindingInput(memoryId) {

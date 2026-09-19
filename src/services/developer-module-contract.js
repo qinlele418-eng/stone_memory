@@ -57,6 +57,12 @@ function validateManifest(manifest, { directoryName } = {}) {
     errors.push("entry.commands must be an object");
   }
   if (manifest?.coreExtensions !== undefined && !Array.isArray(manifest.coreExtensions)) errors.push("coreExtensions must be an array");
+  if (manifest?.entry?.mcp !== undefined) {
+    const entry = manifest.entry.mcp;
+    if (typeof entry !== "string" || !entry || path.isAbsolute(entry) || path.win32.isAbsolute(entry) || entry.split(/[\\/]/u).includes("..")) errors.push("entry.mcp must be a module-relative path without traversal");
+    if (!Array.isArray(manifest.permissions) || !manifest.permissions.includes("mcp:tools")) errors.push("entry.mcp requires mcp:tools permission");
+    if (Number(manifest.sdkVersion) !== 2) errors.push("entry.mcp requires sdkVersion 2");
+  }
   return errors;
 }
 

@@ -3,7 +3,7 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
-const { openDatabase } = require("./database");
+const { openDatabase, openReadDatabase } = require("./database");
 
 const VISIBILITIES = new Set(["visible", "sealed"]);
 const COVER_PRESETS = new Set(["", "preset:forest", "preset:mist", "preset:amber", "preset:berry", "preset:night"]);
@@ -14,19 +14,21 @@ const NOTEBOOK_IMAGE_TYPES = new Map([
 const MAX_NOTEBOOK_ASSET_BYTES = 20 * 1024 * 1024;
 
 class NotebookStore {
-  constructor({ threadId, root, memoryDir = root } = {}) {
+  constructor({ threadId, root, memoryDir = root, readonly = false } = {}) {
     this.threadId = requiredSegment(threadId, "threadId");
     if (!root) throw new Error("notebook root is required");
     this.root = path.resolve(root);
-    this.db = openDatabase(memoryDir || this.root);
+    this.db = readonly ? openReadDatabase(memoryDir || this.root) : openDatabase(memoryDir || this.root);
+    if (readonly) return;
     const now = new Date().toISOString();
     this.db.prepare("INSERT OR IGNORE INTO threads(id,created_at,updated_at) VALUES (?,?,?)")
       .run(this.threadId, now, now);
   }
 
-  close() { this.db.close(); }
+  close() { this.db?.close(); }
 
   status() {
+    if (!this.db) return { threadId: this.threadId, topicCount: 0, entryCount: 0, defaultTopicId: null, topics: [] };
     const topics = this.db.prepare(`SELECT t.id,t.name,t.slug,t.description,t.cover_path AS coverPath,
       t.visibility,t.is_archived AS isArchived,t.is_default AS isDefault,t.created_at AS createdAt,t.updated_at AS updatedAt,
       COUNT(e.id) AS entryCount,MAX(e.updated_at) AS latestEntryAt
@@ -176,7 +178,7 @@ class NotebookStore {
     const normalizedTags = normalizeTags(tags).map(tag => tag.toLocaleLowerCase());
     if (!needle && !normalizedTags.length) throw new Error("query or at least one exact tag is required");
     const boundedLimit = Math.max(1, Math.min(50, Number(limit) || 20));
-    const rows = topicId
+    const rows = !this.db ? [] : topicId
       ? this.db.prepare(`SELECT e.*,t.name AS topic_name FROM notebook_entries e
         JOIN notebook_topics t ON t.id=e.topic_id WHERE e.thread_id=? AND e.topic_id=?
         ORDER BY e.updated_at DESC`).all(this.threadId, requiredSegment(topicId, "topicId"))
@@ -298,9 +300,11 @@ class NotebookStore {
   }
 
   getEntryRecord(noteId) {
+    const normalizedId = requiredSegment(noteId, "noteId");
+    if (!this.db) return null;
     const row = this.db.prepare(`SELECT e.*,t.name AS topic_name FROM notebook_entries e
       JOIN notebook_topics t ON t.id=e.topic_id WHERE e.id=? AND e.thread_id=?`)
-      .get(requiredSegment(noteId, "noteId"), this.threadId);
+      .get(normalizedId, this.threadId);
     if (!row) return null;
     return {
       id: row.id, topicId: row.topic_id, topicName: row.topic_name, title: row.title,

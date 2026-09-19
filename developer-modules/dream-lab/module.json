@@ -2,9 +2,9 @@
   "id": "dream-lab",
   "title": "自动织梦",
   "version": "1.0.0",
-  "sdkVersion": 1,
+  "sdkVersion": 2,
   "scope": "memory",
-  "permissions": ["core:read", "generation:use", "watcher:plugin"],
+  "permissions": ["core:read", "generation:use", "watcher:plugin", "mcp:tools"],
   "entry": {
     "frontend": "frontend/index.html",
     "commands": {
@@ -18,7 +18,8 @@
       "prompt": "backend/commands/dream.js",
       "migrate": "backend/commands/migrate.js",
       "rollback": "backend/commands/migrate.js"
-    }
+    },
+    "mcp": "backend/mcp.js"
   },
   "storage": { "files": ["preferences.json", "dreams", "prompts", "operations", "migration-receipt.json"] },
   "watcher": { "plugin": "dev-dream" },

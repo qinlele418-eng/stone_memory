@@ -145,7 +145,10 @@ test("theme studio remains a single removable frontend integration", () => {
   const publicDir = path.join(__dirname, "..", "src", "web", "public");
   const html = fs.readFileSync(path.join(publicDir, "index.html"), "utf8");
   const app = fs.readFileSync(path.join(publicDir, "app.js"), "utf8");
-  const server = fs.readFileSync(path.join(__dirname, "..", "src", "web", "server.js"), "utf8");
+  const webDir = path.dirname(publicDir);
+  const server = fs.readdirSync(webDir, { recursive: true })
+    .filter(file => file.endsWith(".js") && file.split(path.sep)[0] !== "public")
+    .map(file => fs.readFileSync(path.join(webDir, file), "utf8")).join("\n");
   const entry = /\s*(?:<script[^>]*data-stone-theme-entry[^>]*><\/script>|<link[^>]*data-stone-theme-entry[^>]*>)/g;
   const matches = html.match(entry) || [];
   const detachedHtml = html.replace(entry, "");

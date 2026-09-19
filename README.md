@@ -389,11 +389,15 @@ stmem watcher set --thread <id> --archive on # 开启对话录入插件
 stmem watcher set --thread <id> --miner off  # 关闭摘要挖掘插件
 stmem watcher set --thread <id> --compression on # 开启自动压缩（默认关闭）
 stmem watcher set --thread <id> --dream on   # 开启织梦插件
-stmem watcher service status                  # Windows：检查 Task Scheduler 服务与 supervisor
-stmem watcher service repair                  # Windows：重建漂移或未运行的服务
-stmem watcher service remove                  # Windows：移除任务后正常停止 supervisor，不删除记忆数据
+stmem watcher service install                 # Linux systemd / Windows Task Scheduler 安装并启动
+stmem watcher service status                  # 检查服务与 supervisor
+stmem watcher service repair                  # 重建漂移或未运行的服务
+stmem watcher service remove                  # 移除服务，不删除记忆数据
 stmem watcher set --thread <id> --dev-<name> on # 开发者插件必须使用 dev- 前缀
 ```
+
+Linux 下相同的 `service install/status/repair/remove` 命令管理 `systemd --user` 的
+`stmem-watcher.service`；Windows 下管理 Task Scheduler。安装或修复会启用并立即启动唯一 supervisor。
 
 `set` 只修改插件开关；如果该记忆体总开关当前为 OFF，还需要执行一次 `stmem watcher on --thread <id>`。supervisor 会在下一次巡检时收敛实际 worker。
 
@@ -489,28 +493,37 @@ SM 通过 **`mcp-server.js`**（项目根目录，不是 `bin/stmem`！）暴露
 
 ### 注册方式
 
-**Claude Code（settings.json，mcpServers 字段）**：
-
-```json
-{
-  "mcpServers": {
-    "stmem": {
-      "command": "node",
-      "args": ["/完整路径/stone_memory/mcp-server.js"]
-    }
-  }
-}
-```
-
-**Codex CLI**：
+**Claude Code 2.1.163 或更高版本**：
 
 ```bash
-codex mcp add stmem -- node ~/stone_memory/mcp-server.js
+claude --version
+claude mcp add --scope user stmem -- node /完整路径/stone_memory/mcp-server.js
+claude mcp get stmem
 ```
+
+Claude Code 会把当前 stdio MCP 所属窗口的 `CLAUDE_CODE_SESSION_ID` 自动传给 SM。旧版可能完全不提供该变量，或在 `--resume` 后提供错误 ID；低于 `2.1.163` 时请先升级，不要把某次会话 ID 静态写进 MCP 配置。
+
+**Codex CLI / IDE 扩展**：
+
+```bash
+codex mcp add stmem -- node /完整路径/stone_memory/mcp-server.js
+codex mcp get stmem
+```
+
+随后在用户级 `~/.codex/config.toml` 的 `stmem` 配置中加入 `env_vars`；否则 MCP 工具虽然能加载，`stmem_memory_bind` 仍无法识别当前窗口：
+
+```toml
+[mcp_servers.stmem]
+command = "node"
+args = ["/完整路径/stone_memory/mcp-server.js"]
+env_vars = ["CODEX_THREAD_ID"]
+```
+
+保存后完整重启 Codex。这里必须使用 `env_vars` 动态转发每个窗口自己的 ID，不能用 `env` 固定写死某次 `CODEX_THREAD_ID`。
 
 **Cyberboss（tool-host 配置）**：在 tool-host 中添加 stdio MCP server，命令为 `node`，参数为 `mcp-server.js` 的绝对路径。
 
-> 以上操作均可交由 AI 助手完成。注意注册的是 `mcp-server.js`，不是 `stmem` CLI。
+> 以上操作均可交由 AI 助手完成。注意注册的是 `mcp-server.js`，不是 `stmem` CLI。注册后建议先调用一次 `stmem_memory_bind`；若仍提示无法识别窗口 ID，按报错中的 Codex/Claude Code 专项检查修正配置或版本。
 
 ### 可用工具
 

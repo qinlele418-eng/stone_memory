@@ -317,6 +317,10 @@ jobs:
         working-directory: pr-worktree
         run: npm run audit:developer-modules
 
+      - name: Verify isolated MCP provider and protocol contracts
+        working-directory: pr-worktree
+        run: node scripts/verify-mcp-contract.js
+
       - name: Run supervisor cross-platform regression suite
         working-directory: pr-worktree
         run: npm run test:supervisor

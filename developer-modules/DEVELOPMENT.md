@@ -23,6 +23,14 @@
 
 历史模块仍可能通过主前端加载独立 `bootstrap.js`，这是已登记的迁移债，不是新模块应复制的注册方式。若新模块只有修改 `app.js` 才能出现，说明 manifest、前端入口或模块发现契约存在问题，应先修通用宿主，不得给单个模块增加硬编码加载项。
 
+### 模块工具如何提供给 Agent
+
+需要 MCP 的模块必须声明 `module.json.entry.mcp`，走第 17 节的通用 Provider
+注册通道。模块没有 MCP 需求时无需声明入口；不能因为目前没有入口就认定它永远
+不需要 MCP。新增工具不得向根 `mcp-server.js` 或 `src/mcp/core/` 添加模块专属
+导入、定义、路由分支，不得另起 MCP 服务或要求用户增加一份客户端连接配置。
+宿主自动发现模块、生成工具名称、合并列表并按权限分派调用。
+
 ## 2. 标准目录
 
 ```text
@@ -34,6 +42,7 @@ developer-modules/
     │   ├── app.js
     │   └── styles.css
     ├── backend/
+    │   ├── mcp.js          # 按需：MCP Provider，SDK v2
     │   └── commands/
     │       └── <action>.js
     ├── prompts/
@@ -108,6 +117,7 @@ my_module          错误
 | `permissions` | 是 | 模块实际需要的最小权限，即使为空也要写 `[]` |
 | `entry.frontend` | 按需 | 模块前端入口，相对于模块目录 |
 | `entry.commands` | 按需 | 可被统一 CLI 调度的命令 |
+| `entry.mcp` | 按需 | SDK v2 CommonJS Provider，须声明 `mcp:tools`，默认关闭 |
 | `storage` | 按需 | 数据库、文档、文件和浏览器持久化声明 |
 | `watcher` | 按需 | 开发者 Watcher 插件声明 |
 | `coreExtensions` | 极少 | 模块确实需要修改 Core 时，逐文件声明 `path` 与 `reason` |
@@ -333,6 +343,8 @@ manifest 只能声明实际需要的权限。典型能力包括：
 - `theme:write`：修改全局主题；
 - `watcher:plugin`：注册开发者 Watcher；
 - `process:spawn`：确有必要时启动受控子进程。
+- `mcp:tools`：向统一 Stone MCP 注册工具，用户显式启用后才加载；
+- `mcp:write`：允许非只读 MCP 工具通过 `context.runCommand` 调用本模块已登记命令。
 
 不得因为“以后可能用到”而申请宽权限。
 
@@ -434,3 +446,199 @@ PR 描述至少包含：
 6. 是否建议进入官方主线。
 
 模块不得提交真实对话、threadId、用户名、AI 名、API Key、本机路径、服务器地址或未经脱敏的截图与 fixture。
+
+## 17. MCP Provider（SDK v2）
+
+### 给实现 Agent 的接入顺序
+
+1. 确认哪些能力确实需要 Agent 调用，列出短名、作用域、输入和读写属性。
+2. 写能力先落实为本模块 `entry.commands` 登记的正式 CLI，再编写 Provider。
+   只读能力复用已有 reader；宿主未开放的能力应提出公共接口扩展，不做旁路。
+3. 只修改模块自身 manifest、Provider、业务文件和测试即可接入；普通新模块
+   不添加宿主白名单、不修改历史兼容表。以下 manifest 与 Provider 示例配套。
+4. 使用临时 HOME/USERPROFILE 和合成记忆体执行 CLI dry-run、显式启用、真实
+   MCP 调用、停用与重连回归。不要在真实用户配置中自动开启模块来测试。
+5. 提交前按本节“验证”执行；迁移任务必须对照旧工具，不能只测新名字可注册。
+
+Agent 仍只配置根 `mcp-server.js` 一个服务。模块声明 `sdkVersion: 2`、
+`permissions: ["mcp:tools"]` 和 `entry.mcp: "backend/mcp.js"` 即可接入。
+无 `entry.mcp` 的 SDK v1 模块保持原行为。Provider 入口禁止绝对路径、
+`..` 路径段和符号链接，必须位于模块内且文件存在。
+
+最小只读示例 `developer-modules/example-module/module.json`：
+
+```json
+{
+  "id": "example-module",
+  "title": "示例 MCP 模块",
+  "version": "1.0.0",
+  "sdkVersion": 2,
+  "scope": "memory",
+  "permissions": ["mcp:tools"],
+  "entry": { "mcp": "backend/mcp.js", "commands": {} },
+  "storage": {}
+}
+```
+
+配套 `backend/mcp.js`（示例只回显输入；读取 Core 数据时另声明 `core:read`）：
+
+```js
+module.exports = {
+  tools() {
+    return [{
+      name: "lookup",
+      description: "Read a module record",
+      inputSchema: {
+        type: "object",
+        properties: { key: { type: "string", minLength: 1 } },
+        required: ["key"],
+        additionalProperties: false
+      },
+      annotations: {
+        readOnlyHint: true, destructiveHint: false,
+        idempotentHint: true, openWorldHint: false
+      }
+    }];
+  },
+  async call(context, name, args) {
+    // Read via context.resolveDataPath() or authorized context.core readers.
+    return { content: [{ type: "text", text: args.key }], isError: false };
+  }
+};
+```
+
+工具短名只接受小写字母、数字和下划线。对外名称为
+`stmem_<模块ID中的连字符换成下划线>_<短名>`，最长 128 字符。
+一个 Provider 的任意工具验证失败或命名冲突时，整组拒绝注册，Core 不受影响。
+
+以上示例启用并重连后，对外工具名为 `stmem_example_module_lookup`，调用参数为
+`{"memoryId":"<明确选择的已配置记忆体ID>","key":"example"}`。
+`memoryId` 由宿主追加，不要写进 Provider 的 schema；Provider 收到 `args.key`
+和已绑定的 `context.memoryId`。
+
+`tools()` 必须同步返回纯 JSON 定义，不得执行写入、启动子进程或调用模型。
+所有对象 schema 都必须设置 `additionalProperties: false`。首版验证的 schema
+子集包含 `type`、`properties`、`required`、`items`、`enum`、`const`、
+`minimum/maximum`、`minLength/maxLength`、`minItems/maxItems`，以及
+`title/description/default` 元数据。不支持的关键字会拒绝加载，而非忽略验证。
+默认值仅用于描述，不会由宿主填入参数。
+`const/enum` 对象值按结构比较，不依赖键顺序；数组顺序仍有意义。
+memory 工具禁止顶层 `const/enum`（否则追加宿主 `memoryId` 后约束不可满足），
+嵌套属性中的 `const/enum` 正常支持。
+
+### 作用域与启停
+
+官方 Canary 和第三方 Provider 都默认关闭，现有 Core 工具不受配置影响。
+`scope: memory` 工具的对外 schema 由宿主追加必填 `memoryId`（Provider
+不得自行定义该保留参数），每次调用都验证该 ID 已配置且在本模块启用。
+迁移的旧工具可由宿主兼容表保留原名和原记忆体参数名；模块不能自行声明任意
+别名。Notebook 和 Dream 的九个迁移工具沿用 `thread`，同样必填且经过两级授权检查。
+Provider 收到绑定后的 `context.memoryId/threadId`，`args` 不再含宿主参数。
+即便只有一个记忆体也不会自动选择；`scope: global` 工具不绑定记忆体。
+
+```bash
+stmem module mcp status --memory <id> --json
+stmem module mcp enable --module example-module --memory <id>
+stmem module mcp enable --module example-module --memory <id> --apply
+stmem module mcp disable --module example-module --memory <id> --apply
+```
+
+默认只预览，`--apply` 才修改该记忆体 `bindings.json` 中对应 Binding 的 MCP 权限；不再存在全局 MCP 总闸。
+启用或停用某 Binding 只修改该 Binding 的 `mcpModules`。当前 MCP session 未绑定或未获授权时不加载第三方 Provider。
+配置使用独占写锁、revision 冲突检查、0600 临时文件和原子替换。
+若进程崩溃留下锁，确认无写入进程后才由管理员清理锁文件，不自动抢锁。
+
+`status` 显示该 Binding 的安装状态、权限和 Provider 加载结果。
+该结果不代表已连接 MCP 会话。每次改动后必须重新连接 Agent/MCP。
+MCP 配置通过上述后端 CLI 管理，不提供工坊管理面板。
+授权按“模块 × 记忆体”分别保存：为记忆体 A 启用模块 X，不会启用模块 Y，
+也不会为记忆体 B 启用 X。当前共享 MCP 会话的工具列表是已启用模块的合集，
+调用时再按显式记忆体检查授权；这不等于按会话记忆体隔离工具列表。
+HTTP 仅适配正式 CLI，不能直接改配置。
+
+### 上下文与写入口
+
+`context` 提供模块 ID、绑定记忆体、私有数据路径、`signal`、`logger` 和
+`runCommand(action, payload)`。声明 `core:read` 才提供绑定当前记忆体的
+`core.listBindings()`、`core.getBinding(id)`、`core.listFeelings()` 和
+`core.notebook.catalog/search/read`、`core.dream.latest/status/get`，不接受跨记忆体参数。
+枚举工具时没有记忆体，也没有 Core reader。
+这些模块 reader 以 SQLite 只读连接打开现有库，不注册线程、不迁移、不触发历史
+消息清理。缺库时列表/笔记查询返回空结果，单个不存在的 Binding 仍报未找到。
+旧库需要升级时返回 `MCP_STORAGE_UPGRADE_REQUIRED`，须通过正式 CLI 完成升级。
+
+首版 Provider 不允许直接写私有缓存或正式数据。写工具必须声明 `mcp:write`
+并将 `readOnlyHint` 设为 `false`，通过 `context.runCommand` 调用本模块
+`entry.commands` 中的动作。宿主将 JSON 写入临时 0600 batch 文件，执行
+`stmem module <id> <action> --memory <id> --batch-file <file>`，结束后清理。
+正文和秘密不能进入 argv；命令输入上限 1 MiB。只读工具无法调用该写接口。
+
+### 隔离与审计
+
+普通模块调用上限 30 秒。宿主兼容表为 Notebook delegate 保留 120 秒规划预算，
+外层 Provider 与 CLI 上限为 180 秒，包含后续校验和写入；模块不能自行提高上限。
+支持 MCP `notifications/cancelled`，通过 AbortSignal
+通知 Provider，并取消宿主启动的 CLI 子进程。异步超时后仍可处理后续工具。
+Provider 必须遵守取消信号；同进程模式不能抢占同步死循环，也不能强制停止
+忽略信号的本地代码。这是已安装可信代码的契约，不是第三方代码安全沙箱。
+
+只通过 `context.logger` 记录日志。宿主日志仅含模块 ID、版本、固定错误码与
+时间，不回显 Provider 异常、绝对路径、正文或堆栈。返回值必须是标准
+`CallToolResult`，支持 text/image/audio/resource 内容；异常或非法返回值转为
+`isError: true`。模块不要自行运行 stdio、监听端口或修改客户端配置。
+
+审计先静态验证入口和常见写入/stdout 违规；关闭的 Provider 不会被 require。
+显式启用后，`module audit --strict`、`mcp status` 与 MCP 启动都会检查导出、
+工具定义、schema、annotations 和冲突。静态检查不能证明任意依赖安全。
+
+### Notebook / Dream 迁移与兼容
+
+Notebook 将原有 `stmem_notebook_status/query/read/topic_manage/write/delegate`
+六个公共工具迁入模块 Provider；Dream 将 `stmem_dream_latest/status/get` 三个
+公共工具迁入模块 Provider。Core 不再注册或处理这九个名称。不提供重复的
+`stmem_notebook_lab_*` / `stmem_dream_lab_*` 工具。
+`src/mcp/legacy-tool-names.js` 仅记录宿主批准的历史名称、所属模块与兼容约束，
+普通新模块继续自动生成命名空间，无须增加兼容表项。
+
+旧工具名、业务参数与成功返回文本格式保留；`query.limit` 仍允许 1–50。
+迁移后的显式变化：`thread` 必填，默认关闭，须分别开启全局与记忆体开关；
+错误经过 Provider 净化，查询不再初始化/迁移数据库。旧客户端须先开启模块，
+在每次调用中填写 `thread`，然后重连 MCP。缺省线程不再自动推断。
+关闭、删除或加载失败后，九个公共工具不会回落至 Core。开关只控制公共模块
+MCP，不关闭 Web/终端 CLI，也不改变内部 Notebook Steward 受限子会话。
+Notebook 写工具声明 `mcp:write`，通过 `context.runCommand` →
+`stmem module notebook-lab topic_manage|write|delegate` → 共享服务/正式 Notebook
+CLI 执行。管家继续只向规划器发送正文长度和哈希，执行器负责 revision 复核与
+正文写入。模块 CLI 拒绝 payload 中的 thread/threadId/memoryId，避免覆盖绑定。
+Dream 状态查询使用只读 MemoryStore，不注册线程、不清理历史消息；缺库不建库。
+
+记忆重建、挖掘、搜索、审计、状态和触发检查属于 Core，不为它们虚构开发者模块。
+Deep Search 与 Notebook Steward 的内部受限工具保留原列表、调用上限与模式隔离。
+
+### 验证
+
+验收必须包含真实 MCP 进程调用，不以直接调用 Provider 函数代替：
+
+| 场景 | 必须证明 |
+|---|---|
+| 默认关闭、显式启用、停用后新会话 | tools/list 与 tools/call 都符合启停状态 |
+| memory 工具 | 缺少 ID、非法 ID、未授权记忆体被拒绝；不自动选择第一项 |
+| 正常与失败调用 | 参数约束、完整返回结构、错误净化、异常后后续调用可用 |
+| 只读调用 | 缺库不创建文件；现有库记录/schema/主库文件不变 |
+| 写工具 | 经正式 CLI 写入、revision/确认规则有效、正文不进 argv、batch 清理 |
+| 删除或损坏 Provider | 不影响其他模块/Core，不保留隐藏的旧调用入口 |
+| 迁移旧工具 | 对照旧名称、业务参数及结果；兼容差异有记录，无重复注册或 Core 回退 |
+
+新模块在自身 `test/` 增加场景；共享宿主与跨模块场景放根 `test/`。
+本机测试和 CI 的平台/Node 版本应分开报告；使用合成规划器时明确标注。
+
+运行 `node scripts/verify-mcp-contract.js`（自动隔离 HOME）、
+`npm run audit:developer-modules` 和隔离 HOME 下的 `npm test`。
+完整工具定义快照位于 `test/fixtures/mcp/core-tools.json`，覆盖普通、Deep Search
+和 Notebook Steward 三种模式；现有 CI 在 Node 22/25 × Windows/Linux/macOS
+六个组合执行契约检查。受限子 MCP 永不加载 Module Provider。
+原始快照保留以供对照；普通模式默认列表仅移除上述九个迁移项，其他定义不变。
+额外运行 `node scripts/verify-module-migration.js <迁移前checkout>`，在隔离
+HOME 与合成笔记/梦境下比较旧 Core 和新 Provider 的完整成功响应及主数据库哈希。
+`test/module-mcp-migration.test.js` 通过真实 MCP/CLI 进程验证写入与错误路径，
+Claude/Codex 规划器使用本地合成程序，不调用实际模型服务。

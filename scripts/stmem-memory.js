@@ -2,7 +2,7 @@
 const fs = require("fs");
 const { resolveMemoryArg } = require("../src/lib/memory-cli");
 const { editFeeling, setAnchor, setAnchors } = require("../src/services/memory-editor");
-const { createMemory, publicMemorySettings, updateMemorySettings, deleteDraftMemory } = require("../src/services/memory-setup");
+const { createMemory, publicMemorySettings, updateMemorySettings, deleteDraftMemory, repairMemoryScaffold } = require("../src/services/memory-setup");
 
 function value(args, key) {
   const index = args.indexOf(key);
@@ -14,6 +14,7 @@ function usage() {
   stmem memory create [--name <名称>]
   stmem memory settings --memory <id>
   stmem memory settings --memory <id> --batch-file <json> --validate|--apply
+  stmem memory repair --memory <id> [--apply]
   stmem memory delete --memory <id> [--apply]
   stmem memory update|anchor --thread <兼容记忆体ID> --batch-file <json>`;
 }
@@ -45,6 +46,13 @@ function runMemoryCommand(args = process.argv.slice(3)) {
     const memoryId = value(args, "--memory") || value(args, "--thread");
     if (!memoryId) throw new Error("请指定 --memory <id>");
     const result = deleteDraftMemory(memoryId, { apply: args.includes("--apply") });
+    console.log(JSON.stringify(result, null, 2));
+    return result;
+  }
+  if (action === "repair") {
+    const memoryId = value(args, "--memory") || value(args, "--thread");
+    if (!memoryId) throw new Error("请指定 --memory <id>");
+    const result = repairMemoryScaffold(memoryId, { apply: args.includes("--apply") });
     console.log(JSON.stringify(result, null, 2));
     return result;
   }

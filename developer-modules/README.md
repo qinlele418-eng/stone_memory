@@ -4,6 +4,10 @@
 
 开工前完整阅读 [DEVELOPMENT.md](./DEVELOPMENT.md)。这份文档是模块目录、数据、CLI、Prompt、数据库和 Watcher 的正式接入规范；CI 按同一套边界执行审计。
 
+编码 Agent 还须遵守本目录的 [AGENTS.md](./AGENTS.md)。模块 MCP 工具必须通过
+`module.json.entry.mcp` 注册；最小示例、权限、启停和验收见规范第 17 节。
+不得为新模块修改根 MCP 服务或 Core 工具路由，也不需要单独配置客户端服务。
+
 - 新模块的前端、Prompt、命令实现都放在自己的目录内。
 - 模块运行数据统一写入 `~/.stone_memory/developer-module-data/<thread-id>/<module-id>/`。
 - 全局模块写入 `~/.stone_memory/developer-module-data/_global/<module-id>/`。
