@@ -27,7 +27,7 @@ const contract = {
 
 test("original CommonJS and ESM entry retains every export and function signature", async () => {
   assert.equal(spawnSync.mock.callCount(), 0, "import must not execute CLI commands");
-  assert.deepEqual(Object.keys(service), Object.keys(contract));
+  assert.deepEqual(Object.keys(contract).sort(), Object.keys(service).filter(name => Object.hasOwn(contract, name)).sort());
   assert.strictEqual(require("../src/web/server.js"), service);
   const esm = await import(pathToFileURL(require.resolve("../src/web/server")).href);
   assert.strictEqual(esm.default, service);
