@@ -83,8 +83,9 @@ function main() {
   };
 
   if (!threadId) { console.log("用法: --thread <id> [--window N] [--tool-pairs N] [--apply]"); return; }
+  const externalThreadId = process.env.STMEM_REBUILD_EXTERNAL_THREAD_ID || getCfg("externalThreadId", threadId, threadId);
   const userName = getCfg("user", threadId, "用户");
-  const codexDir = getCfg("sessionDir", threadId);
+  const codexDir = process.env.STMEM_REBUILD_SESSION_ROOT || getCfg("sessionDir", threadId);
   if (!codexDir) { console.error("无法重建：未配置线程文件目录，请前往设置填写 Codex session 搜索目录"); process.exit(1); }
 
   // 支持 rollout-<threadId>.jsonl 文件名和日期子目录
@@ -94,14 +95,14 @@ function main() {
     for (const entry of entries) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) { const found = searchSessionFile(full); if (found) return found; }
-      if (entry.isFile() && entry.name.endsWith(".jsonl") && entry.name.includes(threadId) && !entry.name.includes(".rebuilt")) return full;
+      if (entry.isFile() && entry.name.endsWith(".jsonl") && entry.name.includes(externalThreadId) && !entry.name.includes(".rebuilt")) return full;
     }
     return null;
   }
-  let inputFile = path.join(codexDir, `${threadId}.jsonl`);
+  let inputFile = path.join(codexDir, `${externalThreadId}.jsonl`);
   if (!fs.existsSync(inputFile)) {
     inputFile = searchSessionFile(codexDir);
-    if (!inputFile) { console.error(`无法重建：在 ${codexDir} 中没有找到线程 ${threadId}。请修改线程文件目录或检查文件是否存在`); process.exit(1); }
+    if (!inputFile) { console.error(`无法重建：在 ${codexDir} 中没有找到窗口线程 ${externalThreadId}（记忆体 ${threadId}）。请修改 Binding 或检查文件是否存在`); process.exit(1); }
   }
   const pendingFile=inputFile.replace(/\.jsonl$/i,".rebuilt.jsonl");
   if(process.platform==="win32"&&fs.existsSync(pendingFile)){
@@ -128,7 +129,7 @@ function main() {
 
   // 提取元信息（保留原始 originator，不覆盖为 "codex-rebuild"）
   const metaMsg = allMsgs.find(m => m.type === "session_meta");
-  const origSessionId = metaMsg?.payload?.session_id || metaMsg?.payload?.id || threadId;
+  const origSessionId = metaMsg?.payload?.session_id || metaMsg?.payload?.id || externalThreadId;
   const origCwd = metaMsg?.payload?.cwd || process.cwd();
 
   // === 全量备份到 full/ ===

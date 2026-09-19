@@ -9,7 +9,7 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const { spawn } = require("child_process");
-const { loadConfig, listThreadIds } = require("../src/config");
+const { listMemoryIds, getMemoryRuntimeConfig } = require("../src/config");
 const { processMatches } = require("../src/lib/process-identity");
 const { acquireProcessLock, inspectProcessLock, removeIfUnchanged } = require("../src/lib/process-lock");
 const { enabledThreadIds, watcherActions, watcherPaths, writeWatcherState } = require("../src/services/watcher-runtime");
@@ -83,7 +83,7 @@ function writeState() {
       pid: entry.child.pid,
       supervisorPid: process.pid,
       startedAt: entry.startedAt,
-      actions: watcherActions(loadConfig()[threadId] || {}),
+      actions: watcherActions(getMemoryRuntimeConfig(threadId)),
     });
   }
 }
@@ -177,8 +177,8 @@ function syncRunningState(threadId, pid, threadConfig, startedAt = null) {
 }
 
 function reconcile() {
-  const config = loadConfig();
-  const configured = new Set(listThreadIds());
+  const configured = new Set(listMemoryIds());
+  const config = Object.fromEntries([...configured].map(memoryId => [memoryId, getMemoryRuntimeConfig(memoryId)]));
   const enabled = new Set(enabledThreadIds(config, [...configured]));
   for (const threadId of workers.keys()) {
     if (!configured.has(threadId)) stopWorker(threadId, "线程已从配置移除");

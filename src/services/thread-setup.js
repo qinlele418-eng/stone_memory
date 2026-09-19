@@ -4,11 +4,10 @@ const os = require("os");
 const { CONFIG_PATH, loadConfig } = require("../config");
 const { MemoryStore } = require("../storage/memory-store");
 const { findThreadSessionFile } = require("../lib/thread-session-file");
+const { canonicalMemoryDir } = require("./memory-identity");
 
 const STONE = path.join(os.homedir(), ".stone_memory");
-const { getScenario } = require("./scenario-registry");
-const { resolveMiningPrompts } = require("./prompt-resolver");
-const GLOBAL_KEYS = new Set(["runtimes", "threadId", "apiKeys", "web"]);
+const GLOBAL_KEYS = new Set(["runtimes", "threadId", "apiKeys", "web", "memories"]);
 
 function normalizeName(value) {
   return String(value || "").trim().normalize("NFKC").toLocaleLowerCase();
@@ -21,17 +20,7 @@ function saveConfig(config) {
   fs.renameSync(temp, CONFIG_PATH);
 }
 
-function normalizeThreadInput(input, config = loadConfig()) {
-  const existing = config[input.threadId] || {};
-  const id = input.scenario ?? existing.scenario ?? input.purpose ?? existing.purpose;
-  if (id === undefined) throw new Error("缺少必填项：scenario 或 purpose");
-  const scenario = getScenario(id);
-  return { ...input, scenario: scenario.id, purpose: input.purpose ?? existing.purpose ?? scenario.storagePurpose };
-}
-
 function validateThreadInput(input, config = loadConfig(), { allowExisting = false } = {}) {
-  input = normalizeThreadInput(input, config);
-  if (!["accompany", "coding", "study"].includes(input.purpose)) throw new Error("存储用途必须是 accompany、coding 或 study");
   const required = ["libraryName", "threadId", "ai", "user", "runtime", "purpose", "minerMode"];
   for (const key of required) if (!String(input[key] || "").trim()) throw new Error(`缺少必填项：${key}`);
   if (!/^[A-Za-z0-9._:-]+$/.test(input.threadId)) throw new Error("真实线程 ID 只能包含字母、数字、点、冒号、下划线和连字符");
@@ -41,10 +30,6 @@ function validateThreadInput(input, config = loadConfig(), { allowExisting = fal
     key !== input.threadId && !GLOBAL_KEYS.has(key) && item && typeof item === "object" && normalizeName(item.label || key) === wanted);
   if (duplicate) throw new Error(`已经存在名为“${String(input.libraryName).trim()}”的记忆体`);
   if (!["claude", "codex"].includes(input.runtime)) throw new Error("运行时必须是 claude 或 codex");
-  const existing = config[input.threadId] || {};
-  if (allowExisting && existing.runtime && input.runtime !== existing.runtime) throw new Error("运行时暂不支持直接迁移");
-  if (allowExisting && existing.purpose && input.purpose !== existing.purpose) throw new Error("用途暂不支持直接迁移");
-  resolveMiningPrompts(input, { memoryDir: path.join(threadDirectory(input), "memory") });
   if (!String(input.sessionDir || "").trim()) throw new Error("需要填写线程文件搜索目录");
   if (!["api", "subagent"].includes(input.minerMode)) throw new Error("挖掘模式必须是 api 或 subagent");
   if (input.minerMode === "api") {
@@ -58,6 +43,7 @@ function validateThreadInput(input, config = loadConfig(), { allowExisting = fal
 }
 
 function threadDirectory(input) {
+  if (input.memoryId) return canonicalMemoryDir(STONE, input.memoryId);
   return path.join(STONE, "runtimes", input.runtime, input.purpose, input.threadId);
 }
 
@@ -74,10 +60,11 @@ function validateSessionBinding(input) {
 
 function createThread(input, { allowExisting = false, requireSession = true } = {}) {
   const config = loadConfig();
-  input = normalizeThreadInput(input, config);
   validateThreadInput(input, config, { allowExisting });
   const sessionFile = requireSession ? validateSessionBinding(input) : null;
   const existing = config[input.threadId] || {};
+  if (allowExisting && existing.runtime && input.runtime !== existing.runtime) throw new Error("运行时暂不支持直接迁移");
+  if (allowExisting && existing.purpose && input.purpose !== existing.purpose) throw new Error("用途暂不支持直接迁移");
   const libraryName = String(input.libraryName).trim();
   const threadId = String(input.threadId).trim();
   const oldModules = existing.watcherModules || {};
@@ -105,6 +92,7 @@ function createThread(input, { allowExisting = false, requireSession = true } = 
       ? existing.watcherEnabled
       : Object.values(watcherModules).some(Boolean);
   const entry = {
+    memoryId: String(input.memoryId || existing.memoryId || threadId).trim(),
     ai: String(input.ai).trim(),
     user: String(input.user).trim(),
     userGender: String(input.userGender || "unspecified").trim(),
@@ -114,7 +102,6 @@ function createThread(input, { allowExisting = false, requireSession = true } = 
     label: libraryName,
     runtime: input.runtime,
     purpose: input.purpose,
-    scenario: input.scenario,
     sessionDir: String(input.sessionDir || "").trim(),
     minerMode: input.minerMode,
     windowDays: Math.max(1, Number(input.windowDays) || 3),
@@ -149,6 +136,14 @@ function createThread(input, { allowExisting = false, requireSession = true } = 
     claude: { command: "claude -p", flags: { systemPrompt: "--system-prompt-file", mcpConfig: "--mcp-config", model: "--model" } },
   };
   config[threadId] = entry;
+  if (input.memoryId) {
+    config.memories = config.memories || {};
+    const memory = config.memories[input.memoryId];
+    if (!memory) throw new Error(`记忆体不存在：${input.memoryId}`);
+    const bindings = Array.isArray(memory.bindings) ? memory.bindings.filter(item => item.threadId !== threadId) : [];
+    bindings.push({ threadId, runtime: entry.runtime, purpose: entry.purpose, sessionDir: entry.sessionDir, boundAt: new Date().toISOString() });
+    config.memories[input.memoryId] = { ...memory, label: libraryName, status: "active", updatedAt: new Date().toISOString(), bindings };
+  }
   saveConfig(config);
 
   const root = threadDirectory({ ...input, threadId });
@@ -181,4 +176,4 @@ function createThread(input, { allowExisting = false, requireSession = true } = 
   };
 }
 
-module.exports = { normalizeThreadInput, createThread, validateThreadInput, validateSessionBinding, normalizeName, saveConfig };
+module.exports = { createThread, validateThreadInput, validateSessionBinding, normalizeName, saveConfig };

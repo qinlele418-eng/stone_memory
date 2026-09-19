@@ -16,7 +16,7 @@
 const fs = require("fs");
 const path = require("path");
 const { MemoryMiner } = require("../src/services/memory-miner");
-const { getCfg, getThreadDir, listThreadIds, loadConfig } = require("../src/config");
+const { getCfg, getThreadDir, loadConfig, getMemoryRuntimeConfig } = require("../src/config");
 const { MemoryStore } = require("../src/storage/memory-store");
 const { isCompleted, requiresRemine, shouldAttempt } = require("../src/services/mining-state");
 const { resolveMiningApiCredentials } = require("../src/services/mining-engine-config");
@@ -26,7 +26,7 @@ const { handleMiningBatch, miningBatchAction, runMiningSelection } = require("./
 function resolveApiConfig(tid, forceApi, forceSub, { diagnostic = false, model = "", apiProfile = "optimized" } = {}) {
   if (forceSub) return {};  // 强制 subagent
 
-  const tc = loadConfig()[tid] || {};
+  const tc = getMemoryRuntimeConfig(tid);
   const mode = forceApi ? "api" : (tc.minerMode || "subagent");
   if (mode !== "api") return {};
 
@@ -105,8 +105,12 @@ async function main() {
   const jsonOutput = args.includes("--json");
   const batchIdx = args.indexOf("--batch-file");
   const threadIdx = args.indexOf("--thread");
-  const tid = threadIdx >= 0 ? args[threadIdx + 1] : listThreadIds()[0];
-  if (!tid) throw new Error("未指定线程，请用 --thread <id> 或先 stmem init");
+  const memoryIdx = args.indexOf("--memory");
+  const legacyId = threadIdx >= 0 ? args[threadIdx + 1] : null;
+  const memoryId = memoryIdx >= 0 ? args[memoryIdx + 1] : null;
+  if (legacyId && memoryId && legacyId !== memoryId) throw new Error("--memory 与兼容参数 --thread 不能指向不同记忆体");
+  const tid = memoryId || legacyId;
+  if (!tid) throw new Error("未指定记忆体，请用 --memory <id> 或先创建记忆体");
   const memoryDir = path.join(getThreadDir(tid), "memory");
 
   if (miningBatchAction(args)) {
@@ -138,7 +142,7 @@ async function main() {
       targetDate = dateSelection.dates[0];
       force = force || forceDates.has(targetDate);
     } else {
-      const config = loadConfig()[tid] || {};
+      const config = getMemoryRuntimeConfig(tid);
       const mode = forceApi ? "api" : forceSub ? "subagent" : config.minerMode || "subagent";
       registerMiningProcess(tid, dateSelection.dates.join(","), mode);
       try {
@@ -239,7 +243,7 @@ async function main() {
     if (!pending.length) { console.log("[stmem] 所有日期已挖掘完毕"); process.exit(0); }
 
     if (pending.length > 1) {
-      const mode = forceApi ? "api" : forceSub ? "subagent" : (loadConfig()[tid]?.minerMode || "subagent");
+      const mode = forceApi ? "api" : forceSub ? "subagent" : (getMemoryRuntimeConfig(tid).minerMode || "subagent");
       const forceDates = pending.filter(date => requiresRemine(
         miningState,
         date,

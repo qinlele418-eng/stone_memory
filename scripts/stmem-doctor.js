@@ -1,10 +1,9 @@
 #!/usr/bin/env node
-const { listThreadIds } = require("../src/config");
+const { resolveMemoryArg } = require("../src/lib/memory-cli");
 const { diagnoseThread } = require("../src/services/system-doctor");
 
 const args = process.argv.slice(2);
-const threadIndex = args.indexOf("--thread");
-const threadId = threadIndex >= 0 ? args[threadIndex + 1] : listThreadIds()[0];
+const threadId = resolveMemoryArg(args);
 const result = diagnoseThread(threadId);
 
 if (args.includes("--json")) {

@@ -26,12 +26,20 @@ function readJsonl(file) {
 
 function sessionFile(threadId, runtime) {
   const root = getCfg("sessionDir", threadId);
-  return findThreadSessionFile(root, threadId);
+  return findThreadSessionFile(root, getCfg("externalThreadId", threadId, threadId));
 }
 
 function missingSessionMessage(threadId) {
   const root = getCfg("sessionDir", threadId);
-  return `无法重建：在配置的线程文件目录中没有找到线程 ${threadId}。请前往设置修改线程文件目录，或检查对应文件是否存在（当前目录：${root || "未配置"}）`;
+  const externalThreadId = getCfg("externalThreadId", threadId, threadId);
+  return `无法重建：在配置的线程文件目录中没有找到线程 ${externalThreadId}（记忆体 ${threadId}）。请前往设置修改 Binding，或检查对应文件是否存在（当前目录：${root || "未配置"}）`;
+}
+
+function integrityTarget(threadId, binding = null) {
+  const runtime = binding?.provider || getCfg("runtime", threadId, "claude");
+  const file = binding ? findThreadSessionFile(binding.sessionRoot, binding.externalThreadId) : sessionFile(threadId, runtime);
+  if (!file) throw new Error(missingSessionMessage(threadId));
+  return { runtime, file };
 }
 
 function textFromBlocks(content, types) {
@@ -159,9 +167,8 @@ function checkIntegrityFile(file,runtime,threadId=path.basename(file)) {
   return { file, malformed, ...details, issues, healthy: issues === 0 };
 }
 
-function checkThreadIntegrity(threadId) {
-  const runtime = getCfg("runtime", threadId, "claude"), file = sessionFile(threadId, runtime);
-  if (!file) throw new Error(missingSessionMessage(threadId));
+function checkThreadIntegrity(threadId, binding = null) {
+  const { runtime, file } = integrityTarget(threadId, binding);
   return checkIntegrityFile(file,runtime,threadId);
 }
 
@@ -231,9 +238,8 @@ function repairIntegrityFile(file,runtime,threadId=path.basename(file)) {
   return { repaired: true, backup, before, after, message: after.healthy ? "已修复并通过复查" : "已完成安全修复；仍有无法自动恢复的问题" };
 }
 
-function repairThreadIntegrity(threadId) {
-  const runtime=getCfg("runtime",threadId,"claude"),file=sessionFile(threadId,runtime);
-  if(!file)throw new Error(missingSessionMessage(threadId));
+function repairThreadIntegrity(threadId, binding = null) {
+  const { runtime, file } = integrityTarget(threadId, binding);
   return repairIntegrityFile(file,runtime,threadId);
 }
 
@@ -295,11 +301,10 @@ function writeActiveThreadJsonl(file, rows) {
   replaceThreadFile(file, rows.map(JSON.stringify).join("\n") + "\n");
 }
 
-function permanentlyTrimThread(threadId, { excludedMessages = [], excludedTools = [] } = {}) {
+function permanentlyTrimThread(threadId, { excludedMessages = [], excludedTools = [] } = {}, binding = null) {
   const messageSet = new Set(excludedMessages), toolSet = new Set(excludedTools);
   if (!messageSet.size && !toolSet.size) return { removedMessages: 0, removedTools: 0, archiveMessages: 0, fullRecords: 0 };
-  const runtime = getCfg("runtime", threadId, "claude"), file = sessionFile(threadId, runtime);
-  if (!file) throw new Error(missingSessionMessage(threadId));
+  const { runtime, file } = integrityTarget(threadId, binding);
   const current = readJsonl(file);
   if (current.malformed) throw new Error("活动线程包含损坏 JSON，永久裁剪前请先检查并修复");
   const trimmed = trimRows(current.rows, runtime, messageSet, toolSet);

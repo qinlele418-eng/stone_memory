@@ -2,13 +2,14 @@ const app = document.querySelector("#app");
 const toast = document.querySelector("#toast");
 
 const state = {
-  libraries: [], scenarios: [], step: 1, imports: [],
-  form: { libraryName: "", threadId: "", ai: "", user: "", userGender: "unspecified", runtime: "codex", scenario: "accompany", sessionDir: "", minerMode: "subagent", apiProvider: "", apiKey: "", baseUrl: "", model: "", windowDays: 3, keepToolPairs: 30, automaticFullMining: true, automaticMemoryMaintenance: true, automaticCompression: false },
+  libraries: [], step: 1, imports: [], memoryId: null,
+  form: { libraryName: "", threadId: "", ai: "", user: "", userGender: "unspecified", runtime: "codex", purpose: "accompany", sessionDir: "", minerMode: "subagent", apiProvider: "", apiKey: "", baseUrl: "", model: "", windowDays: 3, keepToolPairs: 30, automaticFullMining: true, automaticMemoryMaintenance: true, automaticCompression: false },
 };
 
 // 正式发布前在这里补齐公共账号；空值会显示为“待配置”，不会跳往错误地址。
 const projectContact = {
   github: "https://github.com/stone-memory-empire",
+  website: "",
   xiaohongshu: "",
   qqGroup: "",
   email: "",
@@ -17,7 +18,7 @@ const projectContact = {
 
 let deferredPwaInstall = null;
 const DESKTOP_ICON_STORAGE_KEY = "stone-memory-desktop-icon-v1";
-const DEFAULT_DESKTOP_ICON = "/desktop-icon-default.svg";
+const DEFAULT_DESKTOP_ICON = "/app-logo.jpg";
 
 function isPwaStandalone() {
   return window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone === true;
@@ -26,7 +27,7 @@ function isPwaStandalone() {
 function currentDesktopIcon() {
   try {
     const source=localStorage.getItem(DESKTOP_ICON_STORAGE_KEY)||"";
-    if(/^data:image\/(?:png|webp);base64,/i.test(source)||source==="/stone-memory-logo.png")return source;
+    if(/^data:image\/(?:png|webp);base64,/i.test(source)||source==="/stone-memory-logo.png"||/^\/brand-icons\/[a-z0-9-]+\.png$/.test(source))return source;
   } catch {}
   return DEFAULT_DESKTOP_ICON;
 }
@@ -47,7 +48,7 @@ async function squarePwaIcon(source,size) {
 
 async function syncPwaIcons() {
   if (!("caches" in window)) return;
-  const cache=await caches.open("stone-memory-pwa-v2"),source=currentDesktopIcon();
+  const cache=await caches.open("stone-memory-pwa-v3"),source=currentDesktopIcon();
   let desktopIcon="";
   for (const size of [192,512]) {
     const blob=await squarePwaIcon(source,size);
@@ -98,9 +99,10 @@ async function installStoneMemory() {
 function refreshPwaInstallUi() {
   const button=document.querySelector("#install-stone-memory"),hint=document.querySelector("#pwa-install-hint");
   if(!button)return;
-  if(pwaInstalled || isPwaStandalone()){button.disabled=true;button.textContent="已添加到桌面";if(hint)hint.textContent="Stone Memory 已安装为桌面应用。";return;}
-  if(pwaInstallPending){button.disabled=true;button.textContent="等待安装确认…";return;}
-  button.disabled=false;button.textContent="添加到桌面主页";
+  const label=button.querySelector?.("strong")||button;
+  if(pwaInstalled || isPwaStandalone()){button.disabled=true;label.textContent="已添加到桌面";if(hint)hint.textContent="Stone Memory 已安装为桌面应用。";return;}
+  if(pwaInstallPending){button.disabled=true;label.textContent="等待安装确认…";return;}
+  button.disabled=false;label.textContent="添加到桌面主页";
   if(hint)hint.textContent=window.isSecureContext && deferredPwaInstall?"当前网站可安装，点击后弹出系统安装确认。":pwaInstallHelp();
 }
 
@@ -117,9 +119,10 @@ async function preparePwa() {
   } catch {}
 }
 
-function resetCreateForm() {
+function resetCreateForm(memory = null) {
   state.step = 1; state.imports = [];
-  state.form = { libraryName: "", threadId: "", ai: "", user: "", userGender: "unspecified", runtime: "codex", scenario: "accompany", sessionDir: "", minerMode: "subagent", apiProvider: "", apiKey: "", baseUrl: "", model: "", windowDays: 3, keepToolPairs: 30, automaticFullMining: true, automaticMemoryMaintenance: true, automaticCompression: false };
+  state.memoryId = memory?.memoryId || null;
+  state.form = { libraryName: memory?.libraryName || memory?.label || "", threadId: "", ai: "", user: "", userGender: "unspecified", runtime: "codex", purpose: "accompany", sessionDir: "", minerMode: "subagent", apiProvider: "", apiKey: "", baseUrl: "", model: "", windowDays: 3, keepToolPairs: 30, automaticFullMining: true, automaticMemoryMaintenance: true, automaticCompression: false };
 }
 
 function stoneSvg(className = "hero-stone") {
@@ -150,7 +153,7 @@ function formatBeijingClock(value) {
 }
 function formatChineseDate(value) { const parts=String(value||"").split("-").map(Number);return parts.length===3&&parts.every(Number.isFinite)?`${parts[1]}月${parts[2]}日`:String(value||""); }
 function formatContextUsage(usage) { if(!usage)return "暂无数据"; return usage.maxTokens?`${formatTokens(usage.usedTokens)} / ${formatTokens(usage.maxTokens)} tokens`:`${formatTokens(usage.usedTokens)} tokens`; }
-function contextUsageHint(data) { const usage=data.contextUsage;if(!usage)return data.automaticFullMining?"等待线程产生下一条模型 usage":"开启自动录入全量对话后实时统计";const percent=usage.percent==null?"":`${usage.percent.toFixed(1)}% · `;return `${percent}最近一次模型调用${usage.maxTokens?"":" · 可在设置中填写窗口上限"}`; }
+function contextUsageHint(usage,automaticFullMining){if(!usage)return automaticFullMining?"等待线程产生下一条模型 usage":"开启自动录入全量对话后实时统计";const size=formatContextUsage(usage);return usage.percent==null?`已用 ${size} · 可在设置中填写窗口上限`:`${usage.percent.toFixed(1)}% · 已用 ${size}`;}
 function calendarPageForDate(calendar, date) {
   if (!calendar?.month || !date) return calendar?.page || 1;
   const [currentYear,currentMonth]=calendar.month.split("-").map(Number),[targetYear,targetMonth]=date.slice(0,7).split("-").map(Number);
@@ -175,7 +178,7 @@ async function api(url, options = {}) {
 }
 
 async function loadLibraries() {
-  const data = await api("/api/libraries"); state.libraries = data.libraries; state.scenarios = data.scenarios || [];
+  const data = await api("/api/libraries"); state.libraries = data.libraries;
 }
 
 const optionalScripts = new Map();
@@ -204,16 +207,71 @@ function loadOptionalScript(src) {
 }
 
 function loadDeveloperModules() {
-  return Promise.all([
-    loadOptionalScript("/developer-modules/stone-memory-assistant/bootstrap.js"),
-    loadOptionalScript("/developer-kit/bootstrap.js?v=2"),
-    loadOptionalScript("/notebook-lab/bootstrap.js"),
-  ]).catch(error => showToast(error.message, "error"));
+  return loadOptionalScript("/developer-kit/bootstrap.js?v=14").catch(error => showToast(error.message, "error"));
+}
+
+function openGlobalWorkshopPanel(panel = "plugins") {
+  document.querySelectorAll("[data-workshop-panel]").forEach(section => {
+    section.hidden = section.dataset.workshopPanel !== panel;
+  });
+  document.querySelectorAll("[data-workshop-tab]").forEach(button => {
+    const active = button.dataset.workshopTab === panel;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+}
+
+function renderGlobalWorkshop(panel = "plugins") {
+  let rememberedMemoryId = "";
+  try { rememberedMemoryId = sessionStorage.getItem("stone-memory-shell-last-memory") || ""; } catch {}
+  const workspaceMemoryId = document.querySelector(".workspace")?.dataset.threadId || "";
+  const requestedMemoryId = new URLSearchParams(location.search).get("threadId") || "";
+  const activeMemoryId = [workspaceMemoryId, requestedMemoryId, rememberedMemoryId]
+    .find(identifier => state.libraries.some(library => (library.memoryId || library.threadId) === identifier)) || "";
+  const activeMemory = state.libraries.find(library => (library.memoryId || library.threadId) === activeMemoryId);
+  app.innerHTML = `<section class="global-workshop"><main class="shell global-workshop-main"><div class="dashboard-head"><div><p class="eyebrow">Stone Memory Workshop</p><h1>琢石坊</h1><p class="lead">先使用已经装好的能力，再逛协作社区，或者开始制作自己的模块。</p></div></div><nav class="workshop-tabs" aria-label="琢石坊导航" role="tablist"><button type="button" data-workshop-tab="plugins" role="tab">插件工坊</button><button type="button" data-workshop-tab="community" role="tab">琢石坊</button><button type="button" data-workshop-tab="maker" role="tab">制作台</button></nav><section class="workshop-panel" data-workshop-panel="plugins"><div class="workshop-panel-head"><div><h2>插件工坊</h2><p>查看笔记、织梦与其他已安装模块。需要记忆体的能力会在进入后请你明确选择。</p></div></div><div id="developer-module-host" class="developer-module-host" data-module-section="plugins" aria-live="polite"></div></section><section class="workshop-panel" data-workshop-panel="community" hidden><div class="developer-module-host" data-module-section="community" aria-live="polite"></div></section><section class="workshop-panel" data-workshop-panel="maker" hidden><div data-developer-kit-host></div></section></main></section>`;
+  document.querySelectorAll("[data-workshop-tab]").forEach(button => {
+    button.onclick = () => openGlobalWorkshopPanel(button.dataset.workshopTab);
+  });
+  const moduleHost = document.querySelector("#developer-module-host");
+  if (moduleHost && state.libraries.length) {
+    const picker = document.createElement("div");
+    picker.className = "workshop-memory-picker";
+    picker.innerHTML = `<span>当前记忆体：</span><strong>${escapeHtml(activeMemory?.libraryName || activeMemory?.label || "暂未选择")}</strong>`;
+    moduleHost.dataset.memoryId = activeMemoryId;
+    moduleHost.before(picker);
+  }
+  openGlobalWorkshopPanel(panel);
+  loadDeveloperModules();
 }
 
 function welcome() {
   app.innerHTML = `<section class="welcome"><div class="welcome-content">${stoneSvg()}<h1>Stone Memory</h1><p class="cn-title">磐石记忆</p><blockquote>“蒲苇韧如丝，磐石无转移”</blockquote><button class="primary" id="create">点击创建</button></div></section>`;
-  document.querySelector("#create").onclick = () => { resetCreateForm(); wizard(); };
+  document.querySelector("#create").onclick = event => createMemoryDraft(event.currentTarget);
+}
+
+function createMemoryDraft(button, memory = null) {
+  const overlay=document.createElement("div");overlay.className="editor-overlay create-memory-overlay";
+  overlay.innerHTML=`<form class="editor-panel create-memory-dialog"><button class="ghost editor-close" type="button" aria-label="关闭">关闭</button><p class="eyebrow">NEW MEMORY</p><h2>${memory?"完成记忆体设置":"创建记忆体"}</h2><p class="lead">先建立记忆本身。对话绑定、历史导入与自动化可以进入记忆体后再设置。</p><div class="field-grid"><div class="field full"><label for="quick-memory-name">记忆体名字</label><input id="quick-memory-name" name="libraryName" value="${escapeHtml(memory?.libraryName||"")}" required autofocus></div><div class="field"><label for="quick-ai-name">AI 名字</label><input id="quick-ai-name" name="ai" required></div><div class="field"><label for="quick-user-name">用户名字</label><input id="quick-user-name" name="user" required></div><div class="field full"><label for="quick-purpose">记忆体用途</label><select id="quick-purpose" name="purpose"><option value="accompany">陪伴</option><option value="coding">编程</option><option value="study">学习</option></select><small>用途会影响后续摘要的生成风格，请确认后再选择。</small></div></div><div class="wizard-actions">${memory?'<button class="danger-button" id="delete-draft-memory" type="button">删除这个空记忆体</button>':'<span></span>'}<button class="primary" type="submit">创建并进入</button></div></form>`;
+  document.body.append(overlay);
+  const close=()=>{overlay.remove();if(button){button.disabled=false;}};
+  overlay.querySelector(".editor-close").onclick=close;
+  overlay.onclick=event=>{if(event.target===overlay)close();};
+  overlay.querySelector("#delete-draft-memory")?.addEventListener("click",async event=>{
+    if(!window.confirm("确认要删除吗？删除后无法恢复"))return;
+    event.currentTarget.disabled=true;
+    try{await api(`/api/libraries/${encodeURIComponent(memory.memoryId)}`,{method:"DELETE"});close();await loadLibraries();state.libraries.length?lobby():welcome();showToast("空记忆体已删除");}
+    catch(error){showToast(error.message,"error");event.currentTarget.disabled=false;}
+  });
+  overlay.querySelector("form").onsubmit=async event=>{
+    event.preventDefault();const submit=event.currentTarget.querySelector('button[type="submit"]'),values=Object.fromEntries(new FormData(event.currentTarget).entries());
+    submit.disabled=true;submit.textContent="正在创建…";
+    try{
+      const result=await api("/api/libraries",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({...values,...(memory?{memoryId:memory.memoryId}:{})})});
+      overlay.remove();await loadLibraries();showToast(`“${result.library.libraryName}”已经创建`);await openLibrary(result.library.memoryId);
+    }catch(error){showToast(error.message,"error");submit.disabled=false;submit.textContent="创建并进入";}
+  };
+  requestAnimationFrame(()=>overlay.querySelector("#quick-memory-name")?.focus());
 }
 
 function topbar(extra = "") { return `<header class="topbar shell">${brand()}${extra}</header>`; }
@@ -263,7 +321,7 @@ function basicStep() {
       ${field("ai", "AI 名字", "这段记忆属于哪位 AI。", "required")}
       ${field("user", "用户名字", "AI 在记忆中如何称呼你。", "required")}
       <div class="field"><label for="runtime">对话来源</label><select id="runtime" name="runtime"><option value="codex" ${state.form.runtime === "codex" ? "selected" : ""}>Codex</option><option value="claude" ${state.form.runtime === "claude" ? "selected" : ""}>Claude</option></select><small>用于绑定正确的线程文件格式。</small></div>
-      <div class="field"><label for="scenario">记忆场景</label><select id="scenario" name="scenario">${state.scenarios.map(row => `<option value="${escapeHtml(row.id)}" ${state.form.scenario === row.id ? "selected" : ""}>${escapeHtml(row.label)}</option>`).join("")}</select><small>选择挖掘使用的提示词，可在设置中切换。</small></div>
+      <div class="field"><label for="purpose">记忆用途</label><select id="purpose" name="purpose"><option value="accompany" ${state.form.purpose === "accompany" ? "selected" : ""}>陪伴</option><option value="coding" ${state.form.purpose === "coding" ? "selected" : ""}>编程</option><option value="study" ${state.form.purpose === "study" ? "selected" : ""}>学习</option></select><small>只影响运行目录与默认提示。</small></div>
       <div class="field"><label for="minerMode">记忆挖掘方式</label><select id="minerMode" name="minerMode"><option value="subagent" ${state.form.minerMode === "subagent" ? "selected" : ""}>本地 Subagent</option><option value="api" ${state.form.minerMode === "api" ? "selected" : ""}>API</option></select><small>以后可以在设置中调整。</small></div>
       <div class="field"><label for="userGender">用户性别</label><select id="userGender" name="userGender"><option value="unspecified" ${state.form.userGender === "unspecified" ? "selected" : ""}>不指定</option><option value="female" ${state.form.userGender === "female" ? "selected" : ""}>女性</option><option value="male" ${state.form.userGender === "male" ? "selected" : ""}>男性</option></select><small>帮助摘要保持正确的人称。</small></div>
       <div id="runtime-fields" class="field full"></div>
@@ -361,22 +419,23 @@ function finishStep() {
 async function createLibrary() {
   syncForm(); const button = document.querySelector("#finish"); button.disabled = true; button.textContent = "正在安放记忆…";
   try {
-    const result = await api("/api/libraries", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...state.form, importTokens: state.imports.map(item => item.token) }) });
-    await loadLibraries(); state.imports = []; showToast(`“${result.library.label}”已经开始生长`); openLibrary(result.library.threadId);
+    const result = await api("/api/libraries", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...state.form, memoryId: state.memoryId, importTokens: state.imports.map(item => item.token) }) });
+    await loadLibraries(); state.imports = []; showToast(`“${result.library.libraryName || result.library.label}”已经开始生长`); openLibrary(result.library.memoryId || result.library.threadId);
   } catch (error) { showToast(error.message, "error"); button.disabled = false; button.textContent = "创建我的记忆"; }
 }
 
 function lobby() {
-  app.innerHTML = `<section class="lobby">${topbar()}<div class="shell"><div class="lobby-head"><h1>你的记忆体</h1><p>蒲苇韧如丝，磐石无转移。</p></div><div class="library-grid">${state.libraries.map(library => `<button class="library-card" data-id="${escapeHtml(library.threadId)}">${stoneSvg("mini-stone")}<h2>${escapeHtml(library.libraryName)}</h2><p>${library.lastMinedAt ? "记忆正在生长" : "等待第一次记忆挖掘"}</p><div class="library-stats"><span>${library.counts.feelings} 条摘要</span><span>${library.counts.features} 条特征</span></div></button>`).join("")}<button class="new-card" id="new-library"><div><span>＋</span><strong>创建新的记忆体</strong></div></button></div></div></section>`;
-  document.querySelectorAll(".library-card").forEach(card => card.onclick = () => openLibrary(card.dataset.id));
-  document.querySelector("#new-library").onclick = () => { resetCreateForm(); wizard(); };
+    app.innerHTML = `<section class="lobby stone-page-transition-pending" data-transition-message="正在整理今日纹路…" aria-busy="true"><div class="shell"><div class="lobby-head"><p>—— 蒲苇韧如丝，磐石无转移 ——</p></div><div class="library-grid">${state.libraries.map(library => `<button class="library-card" data-id="${escapeHtml(library.memoryId || library.threadId)}">${stoneSvg("mini-stone")}<h2>${escapeHtml(library.libraryName)}</h2><p>${!library.configured ? "尚未配置 · 点击继续" : !library.bound ? "尚未绑定对话窗口" : library.lastMinedAt ? "记忆正在生长" : "等待第一次记忆挖掘"}</p><div class="library-stats"><span>${library.counts.feelings} 条摘要</span><span>${library.counts.features} 条特征</span></div></button>`).join("")}<button class="library-card new-card" id="new-library"><div><span>＋</span><strong>创建新的记忆体</strong></div></button></div></div></section>`;
+  document.querySelectorAll(".library-card").forEach(card => card.onclick = () => { const library=state.libraries.find(item=>(item.memoryId||item.threadId)===card.dataset.id); library?.configured?openLibrary(card.dataset.id):createMemoryDraft(card,library); });
+  document.querySelector("#new-library").onclick = event => createMemoryDraft(event.currentTarget);
 }
 
-async function openLibrary(threadId, view = "overview") {
+async function openLibrary(identifier, view = "overview") {
+  if (view === "developer") { renderGlobalWorkshop(); return; }
   try {
-    const data = await api(`/api/libraries/${encodeURIComponent(threadId)}/overview`);
+    const data = await api(`/api/libraries/${encodeURIComponent(identifier)}/overview`);
+    if (!data.configured) { createMemoryDraft(null,data); return; }
     workspace(data);
-    if (view === "developer") renderDeveloperMode(data);
   } catch (error) {
     showToast(error.message, "error");
   }
@@ -385,23 +444,82 @@ async function openLibrary(threadId, view = "overview") {
 function workspace(data) {
   const counts = data.counts, rebuild=data.rebuild;
   const automationReady=data.automaticFullMining&&data.automaticMemoryMaintenance;
-  const statusText=data.attention||(!automationReady?"自动挖掘未完全开启":"记忆运行正常");
-  app.innerHTML = `<section class="workspace" data-thread-id="${escapeHtml(data.threadId)}" data-library-name="${escapeHtml(data.libraryName)}"><div class="shell workspace-grid"><aside class="sidebar"><a class="back-link" href="#">← 返回记忆体</a><h2 class="side-title">${escapeHtml(data.libraryName)}</h2><nav class="side-nav" aria-label="记忆体导航"><button class="active" data-view="overview"><span>概览</span></button><button data-view="management"><span>管理</span></button><button data-view="developer"><span>插件</span></button><button data-view="settings"><span>设置</span></button><button data-view="about"><span>关于</span></button></nav></aside><main id="workspace-main"><div class="dashboard-head"><div><p class="eyebrow">Stone Memory</p><h1>${escapeHtml(data.libraryName)}</h1><div class="status-line ${automationReady&&!data.attention?"":"warning"}"><span class="status-dot"></span>${escapeHtml(statusText)}</div></div>${stoneSvg("mini-stone")}</div>
-    ${rebuild?`<section class="section-card"><h2>当前线程已插入内容</h2><div class="overview-grid"><div><span>人设 / 规则</span><strong>${rebuild.injectedRules||0} 份</strong><small>${(rebuild.injectedRuleNames||[]).map(escapeHtml).join("、")||"无"}</small></div><div><span>原文对话</span><strong>${(rebuild.recentMessages||0)+(rebuild.retainedMessages||0)} 条</strong><small>近期 ${rebuild.recentMessages||0} 条（${rebuild.windowDays} 个活跃日） · 锚点实际注入 ${rebuild.retainedMessages||0} 条（${rebuild.retainAnchors||0} 个锚点）</small></div><div><span>摘要</span><strong>${rebuild.injectedFeelings||0} 条</strong><small>仅统计本次实际写入线程的摘要</small></div><div><span>工具链</span><strong>${rebuild.preservedToolPairs||0} 组</strong><small>上次 rebuild 的保留结果</small></div></div></section>`:`<section class="section-card"><h2>当前线程已插入内容</h2><div class="overview-empty-guide"><p>当前还没有线程注入报告。请前往【维护】，先通过【对话导入】补充记录、在【记忆挖掘】中生成摘要，再通过【线程重建】将人设、摘要与近期对话写入当前线程，完成记忆体构建。</p><button class="secondary" id="overview-maintenance">前往维护 →</button></div></section>`}
-    <section class="section-card"><h2>线程与记忆状态</h2><div class="overview-grid"><div><span>当前上下文窗口</span><strong>${formatContextUsage(data.contextUsage)}</strong><small>${contextUsageHint(data)}</small></div><div><span>最近重建</span><strong>${rebuild?escapeHtml(formatBeijingTime(rebuild.completedAt)):"暂无记录"}</strong><small>${rebuild?`${escapeHtml(rebuild.runtime)} · ${escapeHtml(rebuild.trigger||"cli")} · 北京时间`:"等待第一次正式 rebuild"}</small></div><div><span>上次挖掘</span><strong>${data.lastMinedAt?escapeHtml(formatBeijingTime(data.lastMinedAt)):"尚未挖掘"}</strong><small>待挖掘 ${data.pendingMiningDays||0} 天</small></div><div><span>自动化</span><strong>${data.automaticFullMining||data.automaticMemoryMaintenance||data.automaticCompression?"已配置":"已关闭"}</strong><small>对话录入 ${data.automaticFullMining?"开":"关"} · 摘要挖掘 ${data.automaticMemoryMaintenance?"开":"关"} · 自动压缩（测试）${data.automaticCompression?"开":"关"}</small></div></div></section>
-    <section class="section-card"><h2>最近生成摘要</h2>${data.recent.length ? data.recent.map(item => `<article class="memory-row"><div class="memory-time">${escapeHtml(item.sourceDate)} ${escapeHtml(item.eventTime || "")}</div><p>${escapeHtml(item.content)}</p><span class="badge">importance ${item.importance}</span><span class="badge">${escapeHtml(item.summaryMode)}</span></article>`).join("") : `<div class="empty">还没有摘要。导入对话后，第一次挖掘会让记忆在这里出现。</div>`}</section></main></div></section>`;
+  const statusText=!data.bound?"尚未绑定对话窗口":data.attention||(!automationReady?"自动挖掘未完全开启":"记忆运行正常");
+  const injected={rules:rebuild?.injectedRules||0,messages:(rebuild?.recentMessages||0)+(rebuild?.retainedMessages||0),feelings:rebuild?.injectedFeelings||0,tools:rebuild?.preservedToolPairs||0};
+  const usage=data.contextUsage||null;
+  const usagePercent=usage&&Number.isFinite(usage.percent)?Math.max(0,Math.min(100,usage.percent)):0;
+  const usageTitle=usage?.observedAt?` title="最近一次模型调用 ${escapeHtml(formatBeijingTime(usage.observedAt))}"`:"";
+  const automationSwitch=(key,label,checked,test=false)=>`<label class="overview-switch"><span>${label}${test?` <small>测试功能</small>`:""}</span><input type="checkbox" data-automation="${key}" ${checked?"checked":""}><i aria-hidden="true"></i></label>`;
+  app.innerHTML = `<section class="workspace" data-thread-id="${escapeHtml(data.threadId)}" data-library-name="${escapeHtml(data.libraryName)}"><div class="shell workspace-grid workspace-stack"><a class="back-link" href="#">← 返回记忆体</a><div class="dashboard-head workspace-memory-card"><div><p class="eyebrow">Stone Memory</p><h1>${escapeHtml(data.libraryName)}<small>· 已生长了 ${data.growthDays||0} 天</small></h1><div class="status-line ${automationReady&&!data.attention?"":"warning"}"><span class="status-dot"></span>${escapeHtml(statusText)}</div></div>${stoneSvg("mini-stone")}</div><nav class="workspace-nav" aria-label="记忆体页面"><button class="active" role="tab" aria-selected="true" data-view="overview"><span>概况</span></button><button role="tab" aria-selected="false" data-view="memory"><span>记忆</span></button><button role="tab" aria-selected="false" data-view="context"><span>上下文状态</span></button><button role="tab" aria-selected="false" data-view="access"><span>接入</span></button><button role="tab" aria-selected="false" data-view="settings"><span>设置</span></button></nav><main id="workspace-main"><section class="overview-dashboard">
+    <article class="overview-card overview-stat-card"><div><span>原始对话</span><strong>${counts.messages||0}<small>条</small></strong></div><div><span>对话文件总体积</span><strong>${formatBytes(data.archiveFullBytes)}</strong></div></article>
+    <article class="overview-card overview-stat-card"><div><span>人设 / 规则</span><strong>${counts.rules||0}<small>条</small></strong><small class="corner-note">已停用 ${counts.disabledRules||0} 条</small></div><div><span>已生成摘要</span><strong>${counts.feelings||0}<small>条</small></strong><small class="corner-note">原文锚点 ${counts.retainAnchors||0} 条 · 事件锚点 ${counts.eventAnchors||0} 条 · 隐藏摘要 ${counts.hidden||0} 条</small></div></article>
+    <article class="overview-card overview-thread-card"><header><h2>当前对话线程信息</h2><button class="text-link" id="overview-access">接入管理 →</button></header><p class="thread-identity">${escapeHtml(data.runtime||"未接入平台")} · ${escapeHtml(data.externalThreadId||"暂未绑定 UUID")}</p><div class="context-usage"><div class="context-usage-head"><h3>当前窗口上下文</h3><small${usageTitle}>${contextUsageHint(usage,data.automaticFullMining)}</small></div><div class="context-usage-track" role="progressbar" aria-label="当前窗口上下文占用" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(usagePercent)}"><i style="width:${usagePercent.toFixed(1)}%"></i></div></div><div class="injection-heading"><h3>当前窗口注入</h3><small>上次重建：${rebuild?.completedAt?escapeHtml(formatBeijingTime(rebuild.completedAt)):"暂无记录"}</small></div><div class="injection-counts"><div><strong>${injected.rules}</strong><span>人设 / 规则</span></div><div><strong>${injected.messages}</strong><span>对话</span></div><div><strong>${injected.feelings}</strong><span>摘要</span></div><div><strong>${injected.tools}</strong><span>工具链</span></div></div><div id="integrity" class="integrity overview-integrity"></div><footer><button class="secondary" id="overview-repair">线程修复</button><button class="primary" id="overview-rebuild">线程重建</button></footer></article>
+    <article class="overview-card overview-automation-card"><h2>自动化设置</h2><div class="overview-switches">${automationSwitch("automaticFullMining","对话录入",data.automaticFullMining)}${automationSwitch("automaticMemoryMaintenance","自动生成摘要",data.automaticMemoryMaintenance)}${automationSwitch("automaticCompression","记忆压缩",data.automaticCompression,true)}</div></article>
+  </section></main></div></section>`;
   document.querySelector(".back-link").onclick = event => { event.preventDefault(); lobby(); };
-  document.querySelector('[data-view="management"]').onclick = () => renderManagement(data);
-  document.querySelector('[data-view="developer"]').onclick = () => renderDeveloperMode(data);
+  document.querySelector('[data-view="memory"]').onclick = () => renderManagement(data);
+  document.querySelector('[data-view="context"]').onclick = () => renderRebuild(data);
+  document.querySelector('[data-view="access"]').onclick = () => renderAccess(data);
   document.querySelector('[data-view="settings"]').onclick = () => renderSettings(data);
-  document.querySelector('[data-view="about"]').onclick = () => renderAbout(data);
   document.querySelector('[data-view="overview"]').onclick = () => workspace(data);
-  document.querySelector("#overview-maintenance")?.addEventListener("click",()=>renderManagement(data));
+  document.querySelector("#overview-access").onclick=()=>renderAccess(data);
+  document.querySelector("#overview-rebuild").onclick=()=>renderRebuild(data);
+  document.querySelector("#overview-repair").onclick=()=>checkAndRepair(data);
+  document.querySelectorAll("[data-automation]").forEach(input=>input.onchange=async()=>{
+    input.disabled=true;
+    try{
+      const result=await api(`/api/libraries/${encodeURIComponent(data.threadId)}/settings`,{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({[input.dataset.automation]:input.checked})});
+      Object.assign(data,result.config);showToast("自动化设置已保存");
+    }catch(error){input.checked=!input.checked;showToast(error.message,"error");}
+    input.disabled=false;
+  });
 }
 
-function renderAbout(library) {
-  document.querySelectorAll(".side-nav button").forEach(button=>button.classList.toggle("active",button.dataset.view==="about"));
+async function renderAccess(library) {
+  activateWorkspaceTab("access");
   const main=document.querySelector("#workspace-main");
+  main.innerHTML=`<section class="section-card"><div class="empty">正在读取接入信息…</div></section>`;
+  try{
+    const data=await api(`/api/libraries/${encodeURIComponent(library.threadId)}/bindings`),bindings=data.bindings||[];
+    main.innerHTML=`<section class="section-card access-card"><div class="section-title-row"><div><p class="eyebrow">Bind status</p><h2>接入管理</h2><small>最多同时监听 5 个窗口；主 Binding 可以停止监听，但更换主 Binding 后才能删除</small></div><button class="primary" id="open-binding-guide" type="button">接入新线程</button></div>${bindings.length?bindings.map(binding=>{const primary=binding.id===data.primaryBindingId,readonly=binding.readOnly===true,listening=binding.enabled!==false;return `<article class="access-binding"><div class="access-binding-copy"><strong>${escapeHtml(binding.provider||"未知平台")}</strong><small>${escapeHtml(binding.externalThreadId||"")}${binding.source==="legacy-config"?" · 旧配置接入":""}</small></div><div class="access-binding-actions"><span class="badge">${primary?`主 Binding · ${listening?"监听中":"未监听"}`:listening?"监听中":"未监听"}</span>${readonly?"":`${primary?"":`<button class="ghost" type="button" data-binding-primary="${escapeHtml(binding.id)}">设为主 Binding</button>`}<button class="ghost" type="button" data-binding-toggle="${escapeHtml(binding.id)}" data-enabled="${listening}">${listening?"停止监听":"开始监听"}</button>${primary?`<button class="ghost danger" type="button" disabled title="请先把另一个窗口设为主 Binding">删除此绑定</button>`:`<button class="ghost danger" type="button" data-binding-delete="${escapeHtml(binding.id)}">删除此绑定</button>`}`}</div></article>`;}).join(""):`<div class="empty">Bind status：当前记忆体还没有接入对话窗口。</div>`}</section>`;
+    main.querySelector("#open-binding-guide")?.addEventListener("click",()=>showBindingGuide(library));
+    const mutate=async(bindingId,options)=>{try{await api(`/api/libraries/${encodeURIComponent(library.threadId)}/bindings/${encodeURIComponent(bindingId)}`,options);showToast("Binding 已更新");await renderAccess(library);}catch(error){showToast(error.message,"error");}};
+    main.querySelectorAll("[data-binding-toggle]").forEach(button=>button.onclick=()=>mutate(button.dataset.bindingToggle,{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({enabled:button.dataset.enabled!=="true",apply:true})}));
+    main.querySelectorAll("[data-binding-primary]").forEach(button=>button.onclick=()=>mutate(button.dataset.bindingPrimary,{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({action:"primary",apply:true})}));
+    main.querySelectorAll("[data-binding-delete]").forEach(button=>button.onclick=async()=>{if(!confirm("删除后将不再监听这个窗口。已归档的记忆不会删除，确定继续吗？"))return;await mutate(button.dataset.bindingDelete,{method:"DELETE"});});
+  }catch(error){main.querySelector(".section-card").innerHTML=`<div class="empty">${escapeHtml(error.message)}</div>`;}
+}
+
+function showBindingGuide(library) {
+  document.querySelector("#binding-guide-dialog")?.remove();
+  const memoryId=library.memoryId||library.threadId;
+  const current=state.libraries.find(item=>(item.memoryId||item.threadId)===memoryId);
+  const memoryName=current?.libraryName||current?.label||document.querySelector(".workspace")?.dataset.libraryName||library.libraryName||library.label||memoryId;
+  const instruction=`请用bind mcp将该窗口和${memoryName}记忆体绑定`;
+  const dialog=document.createElement("dialog");
+  dialog.id="binding-guide-dialog";
+  dialog.className="binding-guide-dialog";
+  dialog.innerHTML=`<button class="dialog-close" type="button" aria-label="关闭">×</button><p class="eyebrow">NEW BINDING</p><h2>接入新线程</h2><ol><li>先确认当前客户端已经注册并启用了 Stone Memory MCP。</li><li>打开需要绑定的新对话窗口。</li><li>把下面这句话发送给该窗口，Agent 会调用 bind MCP 完成绑定。</li></ol><div class="binding-command"><p>${escapeHtml(instruction)}</p><button class="primary" id="copy-binding-command" type="button">复制指令</button></div><small class="binding-guide-note">当前目标记忆体：${escapeHtml(memoryName)}</small>`;
+  const close=()=>dialog.close();
+  dialog.querySelector(".dialog-close").onclick=close;
+  dialog.addEventListener("click",event=>{if(event.target===dialog)close();});
+  dialog.addEventListener("close",()=>dialog.remove(),{once:true});
+  dialog.querySelector("#copy-binding-command").onclick=async event=>{
+    try{
+      await navigator.clipboard.writeText(instruction);
+    }catch{
+      const input=document.createElement("textarea");
+      input.value=instruction;input.style.position="fixed";input.style.opacity="0";document.body.append(input);input.select();
+      document.execCommand("copy");input.remove();
+    }
+    event.currentTarget.textContent="已复制";
+    showToast("绑定指令已复制");
+  };
+  document.body.append(dialog);
+  dialog.showModal();
+}
+
+function renderAboutContent(main) {
   const action=(href,label)=>href?`<a class="secondary about-action" href="${escapeHtml(href)}" target="_blank" rel="noreferrer">${label}<span>↗</span></a>`:`<button class="secondary about-action" disabled>${label}<span>待配置</span></button>`;
   main.innerHTML=`<div class="dashboard-head about-hero"><div><p class="eyebrow">About Stone Memory</p><h1>关于项目</h1><p class="lead">了解磐石记忆的最新进展，参与社区，也为项目继续生长添一块石头。</p></div>${stoneSvg("mini-stone")}</div><section class="about-grid"><article class="about-card about-install"><span class="about-card-icon" aria-hidden="true">⌂</span><div><p class="eyebrow">MOBILE APP</p><h2>添加到桌面主页</h2><p>像普通应用一样打开 Stone Memory，并使用当前主题正在显示的图标。</p><small id="pwa-install-hint"></small></div><button class="primary about-action" id="install-stone-memory">添加到桌面主页</button></article><article class="about-card"><span class="about-card-icon" aria-hidden="true">⌘</span><div><p class="eyebrow">OPEN SOURCE</p><h2>GitHub 项目</h2><p>查看项目动态、提交 Issue，或者用一颗 Star 支持 Stone Memory。</p></div>${action(projectContact.github,"前往 GitHub")}</article><article class="about-card"><span class="about-card-icon" aria-hidden="true">✦</span><div><p class="eyebrow">LATEST NEWS</p><h2>关注项目动态</h2><p>前往小红书主页，查看功能介绍、开发故事与最新测试消息。</p></div>${action(projectContact.xiaohongshu,"关注小红书")}</article><article class="about-card"><span class="about-card-icon" aria-hidden="true">◌</span><div><p class="eyebrow">COMMUNITY</p><h2>加入 QQ 交流群</h2><p>与其他使用者交流部署经验、使用方式和新的想法。</p></div>${action(projectContact.qqGroup,"加入交流群")}</article><article class="about-card"><span class="about-card-icon" aria-hidden="true">@</span><div><p class="eyebrow">CONTACT</p><h2>联系我们</h2><p>合作、授权和正式问题反馈，请通过官方邮箱联系。</p><code>${escapeHtml(projectContact.email||"官方邮箱待配置")}</code></div><button class="secondary about-action" id="copy-project-email" ${projectContact.email?"":"disabled"}>复制官方邮箱<span>${projectContact.email?"复制":"待配置"}</span></button></article><article class="about-card about-support"><div><p class="eyebrow">SUPPORT THE CREATOR</p><h2>支持开发者</h2><p>如果 Stone Memory 帮到了你，可以自愿支持项目继续开发与维护。</p></div><div class="support-code">${projectContact.supportImage?`<img src="${escapeHtml(projectContact.supportImage)}" alt="开发者赞赏码">`:`<div><span>赞赏码</span><small>图片待放置</small></div>`}</div></article></section><p class="about-footnote">支持完全自愿，不影响 Stone Memory 已提供功能的正常使用。</p>`;
   main.querySelector("#copy-project-email")?.addEventListener("click",async()=>{
@@ -413,25 +531,66 @@ function renderAbout(library) {
   refreshPwaInstallUi();
 }
 
+function renderGlobalAbout() {
+  app.innerHTML = `<section class="global-about"><main class="shell global-about-main" id="global-about-main"></main></section>`;
+  renderMyContent(document.querySelector("#global-about-main"));
+}
+
+function renderMyContent(main) {
+  const external=(href,label)=>href?`<a href="${escapeHtml(href)}" target="_blank" rel="noreferrer">${label}</a>`:"";
+  main.innerHTML=`<div class="dashboard-head about-hero"><div><p class="eyebrow">MY STONE MEMORY</p><h1>我的</h1><p class="lead">管理外观、安装入口与项目联系。</p></div></div><section class="me-panel"><div id="theme-entry-host"></div><button class="me-menu-row" id="install-stone-memory" type="button"><span class="me-menu-icon" aria-hidden="true">⌂</span><span class="me-menu-copy"><strong>添加到桌面主页</strong></span><span aria-hidden="true">›</span></button><div class="me-menu-row me-follow-row"><span class="me-menu-icon" aria-hidden="true">◎</span><span class="me-menu-copy"><strong>关注项目</strong></span></div><button class="me-menu-row" id="open-support-code" type="button"><span class="me-menu-icon" aria-hidden="true">✦</span><span class="me-menu-copy"><strong>召唤赞赏码</strong><small>请作者喝杯茶，给小石头添一点口粮</small></span><span aria-hidden="true">›</span></button></section><dialog class="support-dialog" id="support-code-dialog"><button class="dialog-close" type="button" aria-label="关闭">×</button><h2>召唤赞赏码</h2><p>支持完全自愿，不影响任何已有功能。</p><div class="support-code">${projectContact.supportImage?`<img src="${escapeHtml(projectContact.supportImage)}" alt="开发者赞赏码">`:`<div><span>赞赏码</span><small>图片待放置</small></div>`}</div></dialog>`;
+  const supportDialog=main.querySelector("#support-code-dialog");
+  main.querySelector("#open-support-code")?.addEventListener("click",()=>supportDialog?.showModal());
+  supportDialog?.querySelector(".dialog-close")?.addEventListener("click",()=>supportDialog.close());
+  void syncPwaIcons().catch(()=>{});
+  main.querySelector("#install-stone-memory")?.addEventListener("click",installStoneMemory);
+  refreshPwaInstallUi();
+}
+
+window.StoneLegacyNavigation = Object.freeze({
+  openAbout: renderGlobalAbout,
+  openWorkshop: renderGlobalWorkshop,
+  openHome: lobby,
+  openMemory: (identifier, view = "overview") => openLibrary(identifier, view),
+});
+
 function managementNav(active="overview") {
-  const items=[["overview","管理概览"],["memories","摘要记忆"],["conversations","对话档案"],["context","上下文与线程"],["automation","自动化"],["maintenance","数据维护"]];
-  return `<nav class="management-nav" aria-label="管理二级导航">${items.map(([id,label])=>`<button data-management-view="${id}" class="${active===id?"active":""}">${label}</button>`).join("")}</nav>`;
+  void active;
+  return "";
 }
 
 function bindManagementNav(library) {
-  const routes={overview:renderManagement,memories:renderMemoryHub,conversations:renderConversations,context:renderRebuild,automation:renderAutomation,maintenance:renderDataMaintenance};
-  document.querySelectorAll("[data-management-view]").forEach(button=>button.onclick=()=>routes[button.dataset.managementView](library));
+  void library;
+}
+
+let settingsRenderVersion = 0;
+
+function activateWorkspaceTab(active) {
+  if (active !== "settings") settingsRenderVersion += 1;
+  document.querySelectorAll(".workspace-nav button").forEach(button=>{
+    const selected=button.dataset.view===active;
+    button.classList.toggle("active",selected);
+    button.setAttribute("aria-selected",String(selected));
+  });
 }
 
 function activateManagementNav() {
-  document.querySelectorAll(".side-nav button").forEach(button=>button.classList.toggle("active",button.dataset.view==="management"));
+  activateWorkspaceTab("memory");
 }
 
 function renderManagement(library) {
   activateManagementNav();
-  const main=document.querySelector("#workspace-main"),counts=library.counts||{},rebuild=library.rebuild;
-  main.innerHTML=`${managementNav("overview")}<div class="dashboard-head"><div><p class="eyebrow">Memory control center</p><h1>管理</h1><p class="lead">查看记忆、原文和当前上下文，并处理需要留意的运行状态。</p></div></div><section class="management-summary-grid"><button data-management-view="memories"><span>形成的记忆</span><strong>${counts.feelings||0} 条摘要</strong><small>查看摘要、素材、锚点与时间脉络</small></button><button data-management-view="conversations"><span>记忆的依据</span><strong>${counts.messages||counts.conversations||"查看原文"}</strong><small>按日期回看对话与来源材料</small></button><button data-management-view="context"><span>当前携带</span><strong>${rebuild?`${rebuild.injectedFeelings||0} 条摘要`:"尚未重建"}</strong><small>管理注入范围、线程状态与重建</small></button><button data-management-view="automation"><span>后台运行</span><strong>${library.automaticFullMining||library.automaticMemoryMaintenance||library.automaticCompression?"已配置":"全部关闭"}</strong><small>检查自动录入、挖掘与压缩状态</small></button></section><section class="section-card management-attention"><div><p class="eyebrow">需要处理</p><h2>${library.attention?escapeHtml(library.attention):library.pendingMiningDays?`还有 ${library.pendingMiningDays} 天等待挖掘`:"当前没有待处理异常"}</h2></div><button class="secondary" data-management-view="maintenance">打开数据维护</button></section>`;
+  const main=document.querySelector("#workspace-main"),counts=library.counts||{};
+  main.innerHTML=`${managementNav("overview")}<section class="management-overview-grid"><article class="section-card management-overview-panel"><header><p class="eyebrow">Memory archive</p><h1>记忆档案</h1></header><div class="management-overview-list"><button class="management-overview-entry" data-management-archive="rules"><span><strong>人设 / 规则</strong><small>查看和管理会注入当前记忆体的人设与规则</small></span><b>共 ${counts.rules||0} 条</b><i aria-hidden="true">›</i></button><button class="management-overview-entry" data-management-archive="feelings"><span><strong>摘要</strong><small>查看完整、精简和隐藏的记忆摘要</small></span><b>共 ${counts.feelings||0} 条</b><i aria-hidden="true">›</i></button><button class="management-overview-entry" data-management-archive="conversations"><span><strong>全量对话</strong><small>按日期回看已经进入记忆体的真实原文</small></span><b>共 ${counts.messages||counts.conversations||0} 条</b><i aria-hidden="true">›</i></button><button class="management-overview-entry" data-management-archive="timeline"><span><strong>时间轴</strong><small>查看词频、重要摘要与记忆生命周期</small></span><i aria-hidden="true">›</i></button></div></article><article class="section-card management-overview-panel"><header><p class="eyebrow">Memory maintenance</p><h1>记忆维护</h1></header><div class="management-overview-list"><button class="management-overview-entry" data-management-maintenance="import"><span><strong>数据导入</strong><small>支持直接导入线程文件或符合格式的对话文件</small></span><i aria-hidden="true">›</i></button><button class="management-overview-entry" data-management-maintenance="materials"><span><strong>管理挖掘素材</strong><small>决定哪些对话、工具链成为挖掘摘要的素材，同时避免反复注入的内容污染摘要库</small></span><i aria-hidden="true">›</i></button><button class="management-overview-entry" data-management-maintenance="mining"><span><strong>记忆挖掘台</strong><small>手动生成多日摘要并审核</small></span><i aria-hidden="true">›</i></button><button class="management-overview-entry" data-management-maintenance="compression"><span><strong>记忆压缩（测试功能）</strong><small>预览并逐步精简不再需要完整注入的旧摘要</small></span><i aria-hidden="true">›</i></button></div></article></section>`;
   bindManagementNav(library);
+  main.querySelector('[data-management-archive="rules"]').onclick=()=>renderMemorySection(library,"rules");
+  main.querySelector('[data-management-archive="feelings"]').onclick=()=>renderMemorySection(library,"feelings");
+  main.querySelector('[data-management-archive="conversations"]').onclick=()=>renderConversations(library);
+  main.querySelector('[data-management-archive="timeline"]').onclick=()=>renderTimeline(library);
+  main.querySelector('[data-management-maintenance="import"]').onclick=()=>renderConversationImport(library);
+  main.querySelector('[data-management-maintenance="materials"]').onclick=()=>renderToolPolicy(library);
+  main.querySelector('[data-management-maintenance="mining"]').onclick=()=>renderMining(library);
+  main.querySelector('[data-management-maintenance="compression"]').onclick=()=>renderCompression(library);
 }
 
 async function renderAutomation(library) {
@@ -448,10 +607,8 @@ async function renderAutomation(library) {
 }
 
 function renderDeveloperMode(library) {
-  document.querySelectorAll(".side-nav button").forEach(button => button.classList.toggle("active", button.dataset.view === "developer"));
-  const main=document.querySelector("#workspace-main");
-  main.innerHTML=`<div class="dashboard-head developer-mode-head"><div><p class="eyebrow">Stone Memory Workshop</p><h1>插件工坊</h1><p class="lead">体验社区实验，也把新的想法装进可拆卸、可审计的插件。</p></div><div class="developer-orbit" aria-hidden="true"><span></span><i></i></div></div><section class="developer-lab-intro"><span class="developer-live-dot"></span><p>实验能力与正式记忆相互隔离。插件可以复用 Stone Memory 的 CLI、MCP、Watcher 与独立数据空间；进入主线前不会改变默认流程。</p></section><div id="developer-module-host" class="developer-module-host" aria-live="polite"></div>`;
-  loadDeveloperModules();
+  void library;
+  renderGlobalWorkshop();
 }
 
 function renderMemoryHub(library) {
@@ -651,11 +808,13 @@ function renderFeelingEditor(library,row,target,refresh) {
 }
 
 async function renderSettings(library) {
-  document.querySelectorAll(".side-nav button").forEach(button => button.classList.toggle("active", button.dataset.view === "settings"));
+  activateWorkspaceTab("settings");
+  const renderVersion=++settingsRenderVersion;
   const main = document.querySelector("#workspace-main");
   main.innerHTML = `<div class="dashboard-head"><div><p class="eyebrow">记忆体配置</p><h1>设置</h1><p class="lead">这里展示并编辑创建记忆体时填写的 init 配置。</p></div></div><section class="section-card"><div class="empty">正在读取设置…</div></section>`;
   try {
     const config = await api(`/api/libraries/${encodeURIComponent(library.threadId)}/settings`);
+    if(renderVersion!==settingsRenderVersion||!main.isConnected)return;
     const card = main.querySelector(".section-card");
     card.innerHTML = `<form id="settings-form"><div class="field-grid">
       <div class="field full"><label for="setting-libraryName">记忆体名字</label><input id="setting-libraryName" name="libraryName" value="${escapeHtml(config.libraryName)}" required><small>控制台和记忆体大厅显示的名称；不能与其他记忆体重名。</small></div>
@@ -665,15 +824,12 @@ async function renderSettings(library) {
       <div class="field"><label for="setting-gender">用户性别</label><select id="setting-gender" name="userGender"><option value="unspecified" ${config.userGender === "unspecified" ? "selected" : ""}>不指定</option><option value="female" ${config.userGender === "female" ? "selected" : ""}>女性</option><option value="male" ${config.userGender === "male" ? "selected" : ""}>男性</option></select></div>
       <div class="field"><label for="setting-miner">挖掘方式</label><select id="setting-miner" name="minerMode"><option value="subagent" ${config.minerMode === "subagent" ? "selected" : ""}>本地 Subagent</option><option value="api" ${config.minerMode === "api" ? "selected" : ""}>API</option></select></div>
       <div class="field"><label>运行时</label><input value="${escapeHtml(config.runtime)}" disabled><small>涉及目录迁移，暂不在设置页修改。</small></div>
-      <div class="field"><label>记忆场景</label><select name="scenario">${state.scenarios.map(row => `<option value="${escapeHtml(row.id)}" ${config.scenario === row.id ? "selected" : ""}>${escapeHtml(row.label)}</option>`).join("")}</select><small>只影响后续挖掘，历史记忆和目录保持不变。</small></div>
+      <div class="field"><label>用途</label><input value="${escapeHtml(config.purpose)}" disabled><small>涉及目录迁移，暂不在设置页修改。</small></div>
       <div class="field full"><label for="setting-session">线程文件搜索目录</label><input id="setting-session" name="sessionDir" value="${escapeHtml(config.sessionDir)}" required><small>Stone Memory 会从这里递归查找绑定线程的 JSONL，支持 Codex 的 sessions/年/月/日目录。</small></div>
       <div id="setting-api-fields" class="field full"></div>
       <div class="field"><label for="setting-window">默认保留对话天数</label><input id="setting-window" name="windowDays" type="number" min="1" max="365" value="${config.windowDays}"></div>
       <div class="field"><label for="setting-tools">默认保留工具链组数</label><input id="setting-tools" name="keepToolPairs" type="number" min="0" max="500" value="${config.keepToolPairs}"></div>
       <div class="field full"><label for="setting-context-window">上下文窗口上限（tokens，可选）</label><input id="setting-context-window" name="contextWindowTokens" type="number" min="1000" step="1000" value="${config.contextWindowTokens||""}" placeholder="例如 1000000"><small>Claude 建议填写；Codex 通常能自动识别。手动值优先。</small></div>
-      <label class="check-card full"><input type="checkbox" name="automaticFullMining" ${config.automaticFullMining ? "checked" : ""}><span><strong>自动录入全量对话</strong>当前记忆体绑定主线程的对话将实时录入。</span></label>
-      <label class="check-card full"><input type="checkbox" name="automaticMemoryMaintenance" ${config.automaticMemoryMaintenance ? "checked" : ""}><span><strong>自动挖掘当日摘要和特征</strong>在时间戳跨天时自动开启挖掘。</span></label>
-      <label class="check-card full"><input type="checkbox" name="automaticCompression" ${config.automaticCompression ? "checked" : ""}><span><strong>自动压缩摘要（测试功能）</strong>当前仍在测试，建议暂时不要开启。</span></label>
       <div class="integrity full">纯对话 archive 保存在本地共享 SQLite 的 messages 表；memory/archive/full 才是按天保存的原始线程文件备份。</div>
     </div><div class="wizard-actions"><button class="danger-button" id="delete-library" type="button">删除记忆体</button><button class="primary" type="submit">保存设置</button></div></form>`;
     const miner = card.querySelector("#setting-miner"), apiFields = card.querySelector("#setting-api-fields");
@@ -688,14 +844,13 @@ async function renderSettings(library) {
       const form = event.currentTarget, button = form.querySelector("button[type=submit]");
       const values = Object.fromEntries(new FormData(form).entries());
       values.windowDays = Number(values.windowDays); values.keepToolPairs = Number(values.keepToolPairs); values.contextWindowTokens = values.contextWindowTokens ? Number(values.contextWindowTokens) : 0;
-      values.automaticFullMining = form.elements.automaticFullMining.checked;
-      values.automaticMemoryMaintenance = form.elements.automaticMemoryMaintenance.checked;
-      values.automaticCompression = form.elements.automaticCompression.checked;
       button.disabled = true; button.textContent = "正在保存…";
       try {
         const result = await api(`/api/libraries/${encodeURIComponent(library.threadId)}/settings`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(values) });
         library.libraryName = result.config.libraryName;
-        document.querySelector(".side-title").textContent = result.config.libraryName;
+        const workspace=document.querySelector(".workspace"),title=workspace?.querySelector(".workspace-memory-card h1");
+        if(workspace)workspace.dataset.libraryName=result.config.libraryName;
+        if(title?.firstChild)title.firstChild.nodeValue=result.config.libraryName;
         await loadLibraries(); showToast("设置已保存");
       } catch (error) { showToast(error.message, "error"); }
       button.disabled = false; button.textContent = "保存设置";
@@ -708,10 +863,15 @@ async function renderSettings(library) {
         await loadLibraries(); showToast("记忆体已删除"); state.libraries.length ? lobby() : welcome();
       } catch (error) { showToast(error.message, "error"); button.disabled = false; button.textContent = "删除记忆体"; }
     };
-  } catch (error) { main.querySelector(".section-card").innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`; }
+  } catch (error) {
+    if(renderVersion!==settingsRenderVersion||!main.isConnected)return;
+    const card=main.querySelector(".section-card");
+    if(card)card.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
+    else showToast(error.message,"error");
+  }
 }
 
-const rebuildState = { windowDays: 3, toolPairs: 30, watermark: false, summaryMode: "default", summaryLimit: 0, minImportance: 0, mcpDefault: false, page: 1, toolPage: 1, tab: "messages", excludedMessages: new Set(), excludedTools: new Set(), preview: null };
+const rebuildState = { windowDays: 3, toolPairs: 30, watermark: false, summaryMode: "default", summaryLimit: 0, minImportance: 0, mcpDefault: false, page: 1, toolPage: 1, tab: "messages", excludedMessages: new Set(), excludedTools: new Set(), preview: null, bindingId: null, bindingMemoryId: null };
 const miningUi={threadId:null,selected:new Set(),page:1,reportPage:1,reportFilter:"all",monthPage:1,selectedDate:null,mode:null,apiProfile:"optimized",timer:null,targetedSelected:new Set(),targetedLastIndex:null};
 const compressionUi={mode:"subagent",afterDays:90};
 
@@ -895,7 +1055,8 @@ async function renderMining(library,page=1) {
     content.querySelector("#mining-newer")?.addEventListener("click",()=>{miningUi.monthPage=calendar.page-1;renderMining(library,miningUi.page);});content.querySelector("#mining-older")?.addEventListener("click",()=>{miningUi.monthPage=calendar.page+1;renderMining(library,miningUi.page);});
     content.querySelector("#open-targeted")?.addEventListener("click",()=>renderTargetedMining(library,miningUi.selectedDate));
     if(miningUi.selectedDate)bindFeelingCards(content,library,detail.feelings,content.querySelector("#feeling-editor"),()=>renderMining(library,miningUi.page));
-    loadMiningPrompts(content,library);
+    if(library.purpose==="accompany")loadMiningPrompts(content,library);
+    else content.querySelector(".mining-prompts-section")?.remove();
     const reportList=content.querySelector(".mining-report-list");
     const updateCount=()=>{reportList.querySelector("#selected-count").textContent=miningUi.selected.size;reportList.querySelector("#start-mining").disabled=active||!miningUi.selected.size;};
     reportList.querySelectorAll('.mining-report-check input').forEach(input=>input.onchange=()=>{input.checked?miningUi.selected.add(input.value):miningUi.selected.delete(input.value);updateCount();});
@@ -926,7 +1087,6 @@ async function loadMiningPrompts(container,library){
   const timelineTa=container.querySelector("#mining-timeline");
   try{
     const data=await api(`/api/libraries/${encodeURIComponent(library.threadId)}/mining/prompts`);
-    status.textContent = `场景：${data.scenario}；保存仅影响当前记忆体。摘要来源：${data.sources.feelings}；特征来源：${data.sources.features}`;
     summaryTa.value=data.summaryPrompt;
     featureTa.value=data.featurePrompt;
     timelineTa.value=(data.timeline||[]).join("\n");
@@ -991,9 +1151,9 @@ async function renderTargetedMining(library,date) {
 }
 
 async function renderRebuild(library) {
-  activateManagementNav();
+  activateWorkspaceTab("context");
   const main = document.querySelector("#workspace-main");
-  main.innerHTML = `<div class="dashboard-head"><div><p class="eyebrow">线程生命周期</p><h1>线程重建</h1><p class="lead">先检查即将写入线程的内容，再确认应用；线程状态和裁剪工具集中在同一页。</p></div><button class="ghost" id="back-maintenance">返回维护</button></div><section class="section-card rebuild-command-center"><div class="rebuild-primary-actions"><button class="primary rebuild-main-button" id="preview-rebuild"><strong>线程重建</strong><span>先生成中文预览，不会立即改写线程</span></button><button class="secondary rebuild-main-button" id="check-thread"><strong>一键修复</strong><span>检查线程结构，发现问题后备份并修复</span></button></div><div id="integrity"></div><details class="injection-settings"><summary><span class="settings-gear" aria-hidden="true">⚙</span><span><strong>注入设置</strong><small>选择本次重建使用的摘要与近期上下文范围</small></span><i>⌄</i></summary><div class="injection-settings-body"><section><h3>摘要保留形式</h3><div class="choice-row"><label><input type="radio" name="summary-mode" value="default" ${rebuildState.summaryMode==="default"?"checked":""}><span><strong>默认</strong><small>注入全部非hidden历史摘要</small></span></label><label><input type="radio" name="summary-mode" value="limited" ${rebuildState.summaryMode==="limited"?"checked":""}><span><strong>特殊设置</strong><small>限定摘要数量和最低importance</small></span></label></div><div id="summary-limit-fields" class="inline-settings"><span>保留最近</span><input id="summary-limit" type="number" min="1" value="${rebuildState.summaryLimit||200}"><span>条 importance ≥</span><select id="min-importance">${[0,1,2,3,4,5].map(value=>`<option value="${value}" ${rebuildState.minImportance===value?"selected":""}>${value}</option>`).join("")}</select><span>的摘要</span></div><label id="mcp-default-row" class="rebuild-watermark-option compact-option"><input id="mcp-summary-default" type="checkbox" ${rebuildState.mcpDefault?"checked":""}><span><strong>MCP调用rebuild时默认使用这一摘要范围</strong><small>Agent显式传参时只覆盖当次调用。</small></span></label><p class="tool-memory-note"><span aria-hidden="true">●</span> 默认保护低importance的原文锚点与事件锚点；锚点占摘要名额，hidden不纳入计算。</p></section><section><h3>上下文保留形式</h3><div class="choice-row"><label><input type="radio" name="context-mode" value="days" ${rebuildState.watermark?"":"checked"}><span><strong>默认</strong><small>按最近发生过对话的活跃日保留原文</small></span></label><label><input type="radio" name="context-mode" value="watermark" ${rebuildState.watermark?"checked":""}><span><strong>特殊设置：水位线模式</strong><small>已挖掘出摘要的历史原文不再重复注入</small></span></label></div><div id="active-days-fields" class="inline-settings"><span>保留活跃对话日</span><input id="window-days" type="number" min="1" max="365" value="${rebuildState.windowDays}"><span>天，保留工具调用</span><input id="tool-pairs" type="number" min="0" max="500" value="${rebuildState.toolPairs}"><span>组</span></div><div id="watermark-fields" class="watermark-description"><p>已挖掘出摘要的原文不再进入近期注入范围；从最后一条摘要对应的原文开始保留。工具调用仍使用上方的统一设置。</p></div><p class="tool-memory-note"><span aria-hidden="true">●</span> 如果不保留工具链，Agent重建后会失去近期工具调用及其结果的上下文记忆。</p></section></div></details><div id="rebuild-dry-run"></div></section><section class="section-card rebuild-status"><div class="section-title-row"><div><p class="eyebrow">当前配置</p><h2>线程状态</h2></div></div><details class="rebuild-fold"><summary><span><strong>人设 / 规则</strong><small id="rebuild-rule-summary">正在读取…</small></span><i>⌄</i></summary><div class="rebuild-fold-content" id="rebuild-rules"></div></details><details class="rebuild-fold"><summary><span><strong>摘要</strong><small id="rebuild-feeling-summary">正在读取…</small></span><i>⌄</i></summary><div class="rebuild-fold-content"><p id="rebuild-feeling-detail">正在统计摘要构成…</p><button class="ghost" id="open-feelings">前往记忆档案查看摘要</button></div></details><details class="rebuild-fold" open><summary><span><strong>原文</strong><small>查看并裁剪即将保留的近期对话与工具链</small></span><i>⌄</i></summary><div class="rebuild-fold-content"><button class="secondary" id="open-trim">裁剪对话 / 工具链</button></div></details></section>`;
+  main.innerHTML = `<div class="dashboard-head"><div><p class="eyebrow">线程生命周期</p><h1>线程重建</h1><p class="lead">先检查即将写入线程的内容，再确认应用；线程状态和裁剪工具集中在同一页。</p></div><button class="ghost" id="back-maintenance">返回维护</button></div><section class="section-card rebuild-command-center"><div id="rebuild-target-slot"></div><div class="rebuild-primary-actions"><button class="primary rebuild-main-button" id="preview-rebuild"><strong>线程重建</strong><span>先生成中文预览，不会立即改写线程</span></button><button class="secondary rebuild-main-button" id="check-thread"><strong>一键修复</strong><span>检查线程结构，发现问题后备份并修复</span></button></div><div id="integrity"></div><details class="injection-settings"><summary><span class="settings-gear" aria-hidden="true">⚙</span><span><strong>注入设置</strong><small>选择本次重建使用的摘要与近期上下文范围</small></span><i>⌄</i></summary><div class="injection-settings-body"><section><h3>摘要保留形式</h3><div class="choice-row"><label><input type="radio" name="summary-mode" value="default" ${rebuildState.summaryMode==="default"?"checked":""}><span><strong>默认</strong><small>注入全部非hidden历史摘要</small></span></label><label><input type="radio" name="summary-mode" value="limited" ${rebuildState.summaryMode==="limited"?"checked":""}><span><strong>特殊设置</strong><small>限定摘要数量和最低importance</small></span></label></div><div id="summary-limit-fields" class="inline-settings"><span>保留最近</span><input id="summary-limit" type="number" min="1" value="${rebuildState.summaryLimit||200}"><span>条 importance ≥</span><select id="min-importance">${[0,1,2,3,4,5].map(value=>`<option value="${value}" ${rebuildState.minImportance===value?"selected":""}>${value}</option>`).join("")}</select><span>的摘要</span></div><label id="mcp-default-row" class="rebuild-watermark-option compact-option"><input id="mcp-summary-default" type="checkbox" ${rebuildState.mcpDefault?"checked":""}><span><strong>MCP调用rebuild时默认使用这一摘要范围</strong><small>Agent显式传参时只覆盖当次调用。</small></span></label><p class="tool-memory-note"><span aria-hidden="true">●</span> 默认保护低importance的原文锚点与事件锚点；锚点占摘要名额，hidden不纳入计算。</p></section><section><h3>上下文保留形式</h3><div class="choice-row"><label><input type="radio" name="context-mode" value="days" ${rebuildState.watermark?"":"checked"}><span><strong>默认</strong><small>按最近发生过对话的活跃日保留原文</small></span></label><label><input type="radio" name="context-mode" value="watermark" ${rebuildState.watermark?"checked":""}><span><strong>特殊设置：水位线模式</strong><small>已挖掘出摘要的历史原文不再重复注入</small></span></label></div><div id="active-days-fields" class="inline-settings"><span>保留活跃对话日</span><input id="window-days" type="number" min="1" max="365" value="${rebuildState.windowDays}"><span>天，保留工具调用</span><input id="tool-pairs" type="number" min="0" max="500" value="${rebuildState.toolPairs}"><span>组</span></div><div id="watermark-fields" class="watermark-description"><p>已挖掘出摘要的原文不再进入近期注入范围；从最后一条摘要对应的原文开始保留。工具调用仍使用上方的统一设置。</p></div><p class="tool-memory-note"><span aria-hidden="true">●</span> 如果不保留工具链，Agent重建后会失去近期工具调用及其结果的上下文记忆。</p></section></div></details><div id="rebuild-dry-run"></div></section><section class="section-card rebuild-status"><div class="section-title-row"><div><p class="eyebrow">当前配置</p><h2>线程状态</h2></div></div><details class="rebuild-fold"><summary><span><strong>人设 / 规则</strong><small id="rebuild-rule-summary">正在读取…</small></span><i>⌄</i></summary><div class="rebuild-fold-content" id="rebuild-rules"></div></details><details class="rebuild-fold"><summary><span><strong>摘要</strong><small id="rebuild-feeling-summary">正在读取…</small></span><i>⌄</i></summary><div class="rebuild-fold-content"><p id="rebuild-feeling-detail">正在统计摘要构成…</p><button class="ghost" id="open-feelings">前往记忆档案查看摘要</button></div></details><details class="rebuild-fold" open><summary><span><strong>原文</strong><small>查看并裁剪即将保留的近期对话与工具链</small></span><i>⌄</i></summary><div class="rebuild-fold-content"><button class="secondary" id="open-trim">裁剪对话 / 工具链</button></div></details></section>`;
   main.insertAdjacentHTML("afterbegin",managementNav("context"));
   bindManagementNav(library);
   document.querySelector("#back-maintenance").onclick=()=>renderManagement(library);
@@ -1032,6 +1192,26 @@ async function renderRebuild(library) {
     }
     document.querySelector("#open-rules").onclick=()=>renderMemorySection(library,"rules");
   } catch(error){showToast(error.message,"error");}
+  try {
+    const bindingStatus = await api(`/api/libraries/${encodeURIComponent(library.threadId)}/bindings`);
+    const bindingRows = (bindingStatus.bindings || []).filter(row => row.source !== "legacy-config" && row.mode !== "import_only");
+    const previousTarget = rebuildState.bindingMemoryId === library.threadId ? rebuildState.bindingId : null;
+    rebuildState.bindingId = bindingRows.some(row => row.id === previousTarget)
+      ? previousTarget
+      : bindingRows.some(row => row.id === bindingStatus.primaryBindingId)
+        ? bindingStatus.primaryBindingId
+        : bindingRows[0]?.id || null;
+    rebuildState.bindingMemoryId = library.threadId;
+    const slot = document.querySelector("#rebuild-target-slot");
+    if (slot && bindingRows.length) {
+      slot.innerHTML = `<div class="rebuild-target"><span class="rebuild-target-label">重建目标窗口</span><div class="rebuild-target-choices">${bindingRows.map(row => { const primary = row.id === bindingStatus.primaryBindingId, listening = row.enabled !== false; return `<label title="${escapeHtml(row.externalThreadId || "")}"><input type="radio" name="rebuild-binding" value="${escapeHtml(row.id)}" ${row.id === rebuildState.bindingId ? "checked" : ""}><span><strong>${escapeHtml(row.provider || "未知平台")}</strong><small>${escapeHtml(String(row.externalThreadId || "").slice(0, 8))}${primary ? " · 主窗口" : ""}${listening ? "" : " · 未监听"}</small></span></label>`; }).join("")}</div></div>`;
+      slot.querySelectorAll('input[name="rebuild-binding"]').forEach(input => input.onchange = () => {
+        rebuildState.bindingId = input.value;
+        document.querySelector("#rebuild-dry-run").innerHTML = "";
+        showIntegrity(library, false);
+      });
+    }
+  } catch { /* Binding 列表读取失败时退回默认窗口重建 */ }
   const syncInjectionControls=()=>{
     const limited=rebuildState.summaryMode==="limited";
     document.querySelector("#summary-limit-fields").hidden=!limited;
@@ -1076,7 +1256,7 @@ async function previewIntegratedRebuild(library,options={}) {
   const button=document.querySelector(options.button||"#preview-rebuild"),target=document.querySelector(options.target||"#rebuild-dry-run");
   button.disabled=true;target.innerHTML='<div class="empty">正在生成线程重建预览…</div>';
   try {
-    const request={summary:{mode:rebuildState.summaryMode,limit:summaryLimit,minImportance},context:{mode:rebuildState.watermark?"watermark":"active_days",windowDays:rebuildState.windowDays,toolPairs:rebuildState.toolPairs},trim:{excludedMessages:options.excludedMessages||[],excludedTools:options.excludedTools||[]},trigger:"web"};
+    const request={summary:{mode:rebuildState.summaryMode,limit:summaryLimit,minImportance},context:{mode:rebuildState.watermark?"watermark":"active_days",windowDays:rebuildState.windowDays,toolPairs:rebuildState.toolPairs},trim:{excludedMessages:options.excludedMessages||[],excludedTools:options.excludedTools||[]},trigger:"web",bindingId:rebuildState.bindingMemoryId===library.threadId?rebuildState.bindingId:null};
     const preview=await api(`/api/libraries/${encodeURIComponent(library.threadId)}/rebuild/dry-run`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(request)}),show=value=>value===null||value===undefined?"—":value;
     const retentionLabel=preview.retentionMode==="watermark"?`水位线模式，自 ${escapeHtml(preview.watermarkCutoff||"—")} 起`:preview.watermarkFallback?`活跃日模式（水位线定位失败，已回退）`:`活跃日模式`;
     target.innerHTML=`<div class="rebuild-preview"><div class="section-title-row"><div><p class="eyebrow">正式 Dry-run</p><h3>确认线程重建结果</h3></div><span class="badge">${preview.runtime==="codex"?"Codex":"Claude"}</span></div><div class="rebuild-preview-groups"><section><h4>数据来源</h4><dl><div><dt>full 原始消息</dt><dd>${show(preview.fullMessages??preview.originalMessages)} 条</dd></div><div><dt>full 总体积</dt><dd>${formatBytes(preview.fullArchiveBytes)}</dd></div><div><dt>保留方式</dt><dd>${retentionLabel}</dd></div><div><dt>活跃日设置</dt><dd>${show(preview.windowDays)} 天（普通模式或水位线回退时使用）</dd></div></dl></section><section><h4>摘要去向</h4><dl><div><dt>摘要总数</dt><dd>${show(preview.injectableFeelings)} 条（hidden 已排除）</dd></div><div><dt>历史候选</dt><dd>${show(preview.summaryCandidates)} 条 → 本次选择 ${show(preview.selectedSummaries)} 条</dd></div><div><dt>锚点保护</dt><dd>${show(preview.protectedSummaries)} 条${preview.protectedOverflow?`，超过限制 ${preview.protectedOverflow} 条`:""}</dd></div><div><dt>近期窗口内</dt><dd>${show(preview.inWindowFeelings)} 条，由近期原文承载</dd></div><div><dt>原文锚点替代</dt><dd>${show(preview.retainAnchors)} 条，覆盖 ${show(preview.retainDates)} 个日期</dd></div><div><dt>注入记忆块</dt><dd>${show(preview.memoryFeelings)} 条摘要</dd></div><div><dt>人设 / 规则</dt><dd>${show(preview.injectedRules)} 份</dd></div><div><dt>记忆块</dt><dd>${show(preview.memoryBlocks)} 个</dd></div></dl></section><section><h4>近期上下文</h4><dl><div><dt>近期原文</dt><dd>${show(preview.windowMessages)} 条</dd></div><div><dt>工具链</dt><dd>${show(preview.toolPairs)} 组${preview.toolIds==null?"":`，${preview.toolIds} 个工具 ID`}</dd></div>${preview.functionCalls==null?"":`<div><dt>函数调用</dt><dd>${preview.functionCalls} 条</dd></div>`}<div><dt>移除系统记录</dt><dd>${show(preview.systemDropped)} 条</dd></div></dl></section><section class="rebuild-result-group"><h4>预计结果</h4><dl><div><dt>线程文件大小</dt><dd>${formatBytes(preview.estimatedOutputBytes)}</dd></div><div><dt>重建后行数</dt><dd>${show(preview.outputLines)} 行</dd></div><div><dt>预计压缩率</dt><dd class="rebuild-reduction">${preview.reductionPercent==null?"—":`${preview.reductionPercent}%`}</dd></div></dl></section></div><details class="rebuild-raw-output"><summary>查看原始 dry-run 输出</summary><pre>${escapeHtml(preview.raw)}</pre></details><div class="wizard-actions"><button class="ghost" id="cancel-rebuild-preview">取消</button><button class="primary" id="apply-previewed-rebuild">确认应用线程重建</button></div></div>`;
@@ -1104,7 +1284,7 @@ async function applyIntegratedRebuild(library,{excludedMessages=[],excludedTools
   try{
     const summaryLimit=rebuildState.summaryMode==="limited"?rebuildState.summaryLimit:0,minImportance=rebuildState.summaryMode==="limited"?rebuildState.minImportance:0;
     await api(`/api/libraries/${encodeURIComponent(library.threadId)}/settings`,{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({mcpRebuildDefaultsEnabled:rebuildState.mcpDefault,mcpSummaryLimit:summaryLimit,mcpMinImportance:minImportance})});
-    const request={summary:{mode:rebuildState.summaryMode,limit:summaryLimit,minImportance},context:{mode:rebuildState.watermark?"watermark":"active_days",windowDays:rebuildState.windowDays,toolPairs:rebuildState.toolPairs},trim:{excludedMessages,excludedTools},trigger:"web"};
+    const request={summary:{mode:rebuildState.summaryMode,limit:summaryLimit,minImportance},context:{mode:rebuildState.watermark?"watermark":"active_days",windowDays:rebuildState.windowDays,toolPairs:rebuildState.toolPairs},trim:{excludedMessages,excludedTools},trigger:"web",bindingId:rebuildState.bindingMemoryId===library.threadId?rebuildState.bindingId:null};
     const result=await api(`/api/libraries/${encodeURIComponent(library.threadId)}/rebuild/${isCodex?"apply":"queue"}`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(request)});
     const trimmed=excludedMessages.length||excludedTools.length;
     await renderRebuild(library);
@@ -1174,7 +1354,9 @@ function updateSelectionSummary() {
 async function showIntegrity(library, repair) {
   const target = document.querySelector("#integrity"); if (!target) return;
   try {
-    const result = await api(`/api/libraries/${encodeURIComponent(library.threadId)}/rebuild/${repair ? "repair" : "check"}`, { method: repair ? "POST" : "GET" });
+    const bindingId = rebuildState.bindingMemoryId === library.threadId ? rebuildState.bindingId : null;
+    const query = bindingId ? `?binding=${encodeURIComponent(bindingId)}` : "";
+    const result = await api(`/api/libraries/${encodeURIComponent(library.threadId)}/rebuild/${repair ? "repair" : "check"}${repair ? "" : query}`, repair ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ bindingId }) } : { method: "GET" });
     const report = repair ? result.after : result;
     target.className = `integrity ${report.healthy ? "" : "warning"}`;
     target.textContent = repair ? result.message : (report.healthy ? "活动线程结构完整。" : `发现 ${report.issues} 项结构问题，可以尝试自动修复。`);
@@ -1184,8 +1366,14 @@ async function showIntegrity(library, repair) {
 
 async function checkAndRepair(library) {
   const check = await showIntegrity(library, false); if (!check || check.healthy) { showToast("线程结构完整"); return; }
-  const button = document.querySelector("#check-thread"), original = button.innerHTML; button.disabled = true; button.innerHTML = `<strong>正在备份并修复…</strong><span>修复后会自动重新检查。</span>`;
-  await showIntegrity(library, true); button.disabled = false; button.innerHTML = original;
+  const button = document.querySelector("#check-thread, #overview-repair");
+  if (!button) return;
+  const original = button.innerHTML;
+  button.disabled = true;
+  button.innerHTML = button.id === "check-thread" ? `<strong>正在备份并修复…</strong><span>修复后会自动重新检查。</span>` : "正在备份并修复…";
+  await showIntegrity(library, true);
+  button.disabled = false;
+  button.innerHTML = original;
 }
 
 preparePwa();
@@ -1196,6 +1384,10 @@ loadLibraries().then(async () => {
   }
   const route = new URLSearchParams(window.location.search);
   const threadId = route.get("threadId");
+  if (route.get("view") === "workshop") {
+    renderGlobalWorkshop();
+    return;
+  }
   if (route.get("view") === "developer" && state.libraries.some(library => library.threadId === threadId)) {
     await openLibrary(threadId, "developer");
     return;

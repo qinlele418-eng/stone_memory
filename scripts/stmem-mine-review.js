@@ -3,7 +3,8 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const { spawn } = require("child_process");
-const { getCfg, getThreadDir, listThreadIds, loadConfig } = require("../src/config");
+const { getCfg, getThreadDir, loadConfig, getMemoryContext, getMemoryRuntimeConfig } = require("../src/config");
+const { resolveMemoryArg } = require("../src/lib/memory-cli");
 const { MemoryMiner } = require("../src/services/memory-miner");
 const { runSubagent } = require("../src/services/subagent-runner");
 const { fuseReviewCandidate } = require("../src/services/review-fusion");
@@ -31,10 +32,9 @@ async function main() {
     printHelp();
     return;
   }
-  const threadId = valueOf(args, "--thread");
-  if (!threadId) throw new Error("mine-review requires --thread <id>");
+  const threadId = resolveMemoryArg(args, { allowDefault: false });
   const config = loadConfig();
-  if (!config[threadId] || typeof config[threadId] !== "object") throw new Error(`unknown configured thread: ${threadId}`);
+  getMemoryContext(threadId);
   const memoryDir = path.join(getThreadDir(threadId), "memory");
   const candidateDirectoryName = valueOf(args, "--candidate-dir") || "review-candidates";
   const reviews = new MiningReviewStore({ memoryDir, threadId, candidateDirectoryName });
@@ -277,7 +277,7 @@ async function runFusionWriter(prompt, resolved, threadId) {
 
 function resolveProfile(threadId, requested = {}) {
   const config = loadConfig();
-  const thread = config[threadId] || {};
+  const thread = getMemoryRuntimeConfig(threadId);
   const channel = String(requested.channel || thread.minerMode || "subagent");
   if (channel === "api") {
     if (requested.reasoning) throw new Error("reasoning effort is only supported by the Codex subagent");

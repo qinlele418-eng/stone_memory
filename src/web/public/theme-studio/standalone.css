@@ -351,11 +351,11 @@ h3 {
 .community-assets button small { display: block; }
 .community-assets button small { margin-top: 5px; color: var(--stone-theme-ink-soft); font-size: 10px; }
 
-.community-logo-assets { grid-template-columns: 1fr; }
+.community-logo-assets { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
 .community-logo-assets button > img {
   flex: 0 0 auto;
-  width: 150px;
-  height: 68px;
+  width: 72px;
+  height: 72px;
   object-fit: contain;
 }
 
@@ -945,7 +945,35 @@ h3 {
 }
 
 .theme-support-card {
-  display: contents;
+  display: block;
+  margin-top: 22px;
+  padding: 18px;
+  border: 1px solid var(--stone-theme-line-soft);
+  border-radius: var(--stone-theme-radius-lg);
+  background: var(--stone-theme-surface);
+  box-shadow: var(--stone-theme-shadow-card);
+}
+
+.theme-workbench-card {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.theme-support-card .theme-state-preview {
+  margin: 0;
+  padding: 0 0 18px;
+  border-top: 0;
+  border-bottom: 1px solid var(--stone-theme-line-soft);
+}
+
+.theme-support-card .advanced-json {
+  margin: 0;
+  border-top: 0;
+  border-bottom: 0;
 }
 
 .theme-state-preview > div {
@@ -1103,15 +1131,6 @@ h3 {
 .error-card { color: var(--stone-theme-danger); }
 
 @media (min-width: 900px) {
-  .theme-workbench-card {
-    padding: 0;
-    border: 0;
-    background: transparent;
-    box-shadow: none;
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-  }
-
   .theme-groups {
     position: relative;
     isolation: isolate;
@@ -1151,28 +1170,6 @@ h3 {
   .token-group-logo { border-top: 0; }
   .token-group-logo .theme-logo-controls { justify-content: start; }
 
-  .theme-support-card {
-    display: block;
-    margin-top: 22px;
-    padding: 18px;
-    border: 1px solid var(--stone-theme-line-soft);
-    border-radius: var(--stone-theme-radius-lg);
-    background: var(--stone-theme-surface);
-    box-shadow: var(--stone-theme-shadow-card);
-  }
-
-  .theme-support-card .theme-state-preview {
-    margin: 0;
-    padding: 0 0 18px;
-    border-top: 0;
-    border-bottom: 1px solid var(--stone-theme-line-soft);
-  }
-
-  .theme-support-card .advanced-json {
-    margin: 0;
-    border-top: 0;
-    border-bottom: 0;
-  }
 }
 
 @media (max-width: 720px) {
@@ -1190,14 +1187,13 @@ h3 {
 
   .theme-studio-hero { padding: 6px 6px 28px; }
   .theme-studio-hero .eyebrow { margin-top: 22px; }
-  .theme-card { padding: 19px; border-radius: 19px; }
+  .theme-card:not(.theme-workbench-card) { padding: 19px; border-radius: 19px; }
   .theme-card-intro { font-size: 10px; }
   .theme-card-meta { gap: 8px; }
   .theme-name-row { gap: 10px; }
   .theme-logo-row { grid-template-columns: 1fr; }
   .theme-logo-preview { height: auto; }
   .community-assets { grid-template-columns: 1fr; }
-  .community-logo-assets button > img { width: 112px; height: 54px; }
   .theme-palette-row { grid-template-columns: 1fr; gap: 7px; }
   .theme-palette-label { padding-top: 0; }
   .theme-palette { flex-wrap: nowrap; overflow-x: auto; padding: 2px 2px 6px; }

@@ -12,38 +12,30 @@ if (!cmd || cmd === "--help" || cmd === "-h") {
   stmem status                                  查看所有线程状态
   stmem ai-help                                输出给外部 Agent 的安全操作协议
   stmem capabilities [--json]                  声明内置导入、挖掘与重建能力
-  stmem doctor --thread <id> [--json]           只读诊断配置、线程文件与运行状态
+  stmem doctor --memory <id> [--json]           只读诊断配置、Binding 与运行状态
   stmem delete --thread <id> [--dry-run]        删除线程配置及数据
-  stmem scenario list|inspect|set              查看与切换业务场景（set 默认预览）
-  stmem prompt show|set --thread <id>           查看与保存记忆体独立提示词
   stmem init --thread <真实线程ID>              交互式初始化
+  stmem init --new [--name <名称>]              新建未配置记忆体草稿
+  stmem init --memory <id> --batch-file <json>  为记忆体绑定首个线程
   stmem init --template [--runtime codex]       输出 AI 可填写的 JSON 模板
   stmem init --batch-file <json> --validate     严格校验配置和真实线程文件
   stmem init --batch-file <json>                使用与前端相同的正式接口初始化
   stmem fork --parent <id> --thread <id>        将线程登记为共享父级记忆的子线程
-  stmem feature-phrases [--thread <id>]         从所有清洗后的 features 提取通用检索词
-  stmem feature-evidence [--thread <id>]        回查 archive 与 feelings 的词频证据
-  stmem compress [--thread <id>] [--before 日期]  dry-run 压缩 daily feelings
-  stmem compress --thread <id> --apply          写入 coarse_summary 并切换为 coarse
-  stmem compact [--thread <id>]                 对低风险高收益周生成压缩 dry-run
-  stmem compact --thread <id> --apply           原子压缩排名第一周的 coarse 候选
-  stmem compact --thread <id> --from 日期 --to 日期 --apply  原子压缩精确日期窗口
-  stmem hidden [--thread <id>] [--after-days N]  预览非核心 coarse 的长期沉寂候选
-  stmem hidden --thread <id> --apply             将候选原子切换为 hidden
-  stmem lifecycle [--thread <id>] [--action 类型]  feeling 生命周期只读报告
-  stmem term-timeline --thread <id> --terms <词列表>  archive 曲线与 feeling 小点
+  stmem feature-phrases [--memory <id>]         从所有清洗后的 features 提取通用检索词
+  stmem feature-evidence [--memory <id>]        回查 archive 与 feelings 的词频证据
+  stmem compress [--memory <id>] [--before 日期]  dry-run 压缩 daily feelings
+  stmem compact [--memory <id>] [--apply]       周级压缩预览或执行
+  stmem hidden [--memory <id>] [--apply]        长期沉寂预览或执行
+  stmem lifecycle [--memory <id>]               feeling 生命周期只读报告
+  stmem term-timeline --memory <id> --terms <词列表>  archive 曲线与 feeling 小点
   stmem import --source <json|jsonl|sqlite>       预览导入映射（加 --apply 写入）
-  stmem import --dir <path> [--thread <id>]       递归预览目录中的对话数据
-  stmem tool-policy status|detect|filtered|preview|apply|unfilter-preview|unfilter|reset-cleaning|rollback-formatting --thread <id>  检测并配置全量对话清洗
+  stmem import --dir <path> [--memory <id>]       递归预览目录中的对话数据
+  stmem tool-policy status|detect|filtered|preview|apply|unfilter-preview|unfilter|reset-cleaning|rollback-formatting --memory <id>  检测并配置全量对话清洗
   stmem binding list|add|import|batches|revert    实验性多端绑定与可逆对话导入
   stmem module <模块ID> <action> [--batch-file <json>] 运行 manifest 登记的开发者模块命令
-  stmem mine [--thread <id>] --all                  挖掘全部未处理日期，生成feelings + features
-  stmem mine [--thread <id>] [--date <YYYY-MM-DD>]  挖掘单日 feelings + features
-  stmem mine [--thread <id>] --date <日期> --force   直接重挖并覆盖当天结果
-  stmem mine --thread <id> --date <日期> --check --json  自检提示词、输入、上游响应与返回格式
-  stmem mine --thread <id> --stop                  停止该记忆体当前挖掘任务
-  stmem mine [--thread <id>] --targeted --batch-file <json>  对选中的对话精准补挖并追加摘要
-  stmem mine --thread <id> --batch-file <json>    挖掘所选日期（单日直跑，多日自动批处理）
+  stmem mine [--memory <id>] --all                  挖掘全部未处理日期，生成feelings + features
+  stmem mine [--memory <id>] [--date <YYYY-MM-DD>]  挖掘单日 feelings + features
+  stmem mine --memory <id> --date <日期> --check --json  自检提示词、输入、上游响应与返回格式
   stmem mine-review preview|list|mix|apply|discard            可审阅候选与按日替换
   stmem scratch inspect|settings|generate --thread <id>      刮刮乐奖励读取、设置与生成
   stmem dream --thread <id> --date <YYYY-MM-DD>     织梦：为已挖掘完成的日期生成一场梦
@@ -60,12 +52,16 @@ if (!cmd || cmd === "--help" || cmd === "-h") {
   stmem rebuild --thread <id> --apply           实际写入
   stmem rebuild --thread <id> --check           检查活动线程结构完整性
   stmem rebuild --thread <id> --repair          备份并修复可恢复的线程断链
-  stmem rules list|import|update|delete|enable|disable --thread <id>  管理人设/规则
-  stmem memory update|anchor --thread <id> --batch-file <json>  编辑摘要与锚点
-  stmem watcher [status|on|off] --thread <id>   查看/修改该记忆体 watcher 期望状态
+  stmem rules list|import|update|delete|enable|disable --memory <id>  管理人设/规则
+  stmem memory update|anchor --memory <id> --batch-file <json>  编辑摘要与锚点
+  stmem memory create [--name <名称>]            创建未绑定窗口的记忆体
+  stmem memory settings --memory <id> --batch-file <json> --validate|--apply 读取或修改记忆体设置
+  stmem memory delete --memory <id> [--apply]     预览或可恢复删除空草稿
+  stmem api-profile set --batch-file <json> --validate|--apply  保存全局 API 凭据配置
+  stmem watcher [status|on|off] --memory <id>   查看/修改该记忆体 watcher 期望状态
   stmem watcher service install|status|repair|remove  管理 Windows Task Scheduler watcher 服务
-  stmem watcher set --thread <id> --archive|--miner|--compression|--dream on|off  修改内置插件
-  stmem watcher set --thread <id> --dev-<name> on|off  修改开发者插件（必须 dev- 前缀）
+  stmem watcher set --memory <id> --archive|--miner|--compression|--dream on|off  修改内置插件
+  stmem watcher set --memory <id> --dev-<name> on|off  修改开发者插件（必须 dev- 前缀）
   stmem notebook status|topic-create|topic-update|write|query|read|list --thread <id>
                                                 管理主题 Markdown 笔记本
   stmem module list|inspect|paths|audit          查看模块、统一路径与执行模块契约审计
@@ -74,20 +70,17 @@ if (!cmd || cmd === "--help" || cmd === "-h") {
   stmem web dev [--host 地址] [--port 4173]      前台开发模式；后端源码变化自动重启
   stmem web config --host <地址> --port <端口> [--url <访问地址>]  保存启动配置
   stmem supervisor start|stop|restart|status     管理唯一 watcher supervisor
-  stmem db [status|migrate|migrate-all|export] [--thread <id>]  数据库管理
+  stmem db [status|migrate|migrate-all|export] [--memory <id>]  数据库管理
 
-所有 --thread 可省略，默认取第一个已配置线程。
+记忆体命令默认取第一个已配置 memoryId；兼容期仍接受同值的 --thread。
 
 配置: ~/.stone_memory/stmem.json`);
   process.exit(0);
 }
 
 switch (cmd) {
-  case "scenario":
-    require(path.join(SCRIPTS, "stmem-scenario"));
-    break;
-  case "prompt":
-    require(path.join(SCRIPTS, "stmem-prompt"));
+  case "api-profile":
+    require(path.join(SCRIPTS, "stmem-api-profile"));
     break;
   case "ai-help":
     require(path.join(SCRIPTS, "stmem-ai-help"));

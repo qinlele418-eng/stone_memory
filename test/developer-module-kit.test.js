@@ -7,6 +7,7 @@ const publicDir = path.join(__dirname, "..", "src", "web", "public");
 
 test("developer kit consumes an optional semantic snapshot without reading theme persistence", () => {
   const runtime = fs.readFileSync(path.join(publicDir, "developer-kit", "runtime.js"), "utf8");
+  const moduleTheme = fs.readFileSync(path.join(publicDir, "developer-kit", "module-theme.css"), "utf8");
   const contract = JSON.parse(fs.readFileSync(path.join(publicDir, "developer-kit", "contract.json"), "utf8"));
   const index = fs.readFileSync(path.join(publicDir, "developer-kit", "index.html"), "utf8");
   const app = fs.readFileSync(path.join(publicDir, "developer-kit", "app.js"), "utf8");
@@ -18,6 +19,18 @@ test("developer kit consumes an optional semantic snapshot without reading theme
   assert.match(runtime, /window\.StoneDeveloperModule/);
   assert.match(runtime, /threadId/);
   assert.match(runtime, /stone-memory-developer-thread/);
+  assert.match(runtime, /\/developer-kit\/module-theme\.css\?v=2/);
+  const primary = moduleTheme.match(/body\.stone-developer-module \.primary,[\s\S]*?body\.stone-developer-module \.restart \{([\s\S]*?)\n\}/)?.[1] || "";
+  const secondary = moduleTheme.match(/body\.stone-developer-module \.secondary \{([\s\S]*?)\n\}/)?.[1] || "";
+  assert.match(primary, /color:\s*var\(--stone-theme-canvas-warm/);
+  assert.ok(primary.indexOf("background: var(--stone-theme-accent-strong") < primary.indexOf("background: linear-gradient"));
+  assert.ok(secondary.indexOf("background: var(--stone-theme-surface") < secondary.indexOf("background: color-mix"));
+  const mobile = moduleTheme.match(/@media \(max-width: 720px\) \{([\s\S]*?)\n\}/)?.[1] || "";
+  assert.doesNotMatch(mobile, /\.primary|\.secondary|\.restart/);
+  assert.match(moduleTheme, /body\.stone-developer-module \.panel/);
+  assert.match(moduleTheme, /body\.stone-developer-module \.primary/);
+  assert.match(moduleTheme, /body\.stone-developer-module \.section-head/);
+  assert.doesNotMatch(moduleTheme, /display:\s*none|visibility:\s*hidden|pointer-events:\s*none/);
   assert.deepEqual(contract.requiredFiles, ["module.json", "README.md"]);
   assert.equal(contract.moduleRoot, "developer-modules/<module-id>");
   assert.equal(contract.developerContract, "developer-modules/DEVELOPMENT.md");
@@ -29,7 +42,7 @@ test("developer kit consumes an optional semantic snapshot without reading theme
   assert.match(index, /sm-developer-docs\/AGENTS\.md/);
   assert.match(index, /自动注册/);
   assert.match(index, /无需修改核心/);
-  assert.match(index, /插件工坊/);
+  assert.match(index, /title="制作台"/);
   assert.match(index, /CLI · 正式写入/);
   assert.match(index, /MCP · Agent 能力/);
   assert.match(index, /Watcher · 后台自动化/);
@@ -82,15 +95,31 @@ test("extended mining workbench stays detachable and uses the shared module cont
   assert.match(styles, /\.day\s*\{[^}]*min-width:\s*0;/s);
 });
 
-test("main developer mode lazy-loads the module workshop entry", () => {
+test("global workshop lazy-loads plugin entries and keeps the maker separate", () => {
   const html = fs.readFileSync(path.join(publicDir, "index.html"), "utf8");
   const app = fs.readFileSync(path.join(publicDir, "app.js"), "utf8");
   assert.doesNotMatch(html, /developer-kit\/bootstrap\.js/);
   assert.match(app, /loadOptionalScript\("\/developer-kit\/bootstrap\.js(?:\?v=\d+)?"\)/);
-  assert.match(app, /loadOptionalScript\("\/developer-modules\/stone-memory-assistant\/bootstrap\.js"\)/);
+  assert.doesNotMatch(app, /loadOptionalScript\("\/(?:dream-lab|notebook-lab|developer-modules\/stone-memory-assistant)\/bootstrap\.js/);
   assert.doesNotMatch(app, /loadOptionalScript\("\/review-lab\/bootstrap\.js"\)/);
   const bootstrap = fs.readFileSync(path.join(publicDir, "developer-kit", "bootstrap.js"), "utf8");
   assert.match(bootstrap, /MODULE_ORDER = 1/);
+  assert.match(app, /function renderGlobalWorkshop/);
+  assert.match(app, /data-workshop-tab="plugins"[\s\S]*data-workshop-tab="community"[\s\S]*data-workshop-tab="maker"/);
+  assert.match(bootstrap, /data-developer-kit-host/);
+  assert.match(bootstrap, /module\.workshopSection \|\| "plugins"/);
+  assert.match(bootstrap, /plugin-detail-button/);
+  assert.match(bootstrap, /function pluginIconName\(module\)/);
+  assert.match(bootstrap, /return "star"/);
+  assert.doesNotMatch(bootstrap, /const moduleIcon/);
+  assert.match(bootstrap, /stone-memory-plugin-order-v1/);
+  assert.match(bootstrap, /pointerdown/);
+  assert.match(bootstrap, /pointermove/);
+  assert.match(bootstrap, /persistModuleOrder/);
+  assert.match(bootstrap, /ArrowLeft/);
+  assert.match(bootstrap, /plugin-sort-host-active/);
+  assert.match(bootstrap, /dragCenterX/);
+  assert.match(app, /data-module-section="plugins"[\s\S]*data-module-section="community"/);
 });
 
 test("theme studio applies the saved theme before standalone CSS paints", () => {
@@ -100,5 +129,7 @@ test("theme studio applies the saved theme before standalone CSS paints", () => 
   const stylesAt = html.indexOf("standalone.css");
   assert.ok(runtimeAt > 0 && runtimeAt < stylesAt);
   assert.match(html, /<stone-module-page/);
-  assert.match(bootstrap, /destination\.searchParams\.set\("threadId", threadId\)/);
+  assert.match(bootstrap, /destination\.searchParams\.set\("focus"/);
+  assert.match(bootstrap, /data-theme-focus/);
+  assert.match(bootstrap, /#theme-entry-host/);
 });
