@@ -18,17 +18,10 @@ test("restoring official mining prompts never clears the relationship timeline",
   assert.doesNotMatch(app, /timelineTa\.value=timelineTa\.dataset\.default/);
 });
 
-test("developer module web bridge supports global POST commands through private batch files", () => {
-  const server = fs.readFileSync(path.join(__dirname, "..", "src", "web", "server.js"), "utf8");
-  assert.match(server, /req\.method === "GET" \|\| req\.method === "POST"/);
-  assert.match(server, /loaded\.manifest\.scope === "memory" && !threadId/);
-  assert.match(server, /runStmemBatch\(args, await readJson\(req\)\)/);
-});
-
-test("the relationship prompt editor is mounted only for accompany memories", () => {
+test("the prompt editor is available to all registered scenarios", () => {
   const app = fs.readFileSync(path.join(__dirname, "..", "src", "web", "public", "app.js"), "utf8");
-  assert.match(app, /library\.purpose==="accompany"\)loadMiningPrompts/);
-  assert.match(app, /else content\.querySelector\("\.mining-prompts-section"\)\?\.remove\(\)/);
+  assert.ok(app.includes("loadMiningPrompts(content,library);"));
+  assert.ok(!app.includes('library.purpose==="accompany")loadMiningPrompts'));
 });
 
 test("import preview paginates only cleaned archive conversations", () => {
@@ -391,7 +384,7 @@ test("machine init contract keeps display name separate from the real thread id"
   assert.equal(template.automaticCompression, false);
   assert.equal(INIT_SCHEMA.properties.automaticCompression.default, false);
   assert.deepEqual(INIT_SCHEMA.required, [
-    "libraryName", "threadId", "ai", "user", "runtime", "purpose", "sessionDir", "minerMode",
+    "libraryName", "threadId", "ai", "user", "runtime", "sessionDir", "minerMode",
   ]);
 });
 

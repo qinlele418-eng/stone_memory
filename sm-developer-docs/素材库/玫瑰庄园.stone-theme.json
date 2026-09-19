@@ -1,0 +1,60 @@
+{
+  "$schema": "https://stone-memory.local/schemas/ui-theme-v3.json",
+  "version": 3,
+  "name": "玫瑰庄园",
+  "assets": {
+    "logo": null
+  },
+  "tokens": {
+    "colors": {
+      "canvas": "#fbf5f1",
+      "canvasWarm": "#fffef9",
+      "ink": "#574b49",
+      "inkSoft": "#887678",
+      "inkFaint": "#aa9698",
+      "accent": "#dca1af",
+      "accentStrong": "#c68191",
+      "accentSoft": "#f7e5e8",
+      "surface": "#fffdfb",
+      "surfaceSoft": "#f8efec",
+      "line": "#e7d1c2",
+      "lineSoft": "#f1e4dc",
+      "status": "#8fa58e",
+      "danger": "#b66767",
+      "warning": "#b58a63",
+      "info": "#8490a8",
+      "conflict": "#c0787b",
+      "fusion": "#a08094"
+    },
+    "radii": {
+      "extraSmall": "9px",
+      "small": "16px",
+      "medium": "26px",
+      "large": "36px",
+      "pill": "999px"
+    },
+    "shadows": {
+      "card": "0 10px 30px 0 rgba(200, 174, 176, 0.06)",
+      "panel": "0 16px 44px 0 rgba(185, 154, 158, 0.08)",
+      "floating": "0 20px 56px rgba(185, 154, 158, 0.10)",
+      "button": "0 10px 24px rgba(198, 143, 155, 0.12)"
+    },
+    "spacing": {
+      "one": "6px",
+      "two": "10px",
+      "three": "14px",
+      "four": "18px",
+      "five": "24px",
+      "six": "32px"
+    },
+    "typography": {
+      "display": "Georgia, \"Noto Serif SC\", serif",
+      "body": "Inter, \"Noto Sans SC\", \"Microsoft YaHei\", system-ui, sans-serif"
+    },
+    "motion": {
+      "fast": "180ms",
+      "normal": "200ms",
+      "easing": "ease"
+    }
+  }
+}

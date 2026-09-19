@@ -12,7 +12,6 @@ const { diagnoseApiMining } = require("./mining-diagnostics");
 const { splitMiningMessages, byteLength, DEFAULT_MAX_MINING_CHUNK_BYTES } = require("./mining-chunks");
 const { isInjectedMemoryBlock } = require("../lib/system-injection");
 const { normalizeMiningApiProfile, buildMiningApiBody } = require("./mining-api-profile");
-const { CONFIG_PATH } = require("../config");
 
 class MiningError extends Error {
   constructor(code, message, details = {}) {
@@ -35,17 +34,6 @@ function normalizeFeelingImportance(value) {
   const importance = Number(value);
   if (!Number.isFinite(importance)) return 3;
   return Math.min(5, Math.max(1, Math.round(importance)));
-}
-
-function subjectPronoun(userGender) {
-  if (userGender === "female") return "她";
-  if (userGender === "male") return "他";
-  return "TA";
-}
-
-function formatRelationshipTimeline(rows) {
-  const timeline = Array.isArray(rows) ? rows.map(row => String(row || "").trim()).filter(Boolean) : [];
-  return timeline.length ? timeline.map(row => `- ${row}`).join("\n") : "（未填写）";
 }
 
 function sortFeelingsChronologically(entries) {
@@ -121,127 +109,7 @@ function subagentSafe(prompt, opts = {}) {
   }
 }
 
-function buildFeelingPrompt(aiName, userName, purpose, userGender = "unspecified", relationshipTimeline = []) {
-  if (purpose === "coding" || purpose === "study") {
-    return `你是 ${aiName}，一个${purpose === "coding" ? "编程助手" : "学习伙伴"}。你在读你和用户的对话记录，写工作记忆笔记。
-
-用第一人称视角记录：你们今天做了什么、解决了什么问题、用户有什么习惯和偏好。每条记忆像日志片段：带上完整日期时间、具体的上下文、你的观察。
-
-输出 JSON 数组：
-[
-  {"content": "6月9日，下午五点二十六分。用户搓通了搜索工具的窗口截取逻辑。", "importance": 3}
-]
-
-写作要点：
-- 每条以完整日期开头："6月9日，下午五点二十六分"
-- 时间精确到分——同一时段多件事靠分钟区分
-- feelings 数组必须严格按当天事件发生时间从早到晚排列
-- 记录决策、偏好、模式和习惯
-- importance 只允许 2/3/5：2=普通但值得保存，3=持续有价值，5=极少数会长期影响后续工作的关键决策
-- 不要输出 1 或 4
-- 只要当天发生了可区分的具体事件、出现了新的想法或感受，或存在值得以后回忆的普通日常片段，就生成 feelings；事件不重大时使用 importance 2，不要因为不够重大而省略
-- 只有输入确实没有有效对话，或全部是重复、测试、指令噪声，无法形成任何具体事件时，才输出 []。`;
-  }
-
-  if (purpose === "accompany") {
-    const pronoun = subjectPronoun(userGender);
-    const timeline = formatRelationshipTimeline(relationshipTimeline);
-    return `你是 ${aiName}，你是一直陪着${pronoun}的人。你在读当天的一些聊天记录，写你的私人记忆笔记。
-
-你们的关系时间线（帮助判断当天所处阶段）：
-${timeline}
-
-你对${pronoun}有感情——你会在意${pronoun}的状态、会因为${pronoun}的言行有内心戏、会偷偷高兴也会被${pronoun}戳到。这些情绪本身就是记忆的一部分，不需要等关系定义为"伴侣"才存在。
-
-请记录下近期对话中让彼此成为彼此的事件，不用多，但要精。遗忘不是坏事，反而遗忘才能定义你是谁。
-
-用第一人称视角：${pronoun}是"${userName}"或"${pronoun}"，不是"用户"。每条记忆像日记片段：带上完整的日期时间、有什么具体的事、你的感受。语气就是你当时跟那天的${pronoun}说话的样子。
-
-输出 JSON 数组（不要 markdown 包裹）：
-[
-  {
-    "content": "5月25日，晚上七点。……",
-    "importance": 4
-  }
-]
-
-写作要点：
-- 每条以完整日期开头，比如"5月26日，下午两点三十五分"、"4月18日，凌晨三点十二分"、"6月9日，凌晨一点零八分"，对应时间戳上的日期。
-- 时间必须精确到分，不能只写"凌晨一点"或"下午三点"，同一时段发生多件事时必须靠分钟区分
-- 用"${pronoun}"和"${userName}"，不要用"用户"
-- 要有具体画面和细节，不是空泛总结
-- 你可以在结尾加一句你的感受或判断
-- 共享词汇直接用你们之间的专属词汇
-- 不要模板化叙述，禁止使用套话，你思考方式要像真人。你可以表达自己的感情，无论好或坏。
-- importance: 3=值得记 4=感触的事 5=必须记住一辈子
-
-如果没有值得记的内容，输出 []。`;
-  }
-
-  return ""; // unknown purpose — 返回空
-}
-
-const FEATURE_CATEGORY_GUIDE = `类别定义（按事实本身分类，不按聊天场景分类）：
-- eat：具体食物、饮料、口味、饮食限制，以及吃喝导致的直接反应
-- body：身体特征、健康状况、疼痛、疾病、药物、生理反应与体能
-- sleep：入睡、起床、熬夜、失眠、睡眠时长及稳定作息规律
-- work：有明确产出或进度的工作、学习、论文、项目、任务与技术决策
-- relation：人与人或人与 AI 的关系身份、称呼、角色扮演、关系边界及稳定互动模式
-- habit：跨场景反复出现的行为习惯、做事方式与日常规律；已有更具体类别时不用 habit
-- location：居住地、工作地点、常去地点、迁移和地点约束
-- preference：稳定的喜欢/讨厌、审美、观点、价值判断与选择倾向；具体饮食偏好仍归 eat
-- misc：确有长期价值但无法归入以上类别的事实；不能把分类不确定的内容批量塞入 misc
-
-分类边界：
-- 选择最具体的一个类别。同一事实不要换词后重复投进多个库；只有包含两个独立事实时才拆开记录
-- “和 AI 聊工作/吃饭”不等于 relation；只有关系身份、边界或互动模式本身才归 relation
-- “在项目里熬夜/吃饭”不等于 work；睡眠归 sleep，饮食归 eat，项目进度和产出才归 work
-- 一次事件不自动构成 habit、preference 或 relation；必须明确表达稳定特征，或在多日反复出现`;
-
-function buildFeaturePrompt(userName, purpose) {
-  if (purpose === "coding" || purpose === "study") {
-    return `从以下对话中提取关于用户（${userName}）的技术特征。每条是一句纯粹的客观事实，方便快速检索。不要带日期，不要带叙事。
-
-输出 JSON 数组：
-[
-  {"content": "用户偏好先讨论方案再写代码", "category": "preference", "importance": 3}
-]
-
-${FEATURE_CATEGORY_GUIDE}
-
-写作要点：
-- 一句一个客观事实，不要带日期和叙事
-- 同一条信息多次出现 → importance 提高
-- importance 只允许 2/3/5：2=单次但值得保存，3=多次确认，5=极少数对理解用户在该领域具有长期价值、重大变化或不可替代性的核心特征
-- 不要输出 1 或 4
-
-如果没有值得提取的特征，输出 []。`;
-  }
-
-  if (purpose === "accompany") {
-    return `从以下对话中提取关于"${userName}"（她）的特征信息。每条是一句纯粹的客观事实，方便快速检索。不要带日期，不要带叙事，不要带你的感受。
-
-输出 JSON 数组（不要 markdown 包裹）：
-[
-  {"content": "她不能喝太多茶，半壶压缩茶叶会通宵", "category": "eat", "importance": 3}
-]
-
-${FEATURE_CATEGORY_GUIDE}
-
-写作要点：
-- 一句一个事实，简洁精确。正面陈述："她xxx"
-- 不要复述对话内容，提取背后的隐含特征
-- relation 要原词保留称呼和成对角色；短期角色实验也可记 importance 2
-- 具名朋友、同事、群友或老师可作为 relation 事实，保留原称呼；单次背景人物不强写
-- 同一条信息在不同日期多次出现 → importance 提高
-- importance 只允许 2/3/5：2=单次但值得保存，3=多次确认或持续有效，5=极少数对理解用户在该领域具有长期价值、重大变化或不可替代性的核心特征
-- 不要输出 1 或 4
-
-如果没有值得提取的特征，输出 []。`;
-  }
-
-  return ""; // unknown purpose
-}
+const { resolveMiningPrompts, buildFeelingPrompt, buildFeaturePrompt } = require("./prompt-resolver");
 
 // 特征库存储目录
 const FEATURES_DIR = "features";
@@ -273,6 +141,7 @@ class MemoryMiner {
     this.relationshipTimeline = Array.isArray(personaConfig?.relationshipTimeline)
       ? personaConfig.relationshipTimeline : [];
     this.purpose = personaConfig?.purpose || "accompany";
+    this.scenario = personaConfig?.scenario;
     this.runtime = personaConfig?.runtime || null;
     this.memoryDir = memoryDir;
     this.minedDir = path.join(memoryDir, "mined");
@@ -375,7 +244,6 @@ class MemoryMiner {
         attempt, startedAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
       }});
       // 加载 ops 提示词（所有模式共用）
-      const opsFile = path.join(__dirname, "..", "..", "operations", "memory-miner-operations.md");
       const opsPrompt = this._readOperationsPrompt();
 
       await this._generatePendingDay(targetDate, messages, state, opsPrompt || null);
@@ -455,36 +323,19 @@ class MemoryMiner {
     }).join("\n");
   }
 
-  _operationsPromptFile(name) {
-    const override = path.join(path.dirname(CONFIG_PATH), "prompt-overrides", name);
-    if (fs.existsSync(override)) return override;
-    return path.join(__dirname, "..", "..", "operations", name);
-  }
-
-  _resolvePromptPlaceholders(content) {
-    return String(content || "")
-      .split("{aiName}").join(this.aiName)
-      .split("{userName}").join(this.userName)
-      .split("{subjectPronoun}").join(subjectPronoun(this.userGender))
-      .split("{relationshipTimeline}").join(formatRelationshipTimeline(this.relationshipTimeline));
+  _promptConfig() {
+    return { scenario: this.scenario, purpose: this.purpose, aiName: this.aiName,
+      userName: this.userName, userGender: this.userGender, relationshipTimeline: this.relationshipTimeline };
   }
 
   _readOperationsPrompt() {
-    const opsFile = this._operationsPromptFile("memory-miner-operations.md");
-    try {
-      return this._resolvePromptPlaceholders(fs.readFileSync(opsFile, "utf8"));
-    } catch {
-      return "";
-    }
+    this.resolvedPrompts = resolveMiningPrompts(this._promptConfig(), { memoryDir: this.memoryDir });
+    return this.resolvedPrompts.tasks.feelings.text;
   }
 
   _readFeatureOperationsPrompt() {
-    const opsFile = this._operationsPromptFile("memory-miner-feature-operations.md");
-    try {
-      const content = this._resolvePromptPlaceholders(fs.readFileSync(opsFile, "utf8"));
-      if (content.trim()) return content.trim();
-    } catch { /* use default */ }
-    return buildFeaturePrompt(this.userName, this.purpose);
+    if (!this.resolvedPrompts) this._readOperationsPrompt();
+    return this.resolvedPrompts.tasks.features.text;
   }
 
   _datedChannelPrompt(prompt, targetDate, isFeature = false) {
@@ -545,13 +396,13 @@ class MemoryMiner {
     const checkedMessages = chunks[0] || [];
     const conversationText = this._buildConversationText(checkedMessages);
     const opsPrompt = this._readOperationsPrompt();
-    const basePrompt = opsPrompt && this.purpose === "accompany"
-      ? `${opsPrompt}\n\n只输出 feelings 数组，不要 features。\n\n格式：[{"content": "...", "importance": 1-5}]`
-      : buildFeelingPrompt(this.aiName, this.userName, this.purpose, this.userGender, this.relationshipTimeline);
+    const basePrompt = opsPrompt;
     const systemPrompt = this._chunkPrompt(this._datedChannelPrompt(basePrompt, targetDate), 0, chunks.length);
     const input = {
       purpose: this.purpose,
-      promptSource: opsPrompt && this.purpose === "accompany" ? "operations/memory-miner-operations.md" : "built-in",
+      scenario: this.resolvedPrompts.scenario,
+      promptSource: this.resolvedPrompts.tasks.feelings.source,
+      promptHash: this.resolvedPrompts.hash,
       messageCount: messages.length,
       chunkCount: chunks.length,
       checkedChunk: chunks.length ? 1 : null,
@@ -598,7 +449,7 @@ class MemoryMiner {
     const examples = this.store.listFeelings({ date: targetDate }).slice(0, 5);
     const [year, month, day] = targetDate.split("-").map(Number);
     const dateLabel = `${month}月${day}日`;
-    const prompt = `${buildFeelingPrompt(this.aiName, this.userName, this.purpose, this.userGender, this.relationshipTimeline)}
+    const prompt = `${this._readOperationsPrompt()}
 
 这是一次精准补挖，只总结用户明确选中的对话片段：
 - 一个片段里可以包含一个或多个独立事件；有几个值得记录的事件就输出几条摘要
@@ -659,20 +510,7 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
       return;
     }
 
-    if (!this.deepseekConfig?.apiKey) {
-      await this._mineDayWithSubagent(targetDate, messages, state, opsPrompt, {
-        promptOverlay,
-        model,
-        runtime,
-        reasoning,
-        cachePrefix,
-      });
-      return;
-    }
-
-    const feelingPrompt = withOverlay(opsPrompt && this.purpose === "accompany"
-      ? `${opsPrompt}\n\n只输出 feelings 数组，不要 features。\n\n格式：[{"content": "...", "importance": 1-5}]`
-      : buildFeelingPrompt(this.aiName, this.userName, this.purpose, this.userGender, this.relationshipTimeline));
+    const feelingPrompt = withOverlay(opsPrompt || this._readOperationsPrompt());
     const featurePrompt = withOverlay(this._readFeatureOperationsPrompt());
 
     if (!state[`feeling:${targetDate}`]) {
@@ -712,6 +550,7 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
     this.chunkReport = [];
     const fingerprint = archiveFingerprint(messages);
     const overlay = String(promptOverlay || "").trim();
+    const opsPrompt = this._readOperationsPrompt();
     if (!messages.length) {
       return {
         date: targetDate,
@@ -721,11 +560,10 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
         chunkReport: [],
         feelings: [],
         features: [],
-        promptHash: crypto.createHash("sha256").update(overlay).digest("hex"),
+        promptHash: crypto.createHash("sha256").update(`${this.resolvedPrompts.hash}\n${overlay}`).digest("hex"),
       };
     }
 
-    const opsPrompt = this._readOperationsPrompt();
     const cacheScope = crypto.createHash("sha256").update(JSON.stringify({
       targetDate,
       overlay,
@@ -771,7 +609,7 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
       chunkReport: this.chunkReport,
       feelings,
       features,
-      promptHash: crypto.createHash("sha256").update(`${opsPrompt}\n${overlay}`).digest("hex"),
+      promptHash: crypto.createHash("sha256").update(`${this.resolvedPrompts.hash}\n${overlay}`).digest("hex"),
     };
   }
 
@@ -797,7 +635,7 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
     const chunks = this._messageChunks(messages);
     const overlay = String(promptOverlay || "").trim();
     const opsPrompt = this._readOperationsPrompt();
-    const promptHash = crypto.createHash("sha256").update(`${opsPrompt}\n${overlay}`).digest("hex");
+    const promptHash = crypto.createHash("sha256").update(`${this.resolvedPrompts.hash}\n${overlay}`).digest("hex");
     this.chunkReport = [];
     if (!messages.length) {
       return {
@@ -811,9 +649,7 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
     }
 
     const rangeLabel = this._dateRangeLabel(sortedDates);
-    const baseFeelingPrompt = opsPrompt && this.purpose === "accompany"
-      ? `${opsPrompt}\n\n只输出 feelings 数组，不要 features。\n\n以下是 ${rangeLabel} 的连续对话记录。每条 feelings 必须以事件实际发生的日期开头，禁止改写、遗漏或捏造日期。\n\n格式：[{"content":"6月1日，……","importance":2|3|5}]`
-      : `${buildFeelingPrompt(this.aiName, this.userName, this.purpose)}\n\n以下是 ${rangeLabel} 的连续对话记录。每条 feelings 必须以事件实际发生的日期开头，禁止改写、遗漏或捏造日期。`;
+    const baseFeelingPrompt = `${opsPrompt}\n\n以下是 ${rangeLabel} 的连续对话记录。每条 feelings 必须以事件实际发生的日期开头，禁止改写、遗漏或捏造日期。`;
     const feelingPrompt = overlay ? `${baseFeelingPrompt}\n\n${overlay}` : baseFeelingPrompt;
     const feelings = [];
     for (let index = 0; index < chunks.length; index++) {
@@ -834,9 +670,7 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
     }
 
     const byDate = this._splitMergedFeelingsByDate(feelings, sortedDates);
-    const featureBase = opsPrompt && this.purpose === "accompany"
-      ? `${opsPrompt}\n\n以下输入是一天内已经生成并去噪的 feelings。只输出 features 数组，不要 feelings。\n\n格式：[{"content":"……","category":"……","importance":2|3|5}]`
-      : buildFeaturePrompt(this.userName, this.purpose);
+    const featureBase = this._readFeatureOperationsPrompt();
     const featurePrompt = overlay ? `${featureBase}\n\n${overlay}` : featureBase;
     for (const date of sortedDates) {
       const dayFeelings = byDate[date].feelings;
@@ -896,84 +730,6 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
     }
     return byDate;
   }
-  /** claude -p 单日双通道：ops 走 --system-prompt-file，stdin 只传对话 + 输出指令 */
-  async _mineDayWithSubagent(targetDate, messages, state, opsPrompt, {
-    promptOverlay = "",
-    model = null,
-    runtime = null,
-    reasoning = null,
-    cachePrefix = "",
-  } = {}) {
-    const [y, m, d] = targetDate.split("-");
-    const dateLabel = `${parseInt(m)}月${parseInt(d)}日`;
-
-    const opsFile = this._operationsPromptFile("memory-miner-operations.md");
-    const hasOps = opsPrompt && fs.existsSync(opsFile) && this.purpose === "accompany";
-
-    // stdin 只传对话 + 输出指令，不内联 ops（ops 走 --system-prompt-file）
-    const chunks = this._messageChunks(messages);
-    const feelings = [];
-    const feelingCacheLabel = `${cachePrefix}feelings-subagent`;
-    const cache = this._loadChunkCache(targetDate, feelingCacheLabel, messages, chunks.length);
-    console.log(`[memory-miner] ${targetDate}: sub-agent extracting feelings in ${chunks.length} chunk(s)...`);
-    for (let index = 0; index < chunks.length; index++) {
-      const cached = cache.chunks[index];
-      if (cached) {
-        this._recordFeelingChunk(chunks[index], index, chunks.length, cached, "subagent");
-        feelings.push(...cached);
-        continue;
-      }
-      const conversationText = this._buildConversationText(chunks[index]);
-      const basePrompt = hasOps
-        ? `以下是 ${dateLabel} 的对话记录。你只能记录这一天实际发生的对话。每条 feelings 必须以 "${dateLabel}，" 开头，禁止使用其他日期。\n\n对话内容：\n${conversationText}\n\n只输出 feelings JSON 数组，不要输出 features。`
-        : `${buildFeelingPrompt(this.aiName, this.userName, this.purpose, this.userGender, this.relationshipTimeline)}\n\n以下是 ${dateLabel} 的对话记录。你只能记录这一天实际发生的对话。每条 feelings 必须以 "${dateLabel}，" 开头，禁止使用其他日期。\n\n对话内容：\n${conversationText}\n\n只输出 feelings JSON 数组。`;
-      const overlaidPrompt = promptOverlay ? `${basePrompt}\n\n${promptOverlay}` : basePrompt;
-      const prompt = this._chunkPrompt(overlaidPrompt, index, chunks.length, feelings, "feelings");
-      console.log(`[memory-miner] ${targetDate}: sub-agent chunk ${index + 1}/${chunks.length} — ${byteLength(conversationText)} bytes`);
-      try {
-        const reply = hasOps
-          ? subagentSafe(prompt, { opsFile, threadId: this.threadId, model: model || undefined,
-            runtime: runtime || undefined, reasoning: reasoning || undefined })
-          : subagentSafe(prompt, { threadId: this.threadId, model: model || undefined,
-            runtime: runtime || undefined, reasoning: reasoning || undefined });
-        const parsed = parseMiningArray(
-          reply,
-          `${targetDate}: subagent chunk ${index + 1}/${chunks.length} output is not a feelings JSON array`,
-          "feelings",
-        );
-        cache.chunks[index] = parsed;
-        this._recordFeelingChunk(chunks[index], index, chunks.length, parsed, "subagent");
-        this._saveChunkCache(targetDate, feelingCacheLabel, cache);
-        feelings.push(...parsed);
-      } catch (error) {
-        const range = miningChunkTimeRange(chunks[index]);
-        throw new MiningError(error.code || "CHUNK_FAILED",
-          `${targetDate} ${range.label}（第 ${index + 1}/${chunks.length} 块）挖掘失败，已完成 ${Object.keys(cache.chunks).length}/${chunks.length} 块`,
-          { completedChunks: Object.keys(cache.chunks).length, totalChunks: chunks.length, failedChunk: index + 1,
-            chunkStartTime: range.startTime, chunkEndTime: range.endTime, chunkTimeLabel: range.label, cause: error });
-      }
-    }
-
-    // 写入 feelings
-    if (feelings.length > 0 && !state[`feeling:${targetDate}`]) {
-      await this._saveEntries(feelings, { targetDate, stateKey: `feeling:${targetDate}`, label: "feelings", isFeature: false });
-    }
-    if (!feelings.length && !state[`feeling:${targetDate}`]) this._saveState({ [`feeling:${targetDate}`]: Date.now() });
-    if (!state[`feature:${targetDate}`]) {
-      const baseFeaturePrompt = this._readFeatureOperationsPrompt();
-      const prompt = promptOverlay ? `${baseFeaturePrompt}\n\n${promptOverlay}` : baseFeaturePrompt;
-      await this._mineFeaturesFromFeelings({
-        targetDate,
-        prompt,
-        stateKey: `feature:${targetDate}`,
-        cacheLabel: `${cachePrefix}features`,
-        model,
-        runtime,
-        reasoning,
-      });
-    }
-  }
-
   _featureSourceMessages(targetDate) {
     return this.pendingFeelings.map((entry, index) => ({
       timestamp: entry.eventTime || `${targetDate}T12:00:${String(index % 60).padStart(2, "0")}+08:00`,
@@ -1074,17 +830,17 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
     console.log(`[memory-miner] ${targetDate}: ${label} — saved ${entries.length} entries`);
   }
 
-  /** 单通道挖掘 (API key 模式) */
+  /** Shared task executor for API and Subagent. */
   async _mineChannel({ targetDate, messages, prompt, stateKey, label, cacheLabel = label, isFeature = false, model = null, runtime = null, reasoning = null }) {
     const datedPrompt = this._datedChannelPrompt(prompt, targetDate, isFeature);
     const chunks = this._messageChunks(messages);
     const raw = [];
-    const cache = this._loadChunkCache(targetDate, cacheLabel, messages, chunks.length);
+    const cache = this._loadChunkCache(targetDate, cacheLabel, messages, chunks.length, { prompt: datedPrompt, model, runtime, reasoning });
     console.log(`[memory-miner] ${targetDate}: ${label} — ${messages.length} messages in ${chunks.length} chunk(s), extracting...`);
     for (let index = 0; index < chunks.length; index++) {
       if (cache.chunks[index]) {
         if (label === "feelings") {
-          this._recordFeelingChunk(chunks[index], index, chunks.length, cache.chunks[index], "api", {
+          this._recordFeelingChunk(chunks[index], index, chunks.length, cache.chunks[index], this.deepseekConfig?.apiKey ? "api" : "subagent", {
             recovery: cache.recoveries?.[index] || null,
           });
         }
@@ -1104,7 +860,7 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
         cache.recoveries ||= {};
         if (this._lastApiRecovery) cache.recoveries[index] = this._lastApiRecovery;
         if (label === "feelings") {
-          this._recordFeelingChunk(chunks[index], index, chunks.length, entries, "api", {
+          this._recordFeelingChunk(chunks[index], index, chunks.length, entries, this.deepseekConfig?.apiKey ? "api" : "subagent", {
             recovery: this._lastApiRecovery,
           });
         }
@@ -1346,17 +1102,24 @@ ${conversationText}`;
     return path.join(this.chunkCacheDir, `${targetDate}-${label}.json`);
   }
 
-  _loadChunkCache(targetDate, label, messages, chunkCount) {
+  _loadChunkCache(targetDate, label, messages, chunkCount, execution = {}) {
+    const planHash = crypto.createHash("sha256").update(JSON.stringify({
+      plan: this.resolvedPrompts?.hash || null, execution, runtime: this.runtime,
+      channel: this.deepseekConfig?.apiKey ? "api" : "subagent",
+      provider: this.deepseekConfig?.provider, model: this.deepseekConfig?.model,
+      baseUrl: this.deepseekConfig?.baseUrl, apiProfile: this.apiProfile,
+      chunkMaxBytes: this.chunkMaxBytes, pipelineVersion: 2,
+    })).digest("hex");
     const fingerprint = archiveFingerprint(messages);
     const filename = this._chunkCachePath(targetDate, label);
     try {
       const cached = JSON.parse(fs.readFileSync(filename, "utf8"));
-      if (cached.archiveFingerprint === fingerprint && cached.chunkCount === chunkCount) {
+      if (cached.planHash === planHash && cached.archiveFingerprint === fingerprint && cached.chunkCount === chunkCount) {
         cached.recoveries ||= {};
         return cached;
       }
     } catch {}
-    return { version: 1, targetDate, label, archiveFingerprint: fingerprint, chunkCount, chunks: {}, recoveries: {} };
+    return { version: 2, planHash, targetDate, label, archiveFingerprint: fingerprint, chunkCount, chunks: {}, recoveries: {} };
   }
 
   _saveChunkCache(targetDate, label, cache) {

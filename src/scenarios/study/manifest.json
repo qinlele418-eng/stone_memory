@@ -1,0 +1,17 @@
+{
+  "id": "study",
+  "version": 1,
+  "label": "学习",
+  "storagePurpose": "study",
+  "tasks": [
+    "feelings",
+    "features"
+  ],
+  "prompts": {
+    "feelings": "summary.md",
+    "features": "features.md"
+  },
+  "legacyOverrides": {
+    "features": "memory-miner-feature-operations.md"
+  }
+}
