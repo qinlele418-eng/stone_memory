@@ -11,6 +11,7 @@ test("MCP preview and queue share the structured rebuild request", () => {
     summary: { mode: "limited", limit: 200, minImportance: 3 },
     context: { mode: "watermark", windowDays: 5, toolPairs: 40 },
     trim: { excludedMessages: [], excludedTools: [] },
+    bindingId: null,
     trigger: "mcp",
   });
 });
@@ -27,6 +28,7 @@ test("MCP accepts the same nested request shape as Web and stamps its own trigge
     summary: { mode: "default", limit: 0, minImportance: 0 },
     context: { mode: "active_days", windowDays: 7, toolPairs: 12 },
     trim: { excludedMessages: ["m1"], excludedTools: ["t1"] },
+    bindingId: null,
     trigger: "mcp",
   });
 });

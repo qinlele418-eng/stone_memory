@@ -44,9 +44,13 @@ function readBatchFile(args) {
 }
 
 function commandInput(args, action) {
+  const memoryId = valueAfter(args, "--memory");
+  const legacyThreadId = valueAfter(args, "--thread");
+  if (memoryId && legacyThreadId && memoryId !== legacyThreadId) throw new Error("--memory 与兼容参数 --thread 不能指向不同记忆体");
   return {
     action,
-    threadId: valueAfter(args, "--memory") || valueAfter(args, "--thread"),
+    memoryId: memoryId || legacyThreadId,
+    threadId: memoryId || legacyThreadId,
     bindingId: valueAfter(args, "--binding") || valueAfter(args, "--id"),
     summaryLimit: valueAfter(args, "--summary-limit"),
     minImportance: valueAfter(args, "--min-importance"),
@@ -58,31 +62,6 @@ function commandInput(args, action) {
 async function runModuleCommand(args = process.argv.slice(3)) {
   const action = args[0] || "list";
   const json = args.includes("--json");
-  if (action === "mcp") {
-    const operation = args[1] || "status";
-    const { readConfig, planChange, applyChange, reconnect } = require("../src/services/developer-module-mcp-config");
-    if (operation === "status") {
-      const { Registry } = require("../src/mcp/registry");
-      const registry = new Registry();
-      registry.registerCore({ tools: require("../src/mcp/core/definitions").TOOLS, call() {} });
-      const config = readConfig();
-      const modules = require("../src/mcp/module-provider-loader").loadModuleProviders(registry, { config });
-      const result = { revision: config.revision, modules, reconnect, note: "Provider 结果是本次 CLI 探测，不代表已连接 MCP 会话。" };
-      console.log(JSON.stringify(result, null, 2));
-      return result;
-    }
-    if (!["enable", "disable"].includes(operation)) throw new Error("MCP_OPERATION_INVALID");
-    const plan = planChange({ moduleId: valueAfter(args, "--module"), memoryId: valueAfter(args, "--memory"), enabled: operation === "enable", global: args.includes("--global") });
-    const apply = args.includes("--apply");
-    if (apply) applyChange(plan);
-    const state = plan.after.modules[plan.moduleId];
-    const result = { applied: apply, dryRun: !apply, moduleId: plan.moduleId, memoryId: plan.memoryId, revision: apply ? plan.after.revision : plan.before.revision, state, reconnect,
-      effectiveEnabled: state.globalEnabled && (plan.scope === "global" || state.memories[plan.memoryId] === true),
-      note: plan.scope === "memory" && !state.globalEnabled ? "全局 MCP 仍关闭；记忆体选择不会打开全局开关。需另行使用 --global 显式开启。" : "全局开关与各记忆体选择独立保存。",
-    };
-    console.log(JSON.stringify(result, null, 2));
-    return result;
-  }
   if (action === "list") {
     const modules = loadModules().map(item => ({ id: item.id, title: item.manifest.title, scope: item.manifest.scope, version: item.manifest.version, valid: !item.errors.length }));
     return console.log(json ? JSON.stringify(modules, null, 2) : modules.map(item => `${item.id}\t${item.scope}\tv${item.version}\t${item.title || ""}`).join("\n"));
@@ -90,29 +69,17 @@ async function runModuleCommand(args = process.argv.slice(3)) {
   if (action === "inspect" || action === "paths") {
     const id = valueAfter(args, "--id") || args[1];
     const loaded = findModule(id);
-    const threadId = valueAfter(args, "--thread");
+    const threadId = valueAfter(args, "--memory") || valueAfter(args, "--thread");
     const output = {
       id: loaded.id,
       codeDir: loaded.moduleDir,
-      dataDir: loaded.manifest.scope === "global" || threadId ? moduleDataDir(loaded.manifest, { threadId }) : null,
+      dataDir: loaded.manifest.scope === "global" || threadId ? moduleDataDir(loaded.manifest, { memoryId: threadId }) : null,
       manifest: loaded.manifest,
     };
     return console.log(JSON.stringify(output, null, 2));
   }
   if (action === "audit") {
     const report = auditDeveloperModules();
-    const { Registry } = require("../src/mcp/registry");
-    const registry = new Registry();
-    // Only explicitly enabled providers are executed for dynamic contract audit.
-    // Core metadata is enough to detect collisions; do not load database code.
-    registry.registerCore({ tools: require("../src/mcp/core/definitions").TOOLS, call() {} });
-    const providers = require("../src/mcp/module-provider-loader").loadModuleProviders(registry);
-    report.providers = providers;
-    for (const provider of providers.filter(item => item.provider === "failed" || item.provider === "config-error")) {
-      report.findings.push({ severity: "error", code: "mcp-provider-contract", moduleId: provider.id, message: "MCP Provider 加载或契约验证失败" });
-      report.errors++;
-    }
-    report.ok = report.errors === 0;
     printAudit(report, json);
     if (args.includes("--strict") && !report.ok) process.exitCode = 1;
     return;
@@ -126,13 +93,15 @@ async function runModuleCommand(args = process.argv.slice(3)) {
   const implementation = require(commandFile);
   if (typeof implementation.run !== "function") throw new Error(`模块命令 ${moduleAction} 未导出 run(context,input)`);
   const input = commandInput(args.slice(1), moduleAction);
+  if (args.includes("--apply")) input.apply = true;
+  if (args.includes("--dry-run")) input.apply = false;
   if (moduleAction === "hook") {
     try { input.stdin = await readStdin(); }
     catch { return console.log("{}"); }
   }
   // Metadata commands and contract checks do not need the database runtime.
   const { createModuleContext } = require("../src/services/developer-module-runtime");
-  const context = createModuleContext(loaded.manifest, { threadId: input.threadId });
+  const context = createModuleContext(loaded.manifest, { memoryId: input.memoryId });
   const output = await implementation.run(context, input);
   console.log(JSON.stringify(output ?? {}, null, moduleAction === "hook" ? 0 : 2));
   return output;

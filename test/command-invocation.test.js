@@ -110,5 +110,19 @@ test("MCP thread resolution requires explicit binding when multiple memories exi
   assert.equal(resolveMcpThread({}, cfg, ["qiheng", "chengxu"], { STMEM_THREAD_ID: "chengxu" }), "chengxu");
   assert.throws(() => resolveMcpThread({}, cfg, ["qiheng", "chengxu"], {}), /显式指定 thread/);
   assert.equal(resolveMcpThread({}, { qiheng: {} }, ["qiheng"], {}), "qiheng");
+  assert.throws(
+    () => resolveMcpThread({}, { qiheng: {} }, ["qiheng"], {}, { allowSoleMemory: false }),
+    /修改正式状态.*显式指定记忆体/,
+  );
+  assert.equal(
+    resolveMcpThread({}, { qiheng: {} }, ["qiheng"], { STMEM_MEMORY_ID: "qiheng" }, { allowSoleMemory: false }),
+    "qiheng",
+  );
   assert.throws(() => resolveMcpThread({ thread: "missing" }, cfg, ["qiheng", "chengxu"], {}), /未配置线程/);
+  const bindingIdentities = {
+    "memory-a": { memoryId: "memory-a" },
+    "external-session-a": { memoryId: "memory-a" },
+  };
+  assert.equal(resolveMcpThread({}, bindingIdentities, ["memory-a"], { CODEX_THREAD_ID: "external-session-a" }), "memory-a");
+  assert.equal(resolveMcpThread({ memoryId: "memory-a", thread: "external-session-a" }, bindingIdentities, ["memory-a"], {}), "memory-a");
 });

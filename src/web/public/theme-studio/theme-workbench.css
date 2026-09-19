@@ -6,19 +6,138 @@ body.stone-theme-enabled .memory-entry-grid button,
 body.stone-theme-enabled .stat,
 body.stone-theme-enabled .import-card {
   border-color: var(--stone-theme-line-soft);
-  background: var(--stone-theme-surface);
+  background: color-mix(in srgb, var(--stone-theme-surface) 82%, transparent);
 }
 
 body.stone-theme-enabled .topbar {
-  border-radius: var(--stone-theme-radius-pill);
+  border-radius: var(--stone-theme-radius-lg);
   background: transparent;
   box-shadow: none;
 }
 
 body.stone-theme-enabled .sidebar {
+  padding: 18px;
+  border: 1px solid var(--stone-theme-line-soft);
   border-radius: var(--stone-theme-radius-lg);
-  background: transparent;
-  box-shadow: none;
+  background: color-mix(in srgb, var(--stone-theme-surface) 88%, transparent);
+  box-shadow: var(--stone-theme-shadow-card);
+  backdrop-filter: blur(18px) saturate(112%);
+  -webkit-backdrop-filter: blur(18px) saturate(112%);
+}
+
+body.stone-theme-enabled .side-nav {
+  gap: 4px;
+}
+
+body.stone-theme-enabled .side-nav button {
+  min-height: 42px;
+  border-radius: var(--stone-theme-radius-sm);
+}
+
+body.stone-theme-enabled .side-nav button.active {
+  background: var(--stone-theme-surface);
+  box-shadow: var(--stone-theme-shadow-card);
+}
+
+body.stone-theme-enabled .primary,
+body.stone-theme-enabled .secondary,
+body.stone-theme-enabled .ghost,
+body.stone-theme-enabled .danger-button {
+  min-height: 44px;
+  border-radius: var(--stone-theme-radius-sm);
+}
+
+body.stone-theme-enabled .dashboard-head {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  padding: clamp(24px, 3.2vw, 34px);
+}
+
+body.stone-theme-enabled .dashboard-head::after {
+  position: absolute;
+  z-index: -1;
+  width: 190px;
+  height: 190px;
+  top: -108px;
+  right: -62px;
+  border: 1px solid color-mix(in srgb, var(--stone-theme-accent) 18%, transparent);
+  border-radius: 48% 52% 44% 56%;
+  box-shadow:
+    0 0 0 28px color-mix(in srgb, var(--stone-theme-accent) 4%, transparent),
+    0 0 0 56px color-mix(in srgb, var(--stone-theme-accent) 3%, transparent);
+  transform: rotate(18deg);
+  content: "";
+}
+
+body.stone-theme-enabled .dashboard-head h1 {
+  font-size: clamp(30px, 4vw, 42px);
+  letter-spacing: -0.035em;
+}
+
+body.stone-theme-enabled .section-card {
+  padding: clamp(21px, 2.7vw, 28px);
+}
+
+body.stone-theme-enabled .library-grid {
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+body.stone-theme-enabled .library-card,
+body.stone-theme-enabled .new-card {
+  min-height: 250px;
+}
+
+body.stone-theme-enabled .library-card {
+  padding: 23px;
+}
+
+body.stone-theme-enabled .library-card .mini-stone {
+  width: 128px;
+  right: -8px;
+}
+
+body.stone-theme-enabled .library-card h2 {
+  margin-top: 108px;
+  font-size: 26px;
+}
+
+body.stone-theme-enabled .overview-grid,
+body.stone-theme-enabled .management-overview-grid,
+body.stone-theme-enabled .maintenance-grid {
+  gap: 12px;
+}
+
+body.stone-theme-enabled .overview-grid > div,
+body.stone-theme-enabled .management-overview-entry,
+body.stone-theme-enabled .maintenance-card,
+body.stone-theme-enabled .automation-status-card,
+body.stone-theme-enabled .check-card,
+body.stone-theme-enabled .summary-box {
+  border-radius: var(--stone-theme-radius-md);
+}
+
+body.stone-theme-enabled .management-overview-entry {
+  color: var(--stone-theme-ink);
+  border-color: var(--stone-theme-line-soft);
+  background: color-mix(in srgb, var(--stone-theme-surface) 76%, var(--stone-theme-accent-soft));
+}
+
+body.stone-theme-enabled .maintenance-card {
+  min-height: 160px;
+  padding: 24px;
+}
+
+body.stone-theme-enabled .maintenance-card strong {
+  margin-bottom: 9px;
+  font-size: 24px;
+}
+
+body.stone-theme-enabled .maintenance-card i {
+  flex-basis: 46px;
+  width: 46px;
+  height: 46px;
 }
 
 body.stone-theme-enabled .library-card,
@@ -70,6 +189,32 @@ body.stone-theme-enabled .theme-upload {
     transform var(--stone-theme-motion-fast) var(--stone-theme-ease-soft),
     background var(--stone-theme-motion-fast) ease,
     box-shadow var(--stone-theme-motion-normal) var(--stone-theme-ease-soft);
+}
+
+/* Responsive patch: layout and sizing only; theme visuals stay viewport-neutral. */
+@media (max-width: 760px) {
+  body.stone-theme-enabled .sidebar {
+    padding: 14px;
+    border-radius: var(--stone-theme-radius-md);
+  }
+
+  body.stone-theme-enabled .side-nav button {
+    min-height: 46px;
+  }
+
+  body.stone-theme-enabled .dashboard-head {
+    padding: 22px;
+  }
+
+  body.stone-theme-enabled .dashboard-head h1 {
+    font-size: 30px;
+  }
+
+  body.stone-theme-enabled .library-card,
+  body.stone-theme-enabled .new-card {
+    min-height: 230px;
+  }
+
 }
 
 .theme-workbench {

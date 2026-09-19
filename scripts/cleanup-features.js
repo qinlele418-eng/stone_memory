@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 const path = require("path");
-const { getThreadDir, listThreadIds } = require("../src/config");
+const { getThreadDir } = require("../src/config");
+const { resolveMemoryArg } = require("../src/lib/memory-cli");
 const { MemoryStore } = require("../src/storage/memory-store");
 
 const ONE_TIME_PATTERNS = [/今天/, /昨天/, /刚才/, /刚刚/, /这次/, /那次/, /^\d+月/, /^\d+日/, /星期/, /周[一二三四五六日]/];
@@ -23,9 +24,7 @@ function overlap(a, b) {
 function main() {
   const args = process.argv.slice(2);
   const dryRun = args.includes("--dry-run");
-  const index = args.indexOf("--thread");
-  const tid = index >= 0 ? args[index + 1] : listThreadIds()[0];
-  if (!tid) throw new Error("未指定线程");
+  const tid = resolveMemoryArg(args, { allowDefault: dryRun });
   const store = new MemoryStore({ memoryDir: path.join(getThreadDir(tid), "memory"), threadId: tid });
   try {
     const rows = store.listFeatures();

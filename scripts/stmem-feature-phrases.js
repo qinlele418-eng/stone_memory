@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 const path = require("path");
-const { getThreadDir, listThreadIds } = require("../src/config");
+const { getThreadDir } = require("../src/config");
+const { resolveMemoryArg } = require("../src/lib/memory-cli");
 const { MemoryStore } = require("../src/storage/memory-store");
 const { extractFeatureTerms } = require("../src/services/feature-phrase-extractor");
 
 const args = process.argv.slice(3);
 const value = name => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : null; };
-const threadId = value("--thread") || listThreadIds()[0];
+const threadId = resolveMemoryArg(args);
 const categoryArg = value("--categories");
-if (!threadId) throw new Error("没有已配置线程，请使用 --thread <id>");
 
 const store = new MemoryStore({ memoryDir: path.join(getThreadDir(threadId), "memory"), threadId });
 let features;

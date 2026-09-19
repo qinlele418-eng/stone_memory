@@ -8,10 +8,11 @@ const { MemoryStore } = require("../storage/memory-store");
 const { DreamStore } = require("../storage/dream-store");
 const { DreamPreferences } = require("./dream-preferences");
 const { resolveDreamType } = require("./dream-policy");
+const { readyBackendFor, dataPathFor } = require("./developer-module-data");
 const { runSubagent: defaultRunSubagent } = require("./subagent-runner");
 
 const ROLL_SCALE = 10_000;
-const DEFAULT_PROMPT_DIRECTORY = path.join(__dirname, "..", "..", "operations", "dream");
+const DEFAULT_PROMPT_DIRECTORY = path.join(__dirname, "..", "..", "developer-modules", "dream-lab", "prompts");
 
 class DreamService {
   constructor({
@@ -27,8 +28,9 @@ class DreamService {
     randomInt = secureRandomInt,
     runSubagent = defaultRunSubagent,
     promptDirectory = DEFAULT_PROMPT_DIRECTORY,
-    operationDirectoryForThread = threadId => path.join(getThreadDir(threadId), "tmp"),
+    operationDirectoryForThread = threadId => dataPathFor("dream-lab", threadId, "operations"),
     preferences = new DreamPreferences(),
+    backendForThread = threadId => readyBackendFor("dream-lab", threadId),
   } = {}) {
     this.dreamStore = dreamStore;
     this.memoryStoreFactory = memoryStoreFactory;
@@ -38,6 +40,7 @@ class DreamService {
     this.promptDirectory = promptDirectory;
     this.operationDirectoryForThread = operationDirectoryForThread;
     this.preferences = preferences;
+    this.backendForThread = backendForThread;
   }
 
   generate({ threadId, date }) {
@@ -46,6 +49,7 @@ class DreamService {
   }
 
   #generate({ threadId, date }) {
+    const backend = this.backendForThread(threadId);
     const existing = this.dreamStore.get(threadId, date);
     if (existing) return { status: "already_exists", dream: existing };
 
@@ -91,7 +95,9 @@ class DreamService {
       historical: selected.historical,
     });
     const operationFile = writeDreamOperationFile(operation, {
-      directory: this.operationDirectoryForThread(threadId),
+      directory: backend === "module"
+        ? this.operationDirectoryForThread(threadId)
+        : path.join(getThreadDir(threadId), "tmp", "dream-operations"),
       date,
       dreamType: roll.finalType,
     });
@@ -188,7 +194,7 @@ function buildDreamPrompt({
   return prompt.trim();
 }
 
-// 线程 override 优先，缺失时回退 bundled operations/dream 内置资产。
+// 线程 override 优先，缺失时回退模块内置 prompts 资产。
 function readPromptAsset({ overrideDirectory, promptDirectory, fileName }) {
   if (overrideDirectory) {
     const overrideFile = path.join(overrideDirectory, fileName);

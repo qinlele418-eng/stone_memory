@@ -196,3 +196,33 @@ test("notebook status exposes recent visible summaries but masks sealed bodies",
   assert.equal(status.topics.find(topic => topic.id === visible.id).latestEntry.summary, "沿着河边慢慢走了一圈。");
   assert.equal(status.topics.find(topic => topic.id === sealed.id).latestEntry.summary, null);
 });
+
+test("notebook imports safe topic-local images with hashing and deduplication", t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-notebook-assets-"));
+  const previous = process.env.STMEM_DB_PATH;
+  process.env.STMEM_DB_PATH = path.join(root, "stone-memory.db");
+  const store = new NotebookStore({ threadId: "thread-test", root: path.join(root, "notebook") });
+  t.after(() => {
+    store.close();
+    if (previous === undefined) delete process.env.STMEM_DB_PATH;
+    else process.env.STMEM_DB_PATH = previous;
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  const topic = store.createTopic({ name: "图文手记" });
+  const source = path.join(root, "雨夜.png");
+  fs.writeFileSync(source, Buffer.from("89504e470d0a1a0a0000000049454e44", "hex"));
+  const first = store.importAsset({ topicId: topic.id, sourcePath: source, filename: "雨夜.png", altText: "江阴雨夜" });
+  assert.match(first.filename, /^雨夜-[a-f0-9]{10}\.png$/u);
+  assert.equal(first.markdown, `![江阴雨夜](../assets/${first.filename})`);
+  assert.equal(first.deduplicated, false);
+  assert.equal(fs.readFileSync(path.join(root, "notebook", first.relativePath)).equals(fs.readFileSync(source)), true);
+
+  const second = store.importAsset({ topicId: topic.id, sourcePath: source, filename: "雨夜.png", altText: "再次引用" });
+  assert.equal(second.filename, first.filename);
+  assert.equal(second.deduplicated, true);
+  const fake = path.join(root, "fake.png");
+  fs.writeFileSync(fake, Buffer.from("not really a png"));
+  assert.throws(() => store.importAsset({ topicId: topic.id, sourcePath: fake, filename: "fake.png" }), /does not match/);
+  assert.throws(() => store.importAsset({ topicId: topic.id, sourcePath: source, filename: "unsafe.svg" }), /must be png/);
+});

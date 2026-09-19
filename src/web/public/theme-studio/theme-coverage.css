@@ -67,14 +67,14 @@ body.stone-theme-enabled .chat-bubble {
 
 body.stone-theme-enabled .chat-message.user .chat-bubble {
   border-color: var(--stone-theme-line);
-  background: var(--stone-theme-accent-soft);
+  background: color-mix(in srgb, var(--stone-theme-accent-soft) 52%, var(--stone-theme-surface));
 }
 
 body.stone-theme-enabled .activity-calendar,
 body.stone-theme-enabled .mining-calendar,
 body.stone-theme-enabled .date-list button {
   border-color: var(--stone-theme-line);
-  background: color-mix(in srgb, var(--stone-theme-accent-soft) 52%, var(--stone-theme-surface));
+  background: var(--stone-theme-accent-soft);
 }
 
 body.stone-theme-enabled .new-card {

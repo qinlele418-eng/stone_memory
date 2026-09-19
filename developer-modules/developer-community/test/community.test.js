@@ -8,7 +8,7 @@ const test = require("node:test");
 const { openDatabase } = require("../backend/db");
 const { repositorySlug, branchName } = require("../backend/github");
 const github = require("../backend/github");
-const { fallbackReport, workbench, applyPullRequest, resolvePullRequest, removeChange, updateOfficial, resolveOfficialUpdate, classifyChangedFiles, supervisorControl, loadSettings, oauthStart, oauthPoll, configure, generate, DEFAULT_REPOSITORY, GITHUB_CLIENT_ID } = require("../backend/commands/community");
+const { fallbackReport, workbench, applyPullRequest, resolvePullRequest, tracked, removeChange, removePullRequest, updateOfficial, resolveOfficialUpdate, classifyChangedFiles, supervisorControl, loadSettings, oauthStart, oauthPoll, configure, generate, DEFAULT_REPOSITORY, GITHUB_CLIENT_ID } = require("../backend/commands/community");
 
 function temporaryContext() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "developer-community-"));
@@ -62,7 +62,7 @@ test("new collaborators get the official Core repository and built-in review pro
   try {
     const settings = loadSettings(fixture.context);
     assert.equal(settings.repository, DEFAULT_REPOSITORY);
-    assert.equal(settings.localRepoPath, path.resolve(__dirname, "../../.."));
+    assert.equal(settings.localRepoPath, path.resolve(__dirname, "..", "..", ".."));
   } finally { fs.rmSync(fixture.root, { recursive:true, force:true }); }
 });
 
@@ -231,6 +231,67 @@ test("reapplying repairs the phantom active record created by the old empty-merg
     const rows = db.prepare("SELECT merge_commit mergeCommit,removed_at removedAt FROM tracked_changes WHERE repository=? AND number=?").all("example/stone-memory", 116);
     assert.deepEqual(rows, [{ mergeCommit:"merge-old", removedAt:null }]);
   } finally { github.run=originalRun; github.detail=originalDetail; db.close(); fs.rmSync(fixture.root,{recursive:true,force:true}); }
+});
+
+test("tracked view groups multiple active versions of the same PR and checks only the newest head", () => {
+  const fixture = temporaryContext();
+  const db = openDatabase(fixture.context);
+  const originalDetail = github.detail;
+  db.prepare(`INSERT INTO tracked_changes(repository,number,title,target_branch,head_sha,merge_commit,applied_at,last_remote_sha,last_checked_at)
+    VALUES(?,?,?,?,?,?,?,?,?)`).run("example/stone-memory", 190, "Touchstone", "feature/local", "head-old", "merge-old", "2026-01-01", "head-old", "2026-01-01");
+  db.prepare(`INSERT INTO tracked_changes(repository,number,title,target_branch,head_sha,merge_commit,applied_at,last_remote_sha,last_checked_at)
+    VALUES(?,?,?,?,?,?,?,?,?)`).run("example/stone-memory", 190, "Touchstone", "feature/local", "head-new", "merge-new", "2026-01-02", "head-new", "2026-01-02");
+  github.detail = () => ({ headSha:"head-new" });
+  try {
+    const rows = tracked(db, { repository:"example/stone-memory" });
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].mergeCommit, "merge-new");
+    assert.equal(rows[0].versionCount, 2);
+    assert.deepEqual(rows[0].activeMergeCommits, ["merge-new", "merge-old"]);
+    assert.equal(rows[0].hasUpdate, false);
+  } finally { github.detail=originalDetail; db.close(); fs.rmSync(fixture.root,{recursive:true,force:true}); }
+});
+
+test("tracked view exposes a new remote head as an update on the grouped PR", () => {
+  const fixture = temporaryContext();
+  const db = openDatabase(fixture.context);
+  const originalDetail = github.detail;
+  db.prepare(`INSERT INTO tracked_changes(repository,number,title,target_branch,head_sha,merge_commit,applied_at,last_remote_sha,last_checked_at)
+    VALUES(?,?,?,?,?,?,?,?,?)`).run("example/stone-memory", 190, "Touchstone", "feature/local", "head-old", "merge-old", "2026-01-01", "head-old", "2026-01-01");
+  github.detail = () => ({ headSha:"head-new" });
+  try {
+    const rows = tracked(db, { repository:"example/stone-memory" });
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].hasUpdate, true);
+    assert.equal(rows[0].lastRemoteSha, "head-new");
+  } finally { github.detail=originalDetail; db.close(); fs.rmSync(fixture.root,{recursive:true,force:true}); }
+});
+
+test("removing a grouped PR reverts every active version in one commit and closes every row", () => {
+  const fixture = temporaryContext();
+  fs.mkdirSync(path.join(fixture.root, "repo", ".git"), { recursive:true });
+  const db = openDatabase(fixture.context);
+  const originalRun = github.run;
+  const calls = [];
+  db.prepare(`INSERT INTO tracked_changes(repository,number,title,target_branch,head_sha,merge_commit,applied_at,last_remote_sha,last_checked_at)
+    VALUES(?,?,?,?,?,?,?,?,?)`).run("example/stone-memory", 190, "Touchstone", "feature/local", "head-old", "merge-old", "2026-01-01", "head-old", "2026-01-01");
+  db.prepare(`INSERT INTO tracked_changes(repository,number,title,target_branch,head_sha,merge_commit,applied_at,last_remote_sha,last_checked_at)
+    VALUES(?,?,?,?,?,?,?,?,?)`).run("example/stone-memory", 190, "Touchstone", "feature/local", "head-new", "merge-new", "2026-01-02", "head-new", "2026-01-02");
+  github.run = (file, args) => {
+    calls.push([file, ...args]);
+    if (args[0] === "status") return "";
+    if (args[0] === "branch") return "feature/local";
+    if (args[0] === "rev-parse") return "revert-all";
+    return "";
+  };
+  try {
+    const result = removePullRequest(db, { repository:"example/stone-memory", localRepoPath:path.join(fixture.root,"repo") }, { number:190, targetBranch:"feature/local" });
+    assert.equal(result.versions, 2);
+    assert.ok(calls.some(row => row[1] === "revert" && row.includes("--no-commit") && row.indexOf("merge-new") < row.indexOf("merge-old")));
+    assert.ok(calls.some(row => row[1] === "commit" && row.includes("revert: remove example/stone-memory PR #190")));
+    assert.equal(db.prepare("SELECT COUNT(*) count FROM tracked_changes WHERE removed_at IS NULL").get().count, 0);
+    assert.equal(db.prepare("SELECT COUNT(DISTINCT revert_commit) count FROM tracked_changes").get().count, 1);
+  } finally { github.run=originalRun; db.close(); fs.rmSync(fixture.root,{recursive:true,force:true}); }
 });
 
 test("removing a phantom active record repairs tracking without reverting a non-merge commit", () => {
@@ -426,7 +487,9 @@ test("frontend uses the shared shell, theme contract, mobile layout and confirma
   assert.match(app, /class="contribution-meta"/);
   assert.match(app, /暂无回复/);
   assert.match(app, /confirm\("确认把这条回复正式发布到 GitHub/);
-  assert.match(app, /confirm\("确认通过 revert 提交移除/);
+  assert.match(app, /确认通过一个 revert 提交移除这份 PR 的全部已拉取版本/);
+  assert.match(app, /class="primary update-change"/);
+  assert.match(app, /command\("remove-pr"/);
   assert.match(app, /发生冲突时会让你选择处理方式，不会 push/);
   assert.match(html, /id="official-conflict-dialog"/);
   assert.match(app, /resolve-official-update/);

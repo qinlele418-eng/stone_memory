@@ -51,6 +51,9 @@ test("every library route rejects an unknown thread id instead of touching the f
     `/api/libraries/${traversal}/timeline?terms=x`,
     `/api/libraries/${traversal}/compression/preview`,
     `/api/libraries/${traversal}/feelings/retain-preview?id=x`,
+    `/api/libraries/${traversal}/dreams`,
+    `/api/libraries/${traversal}/dreams/preferences`,
+    `/api/libraries/${traversal}/dreams/prompt?type=common-core`,
   ];
   for (const pathname of readRoutes) {
     const response = await get(port, pathname);
@@ -62,6 +65,7 @@ test("every library route rejects an unknown thread id instead of touching the f
     `/api/libraries/${traversal}/feelings/update`,
     `/api/libraries/${traversal}/feelings/anchor`,
     `/api/libraries/${traversal}/compression/apply`,
+    `/api/libraries/${traversal}/dreams/policy-preview`,
   ];
   for (const pathname of writeRoutes) {
     const response = await request(port, "POST", pathname, {});

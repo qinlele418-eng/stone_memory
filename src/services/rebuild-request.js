@@ -34,6 +34,7 @@ function normalizeRebuildRequest(input = {}, defaults = {}) {
       excludedMessages: normalizeIds(trimInput.excludedMessages ?? input.excludedMessages),
       excludedTools: normalizeIds(trimInput.excludedTools ?? input.excludedTools),
     },
+    bindingId: String(input.bindingId ?? "").trim() || null,
     trigger: ["cli", "web", "mcp"].includes(String(input.trigger || ""))
       ? String(input.trigger) : String(defaults.trigger || "cli"),
   };
@@ -49,6 +50,7 @@ function rebuildRequestCliArgs(request) {
     "--trigger", row.trigger,
   ];
   if (row.context.mode === "watermark") args.push("--watermark");
+  if (row.bindingId) args.push("--binding", row.bindingId);
   return args;
 }
 

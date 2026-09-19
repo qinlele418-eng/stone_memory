@@ -32,3 +32,19 @@ test("notebook CLI requires an explicit thread", () => {
     serviceFactory() { throw new Error("must not construct service"); },
   }), /--thread/);
 });
+
+test("notebook CLI delegates asset imports through a batch file", t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-notebook-asset-cli-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const batchFile = path.join(directory, "asset.json");
+  const input = { topicId: "topic-test", sourcePath: "D:/temp/image.png", filename: "image.png", altText: "一张图" };
+  fs.writeFileSync(batchFile, JSON.stringify(input));
+  const calls = [];
+  runNotebookCommand(["asset-import", "--thread", "thread-test", "--batch-file", batchFile], {
+    serviceFactory: () => ({
+      importAsset(payload) { calls.push(payload); return { filename: "image-hash.png" }; },
+    }),
+    writeLine() {},
+  });
+  assert.deepEqual(calls, [{ threadId: "thread-test", ...input }]);
+});

@@ -6,7 +6,7 @@ const zlib = require("zlib");
 const crypto = require("crypto");
 const { spawn, spawnSync } = require("child_process");
 const { URL } = require("url");
-const { loadConfig, listThreadIds, getThreadDir, CONFIG_PATH } = require("../config");
+const { loadConfig, listThreadIds, listMemoryIds, getThreadDir, getMemoryContext, getMemoryRuntimeConfig, CONFIG_PATH } = require("../config");
 const { readImportSource } = require("../services/import-source");
 const { MemoryStore } = require("../storage/memory-store");
 const { buildRebuildPreview } = require("../services/rebuild-workbench");
@@ -21,6 +21,8 @@ const { editFusionCandidate } = require("../services/review-fusion");
 const { isArchiveConversation } = require("../services/thread-ingest");
 const { DreamReader } = require("../services/dream-reader");
 const { NotebookService } = require("../services/notebook-service");
+const { planDreamDistribution } = require("../services/dream-policy");
+const { DreamPreferences } = require("../services/dream-preferences");
 const { watcherActions, watcherEnabled } = require("../services/watcher-runtime");
 const { normalizeMiningApiProfile } = require("../services/mining-api-profile");
 const { normalizeModelName } = require("../lib/model-name");
@@ -29,9 +31,12 @@ const { buildFeelingPrompt, buildFeaturePrompt } = require("../services/memory-m
 const { normalizeRebuildRequest, rebuildRequestCliArgs } = require("../services/rebuild-request");
 const { loadModules, resolveInside } = require("../services/developer-module-contract");
 const { compactTermTimelineReport } = require("../services/term-timeline-report");
+const { listMemories, getMemory } = require("../services/memory-setup");
+const { readBindingConfig } = require("../services/memory-binding-config");
 
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MAX_UPLOAD = 512 * 1024 * 1024;
+const MAX_NOTEBOOK_ASSET_UPLOAD = 20 * 1024 * 1024;
 const previews = new Map();
 const miningJobs = new Map();
 const compressionJobs = new Set();
@@ -45,10 +50,12 @@ function safeStmemFailure(stderr, command, status) {
   const lines = String(stderr || "").split(/\r?\n/).map(line => line.trim()).filter(Boolean);
   const marked = lines.reverse().find(line =>
     /^\[(?:memory-miner|memory-compressor)\]\s+(?:subagent\s+)?error:/i.test(line)
-    || /^\[(?:tool-policy|module)\]\s+error:/i.test(line));
+    || /^\[(?:tool-policy|module|init|memory|api-profile)\]\s+error:/i.test(line)
+    || /^\[binding\]\s+/i.test(line));
   if (marked) {
     return marked.replace(/^\[(?:memory-miner|memory-compressor)\]\s+/i, "")
-      .replace(/^\[(?:tool-policy|module)\]\s+/i, "").slice(0, 800);
+      .replace(/^\[(?:tool-policy|module|init|memory|api-profile)\]\s+/i, "")
+      .replace(/^\[binding\]\s+/i, "").slice(0, 800);
   }
   // 不把任意 stderr（可能包含私密对话或模型原文）直接回显给前端；
   // 只提取脚本明确标记的错误或常见系统错误。
@@ -391,11 +398,23 @@ function refreshMiningBatchJob(job){
 }
 
 function publicThreadSettings(threadId) {
-  const config = loadConfig(), entry = config[threadId];
+  const config = loadConfig();
+  let entry = config[threadId];
+  let memoryId = entry?.memoryId || threadId;
+  let layout = "legacy";
+  let legacyThreadId = threadId;
+  try {
+    const context = getMemoryContext(threadId);
+    memoryId = context.memoryId;
+    layout = context.layout;
+    legacyThreadId = context.legacyKey || threadId;
+    if (context.layout === "memory-v1") entry = getMemoryRuntimeConfig(memoryId);
+  } catch {}
   if (!entry) throw new Error(`记忆体不存在：${threadId}`);
   const actions = watcherActions(entry);
   return {
-    threadId, libraryName: entry.label || threadId, ai: entry.ai || "", user: entry.user || "",
+    memoryId, threadId: memoryId, externalThreadId: entry.externalThreadId || (layout !== "memory-v1" ? legacyThreadId : null),
+    libraryName: entry.label || memoryId, ai: entry.ai || "", user: entry.user || "",
     userGender: entry.userGender || "unspecified", runtime: entry.runtime || "claude", purpose: entry.purpose || "accompany",
     sessionDir: entry.sessionDir || "", minerMode: entry.minerMode || "subagent", apiProvider: entry.apiProvider || "",
     baseUrl: entry.apiProvider ? (config.apiKeys?.[entry.apiProvider]?.baseUrl || "") : "",
@@ -495,8 +514,29 @@ function buildConversationCalendar(counts, page = 1) {
 
 function listLibraries() {
   const config = loadConfig();
-  return listThreadIds().map(threadId => {
-    const tc = config[threadId] || {};
+  const configured = listMemoryIds().flatMap(memoryId => {
+    let context;
+    try { context = getMemoryContext(memoryId); } catch { return []; }
+    let tc, threadId, bound, bindingCount, createdAt;
+    if (context.layout === "memory-v1") {
+      let bindings;
+      try { bindings = readBindingConfig(memoryId); } catch { return []; }
+      const primary = bindings.bindings.find(item => item.id === bindings.primaryBindingId && item.enabled !== false);
+      const enabledBindings = bindings.bindings.filter(item => item.enabled !== false);
+      const memory = context.memoryConfig || {};
+      const settingsComplete = !!(String(memory.label || "").trim() && String(memory.ai || "").trim()
+        && String(memory.user || "").trim() && String(memory.purpose || "").trim());
+      if (!primary && !settingsComplete) return [];
+      tc = getMemoryRuntimeConfig(memoryId); threadId = memoryId;
+      bound = !!primary?.externalThreadId;
+      bindingCount = enabledBindings.length;
+      createdAt = memory.createdAt || null;
+    } else {
+      tc = context.config || {}; threadId = context.legacyKey || memoryId;
+      bound = !!threadId;
+      bindingCount = bound ? 1 : 0;
+      createdAt = tc.createdAt || null;
+    }
     const actions = watcherActions(tc);
     const memoryDir = path.join(getThreadDir(threadId), "memory");
     const store = new MemoryStore({ memoryDir, threadId });
@@ -507,10 +547,12 @@ function listLibraries() {
         (SELECT COUNT(*) FROM features WHERE thread_id=?) features,
         (SELECT COUNT(*) FROM feelings WHERE thread_id=? AND summary_mode='coarse') coarse,
         (SELECT COUNT(*) FROM feelings WHERE thread_id=? AND summary_mode='hidden') hidden`).get(threadId, threadId, threadId, threadId, threadId);
+      const latestArchived = store.db.prepare("SELECT MAX(timestamp) timestamp FROM messages WHERE thread_id=?").get(threadId);
       const latest = store.db.prepare("SELECT MAX(completed_at) completedAt FROM mining_day_state WHERE thread_id=? AND status='completed'").get(threadId);
       return {
-        threadId, libraryName: tc.label || threadId, runtime: tc.runtime || "claude", purpose: tc.purpose || "accompany",
-        ai: tc.ai || "", user: tc.user || "", counts, lastMinedAt: latest?.completedAt || null,
+        memoryId, configured: true, bound, bindingCount, threadId, externalThreadId: tc.externalThreadId || (context.layout !== "memory-v1" ? threadId : null), libraryName: tc.label || memoryId, runtime: tc.runtime || null, purpose: tc.purpose || "accompany", createdAt,
+        ai: tc.ai || "", user: tc.user || "", counts,
+        lastArchivedAt: latestArchived?.timestamp || null, lastMinedAt: latest?.completedAt || null,
         watcherEnabled: watcherEnabled(tc),
         automaticFullMining: actions.sync,
         automaticMemoryMaintenance: actions.mine,
@@ -519,6 +561,91 @@ function listLibraries() {
       };
     } finally { store.close(); }
   });
+  const configuredMemoryIds = new Set(configured.map(item => item.memoryId));
+  const drafts = listMemories(config).filter(memory => !configuredMemoryIds.has(memory.memoryId)).map(memory => ({
+    memoryId: memory.memoryId, configured: false, threadId: null, libraryName: memory.label,
+    runtime: null, purpose: null, ai: "", user: "", createdAt: memory.createdAt,
+    counts: { messages: 0, feelings: 0, features: 0, coarse: 0, hidden: 0 },
+    lastArchivedAt: null, lastMinedAt: null,
+    watcherEnabled: false, automaticFullMining: false, automaticMemoryMaintenance: false,
+    automaticCompression: false, automaticDream: false,
+  }));
+  return [...drafts, ...configured];
+}
+
+function directoryBytes(root) {
+  if (!fs.existsSync(root)) return 0;
+  let total = 0;
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    const file = path.join(root, entry.name);
+    if (entry.isDirectory()) total += directoryBytes(file);
+    else if (entry.isFile()) total += fs.statSync(file).size;
+  }
+  return total;
+}
+
+function localDateKey(date = new Date()) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(date);
+}
+
+function countFeelingsMinedSince(store, threadId, sinceIso) {
+  return Number(store.db.prepare("SELECT COUNT(*) count FROM feelings WHERE thread_id=? AND created_at>=?").get(threadId, sinceIso)?.count || 0);
+}
+
+// 生长天数锚点：优先记忆体创建日；旧布局没有 createdAt 时取最早对话的日期
+// （messages.created_at 是入库时间，会随导入/重建批次漂移，不能代表记忆年龄）。
+function memoryGrowthDays(createdAt, firstConversationDate, todayKey = localDateKey()) {
+  const createdDate = Number.isFinite(Date.parse(createdAt || "")) ? localDateKey(new Date(createdAt)) : null;
+  const startKey = createdDate || (/^\d{4}-\d{2}-\d{2}$/.test(String(firstConversationDate || "")) ? firstConversationDate : null);
+  if (!startKey) return 0;
+  return Math.max(1, Math.round((Date.parse(`${todayKey}T00:00:00+08:00`) - Date.parse(`${startKey}T00:00:00+08:00`)) / 86400000) + 1);
+}
+
+function homeOverview() {
+  const libraries = listLibraries();
+  const today = localDateKey();
+  const todayStart = new Date(`${today}T00:00:00+08:00`).toISOString();
+  const totals = {
+    todayMessages: 0, todayFeelings: 0, totalFeelings: 0, pendingMiningDays: 0,
+    latestMessageAt: null, latestMinedAt: null, caredDays: 0,
+  };
+  for (const library of libraries) {
+    totals.totalFeelings += Number(library.counts?.feelings || 0);
+    if (library.lastMinedAt && (!totals.latestMinedAt || library.lastMinedAt > totals.latestMinedAt)) {
+      totals.latestMinedAt = library.lastMinedAt;
+    }
+    // 尚未绑定线程的 memory-first 草稿没有数据库；它仍计入记忆体总数，但不参与维护统计。
+    if (!library.configured || !library.threadId) continue;
+    const store = new MemoryStore({ memoryDir: path.join(getThreadDir(library.threadId), "memory"), threadId: library.threadId });
+    try {
+      const message = store.db.prepare(`SELECT
+        SUM(CASE WHEN source_date=? THEN 1 ELSE 0 END) count, MAX(timestamp) latest,
+        COUNT(DISTINCT source_date) caredDays
+        FROM messages WHERE thread_id=?`).get(today, library.threadId);
+      const feelingCount = countFeelingsMinedSince(store, library.threadId, todayStart);
+      const pending = store.db.prepare(`SELECT COUNT(DISTINCT m.source_date) count FROM messages m
+        LEFT JOIN mining_day_state s ON s.thread_id=m.thread_id AND s.source_date=m.source_date AND s.status IN ('completed','completed_empty')
+        WHERE m.thread_id=? AND s.source_date IS NULL`).get(library.threadId);
+      totals.todayMessages += Number(message?.count || 0);
+      totals.todayFeelings += feelingCount;
+      totals.pendingMiningDays += Number(pending?.count || 0);
+      totals.caredDays = Math.max(totals.caredDays, Number(message?.caredDays || 0));
+      if (message?.latest && (!totals.latestMessageAt || message.latest > totals.latestMessageAt)) totals.latestMessageAt = message.latest;
+    } finally { store.close(); }
+  }
+  return {
+    ...totals,
+    memoryCount: libraries.length,
+    companionCount: libraries.filter(item => item.purpose === "accompany").length,
+    codingCount: libraries.filter(item => item.purpose === "coding").length,
+    studyCount: libraries.filter(item => item.purpose === "study").length,
+    connectedRuntimeCount: new Set(libraries.map(item => item.runtime).filter(Boolean)).size,
+    runningWatcherCount: libraries.filter(item => item.watcherEnabled).length,
+    automationRunning: libraries.some(item => item.watcherEnabled),
+    libraries,
+  };
 }
 
 function listDeveloperModules(publicDir = PUBLIC_DIR) {
@@ -533,6 +660,7 @@ function listDeveloperModules(publicDir = PUBLIC_DIR) {
         if (!/^[a-z0-9][a-z0-9-]*$/u.test(id) || id !== entry.name || manifest.entry !== expectedEntry) return [];
         return [{
           id,
+          scope: String(manifest.scope || "memory"),
           title: String(manifest.title || id),
           summary: String(manifest.summary || ""),
           contributor: String(manifest.contributor || ""),
@@ -542,6 +670,7 @@ function listDeveloperModules(publicDir = PUBLIC_DIR) {
           metaLabel: String(manifest.metaLabel || "Module"),
           features: Array.isArray(manifest.features) ? manifest.features.map(String).slice(0, 6) : [],
           order: Number.isFinite(Number(manifest.order)) ? Number(manifest.order) : 100,
+          workshopSection: String(manifest.workshopSection || "plugins"),
           entry: expectedEntry,
         }];
       } catch {
@@ -550,23 +679,66 @@ function listDeveloperModules(publicDir = PUBLIC_DIR) {
     })
     .sort((left, right) => left.order - right.order || left.id.localeCompare(right.id));
   const canonicalModules = loadModules()
-    .filter(item => !item.errors.length && item.manifest.entry?.frontend && !item.manifest.legacy?.frontend)
-    .map(item => ({
+    .filter(item => !item.errors.length && item.manifest.entry?.frontend)
+    .map(item => {
+      const legacyFrontend = item.manifest.legacy?.frontend;
+      const legacyRoot = legacyFrontend ? path.resolve(PROJECT_ROOT, legacyFrontend) : null;
+      const legacyRelative = legacyRoot ? path.relative(publicDir, legacyRoot) : "";
+      const entry = legacyRoot && !legacyRelative.startsWith("..") && !path.isAbsolute(legacyRelative)
+        ? `/${legacyRelative.split(path.sep).join("/")}/`
+        : `/developer-modules/${item.id}/`;
+      let legacyManifest = {};
+      if (legacyRoot) {
+        try { legacyManifest = JSON.parse(fs.readFileSync(path.join(legacyRoot, "module.json"), "utf8")); } catch {}
+      }
+      const readmeCandidates = [path.join(item.moduleDir, "README.md")];
+      if (legacyRoot) readmeCandidates.push(path.join(legacyRoot, "README.md"));
+      const readmeFile = readmeCandidates.find(file => fs.existsSync(file));
+      const readme = readmeFile ? fs.readFileSync(readmeFile, "utf8") : "";
+      const readmeContributor = readme.match(/^贡献人[：:]\s*(.+)$/mu)?.[1]?.replace(/[`*_]/gu, "").trim() || "";
+      const readmeSummary = readme.split(/\r?\n\r?\n/u)
+        .map(block => block.replace(/^#+\s+.*$/gmu, "").replace(/\r?\n/gu, " ").trim())
+        .find(block => block && !/^(?:贡献人|```|[-*]\s)/u.test(block) && (block.match(/[\u3400-\u9fff]/gu) || []).length >= 8)
+        ?.replace(/[`*_#]/gu, "") || "";
+      return {
       id: item.id,
-      title: String(item.manifest.title || item.id),
-      summary: String(item.manifest.summary || ""),
-      contributor: String(item.manifest.contributor || "Stone Memory"),
-      status: String(item.manifest.status || "官方实验"),
-      eyebrow: String(item.manifest.eyebrow || "STONE MEMORY LAB"),
-      actionLabel: String(item.manifest.actionLabel || "进入实验室 →"),
-      metaLabel: String(item.manifest.metaLabel || `Module · v${item.manifest.version}`),
-      features: Array.isArray(item.manifest.features) ? item.manifest.features.map(String).slice(0, 6) : [],
-      order: Number.isFinite(Number(item.manifest.order)) ? Number(item.manifest.order) : 100,
-      entry: `/developer-modules/${item.id}/`,
-    }));
-  const byId = new Map(legacyModules.map(item => [item.id, item]));
+      scope: String(item.manifest.scope || "memory"),
+      title: String(item.manifest.title || legacyManifest.title || legacyManifest.name || item.id),
+      summary: String(item.manifest.summary || legacyManifest.summary || legacyManifest.description || readmeSummary || `${item.manifest.title || item.id} 的功能、能力与使用说明请查看 README。`),
+      contributor: String(item.manifest.contributor || legacyManifest.contributor || readmeContributor || "未署名"),
+      status: String(item.manifest.status || legacyManifest.status || "开发者模块"),
+      eyebrow: String(item.manifest.eyebrow || legacyManifest.eyebrow || "STONE MEMORY MODULE"),
+      actionLabel: String(item.manifest.actionLabel || legacyManifest.actionLabel || "进入 →"),
+      metaLabel: String(item.manifest.metaLabel || legacyManifest.metaLabel || `Module · v${item.manifest.version}`),
+      features: Array.isArray(item.manifest.features) ? item.manifest.features.map(String).slice(0, 6) : Array.isArray(legacyManifest.features) ? legacyManifest.features.map(String).slice(0, 6) : [],
+      order: Number.isFinite(Number(item.manifest.order)) ? Number(item.manifest.order) : Number.isFinite(Number(legacyManifest.order)) ? Number(legacyManifest.order) : 100,
+      workshopSection: String(item.manifest.workshopSection || "plugins"),
+      entry,
+    };
+    });
+  const canonicalEntries = new Set(canonicalModules.map(item => item.entry));
+  const byId = new Map(legacyModules.filter(item => !canonicalEntries.has(item.entry)).map(item => [item.id, item]));
   for (const item of canonicalModules) byId.set(item.id, item);
   return [...byId.values()].sort((left, right) => left.order - right.order || left.id.localeCompare(right.id));
+}
+
+function developerModuleDetail(id) {
+  const loaded = loadModules().find(item => item.id === id && !item.errors.length);
+  if (!loaded) return null;
+  const manifest = loaded.manifest;
+  const readmeCandidates = [path.join(loaded.moduleDir, "README.md")];
+  if (manifest.legacy?.frontend) readmeCandidates.push(path.join(path.resolve(PROJECT_ROOT, manifest.legacy.frontend), "README.md"));
+  const readmeFile = readmeCandidates.find(file => fs.existsSync(file));
+  return {
+    module: listDeveloperModules().find(item => item.id === id) || null,
+    version: String(manifest.version || ""),
+    scope: String(manifest.scope || "memory"),
+    permissions: Array.isArray(manifest.permissions) ? manifest.permissions.map(String) : [],
+    commands: Object.keys(manifest.entry?.commands || {}),
+    storage: manifest.storage && typeof manifest.storage === "object" ? manifest.storage : {},
+    watcher: manifest.watcher && typeof manifest.watcher === "object" ? manifest.watcher : null,
+    readme: readmeFile ? fs.readFileSync(readmeFile, "utf8") : "这个模块暂未提供 README。",
+  };
 }
 
 function serveCanonicalDeveloperModule(req, res, pathname) {
@@ -591,21 +763,55 @@ function serveCanonicalDeveloperModule(req, res, pathname) {
   return true;
 }
 
-function overview(threadId) {
-  const library = listLibraries().find(item => item.threadId === threadId);
+function serveLegacyDreamLab(res, url) {
+  const { pathname } = url;
+  if (!/^\/dream-lab(?:\/|$)/u.test(pathname)) return false;
+  const suffix = pathname.slice("/dream-lab".length).replace(/^\//u, "");
+  const location = `/developer-modules/dream-lab/${suffix}`.replace(/\/$/u, "/") + url.search;
+  res.writeHead(302, { location });
+  res.end();
+  return true;
+}
+
+function overview(identifier) {
+  const library = listLibraries().find(item => item.threadId === identifier || item.memoryId === identifier);
   if (!library) return null;
+  if (!library.configured) return library;
+  const threadId = library.threadId;
   const store = new MemoryStore({ memoryDir: path.join(getThreadDir(threadId), "memory"), threadId });
   try {
     const recent = store.db.prepare(`SELECT id,source_date sourceDate,event_time eventTime,content,importance,summary_mode summaryMode
       FROM feelings WHERE thread_id=? ORDER BY source_date DESC,COALESCE(event_time,'') DESC,order_key DESC LIMIT 5`).all(threadId);
     const daily = store.db.prepare("SELECT COUNT(*) count FROM feelings WHERE thread_id=? AND summary_mode='daily'").get(threadId).count;
     const failed = store.db.prepare("SELECT COUNT(*) count FROM mining_day_state WHERE thread_id=? AND status='failed'").get(threadId).count;
-    const rebuild=latestSuccessfulRebuild(threadId), file=sessionFile(threadId,library.runtime);
-    const rawUsage=readRebuildState(threadId).contextUsage||null, configuredMax=Number(loadConfig()[threadId]?.contextWindowTokens);
+    const rebuild=latestSuccessfulRebuild(threadId); let file=null;
+    try { if (library.runtime) file=sessionFile(threadId,library.runtime); } catch {}
+    const rawUsage=readRebuildState(threadId).contextUsage||null, configuredMax=Number(getMemoryRuntimeConfig(threadId)?.contextWindowTokens);
     const contextUsage=rawUsage?{...rawUsage,maxTokens:configuredMax>0?configuredMax:rawUsage.detectedMaxTokens||null}:null;
     if(contextUsage?.maxTokens)contextUsage.percent=contextUsage.usedTokens/contextUsage.maxTokens*100;
     const pendingMiningDays=store.db.prepare(`SELECT COUNT(DISTINCT m.source_date) count FROM messages m LEFT JOIN mining_day_state s ON s.thread_id=m.thread_id AND s.source_date=m.source_date AND s.status IN ('completed','completed_empty') WHERE m.thread_id=? AND s.source_date IS NULL`).get(threadId).count;
-    return { ...library, counts: { ...library.counts, daily }, recent, rebuild, contextUsage, threadFileFound:!!file, pendingMiningDays, attention: failed ? `${failed} 个日期挖掘失败` : null };
+    const rules=listRules(threadId),enabledRules=rules.filter(rule=>rule.injected).length;
+    let anchors={retain:{},eventAnchors:{}};
+    try { anchors={...anchors,...JSON.parse(fs.readFileSync(path.join(getThreadDir(threadId),"memory","retain-config.json"),"utf8"))}; } catch {}
+    const createdAt=library.createdAt||store.db.prepare("SELECT MIN(created_at) createdAt FROM messages WHERE thread_id=?").get(threadId)?.createdAt||null;
+    const firstConversationDate=store.db.prepare("SELECT MIN(source_date) d FROM messages WHERE thread_id=? AND source_date IS NOT NULL").get(threadId)?.d||null;
+    const growthDays=memoryGrowthDays(library.createdAt,firstConversationDate);
+    return {
+      ...library,
+      createdAt,
+      growthDays,
+      counts: {
+        ...library.counts,
+        daily,
+        rules: rules.length,
+        disabledRules: rules.length-enabledRules,
+        retainAnchors: Object.keys(anchors.retain||{}).length,
+        eventAnchors: Object.keys(anchors.eventAnchors||{}).length,
+      },
+      archiveFullBytes: directoryBytes(path.join(getThreadDir(threadId),"memory","archive","full")),
+      recent, rebuild, contextUsage, threadFileFound:!!file, pendingMiningDays,
+      attention: failed ? `${failed} 个日期挖掘失败` : null,
+    };
   } finally { store.close(); }
 }
 
@@ -658,13 +864,19 @@ async function handleDreamSettings(req, url, threadId, resource) {
   }
   if (resource === "guard" && req.method === "PUT") {
     const body = await readJson(req);
-    return JSON.parse(runStmem(["dream", "guard", "--thread", threadId, body.enabled ? "on" : "off"]));
+    const args = ["dream", "guard", "--thread", threadId];
+    for (const type of (body.excludedTypes || [])) args.push("--exclude", String(type));
+    return JSON.parse(runStmem(args));
   }
   if (resource === "multiplier" && req.method === "PUT") {
     const body = await readJson(req);
     const args = ["dream", "multiplier", "--thread", threadId];
     for (const [type, value] of Object.entries(body.multipliers || {})) args.push(`--${type}`, String(value));
     return JSON.parse(runStmem(args));
+  }
+  if (resource === "nsfw" && req.method === "PUT") {
+    const body = await readJson(req);
+    return JSON.parse(runStmem(["dream", "nsfw", "--thread", threadId, body.enabled === true ? "on" : "off"]));
   }
   if (resource === "prompt") {
     if (req.method === "GET") {
@@ -688,6 +900,27 @@ async function handleDreamSettings(req, url, threadId, resource) {
   throw new Error("不支持的织梦设置请求");
 }
 
+function serveNotebookAsset(req, res, asset) {
+  if (!asset) return false;
+  const etag = `W/"${asset.size.toString(16)}-${Math.floor(asset.modifiedAt.getTime()).toString(16)}"`;
+  const headers = {
+    "content-type": asset.contentType,
+    "content-length": asset.size,
+    "cache-control": "private, max-age=300",
+    "x-content-type-options": "nosniff",
+    etag,
+  };
+  if (req.headers["if-none-match"] === etag) {
+    delete headers["content-length"];
+    res.writeHead(304, headers);
+    res.end();
+    return true;
+  }
+  res.writeHead(200, headers);
+  fs.createReadStream(asset.absolutePath).pipe(res);
+  return true;
+}
+
 async function handleApi(req, res, url) {
   if (url.pathname === "/api/developer-modules/mcp" && req.method === "GET") {
     return json(res, 200, JSON.parse(runStmem(["module", "mcp", "status", "--json"])));
@@ -708,13 +941,43 @@ async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/developer-modules") {
     return json(res, 200, { modules: listDeveloperModules() });
   }
+  const moduleDetailMatch = url.pathname.match(/^\/api\/developer-modules\/([a-z0-9][a-z0-9-]*)$/u);
+  if (req.method === "GET" && moduleDetailMatch) {
+    const detail = developerModuleDetail(moduleDetailMatch[1]);
+    return detail ? json(res, 200, detail) : error(res, 404, "开发者模块不存在");
+  }
 
   const bindingsMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/bindings$/);
   if (bindingsMatch) {
     const threadId = decodeURIComponent(bindingsMatch[1]);
-    publicThreadSettings(threadId);
+    const settings = publicThreadSettings(threadId);
     if (req.method === "GET") {
-      return json(res, 200, JSON.parse(runStmem(["binding", "list", "--thread", threadId])));
+      let status;
+      try {
+        status = JSON.parse(runStmem(["binding", "list", "--memory", threadId]));
+        if (!status.bindings?.length) {
+          const migrated = JSON.parse(runStmem(["binding", "migrate-legacy", "--memory", threadId, "--apply"]));
+          if (migrated.changed !== false) status = JSON.parse(runStmem(["binding", "list", "--memory", threadId]));
+        }
+      } catch {
+        try { status = JSON.parse(runStmem(["binding", "list", "--thread", threadId])); }
+        catch { status = { memoryId: settings.memoryId, primaryBindingId: null, bindings: [] }; }
+      }
+      const bindings = Array.isArray(status.bindings) ? status.bindings : [];
+      if (settings.externalThreadId && !bindings.some(binding => binding.externalThreadId === settings.externalThreadId)) {
+        const legacyId = `legacy-config:${settings.externalThreadId}`;
+        bindings.unshift({
+          id: legacyId,
+          provider: settings.runtime,
+          externalThreadId: settings.externalThreadId,
+          enabled: true,
+          mode: "primary",
+          source: "legacy-config",
+          readOnly: true,
+        });
+        if (!status.primaryBindingId) status.primaryBindingId = legacyId;
+      }
+      return json(res, 200, { ...status, memoryId: status.memoryId || settings.memoryId, bindings });
     }
     if (req.method === "POST") {
       const body = await readJson(req);
@@ -733,10 +996,17 @@ async function handleApi(req, res, url) {
     const bindingId = decodeURIComponent(bindingMatch[2]);
     publicThreadSettings(threadId);
     const body = await readJson(req);
-    const action = body.enabled === false ? "disable" : "enable";
-    const args = ["binding", action, "--thread", threadId, "--id", bindingId];
+    const action = body.action || (body.enabled === false ? "disable" : "enable");
+    if (!["enable", "disable", "primary"].includes(action)) throw new Error("不支持的 Binding 操作");
+    const args = ["binding", action, "--memory", threadId, "--binding", bindingId];
     if (body.apply === true) args.push("--apply");
     return json(res, 200, JSON.parse(runStmem(args)));
+  }
+  if (bindingMatch && req.method === "DELETE") {
+    const threadId = decodeURIComponent(bindingMatch[1]);
+    const bindingId = decodeURIComponent(bindingMatch[2]);
+    publicThreadSettings(threadId);
+    return json(res, 200, JSON.parse(runStmem(["binding", "remove", "--memory", threadId, "--binding", bindingId, "--apply"])));
   }
 
   const bindingImportMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/bindings\/([^/]+)\/import$/);
@@ -758,11 +1028,12 @@ async function handleApi(req, res, url) {
     const loaded = loadModules().find(item => item.id === moduleId && !item.errors.length);
     if (!loaded) throw new Error("开发者模块不存在或 manifest 无效");
     if (!loaded.manifest.entry?.commands?.[action]) throw new Error("开发者模块命令未登记");
-    const threadId = String(url.searchParams.get("thread") || "");
+    const threadId = String(url.searchParams.get("memoryId") || url.searchParams.get("memory") || url.searchParams.get("thread") || "");
     const bindingId = String(url.searchParams.get("binding") || "");
     if (loaded.manifest.scope === "memory" && !threadId) throw new Error("缺少当前记忆体");
     if (threadId) publicThreadSettings(threadId);
-    const args = ["module", moduleId, action, "--thread", threadId];
+    const args = ["module", moduleId, action];
+    if (threadId) args.push("--memory", threadId);
     if (bindingId) args.push("--binding", bindingId);
     const output = req.method === "POST"
       ? runStmemBatch(args, await readJson(req))
@@ -987,6 +1258,7 @@ async function handleApi(req, res, url) {
       features: result.featureCount,
     } : result);
   }
+  if (req.method === "GET" && url.pathname === "/api/home") return json(res, 200, homeOverview());
   if (req.method === "GET" && url.pathname === "/api/libraries") return json(res, 200, { libraries: listLibraries() });
 
   if (req.method === "POST" && url.pathname === "/api/session-file/check") {
@@ -1016,10 +1288,32 @@ async function handleApi(req, res, url) {
       const input = { ...current, ...regularBody, threadId, runtime: current.runtime, purpose: current.purpose };
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-web-config-"));
       const file = path.join(dir, "config.json");
-      fs.writeFileSync(file, JSON.stringify(input), { encoding: "utf8", mode: 0o600 });
+      let canonical = false;
+      try { canonical = getMemoryContext(threadId).layout === "memory-v1"; } catch {}
+      const settingsPatch = {
+        label: input.libraryName, ai: input.ai, user: input.user, userGender: input.userGender,
+        miner: { mode: input.minerMode, apiProfile: input.minerMode === "api" ? input.apiProvider : null },
+        rebuild: {
+          windowDays: input.windowDays, keepToolPairs: input.keepToolPairs,
+          contextWindowTokens: input.contextWindowTokens || null,
+          mcpRebuildDefaultsEnabled: input.mcpRebuildDefaultsEnabled,
+          mcpSummaryLimit: input.mcpSummaryLimit,
+          mcpMinImportance: input.mcpMinImportance,
+        },
+      };
+      fs.writeFileSync(file, JSON.stringify(canonical ? settingsPatch : input), { encoding: "utf8", mode: 0o600 });
       try {
-        runStmem(["init", "--thread", threadId, "--batch-file", file]);
-        const moduleArgs = ["watcher", "set", "--thread", threadId];
+        if (canonical && input.minerMode === "api") {
+          const profileFile = path.join(dir, "api-profile.json");
+          fs.writeFileSync(profileFile, JSON.stringify({ id: input.apiProvider, key: input.apiKey, baseUrl: input.baseUrl, model: input.model }), { encoding: "utf8", mode: 0o600 });
+          runStmem(["api-profile", "set", "--batch-file", profileFile, "--validate"]);
+          runStmem(["api-profile", "set", "--batch-file", profileFile, "--apply"]);
+        }
+        if (canonical) {
+          runStmem(["memory", "settings", "--memory", threadId, "--batch-file", file, "--validate"]);
+          runStmem(["memory", "settings", "--memory", threadId, "--batch-file", file, "--apply"]);
+        } else runStmem(["init", "--thread", threadId, "--batch-file", file]);
+        const moduleArgs = ["watcher", "set", canonical ? "--memory" : "--thread", threadId];
         const moduleMap = {
           automaticFullMining: "--archive",
           automaticMemoryMaintenance: "--miner",
@@ -1031,12 +1325,12 @@ async function handleApi(req, res, url) {
         }
         if (moduleArgs.length > 4) runStmem(moduleArgs);
         if (Object.hasOwn(body, "watcherEnabled")) {
-          runStmem(["watcher", body.watcherEnabled === true ? "on" : "off", "--thread", threadId]);
+          runStmem(["watcher", body.watcherEnabled === true ? "on" : "off", canonical ? "--memory" : "--thread", threadId]);
         } else if (moduleArgs.length > 4) {
           const resulting = publicThreadSettings(threadId);
           const anyModule = resulting.automaticFullMining || resulting.automaticMemoryMaintenance
             || resulting.automaticCompression || resulting.automaticDream;
-          runStmem(["watcher", anyModule ? "on" : "off", "--thread", threadId]);
+          runStmem(["watcher", anyModule ? "on" : "off", canonical ? "--memory" : "--thread", threadId]);
         }
         return json(res, 200, { success: true, config: publicThreadSettings(threadId) });
       } finally { fs.rmSync(dir, { recursive: true, force: true }); }
@@ -1051,14 +1345,12 @@ async function handleApi(req, res, url) {
       const reader = new DreamReader();
       const dreamDates = reader.listDates(threadId);
       const selectedDate = String(url.searchParams.get("date") || "");
+      const selectedDream = selectedDate ? reader.get(threadId, selectedDate) : null;
+      if (selectedDate && !selectedDream) return json(res, 404, { error: "梦境不存在或当前不可见" });
       return json(res, 200, {
         enabled: settings.automaticDream,
-        latest: selectedDate && dreamDates.includes(selectedDate)
-          ? reader.get(threadId, selectedDate)
-          : reader.latest(threadId),
-        selectedDate: selectedDate && dreamDates.includes(selectedDate)
-          ? selectedDate
-          : dreamDates.at(-1) || null,
+        latest: selectedDream || reader.latest(threadId),
+        selectedDate: selectedDream ? selectedDate : dreamDates.at(-1) || null,
         dreamDates,
         entries: reader.list(threadId),
         coverage: reader.coverage(threadId),
@@ -1093,9 +1385,28 @@ async function handleApi(req, res, url) {
     }
   }
 
-  const dreamSettingsMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/dreams\/(preferences|pin|guard|multiplier|prompt)$/);
+  const dreamPreviewMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/dreams\/policy-preview$/);
+  if (dreamPreviewMatch && req.method === "POST") {
+    const threadId = decodeURIComponent(dreamPreviewMatch[1]);
+    publicThreadSettings(threadId);
+    const body = await readJson(req);
+    const prefs = new DreamPreferences().read(threadId);
+    try {
+      return json(res, 200, planDreamDistribution({
+        multipliers: body.multipliers || {},
+        excludedTypes: body.excludedTypes || [],
+        nsfwEnabled: prefs.nsfwEnabled,
+      }));
+    } catch (error) {
+      if (error.code === "DREAM_NO_CANDIDATE") return json(res, 200, { valid: false, error: error.message });
+      throw error;
+    }
+  }
+
+  const dreamSettingsMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/dreams\/(preferences|pin|guard|multiplier|nsfw|prompt)$/);
   if (dreamSettingsMatch) {
     const threadId = decodeURIComponent(dreamSettingsMatch[1]);
+    publicThreadSettings(threadId);
     return json(res, 200, await handleDreamSettings(req, url, threadId, dreamSettingsMatch[2]));
   }
 
@@ -1111,6 +1422,29 @@ async function handleApi(req, res, url) {
     if (req.method === "POST" && parts[0] === "topics" && parts.length === 1) {
       const body = await readJson(req);
       return json(res, 201, runStmemBatch(["notebook", "topic-create", "--thread", threadId], body));
+    }
+    if (req.method === "GET" && parts[0] === "assets" && parts.length === 3) {
+      const asset = service.asset({ threadId, topicId: parts[1], filename: parts[2] });
+      if (!asset) return json(res, 404, { found: false });
+      return serveNotebookAsset(req, res, asset);
+    }
+    if (req.method === "POST" && parts[0] === "assets" && parts.length === 2) {
+      const contentLength = Number(req.headers["content-length"] || 0);
+      if (contentLength > MAX_NOTEBOOK_ASSET_UPLOAD) throw new Error("notebook asset exceeds 20 MB limit");
+      const filename = safeFileName(req.headers["x-file-name"] || "image");
+      let altText = "笔记图片";
+      try { altText = decodeURIComponent(String(req.headers["x-alt-text"] || altText)); } catch {}
+      const buffer = await readBody(req, MAX_NOTEBOOK_ASSET_UPLOAD);
+      const directory = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-notebook-asset-"));
+      const sourcePath = path.join(directory, filename);
+      fs.writeFileSync(sourcePath, buffer, { mode: 0o600, flag: "wx" });
+      try {
+        return json(res, 201, runStmemBatch(["notebook", "asset-import", "--thread", threadId], {
+          topicId: parts[1], sourcePath, filename, altText,
+        }));
+      } finally {
+        fs.rmSync(directory, { recursive: true, force: true });
+      }
     }
     if (req.method === "PATCH" && parts[0] === "topics" && parts[1]) {
       const body = await readJson(req);
@@ -1165,7 +1499,10 @@ async function handleApi(req, res, url) {
   const libraryMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)$/);
   if (req.method === "DELETE" && libraryMatch) {
     const threadId = decodeURIComponent(libraryMatch[1]);
-    runStmem(["delete", "--thread", threadId]);
+    const context = getMemoryContext(threadId);
+    if (context.layout === "memory-v1" && !(context.bindingConfig?.bindings || []).length) {
+      runStmem(["memory", "delete", "--memory", context.memoryId, "--apply"]);
+    } else runStmem(["delete", "--thread", threadId]);
     return json(res, 200, { success: true, threadId });
   }
 
@@ -1253,7 +1590,8 @@ async function handleApi(req, res, url) {
     const threadId = decodeURIComponent(promptsMatch[1]);
     const settings = publicThreadSettings(threadId);
     if (settings.purpose !== "accompany") throw new Error("提示词与关系时间轴编辑仅适用于陪伴场景");
-    const config = loadConfig(); const entry = config[threadId] || {};
+    const config = loadConfig(); const context = getMemoryContext(threadId);
+    const entry = context.layout === "memory-v1" ? getMemoryRuntimeConfig(threadId) : (config[threadId] || {});
     const timeline = Array.isArray(entry.relationshipTimeline) ? entry.relationshipTimeline : [];
     const opsDir = path.join(__dirname, "..", "..", "operations");
     const overridesDir = path.join(path.dirname(CONFIG_PATH), "prompt-overrides");
@@ -1290,9 +1628,14 @@ async function handleApi(req, res, url) {
         const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-web-timeline-"));
         const batchFile = path.join(tmpDir, "config.json");
         try {
-          const cur = publicThreadSettings(threadId);
-          fs.writeFileSync(batchFile, JSON.stringify({ ...cur, relationshipTimeline: strings, threadId, runtime: cur.runtime, purpose: cur.purpose }), { encoding: "utf8", mode: 0o600 });
-          runStmem(["init", "--thread", threadId, "--batch-file", batchFile]);
+          if (context.layout === "memory-v1") {
+            fs.writeFileSync(batchFile, JSON.stringify({ relationshipTimeline: strings }), { encoding: "utf8", mode: 0o600 });
+            runStmem(["memory", "settings", "--memory", threadId, "--batch-file", batchFile, "--apply"]);
+          } else {
+            const cur = publicThreadSettings(threadId);
+            fs.writeFileSync(batchFile, JSON.stringify({ ...cur, relationshipTimeline: strings, threadId, runtime: cur.runtime, purpose: cur.purpose }), { encoding: "utf8", mode: 0o600 });
+            runStmem(["init", "--thread", threadId, "--batch-file", batchFile]);
+          }
         } finally { fs.rmSync(tmpDir, { recursive: true, force: true }); }
       }
       return json(res, 200, { success: true });
@@ -1460,6 +1803,8 @@ async function handleApi(req, res, url) {
     if(req.method==="GET"&&action==="dry-run"){
       const windowDays=Math.max(1,Number(url.searchParams.get("windowDays"))||3),toolValue=url.searchParams.get("toolPairs"),toolPairs=Math.max(0,toolValue===null?30:Number(toolValue)),watermark=url.searchParams.get("watermark")==="true",summaryLimit=Math.max(0,Number(url.searchParams.get("summaryLimit"))||0),minImportance=Math.max(0,Math.min(5,Number(url.searchParams.get("minImportance"))||0));
       const rebuildArgs=["rebuild","--thread",threadId,"--window",String(windowDays),"--tool-pairs",String(toolPairs)];
+      const bindingValue=(url.searchParams.get("binding")||"").trim();
+      if(bindingValue)rebuildArgs.push("--binding",bindingValue);
       if(watermark)rebuildArgs.push("--watermark");
       rebuildArgs.push("--summary-limit",String(summaryLimit),"--min-importance",String(minImportance));
       return json(res,200,parseRebuildDryRun(runStmem(rebuildArgs)));
@@ -1472,8 +1817,19 @@ async function handleApi(req, res, url) {
       try{return json(res,200,parseRebuildDryRun(runStmem(rebuildArgs)));}
       finally{fs.rmSync(dir,{recursive:true,force:true});}
     }
-    if (req.method === "GET" && action === "check") return json(res, 200, JSON.parse(runStmem(["rebuild", "--thread", threadId, "--check"])));
-    if (req.method === "POST" && action === "repair") return json(res, 200, JSON.parse(runStmem(["rebuild", "--thread", threadId, "--repair"])));
+    if (req.method === "GET" && action === "check") {
+      const checkArgs = ["rebuild", "--thread", threadId, "--check"];
+      const bindingValue = (url.searchParams.get("binding") || "").trim();
+      if (bindingValue) checkArgs.push("--binding", bindingValue);
+      return json(res, 200, JSON.parse(runStmem(checkArgs)));
+    }
+    if (req.method === "POST" && action === "repair") {
+      const body = await readJson(req);
+      const repairArgs = ["rebuild", "--thread", threadId, "--repair"];
+      const bindingValue = String(body.bindingId || "").trim();
+      if (bindingValue) repairArgs.push("--binding", bindingValue);
+      return json(res, 200, JSON.parse(runStmem(repairArgs)));
+    }
     if (req.method === "POST" && action === "queue") {
       if (threadSettings.runtime === "codex") return json(res, 409, { error: "Codex 不支持延时重建队列，请使用 apply 并在成功后立即重启 Codex/app-server" });
       const body = await readJson(req);
@@ -1496,7 +1852,9 @@ async function handleApi(req, res, url) {
       try {
         const rebuildArgs=["rebuild", "--thread", threadId, ...rebuildRequestCliArgs(request), "--plan", planFile, "--apply"];
         const output = runStmem(rebuildArgs);
-        const integrity = JSON.parse(runStmem(["rebuild", "--thread", threadId, "--check"]));
+        const integrityArgs = ["rebuild", "--thread", threadId, "--check"];
+        if (request.bindingId) integrityArgs.push("--binding", request.bindingId);
+        const integrity = JSON.parse(runStmem(integrityArgs));
         return json(res, 200, { success: true, output, integrity });
       } finally { fs.rmSync(path.dirname(planFile), { recursive: true, force: true }); }
     }
@@ -1543,28 +1901,86 @@ async function handleApi(req, res, url) {
 
   if (req.method === "POST" && url.pathname === "/api/libraries") {
     const input = await readJson(req);
+    let createdNow = false;
+    if (!input.memoryId) {
+      const result = JSON.parse(runStmem(["memory", "create", ...(String(input.libraryName || "").trim() ? ["--name", String(input.libraryName).trim()] : [])]));
+      createdNow = true;
+      if (!String(input.threadId || "").trim()) {
+        if (!String(input.ai || "").trim() || !String(input.user || "").trim() || !String(input.purpose || "").trim()) {
+          return json(res, 201, { library: { ...result.memory, libraryName: result.memory.label, configured: false, threadId: null } });
+        }
+        input.memoryId = result.memory.memoryId;
+      } else {
+        // Compatibility for an already-open older frontend: it may still submit
+        // the former all-in-one payload. The server still routes both writes through CLI.
+        input.memoryId = result.memory.memoryId;
+      }
+    }
+    if (!getMemory(input.memoryId)) throw new Error(`记忆体不存在：${input.memoryId}`);
     const initDir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-web-init-"));
-    const initFile = path.join(initDir, "init.json");
-    fs.writeFileSync(initFile, JSON.stringify(input), { encoding: "utf8", mode: 0o600 });
-    try { runStmem(["init", "--thread", input.threadId, "--batch-file", initFile]); }
-    finally { fs.rmSync(initDir, { recursive: true, force: true }); }
-    const createdConfig = loadConfig()[input.threadId];
-    if (!createdConfig) throw new Error("init 返回成功但没有生成线程配置");
-    const created = { threadId: input.threadId, ...createdConfig };
     const imported = { imported: 0, fullBacked: 0, files: 0 };
     try {
+      if (!String(input.threadId || "").trim()) {
+        const settingsFile = path.join(initDir, "memory-settings.json");
+        fs.writeFileSync(settingsFile, JSON.stringify({
+          label: input.libraryName, purpose: input.purpose, ai: input.ai, user: input.user,
+          userGender: input.userGender || "unspecified", miner: { mode: "subagent", apiProfile: null },
+        }), { encoding: "utf8", mode: 0o600 });
+        runStmem(["memory", "settings", "--memory", input.memoryId, "--batch-file", settingsFile, "--validate"]);
+        runStmem(["memory", "settings", "--memory", input.memoryId, "--batch-file", settingsFile, "--apply"]);
+        const created = listLibraries().find(item => item.memoryId === input.memoryId);
+        if (!created?.configured) throw new Error("记忆体基础设置保存成功但页面未能识别");
+        return json(res, 201, { library: created, imported });
+      }
+      if (input.minerMode === "api") {
+        const profileFile = path.join(initDir, "api-profile.json");
+        fs.writeFileSync(profileFile, JSON.stringify({ id: input.apiProvider, key: input.apiKey, baseUrl: input.baseUrl, model: input.model }), { encoding: "utf8", mode: 0o600 });
+        runStmem(["api-profile", "set", "--batch-file", profileFile, "--validate"]);
+        runStmem(["api-profile", "set", "--batch-file", profileFile, "--apply"]);
+      }
+      const settingsFile = path.join(initDir, "memory-settings.json");
+      fs.writeFileSync(settingsFile, JSON.stringify({
+        label: input.libraryName, purpose: input.purpose, ai: input.ai, user: input.user,
+        userGender: input.userGender || "unspecified",
+        miner: { mode: input.minerMode, apiProfile: input.minerMode === "api" ? input.apiProvider : null },
+        rebuild: { windowDays: Number(input.windowDays) || 3, keepToolPairs: Number(input.keepToolPairs) || 0 },
+      }), { encoding: "utf8", mode: 0o600 });
+      runStmem(["memory", "settings", "--memory", input.memoryId, "--batch-file", settingsFile, "--validate"]);
+      runStmem(["memory", "settings", "--memory", input.memoryId, "--batch-file", settingsFile, "--apply"]);
+
+      const bindingFile = path.join(initDir, "binding.json");
+      fs.writeFileSync(bindingFile, JSON.stringify({ provider: input.runtime, externalThreadId: input.threadId, sessionRoot: input.sessionDir, mode: "primary" }), { encoding: "utf8", mode: 0o600 });
+      runStmem(["binding", "add", "--memory", input.memoryId, "--batch-file", bindingFile]);
+      runStmem(["binding", "add", "--memory", input.memoryId, "--batch-file", bindingFile, "--apply"]);
+
+      const modules = ["watcher", "set", "--memory", input.memoryId,
+        "--archive", input.automaticFullMining === false ? "off" : "on",
+        "--miner", input.automaticMemoryMaintenance === false ? "off" : "on",
+        "--compression", input.automaticCompression === true ? "on" : "off",
+        "--dream", input.automaticDream === true ? "on" : "off"];
+      runStmem(modules);
+      const watcherOn = input.watcherEnabled !== false && (input.automaticFullMining !== false || input.automaticMemoryMaintenance !== false || input.automaticCompression === true || input.automaticDream === true);
+      runStmem(["watcher", watcherOn ? "on" : "off", "--memory", input.memoryId]);
+
       for (const token of input.importTokens || []) {
         const item = previews.get(token);
         if (!item) throw new Error("有一个导入预览已经过期，请重新上传");
-        runStmem(["import", "--thread", created.threadId, "--source", item.filePath, "--apply"]);
+        runStmem(["import", "--memory", input.memoryId, "--source", item.filePath, "--apply"]);
         imported.imported += item.source.preview.valid;
         imported.fullBacked += item.source.preview.valid + (item.source.preview.filtered || 0);
         imported.files++;
         fs.rmSync(path.dirname(item.filePath), { recursive: true, force: true });
         previews.delete(token);
       }
+      const created = listLibraries().find(item => item.memoryId === input.memoryId);
+      if (!created?.configured) throw new Error("Binding 创建成功但记忆体未进入已配置状态");
       return json(res, 201, { library: created, imported });
-    } catch (cause) { throw cause; }
+    } catch (cause) {
+      if (createdNow) {
+        try { runStmem(["memory", "delete", "--memory", input.memoryId, "--apply"]); } catch {}
+      }
+      throw cause;
+    } finally { fs.rmSync(initDir, { recursive: true, force: true }); }
   }
 
   return error(res, 404, "接口不存在");
@@ -1591,6 +2007,7 @@ function startWebServer({ host = "127.0.0.1", port = 4173 } = {}) {
     const url = new URL(req.url, `http://${req.headers.host || `${host}:${port}`}`);
     try {
       if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/review-lab/api/")) return await handleApi(req, res, url);
+      if (serveLegacyDreamLab(res, url)) return;
       if (serveCanonicalDeveloperModule(req, res, url.pathname)) return;
       if (serveStatic(req, res, url.pathname)) return;
       if (!path.extname(url.pathname)) return serveStatic(req, res, "/");
@@ -1607,8 +2024,8 @@ function startWebServer({ host = "127.0.0.1", port = 4173 } = {}) {
 }
 
 module.exports = {
-  startWebServer, listLibraries, overview, previewRows, paginate, buildConversationCalendar,
-  listDeveloperModules,
+  startWebServer, listLibraries, homeOverview, countFeelingsMinedSince, memoryGrowthDays, overview, previewRows, paginate, buildConversationCalendar,
+  listDeveloperModules, developerModuleDetail,
   miningDatesFromStore, miningCommandArgs, miningCheckCommandArgs, targetedMiningCommandArgs,
   timelineCommandArgs, compactTimelineReport, compressionCommandArgs, safeStmemFailure, runStmem,
   reviewCandidateForWeb, reviewProfileFromInput, reviewBatchPayload, reviewBatchCommandArgs,

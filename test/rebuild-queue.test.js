@@ -107,6 +107,23 @@ test("rebuild queue persists the same structured request used by Web and MCP", t
   });
 });
 
+test("rebuild queue carries the target binding for multi-window memories", t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-rebuild-queue-binding-"));
+  const file = path.join(dir, "pending.json");
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  enqueueRebuild({ threadId: "memory-a", bindingId: "binding-2", window: 3, toolPairs: 30 }, file);
+  const [row] = readQueue(file);
+  assert.equal(row.bindingId, "binding-2");
+  assert.deepEqual(buildQueuedApplyArgs(row), [
+    "rebuild", "--thread", "memory-a", "--window", "3", "--tool-pairs", "30",
+    "--summary-limit", "0", "--min-importance", "0", "--trigger", "mcp", "--binding", "binding-2", "--apply",
+  ]);
+  enqueueRebuild({ threadId: "memory-a", window: 3, toolPairs: 30 }, file);
+  const [replaced] = readQueue(file);
+  assert.equal(replaced.bindingId, null);
+  assert.ok(!buildQueuedApplyArgs(replaced).includes("--binding"));
+});
+
 test("only one consumer can claim a pending rebuild batch", t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-rebuild-claim-"));
   const file = path.join(dir, "pending.json");

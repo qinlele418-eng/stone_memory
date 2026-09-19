@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * stmem sync — 按文件游标增量同步线程新消息到 archive
- * 用法: stmem sync [--thread <id>]
+ * 用法: stmem sync [--thread <id>] [--binding <binding-id>]
  *
  * 正常追加只读取游标之后的 JSONL；线程 rebuild、替换或缩小时，自动执行
  * 一次全量幂等校验，再建立新游标。
@@ -11,28 +11,36 @@ const path = require("path");
 const { ingestMessages, stripCodexForkSnapshot } = require("../src/services/thread-ingest");
 const { readThreadDelta, commitThreadCursor } = require("../src/services/thread-sync-cursor");
 const { findThreadSessionFile } = require("../src/lib/thread-session-file");
+const { watcherBinding, bindingCursorFile } = require("../src/services/watcher-bindings");
 
-const { getCfg, getThreadDir, listThreadIds } = require("../src/config");
+const { getCfg, getThreadDir } = require("../src/config");
 const { MemoryStore } = require("../src/storage/memory-store");
 const { FullArchive } = require("../src/services/memory-archive");
 
-const tid = process.argv.includes("--thread")
-  ? process.argv[process.argv.indexOf("--thread") + 1]
-  : listThreadIds()[0];
-if (!tid) { console.error("未指定线程，请用 --thread <id> 或先 stmem init"); process.exit(1); }
+const syncArgs = process.argv.slice(2);
+const { resolveMemoryArg } = require("../src/lib/memory-cli");
+let tid;
+try { tid = resolveMemoryArg(syncArgs, { allowDefault: false }); }
+catch (error) { console.error(error.message); process.exit(1); }
 
 const threadDir = getThreadDir(tid);
-const sessionDir = getCfg("sessionDir", tid);
-if (!sessionDir) { console.error("请在 stmem.json 中配置 sessionDir"); process.exit(1); }
-const threadFile = findThreadSessionFile(sessionDir, tid);
+const bindingIdx = syncArgs.indexOf("--binding");
+const bindingId = bindingIdx >= 0 ? syncArgs[bindingIdx + 1] : null;
+let binding = null;
+try { if (bindingId) binding = watcherBinding(tid, bindingId); }
+catch (error) { console.error(error.message); process.exit(1); }
+const sessionDir = binding?.sessionRoot || getCfg("sessionDir", tid);
+if (!sessionDir) { console.error("请先为记忆体配置 Binding"); process.exit(1); }
+const externalThreadId = binding?.externalThreadId || getCfg("externalThreadId", tid, tid);
+const threadFile = binding?.threadFile || findThreadSessionFile(sessionDir, externalThreadId);
 
 if (!threadFile) {
-  console.log(`线程文件不存在：无法在 ${sessionDir} 中递归找到 ${tid}。请修改线程文件目录或检查文件是否存在`);
+  console.log(`线程文件不存在：无法在 ${sessionDir} 中递归找到 Binding ${externalThreadId}。请修改线程文件目录或检查文件是否存在`);
   process.exit(1);
 }
 
 const memoryDir = path.join(threadDir, "memory");
-const syncFile = path.join(threadDir, ".sync-state.json");
+const syncFile = binding ? bindingCursorFile(tid, binding) : path.join(threadDir, ".sync-state.json");
 const previousState = (() => { try { return JSON.parse(fs.readFileSync(syncFile, "utf8")); } catch { return null; } })();
 const delta = readThreadDelta(threadFile, syncFile);
 if (!delta.messages.length) {

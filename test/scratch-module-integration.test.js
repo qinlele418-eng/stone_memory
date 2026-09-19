@@ -11,7 +11,7 @@ const moduleRoot = path.join(root, "developer-modules", "my-module");
 
 test("scratch module is discoverable through the generic developer module manifest", () => {
   const modules = listDeveloperModules(root);
-  const scratch = modules.find(row => row.id === "my-module");
+  const scratch = modules.find(row => row.id === "memory-scratch");
 
   assert.equal(scratch.title, "刮刮乐");
   assert.equal(scratch.contributor, "SM帝国左丞相可");

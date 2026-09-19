@@ -4,11 +4,11 @@
   const STORAGE_KEY = "stone-memory-ui-theme-v1";
   const MODULE_THEME_BRIDGE_KEY = "stone-memory-developer-semantic-theme-v1";
   const BRAND_LOGO_STORAGE_KEY = "stone-memory-brand-logo-v1";
-  const CONTRACT_URL = "/theme-studio/contract.json?v=5";
+  const CONTRACT_URL = "/theme-studio/contract.json?v=6";
   const ORIGINAL_THEME_NAME = "Stone Memory Original";
   const MODULE_ID = "theme-studio";
   const MODULE_ORDER = 20;
-  const THEME_STYLE_VERSION = "11";
+  const THEME_STYLE_VERSION = "17";
   const THEME_STYLE_FILES = [
     "theme-tokens.css",
     "theme-coverage.css",
@@ -143,6 +143,12 @@
     } catch {}
   }
 
+  function applyBrowserChrome(theme) {
+    const color = cleanCssValue(theme?.tokens?.colors?.canvas);
+    if (!color) return;
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", color);
+  }
+
   function applyLogo(logo) {
     const root = document.documentElement;
     const source = logo?.builtinUrl || logo?.dataUrl;
@@ -161,7 +167,10 @@
     const properties = applyTokenValues(theme);
     publishDeveloperTheme(theme, properties);
     document.documentElement.dataset.stoneTheme = theme.name;
-    document.body?.classList.toggle("stone-theme-enabled", enabled);
+    // 这是整套原版与自定义主题共用的语义样式入口，不是“自定义主题已开启”的标志。
+    // 切回原版只恢复默认 token；移除该类会让页面退回未适配的旧裸样式。
+    document.body?.classList.add("stone-theme-enabled");
+    applyBrowserChrome(theme);
     applyLogo(theme.assets?.logo);
   }
 
@@ -182,7 +191,8 @@
       publishDeveloperTheme(firstFrameTheme, properties);
       themeEnabled = saved.name !== ORIGINAL_THEME_NAME;
       document.documentElement.dataset.stoneTheme = String(saved.name || "Custom").slice(0, 60);
-      document.body?.classList.toggle("stone-theme-enabled", themeEnabled);
+      document.body?.classList.add("stone-theme-enabled");
+      applyBrowserChrome(firstFrameTheme);
       applyLogo(saved.assets?.logo);
     } catch {}
   }
@@ -219,7 +229,9 @@
     if (!Number.isInteger(width) || !Number.isInteger(height) || width < 320 || width > 1600 || height < 160 || height > 1000) {
       throw new Error("主题 Logo 尺寸不合法");
     }
-    if (builtinUrl && builtinUrl !== "/stone-memory-logo.png") throw new Error("主题 Logo 内置路径不合法");
+    if (builtinUrl && builtinUrl !== "/stone-memory-logo.png" && !/^\/brand-icons\/[a-z0-9-]+\.png$/.test(builtinUrl)) {
+      throw new Error("主题 Logo 内置路径不合法");
+    }
     if (!builtinUrl && (!dataUrl.startsWith(`data:${type};base64,`) || dataUrl.length > 280000)) {
       throw new Error("主题 Logo 数据格式不合法");
     }
@@ -320,23 +332,21 @@
   function mountDeveloperEntry(host) {
     if (!host || host.querySelector(`[data-developer-module="${MODULE_ID}"]`)) return;
     const card = document.createElement("section");
-    card.className = "developer-experiment-card developer-theme-card";
+    card.className = "me-menu-row theme-entry-row";
+    card.id = "open-theme-workbench";
+    card.tabIndex = 0;
     card.dataset.developerModule = MODULE_ID;
     card.dataset.moduleOrder = String(MODULE_ORDER);
-    card.innerHTML = `<div class="developer-experiment-copy"><div class="developer-experiment-meta"><span class="developer-status active">前端工具已接入</span><span class="developer-contributor">贡献人：@钦天监秋</span></div><p class="eyebrow">Visual system · Theme studio</p><h2>界面主题工作台</h2><p>调整界面的颜色、业务状态、圆角、阴影和品牌图标；旧版主题会自动迁移到最新契约。</p><div class="developer-experiment-features"><span>语义令牌</span><span>即时预览</span><span>v1/v2 兼容</span></div></div><div class="developer-experiment-action"><div class="developer-memory-stack" aria-hidden="true"><i></i><i></i><i></i><b>主题方案</b></div><button class="developer-enter" id="open-theme-workbench" type="button"><span>Visual theme · v3</span><strong>打开工作台 →</strong></button></div>`;
+    card.innerHTML = `<span class="me-menu-icon" aria-hidden="true">◐</span><span class="me-menu-copy"><strong>自定义主题</strong></span><span aria-hidden="true">›</span>`;
     host.append(card);
     sortDeveloperModules(host);
-    card.querySelector("#open-theme-workbench").onclick = () => {
-      const threadId = document.querySelector(".workspace")?.dataset.threadId;
-      if (threadId) {
-        const returnUrl = new URL(window.location.href);
-        returnUrl.searchParams.set("threadId", threadId);
-        returnUrl.searchParams.set("view", "developer");
-        window.history.replaceState(null, "", returnUrl);
-      }
+    card.onclick = event => {
       const destination = new URL("/theme-studio/", window.location.origin);
-      if (threadId) destination.searchParams.set("threadId", threadId);
+      destination.searchParams.set("focus", event.target.closest("[data-theme-focus]")?.dataset.themeFocus || "themes");
       window.location.href = destination;
+    };
+    card.onkeydown = event => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); card.click(); }
     };
   }
 
@@ -346,7 +356,7 @@
     mountScheduled = true;
     requestAnimationFrame(() => {
       mountScheduled = false;
-      mountDeveloperEntry(document.querySelector("#developer-module-host"));
+      mountDeveloperEntry(document.querySelector("#theme-entry-host"));
     });
   }
 
@@ -369,7 +379,7 @@
       applyTheme(currentTheme, themeEnabled);
       window.addEventListener("storage", handleStorage);
     } catch (error) {
-      document.body?.classList.remove("stone-theme-enabled");
+      document.body?.classList.add("stone-theme-enabled");
       console.warn("Stone Memory theme studio stayed detached:", error);
     }
   }

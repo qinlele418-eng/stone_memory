@@ -378,15 +378,59 @@ function tracked(db, settings) {
   const rows = db.prepare(`SELECT repository,number,title,target_branch targetBranch,head_sha headSha,merge_commit mergeCommit,
     applied_at appliedAt,last_remote_sha lastRemoteSha,last_checked_at lastCheckedAt,removed_at removedAt,revert_commit revertCommit
     FROM tracked_changes WHERE repository=? ORDER BY applied_at DESC`).all(repository);
-  return rows.map(row => {
-    if (row.removedAt) return { ...row, hasUpdate: false };
+  const groups = new Map();
+  for (const row of rows) {
+    const key = `${row.repository}\0${row.number}\0${row.targetBranch}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  }
+  return [...groups.values()].map(versions => {
+    const active = versions.filter(row => !row.removedAt);
+    const row = active[0] || versions[0];
+    if (!active.length) return { ...row, hasUpdate:false, versionCount:versions.length, activeMergeCommits:[] };
     try {
       const latest = github.detail(repository, "pr", row.number, githubToken(settings)).headSha;
-      db.prepare("UPDATE tracked_changes SET last_remote_sha=?,last_checked_at=? WHERE repository=? AND number=? AND merge_commit=?")
-        .run(latest, new Date().toISOString(), repository, row.number, row.mergeCommit);
-      return { ...row, lastRemoteSha: latest, hasUpdate: latest !== row.headSha };
-    } catch { return { ...row, hasUpdate: false, checkError: "暂时无法检查远端动态" }; }
+      db.prepare("UPDATE tracked_changes SET last_remote_sha=?,last_checked_at=? WHERE repository=? AND number=? AND target_branch=? AND removed_at IS NULL")
+        .run(latest, new Date().toISOString(), repository, row.number, row.targetBranch);
+      return { ...row, lastRemoteSha:latest, hasUpdate:latest !== row.headSha, versionCount:active.length, activeMergeCommits:active.map(item => item.mergeCommit) };
+    } catch { return { ...row, hasUpdate:false, checkError:"暂时无法检查远端动态", versionCount:active.length, activeMergeCommits:active.map(item => item.mergeCommit) }; }
   });
+}
+
+function removePullRequest(db, settings, payload) {
+  const repository = requiredRepository(settings);
+  const localRepo = path.resolve(String(settings.localRepoPath || ""));
+  if (!settings.localRepoPath || !fs.existsSync(path.join(localRepo, ".git"))) throw new Error("请先配置有效的本地仓库路径");
+  const number = Number(payload.number);
+  if (!Number.isInteger(number) || number < 1) throw new Error("PR 编号无效");
+  const targetBranch = github.branchName(payload.targetBranch);
+  const records = db.prepare(`SELECT merge_commit mergeCommit FROM tracked_changes
+    WHERE repository=? AND number=? AND target_branch=? AND removed_at IS NULL ORDER BY applied_at DESC`)
+    .all(repository, number, targetBranch);
+  if (!records.length) return { removed:true, duplicate:true, revertCommit:null, versions:0 };
+  if (github.run("git", ["status", "--porcelain"], { cwd:localRepo })) throw new Error("本地工作区有未提交改动，不能移除 PR 更改");
+  const current = github.run("git", ["branch", "--show-current"], { cwd:localRepo });
+  if (current !== targetBranch) throw new Error(`请先切换到原目标分支 ${targetBranch}`);
+  for (const record of records) github.run("git", ["cat-file", "-e", `${record.mergeCommit}^{commit}`], { cwd:localRepo });
+  const commits = records.map(record => record.mergeCommit);
+  try {
+    github.run("git", ["revert", "--no-commit", "-m", "1", ...commits], { cwd:localRepo });
+    github.run("git", ["commit", "-m", `revert: remove ${repository} PR #${number}`], { cwd:localRepo });
+  } catch (error) {
+    let conflicts = [];
+    try { conflicts = unmergedFiles(localRepo); } catch {}
+    try { github.run("git", ["revert", "--abort"], { cwd:localRepo }); } catch {}
+    if (conflicts.length) throw new Error(`删除 PR 全部版本时发生冲突，已自动撤销本次操作；未留下冲突文件：${conflicts.join("、")}`);
+    throw new Error(`删除 PR 全部版本失败，已自动清理 Git 操作状态：${error.message}`);
+  }
+  const revertCommit = github.run("git", ["rev-parse", "HEAD"], { cwd:localRepo });
+  const removedAt = new Date().toISOString();
+  db.prepare(`UPDATE tracked_changes SET removed_at=?,revert_commit=?
+    WHERE repository=? AND number=? AND target_branch=? AND removed_at IS NULL`)
+    .run(removedAt, revertCommit, repository, number, targetBranch);
+  const result = { removed:true, duplicate:false, revertCommit, versions:commits.length };
+  receipt(db, "remove-pr", `${repository}#${number}`, result);
+  return result;
 }
 
 function localOverview(db, settings) {
@@ -678,10 +722,11 @@ async function run(context, input) {
     if (input.action === "update-official") return updateOfficial(db, settings);
     if (input.action === "resolve-official-update") return resolveOfficialUpdate(db, settings, payload);
     if (input.action === "remove-change") return removeChange(db, settings, payload);
+    if (input.action === "remove-pr") return removePullRequest(db, settings, payload);
     if (input.action === "restart-plan") return restartPlan(db, settings);
     if (input.action === "supervisor-control") return supervisorControl(db, payload);
     throw new Error(`未知琢石坊命令：${input.action}`);
   } finally { db.close(); }
 }
 
-module.exports = { run, loadSettings, publicSettings, fallbackReport, workbench, applyPullRequest, resolvePullRequest, removeChange, updateOfficial, resolveOfficialUpdate, restartPlan, classifyChangedFiles, supervisorControl, oauthStart, oauthPoll, configure, generate, DEFAULT_REPOSITORY, GITHUB_CLIENT_ID };
+module.exports = { run, loadSettings, publicSettings, fallbackReport, workbench, applyPullRequest, resolvePullRequest, tracked, removeChange, removePullRequest, updateOfficial, resolveOfficialUpdate, restartPlan, classifyChangedFiles, supervisorControl, oauthStart, oauthPoll, configure, generate, DEFAULT_REPOSITORY, GITHUB_CLIENT_ID };

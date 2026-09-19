@@ -30,17 +30,17 @@
         "fusion": "#765a96"
       },
       "radii": {
-        "extraSmall": "9px",
-        "small": "12px",
-        "medium": "18px",
-        "large": "28px",
+        "extraSmall": "8px",
+        "small": "10px",
+        "medium": "16px",
+        "large": "20px",
         "pill": "999px"
       },
       "shadows": {
-        "card": "0 18px 50px rgba(41, 85, 64, 0.10)",
-        "panel": "0 18px 50px rgba(41, 85, 64, 0.10)",
+        "card": "0 7px 24px rgba(41, 85, 64, 0.07)",
+        "panel": "0 16px 44px rgba(41, 85, 64, 0.10)",
         "floating": "0 24px 70px rgba(41, 85, 64, 0.16)",
-        "button": "0 10px 24px rgba(57, 112, 82, 0.24)"
+        "button": "0 8px 20px rgba(57, 112, 82, 0.20)"
       },
       "spacing": {
         "one": "6px",

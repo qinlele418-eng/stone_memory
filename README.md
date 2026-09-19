@@ -4,6 +4,8 @@
 
 Stone Memory 是一个本地优先、可解释的 AI 记忆与线程生命周期管理系统。它从 Claude Code、Codex 等聊天线程中归档纯对话，挖掘 feelings（事件摘要）和 features（长期特征），再按关系阶段、项目证据、主副核心与 importance 对旧摘要精简或隐藏，并把人设、摘要、原文锚点、近期上下文和工具调用安全地重建回线程。
 
+> 当前 `main` 为 `1.2.0-beta.1` 测试版：引入稳定 `memoryId`、多 Binding 接入和新版 Web 工作台。升级前建议备份 `~/.stone_memory`；旧线程配置会继续以兼容模式读取。
+
 它不依赖 embedding 黑箱召回：用户可以查看系统保存了什么、为什么保留、对应哪段原文、位于怎样的时间曲线，以及下一次 rebuild 会实际注入哪些内容。
 
 主要能力：
@@ -361,12 +363,15 @@ stmem mine-review preview --thread <线程ID> --date <YYYY-MM-DD>   # 审阅候�
 stmem mine-review list --thread <线程ID>
 stmem mine-review apply --thread <线程ID> --candidate <候选ID>
 
-stmem dream --thread <线程ID>                # 手动织梦
+stmem dream --thread <线程ID> --date <YYYY-MM-DD>  # 手动织梦
+stmem dream preferences --thread <线程ID>          # 查看织梦偏好与安全模式分布
+stmem dream nsfw --thread <线程ID> on|off           # 显式开启或关闭成年亲密主题梦境
 stmem memory update --thread <线程ID> --batch-file <json>   # 摘要/锚点编辑
 stmem rules list --thread <线程ID>           # 规则管理
 
 stmem list                                   # 只读查看
-stmem sync --thread <线程ID>                 # 手动同步
+stmem sync --thread <线程ID>                 # 手动同步主 Binding
+stmem sync --thread <线程ID> --binding <ID>  # 手动同步指定 Binding（独立游标）
 stmem db status --thread <线程ID>            # 数据库维护
 ```
 
@@ -374,7 +379,7 @@ stmem db status --thread <线程ID>            # 数据库维护
 
 安装阶段负责让唯一 watcher supervisor 常驻并自愈（Linux 走 systemd，Windows 走 Task Scheduler）；init 与 watcher CLI 都不负责拉起裸进程。只有 `watcherEnabled=ON` 的记忆体才会拥有 worker；某个记忆体的开关不影响其他记忆体。
 
-线程文件变化后约 300ms 防抖增量同步到 archive；正常追加只读取每个记忆体 `.sync-state.json` 游标后的新字节。若线程经 rebuild 缩短、被替换，或游标前内容被改写，则自动执行一次全量幂等校验并重建游标，不会用"每次完整重读线程"冒充增量。后台仍低频巡检，作为文件系统漏事件时的兜底，并负责自动挖掘和摘要维护。
+线程文件变化后约 300ms 防抖增量同步到 archive；每个记忆体最多同时监听 5 个启用的 Binding，每个 Binding 使用 `.sync-state/<binding-id>.json` 独立游标。多个窗口可以同时报告变化，但同一记忆体始终串行写入 archive 与 SQLite。若线程经 rebuild 缩短、被替换，或游标前内容被改写，则自动执行一次全量幂等校验并重建游标。后台仍低频巡检，作为文件系统漏事件时的兜底，并负责自动挖掘和摘要维护。
 
 ```bash
 stmem watcher status                         # 查看全部记忆体状态
@@ -384,11 +389,15 @@ stmem watcher set --thread <id> --archive on # 开启对话录入插件
 stmem watcher set --thread <id> --miner off  # 关闭摘要挖掘插件
 stmem watcher set --thread <id> --compression on # 开启自动压缩（默认关闭）
 stmem watcher set --thread <id> --dream on   # 开启织梦插件
-stmem watcher service status                  # Windows：检查 Task Scheduler 服务与 supervisor
-stmem watcher service repair                  # Windows：重建漂移或未运行的服务
-stmem watcher service remove                  # Windows：移除任务后正常停止 supervisor，不删除记忆数据
+stmem watcher service install                 # Linux systemd / Windows Task Scheduler 安装并启动
+stmem watcher service status                  # 检查服务与 supervisor
+stmem watcher service repair                  # 重建漂移或未运行的服务
+stmem watcher service remove                  # 移除服务，不删除记忆数据
 stmem watcher set --thread <id> --dev-<name> on # 开发者插件必须使用 dev- 前缀
 ```
+
+Linux 下相同的 `service install/status/repair/remove` 命令管理 `systemd --user` 的
+`stmem-watcher.service`；Windows 下管理 Task Scheduler。安装或修复会启用并立即启动唯一 supervisor。
 
 `set` 只修改插件开关；如果该记忆体总开关当前为 OFF，还需要执行一次 `stmem watcher on --thread <id>`。supervisor 会在下一次巡检时收敛实际 worker。
 
@@ -484,30 +493,39 @@ SM 通过 **`mcp-server.js`**（项目根目录，不是 `bin/stmem`！）暴露
 
 ### 注册方式
 
-**Claude Code（settings.json，mcpServers 字段）**：
-
-```json
-{
-  "mcpServers": {
-    "stmem": {
-      "command": "node",
-      "args": ["/完整路径/stone_memory/mcp-server.js"]
-    }
-  }
-}
-```
-
-**Codex CLI**：
+**Claude Code 2.1.163 或更高版本**：
 
 ```bash
-codex mcp add stmem -- node ~/stone_memory/mcp-server.js
+claude --version
+claude mcp add --scope user stmem -- node /完整路径/stone_memory/mcp-server.js
+claude mcp get stmem
 ```
+
+Claude Code 会把当前 stdio MCP 所属窗口的 `CLAUDE_CODE_SESSION_ID` 自动传给 SM。旧版可能完全不提供该变量，或在 `--resume` 后提供错误 ID；低于 `2.1.163` 时请先升级，不要把某次会话 ID 静态写进 MCP 配置。
+
+**Codex CLI / IDE 扩展**：
+
+```bash
+codex mcp add stmem -- node /完整路径/stone_memory/mcp-server.js
+codex mcp get stmem
+```
+
+随后在用户级 `~/.codex/config.toml` 的 `stmem` 配置中加入 `env_vars`；否则 MCP 工具虽然能加载，`stmem_memory_bind` 仍无法识别当前窗口：
+
+```toml
+[mcp_servers.stmem]
+command = "node"
+args = ["/完整路径/stone_memory/mcp-server.js"]
+env_vars = ["CODEX_THREAD_ID"]
+```
+
+保存后完整重启 Codex。这里必须使用 `env_vars` 动态转发每个窗口自己的 ID，不能用 `env` 固定写死某次 `CODEX_THREAD_ID`。
 
 **Cyberboss（tool-host 配置）**：在 tool-host 中添加 stdio MCP server，命令为 `node`，参数为 `mcp-server.js` 的绝对路径。
 
-> 以上操作均可交由 AI 助手完成。注意注册的是 `mcp-server.js`，不是 `stmem` CLI。
+> 以上操作均可交由 AI 助手完成。注意注册的是 `mcp-server.js`，不是 `stmem` CLI。注册后建议先调用一次 `stmem_memory_bind`；若仍提示无法识别窗口 ID，按报错中的 Codex/Claude Code 专项检查修正配置或版本。
 
-### 可用工具（共 13 个）
+### 可用工具
 
 | 工具 | 功能 |
 |------|------|
@@ -515,6 +533,7 @@ codex mcp add stmem -- node ~/stone_memory/mcp-server.js
 | `stmem_memory_rebuild` | 应用刚刚预览的参数：Codex 立即 apply，Claude Code 写入 queue |
 | `stmem_memory_mine` | 触发单日挖掘（feelings + features） |
 | `stmem_memory_status` | 查看当前 stmem 状态，含各线程 archive/feelings/features 数量 |
+| `stmem_memory_bind` | 将发起调用的当前 Codex/Claude Code 窗口绑定到指定记忆体；已属于其他记忆体时拒绝改绑 |
 | `stmem_dream_latest` / `stmem_dream_status` / `stmem_dream_get` | 查看最近梦境、织梦状态或指定日期梦境 |
 | `stmem_memory_search` | 关键词搜索 feelings + 回溯原文 archive |
 | `stmem_memory_deep_search` | 深度检索（子 agent 多级搜索 + 原文回溯） |

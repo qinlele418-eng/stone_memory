@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 const fs = require("fs");
 const path = require("path");
-const { getThreadDir, listThreadIds, loadConfig } = require("../src/config");
+const { getThreadDir, loadConfig, getMemoryRuntimeConfig } = require("../src/config");
+const { resolveMemoryArg } = require("../src/lib/memory-cli");
 const { MemoryStore } = require("../src/storage/memory-store");
 const { MemoryCompressor } = require("../src/services/memory-compressor");
 const { buildCompressionPlan } = require("../src/services/compression-planner");
@@ -11,8 +12,7 @@ const args = process.argv.slice(2);
 const value = name => { const index = args.indexOf(name); return index >= 0 ? args[index + 1] : null; };
 
 async function main() {
-  const threadId = value("--thread") || listThreadIds()[0];
-  if (!threadId) throw new Error("没有已配置线程，请使用 --thread <id>");
+  const threadId = resolveMemoryArg(args, { allowDefault: !args.includes("--apply") });
   const apply = args.includes("--apply");
   const automatic = args.includes("--auto");
   const json = args.includes("--json");
@@ -114,7 +114,7 @@ async function compressInBatches(compressor, feelings, batchSize) {
 function resolveApiConfig(threadId) {
   if (args.includes("--subagent")) return {};
   const config = loadConfig();
-  const thread = config[threadId] || {};
+  const thread = getMemoryRuntimeConfig(threadId);
   const mode = args.includes("--api") ? "api" : (thread.minerMode || "subagent");
   if (mode !== "api") return {};
   const provider = thread.apiProvider || "deepseek";

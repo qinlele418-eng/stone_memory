@@ -72,9 +72,12 @@
         }
       }
       document.documentElement.dataset.stoneTheme = String(theme.name || "Custom").slice(0, 60);
+      const browserColor = clean(theme.tokens?.colors?.canvas);
+      if (browserColor) document.querySelector('meta[name="theme-color"]')?.setAttribute("content", browserColor);
       sessionStorage.setItem(MODULE_THEME_BRIDGE_KEY, JSON.stringify({ version: 1, name: String(theme.name || "Custom").slice(0, 60), properties }));
       const logo = theme.assets?.logo;
-      const source = typeof logo?.dataUrl === "string" && /^data:image\/(?:png|webp);base64,/i.test(logo.dataUrl) ? logo.dataUrl : logo?.builtinUrl === "/stone-memory-logo.png" ? logo.builtinUrl : "";
+      const builtinUrl = typeof logo?.builtinUrl === "string" && (logo.builtinUrl === "/stone-memory-logo.png" || /^\/brand-icons\/[a-z0-9-]+\.png$/.test(logo.builtinUrl)) ? logo.builtinUrl : "";
+      const source = typeof logo?.dataUrl === "string" && /^data:image\/(?:png|webp);base64,/i.test(logo.dataUrl) ? logo.dataUrl : builtinUrl;
       if (source) localStorage.setItem(BRAND_LOGO_STORAGE_KEY, source); else localStorage.removeItem(BRAND_LOGO_STORAGE_KEY);
     }
   } catch {}

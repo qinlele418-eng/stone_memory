@@ -5,14 +5,15 @@ const path = require("node:path");
 
 const { DreamService, validateDreamPromptOverride } = require("../src/services/dream-service");
 const { DreamPreferences, PROMPT_FILES } = require("../src/services/dream-preferences");
-const { DREAM_TYPE_ORDER, normalizedProbabilities } = require("../src/services/dream-policy");
+const { DREAM_TYPE_ORDER, isNsfwDreamType, nsfwDisabledError, planDreamDistribution } = require("../src/services/dream-policy");
+const { resolveMemoryArg } = require("../src/lib/memory-cli");
 
-const BUNDLED_PROMPT_DIRECTORY = path.join(__dirname, "..", "operations", "dream");
+const BUNDLED_PROMPT_DIRECTORY = path.join(__dirname, "..", "developer-modules", "dream-lab", "prompts");
 
 // 前端「织梦秘典」六项 → 正式 Prompt 文件名的映射。
 const PROMPT_KEYS = Object.freeze(["common-core", ...DREAM_TYPE_ORDER]);
 
-const SUBCOMMANDS = new Set(["preferences", "pin", "unpin", "guard", "multiplier", "prompt"]);
+const SUBCOMMANDS = new Set(["preferences", "pin", "unpin", "guard", "multiplier", "nsfw", "prompt"]);
 
 function runDreamCommand(args = process.argv.slice(2), {
   serviceFactory = () => new DreamService(),
@@ -22,9 +23,8 @@ function runDreamCommand(args = process.argv.slice(2), {
   if (args.length && SUBCOMMANDS.has(args[0])) {
     return runDreamConfigCommand(args, { preferencesFactory, writeLine });
   }
-  const threadId = optionValue(args, "--thread");
+  const threadId = resolveMemoryArg(args, { allowDefault: false });
   const date = optionValue(args, "--date");
-  if (!threadId) throw new Error("dream command requires --thread <id>");
   if (!date) throw new Error("dream command requires --date <YYYY-MM-DD>");
 
   const result = serviceFactory().generate({ threadId, date });
@@ -39,7 +39,7 @@ function runDreamCommand(args = process.argv.slice(2), {
 
 function runDreamConfigCommand(args, { preferencesFactory, writeLine }) {
   const sub = args[0];
-  const threadId = requiredOption(args, "--thread");
+  const threadId = resolveMemoryArg(args, { allowDefault: false });
   const preferences = preferencesFactory();
 
   switch (sub) {
@@ -63,8 +63,8 @@ function runDreamConfigCommand(args, { preferencesFactory, writeLine }) {
       return summary;
     }
     case "guard": {
-      const enabled = onOffValue(args);
-      preferences.setGuard(threadId, enabled);
+      const excludedTypes = parseExclusions(args);
+      preferences.setExclusions(threadId, excludedTypes);
       const summary = preferencesSummary(threadId, preferences);
       writeLine(JSON.stringify(summary));
       return summary;
@@ -72,6 +72,12 @@ function runDreamConfigCommand(args, { preferencesFactory, writeLine }) {
     case "multiplier": {
       const multipliers = parseMultipliers(args);
       preferences.setMultipliers(threadId, multipliers);
+      const summary = preferencesSummary(threadId, preferences);
+      writeLine(JSON.stringify(summary));
+      return summary;
+    }
+    case "nsfw": {
+      preferences.setNsfwEnabled(threadId, onOffValue(args, "nsfw"));
       const summary = preferencesSummary(threadId, preferences);
       writeLine(JSON.stringify(summary));
       return summary;
@@ -84,9 +90,10 @@ function runDreamConfigCommand(args, { preferencesFactory, writeLine }) {
 }
 
 function runPromptCommand(args, { preferences, writeLine }) {
-  const threadId = requiredOption(args, "--thread");
+  const threadId = resolveMemoryArg(args, { allowDefault: false });
   const key = requiredOption(args, "--type");
   if (!PROMPT_KEYS.includes(key)) throw new Error(`unknown dream prompt type: ${key}`);
+  if (isNsfwDreamType(key) && !preferences.read(threadId).nsfwEnabled) throw nsfwDisabledError();
   const fileName = key === "common-core" ? "common-core.md" : `${key}.md`;
   const setFile = optionValue(args, "--set");
   const reset = args.includes("--reset");
@@ -132,11 +139,12 @@ function preferencesSummary(threadId, preferences) {
   }
   return {
     threadId,
+    nsfwEnabled: prefs.nsfwEnabled,
     multipliers: prefs.multipliers,
-    guard: prefs.guard,
+    excludedTypes: prefs.excludedTypes,
     oneShot: prefs.oneShot,
     promptOverrides: overrides,
-    probabilities: normalizedProbabilities({ multipliers: prefs.multipliers, guard: prefs.guard }),
+    distribution: planDreamDistribution(prefs),
   };
 }
 
@@ -145,7 +153,7 @@ function parseMultipliers(args) {
   let found = false;
   for (let index = 1; index < args.length; index++) {
     const flag = args[index];
-    if (!flag.startsWith("--") || flag === "--thread") continue;
+    if (!flag.startsWith("--") || flag === "--thread" || flag === "--memory") continue;
     const type = flag.slice(2);
     if (!DREAM_TYPE_ORDER.includes(type)) {
       throw new Error(`unknown dream type: ${type}`);
@@ -160,11 +168,24 @@ function parseMultipliers(args) {
   return multipliers;
 }
 
-function onOffValue(args) {
-  const index = args.indexOf("on");
-  if (index >= 0) return true;
-  if (args.indexOf("off") >= 0) return false;
-  throw new Error("guard requires on or off");
+function parseExclusions(args) {
+  const excluded = [];
+  for (let index = 1; index < args.length; index++) {
+    if (args[index] !== "--exclude") continue;
+    const type = args[index + 1];
+    if (!type || !DREAM_TYPE_ORDER.includes(type)) {
+      throw new Error("guard --exclude requires a valid dream type");
+    }
+    excluded.push(type);
+    index += 1;
+  }
+  return excluded;
+}
+
+function onOffValue(args, command) {
+  if (args.includes("on")) return true;
+  if (args.includes("off")) return false;
+  throw new Error(`${command} requires on or off`);
 }
 
 function requiredOption(args, name) {

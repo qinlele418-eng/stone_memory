@@ -1,0 +1,142 @@
+/* Shared presentation for detachable developer modules. Business modules keep
+ * their own layout; this layer supplies the same component finish as Core. */
+
+body.stone-developer-module {
+  background: var(--stone-theme-page-background, var(--stone-theme-canvas, #f5f8f1));
+  background-repeat: no-repeat;
+  background-size: 100% 100dvh;
+}
+
+body.stone-developer-module .panel,
+body.stone-developer-module .card,
+body.stone-developer-module .dialog-card {
+  border-color: var(--stone-theme-line-soft, rgba(220, 230, 215, .9));
+  border-radius: var(--stone-theme-radius-lg, 20px);
+  background: var(--stone-theme-surface, rgba(255, 254, 249, .94));
+  box-shadow: var(--stone-theme-shadow-card, 0 7px 24px rgba(41, 85, 64, .07));
+}
+
+body.stone-developer-module .panel {
+  backdrop-filter: blur(18px) saturate(112%);
+  -webkit-backdrop-filter: blur(18px) saturate(112%);
+}
+
+body.stone-developer-module .primary,
+body.stone-developer-module .secondary,
+body.stone-developer-module .restart,
+body.stone-developer-module .ghost,
+body.stone-developer-module .danger-button,
+body.stone-developer-module .pager button {
+  min-height: 42px;
+  border-radius: var(--stone-theme-radius-sm, 10px);
+  transition:
+    transform var(--stone-theme-motion-fast, 180ms) var(--stone-theme-ease-soft, ease),
+    border-color var(--stone-theme-motion-fast, 180ms) ease,
+    background var(--stone-theme-motion-fast, 180ms) ease,
+    box-shadow var(--stone-theme-motion-normal, 200ms) ease;
+}
+
+body.stone-developer-module .primary,
+body.stone-developer-module .restart {
+  color: var(--stone-theme-canvas-warm, #fffef9);
+  border-color: color-mix(in srgb, var(--stone-theme-accent-strong, #295540) 70%, var(--stone-theme-accent, #397052));
+  background: var(--stone-theme-accent-strong, #295540);
+  border-color: var(--stone-theme-accent-strong, #295540);
+  background: linear-gradient(
+    135deg,
+    var(--stone-theme-accent-strong, #295540),
+    color-mix(in srgb, var(--stone-theme-accent, #397052) 72%, var(--stone-theme-accent-strong, #295540))
+  );
+  box-shadow: var(--stone-theme-shadow-button, 0 8px 20px rgba(57, 112, 82, .2));
+}
+
+body.stone-developer-module .primary:hover:not(:disabled),
+body.stone-developer-module .restart:hover:not(:disabled),
+body.stone-developer-module .secondary:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+body.stone-developer-module .secondary {
+  color: var(--stone-theme-accent-strong, #295540);
+  border-color: var(--stone-theme-line, #dce6d7);
+  background: color-mix(in srgb, var(--stone-theme-surface, #fffef9) 88%, var(--stone-theme-accent-soft, #eaf2e5));
+  background: color-mix(in srgb, var(--stone-theme-surface, #fffef9) 88%, transparent);
+}
+
+body.stone-developer-module .ghost {
+  color: var(--stone-theme-accent, #397052);
+  background: transparent;
+}
+
+body.stone-developer-module .danger-button {
+  color: var(--stone-theme-canvas-warm, #fffef9);
+  background: var(--stone-theme-danger, #a3463e);
+}
+
+body.stone-developer-module input,
+body.stone-developer-module select,
+body.stone-developer-module textarea {
+  border-color: var(--stone-theme-line, #dce6d7);
+  border-radius: var(--stone-theme-radius-sm, 10px);
+  background: var(--stone-theme-surface, #fffef9);
+  background: var(--stone-theme-surface, #fffef9);
+  transition: border-color .16s ease, box-shadow .16s ease;
+}
+
+body.stone-developer-module input:focus,
+body.stone-developer-module select:focus,
+body.stone-developer-module textarea:focus {
+  border-color: var(--stone-theme-accent, #397052);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--stone-theme-accent, #397052) 14%, transparent);
+  outline: none;
+}
+
+body.stone-developer-module .section-head {
+  padding-bottom: 14px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid var(--stone-theme-line-soft, rgba(220, 230, 215, .9));
+}
+
+body.stone-developer-module .eyebrow {
+  font-size: 10px;
+  letter-spacing: .17em;
+}
+
+body.stone-developer-module .chip,
+body.stone-developer-module .count,
+body.stone-developer-module .api-status {
+  border: 1px solid color-mix(in srgb, var(--stone-theme-accent, #397052) 18%, var(--stone-theme-line, #dce6d7));
+}
+
+body.stone-developer-module dialog {
+  border-radius: var(--stone-theme-radius-lg, 20px);
+  box-shadow: var(--stone-theme-shadow-floating, 0 24px 70px rgba(41, 85, 64, .16));
+}
+
+body.stone-developer-module dialog::backdrop {
+  background: color-mix(in srgb, var(--stone-theme-ink, #18372b) 42%, transparent);
+  background: rgba(24, 55, 43, .42);
+  backdrop-filter: blur(4px);
+}
+
+/* Responsive patch: layout and sizing only; module visuals stay shared. */
+@media (max-width: 720px) {
+  body.stone-developer-module .panel,
+  body.stone-developer-module .dialog-card {
+    border-radius: var(--stone-theme-radius-md, 16px);
+  }
+
+  body.stone-developer-module .section-head {
+    margin-bottom: 14px;
+    padding-bottom: 11px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.stone-developer-module *,
+  body.stone-developer-module *::before,
+  body.stone-developer-module *::after {
+    animation-duration: .01ms !important;
+    transition-duration: .01ms !important;
+  }
+}

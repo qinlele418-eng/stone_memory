@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "sdkVersion": 1,
   "scope": "global",
+  "workshopSection": "community",
   "permissions": ["process:spawn", "generation:use"],
   "entry": {
     "frontend": "frontend/index.html",
@@ -27,6 +28,7 @@
       "update-official": "backend/commands/community.js",
       "resolve-official-update": "backend/commands/community.js",
       "remove-change": "backend/commands/community.js",
+      "remove-pr": "backend/commands/community.js",
       "restart-plan": "backend/commands/community.js",
       "supervisor-control": "backend/commands/community.js"
     }

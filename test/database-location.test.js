@@ -10,3 +10,11 @@ test("runtime threads share one global database while isolated fixtures stay loc
   const isolatedMemory = path.resolve(path.sep, "tmp", "stmem-fixture", "memory");
   assert.equal(resolveDatabasePath(isolatedMemory), path.join(isolatedMemory, "stone-memory.db"));
 });
+
+test("canonical memory directories use the same global database as legacy runtimes", () => {
+  const home = os.homedir();
+  assert.equal(
+    resolveDatabasePath(path.join(home, ".stone_memory", "memories", "memory-1", "memory")),
+    path.join(home, ".stone_memory", "stone-memory.db"),
+  );
+});

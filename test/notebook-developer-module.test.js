@@ -16,7 +16,9 @@ test("notebook developer module is detachable and bound to the selected memory t
   for (const file of ["bootstrap.js", "index.html", "app.js", "styles.css", "README.md"]) {
     assert.ok(fs.existsSync(path.join(moduleDir, file)), file);
   }
-  assert.match(main, /loadOptionalScript\("\/notebook-lab\/bootstrap\.js"\)/);
+  assert.match(main, /loadOptionalScript\("\/developer-kit\/bootstrap\.js(?:\?v=\d+)?"\)/);
+  assert.doesNotMatch(main, /loadOptionalScript\("\/notebook-lab\/bootstrap\.js/);
+  assert.match(bootstrap, /host\.dataset\.memoryId/);
   assert.match(bootstrap, /workspace["']\)\?\.dataset\.threadId/);
   assert.match(app, /encodeURIComponent\(threadId\)/);
   assert.match(app, /此篇由小机封存中/);
@@ -37,6 +39,12 @@ test("notebook developer module is detachable and bound to the selected memory t
   assert.match(html, /name="isDefault"/);
   assert.match(html, /id="search-topic"/);
   assert.match(html, /id="search-tags"/);
+  assert.match(html, /id="note-image"/);
+  assert.match(html, /id="note-image-alt"/);
+  assert.match(html, /id="upload-note-image"/);
+  assert.match(app, /20 \* 1024 \* 1024/);
+  assert.match(app, /insertAtCursor/);
+  assert.match(app, /application\/octet-stream/);
   assert.match(app, /latestEntry/);
   assert.match(app, /URLSearchParams/);
   assert.equal((html.match(/type="button" data-close-dialog/g) || []).length, 2);

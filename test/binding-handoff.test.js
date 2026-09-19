@@ -77,3 +77,17 @@ test("Claude hook emits current contract and fails open", async () => {
   assert.equal(spec.hooks.SessionStart[0].matcher, "startup|resume|clear|compact");
   assert.equal(spec.hooks.PostCompact, undefined);
 });
+
+test("Claude hook refuses an ambiguous Binding instead of selecting the first", async () => {
+  const binding = { id: "binding-a", enabled: true, provider: "claude_code", externalThreadId: "shared-session", capabilities: {} };
+  const context = { core: {
+    listMemoryIds: () => ["memory-a", "memory-b"],
+    listBindings: () => [binding],
+    getBinding: () => binding,
+    listFeelings: () => [{ source_date: "2026-08-20", order_key: "1", content: "不应注入", summary_mode: "daily", importance: 5 }],
+  } };
+  assert.deepEqual(await run(context, {
+    action: "hook",
+    stdin: { hook_event_name: "SessionStart", session_id: "shared-session" },
+  }), {});
+});

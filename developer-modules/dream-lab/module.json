@@ -4,46 +4,49 @@
   "version": "1.0.0",
   "sdkVersion": 2,
   "scope": "memory",
-  "permissions": [
-    "core:read",
-    "generation:use",
-    "watcher:plugin",
-    "mcp:tools"
-  ],
+  "permissions": ["core:read", "generation:use", "watcher:plugin", "mcp:tools"],
   "entry": {
-    "frontend": "index.html",
+    "frontend": "frontend/index.html",
     "commands": {
-      "dream": "backend/commands/dream.js"
+      "generate": "backend/commands/dream.js",
+      "preferences": "backend/commands/dream.js",
+      "pin": "backend/commands/dream.js",
+      "unpin": "backend/commands/dream.js",
+      "guard": "backend/commands/dream.js",
+      "multiplier": "backend/commands/dream.js",
+      "nsfw": "backend/commands/dream.js",
+      "prompt": "backend/commands/dream.js",
+      "migrate": "backend/commands/migrate.js",
+      "rollback": "backend/commands/migrate.js"
     },
     "mcp": "backend/mcp.js"
   },
-  "storage": {
-    "files": [
-      "preferences.json",
-      "dreams"
-    ]
-  },
-  "watcher": {
-    "plugin": "dev-dream"
-  },
+  "storage": { "files": ["preferences.json", "dreams", "prompts", "operations", "migration-receipt.json"] },
+  "watcher": { "plugin": "dev-dream" },
+  "migration": { "mode": "explicit", "receipt": "migration-receipt.json" },
+  "contributor": "Stone Memory · @fengyincheng",
+  "summary": "管理自动织梦的秘典、策略、档案与安全的模块化实验室。",
+  "status": "官方架构实验",
+  "eyebrow": "DREAM LAB · AUTOMATIC DREAM",
+  "actionLabel": "进入自动织梦 →",
+  "metaLabel": "Dream Lab · v1.0.0",
+  "features": ["Prompt 秘典", "策略调律", "梦境档案", "安全绮染"],
+  "order": 20,
   "legacy": {
-    "frontend": "src/web/public/dream-lab",
-    "commands": {
-      "dream": "scripts/stmem-dream.js"
-    },
+    "commands": { "dream": "scripts/stmem-dream.js" },
     "storage": [
-      {
-        "path": "~/.stone_memory/dream/<thread-id>/<date>.md",
-        "mode": "梦境正文"
-      },
-      {
-        "path": "<thread-dir>/dream/",
-        "mode": "偏好与 Prompt 覆盖"
-      },
-      {
-        "path": "<thread-dir>/tmp/",
-        "mode": "生成临时文件"
-      }
+      { "path": "~/.stone_memory/dream/<thread-id>/YYYY/MM/<date>.txt", "mode": "梦境正文" },
+      { "path": "<thread-dir>/dream/", "mode": "偏好与 Prompt 覆盖" },
+      { "path": "<thread-dir>/tmp/", "mode": "生成临时文件" }
     ]
-  }
+  },
+  "coreExtensions": [
+    { "path": "src/services/dream-preferences.js", "reason": "保留 legacy preferences 读写并按迁移状态选择模块数据目录" },
+    { "path": "src/services/dream-service.js", "reason": "保留现有 canonical DreamService，供 CLI、Web 和 watcher 复用" },
+    { "path": "src/storage/dream-store.js", "reason": "保留现有 dream archive 存储接口并按迁移状态选择后端" },
+    { "path": "src/services/watcher-plugins/dream.js", "reason": "保留 legacy dream watcher，并在 dev-dream cutover 时避免双触发" },
+    { "path": "src/services/watcher-plugins/dev-dream.js", "reason": "通过统一 post-mining hook 暴露 governed Dream watcher" },
+    { "path": "src/web/server.js", "reason": "保留 Dream Lab 兼容 API、模块发现和旧入口重定向" },
+    { "path": "scripts/stmem-dream.js", "reason": "保留 stmem dream legacy CLI 兼容入口，业务仍复用 canonical service" }
+  ]
 }
