@@ -555,13 +555,12 @@ window.StoneLegacyNavigation = Object.freeze({
 });
 
 function managementNav(active="overview") {
-  const items=[["overview","管理概览"],["memories","摘要记忆"],["conversations","对话档案"],["context","上下文与线程"],["automation","自动化"],["maintenance","数据维护"]];
-  return `<nav class="management-nav" aria-label="管理二级导航">${items.map(([id,label])=>`<button data-management-view="${id}" class="${active===id?"active":""}">${label}</button>`).join("")}</nav>`;
+  void active;
+  return "";
 }
 
 function bindManagementNav(library) {
-  const routes={overview:renderManagement,memories:renderMemoryHub,conversations:renderConversations,context:renderRebuild,automation:renderAutomation,maintenance:renderDataMaintenance};
-  document.querySelectorAll("[data-management-view]").forEach(button=>button.onclick=()=>routes[button.dataset.managementView](library));
+  void library;
 }
 
 let settingsRenderVersion = 0;
@@ -581,9 +580,17 @@ function activateManagementNav() {
 
 function renderManagement(library) {
   activateManagementNav();
-  const main=document.querySelector("#workspace-main"),counts=library.counts||{},rebuild=library.rebuild;
-  main.innerHTML=`${managementNav("overview")}<div class="dashboard-head"><div><p class="eyebrow">Memory control center</p><h1>管理</h1><p class="lead">查看记忆、原文和当前上下文，并处理需要留意的运行状态。</p></div></div><section class="management-summary-grid"><button data-management-view="memories"><span>形成的记忆</span><strong>${counts.feelings||0} 条摘要</strong><small>查看摘要、素材、锚点与时间脉络</small></button><button data-management-view="conversations"><span>记忆的依据</span><strong>${counts.messages||counts.conversations||"查看原文"}</strong><small>按日期回看对话与来源材料</small></button><button data-management-view="context"><span>当前携带</span><strong>${rebuild?`${rebuild.injectedFeelings||0} 条摘要`:"尚未重建"}</strong><small>管理注入范围、线程状态与重建</small></button><button data-management-view="automation"><span>后台运行</span><strong>${library.automaticFullMining||library.automaticMemoryMaintenance||library.automaticCompression?"已配置":"全部关闭"}</strong><small>检查自动录入、挖掘与压缩状态</small></button></section><section class="section-card management-attention"><div><p class="eyebrow">需要处理</p><h2>${library.attention?escapeHtml(library.attention):library.pendingMiningDays?`还有 ${library.pendingMiningDays} 天等待挖掘`:"当前没有待处理异常"}</h2></div><button class="secondary" data-management-view="maintenance">打开数据维护</button></section>`;
+  const main=document.querySelector("#workspace-main"),counts=library.counts||{};
+  main.innerHTML=`${managementNav("overview")}<section class="management-overview-grid"><article class="section-card management-overview-panel"><header><p class="eyebrow">Memory archive</p><h1>记忆档案</h1></header><div class="management-overview-list"><button class="management-overview-entry" data-management-archive="rules"><span><strong>人设 / 规则</strong><small>查看和管理会注入当前记忆体的人设与规则</small></span><b>共 ${counts.rules||0} 条</b><i aria-hidden="true">›</i></button><button class="management-overview-entry" data-management-archive="feelings"><span><strong>摘要</strong><small>查看完整、精简和隐藏的记忆摘要</small></span><b>共 ${counts.feelings||0} 条</b><i aria-hidden="true">›</i></button><button class="management-overview-entry" data-management-archive="conversations"><span><strong>全量对话</strong><small>按日期回看已经进入记忆体的真实原文</small></span><b>共 ${counts.messages||counts.conversations||0} 条</b><i aria-hidden="true">›</i></button><button class="management-overview-entry" data-management-archive="timeline"><span><strong>时间轴</strong><small>查看词频、重要摘要与记忆生命周期</small></span><i aria-hidden="true">›</i></button></div></article><article class="section-card management-overview-panel"><header><p class="eyebrow">Memory maintenance</p><h1>记忆维护</h1></header><div class="management-overview-list"><button class="management-overview-entry" data-management-maintenance="import"><span><strong>数据导入</strong><small>支持直接导入线程文件或符合格式的对话文件</small></span><i aria-hidden="true">›</i></button><button class="management-overview-entry" data-management-maintenance="materials"><span><strong>管理挖掘素材</strong><small>决定哪些对话、工具链成为挖掘摘要的素材，同时避免反复注入的内容污染摘要库</small></span><i aria-hidden="true">›</i></button><button class="management-overview-entry" data-management-maintenance="mining"><span><strong>记忆挖掘台</strong><small>手动生成多日摘要并审核</small></span><i aria-hidden="true">›</i></button><button class="management-overview-entry" data-management-maintenance="compression"><span><strong>记忆压缩（测试功能）</strong><small>预览并逐步精简不再需要完整注入的旧摘要</small></span><i aria-hidden="true">›</i></button></div></article></section>`;
   bindManagementNav(library);
+  main.querySelector('[data-management-archive="rules"]').onclick=()=>renderMemorySection(library,"rules");
+  main.querySelector('[data-management-archive="feelings"]').onclick=()=>renderMemorySection(library,"feelings");
+  main.querySelector('[data-management-archive="conversations"]').onclick=()=>renderConversations(library);
+  main.querySelector('[data-management-archive="timeline"]').onclick=()=>renderTimeline(library);
+  main.querySelector('[data-management-maintenance="import"]').onclick=()=>renderConversationImport(library);
+  main.querySelector('[data-management-maintenance="materials"]').onclick=()=>renderToolPolicy(library);
+  main.querySelector('[data-management-maintenance="mining"]').onclick=()=>renderMining(library);
+  main.querySelector('[data-management-maintenance="compression"]').onclick=()=>renderCompression(library);
 }
 
 async function renderAutomation(library) {

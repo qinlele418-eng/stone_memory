@@ -104,18 +104,24 @@ body.stone-theme-enabled .library-card h2 {
 }
 
 body.stone-theme-enabled .overview-grid,
-body.stone-theme-enabled .management-summary-grid,
+body.stone-theme-enabled .management-overview-grid,
 body.stone-theme-enabled .maintenance-grid {
   gap: 12px;
 }
 
 body.stone-theme-enabled .overview-grid > div,
-body.stone-theme-enabled .management-summary-grid button,
+body.stone-theme-enabled .management-overview-entry,
 body.stone-theme-enabled .maintenance-card,
 body.stone-theme-enabled .automation-status-card,
 body.stone-theme-enabled .check-card,
 body.stone-theme-enabled .summary-box {
   border-radius: var(--stone-theme-radius-md);
+}
+
+body.stone-theme-enabled .management-overview-entry {
+  color: var(--stone-theme-ink);
+  border-color: var(--stone-theme-line-soft);
+  background: color-mix(in srgb, var(--stone-theme-surface) 76%, var(--stone-theme-accent-soft));
 }
 
 body.stone-theme-enabled .maintenance-card {

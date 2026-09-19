@@ -35,10 +35,16 @@ test("memory-first init creates an unbound draft and later keeps its stable iden
   assert.equal(memory.label, "新建记忆体");
   assert.equal(memory.status, "draft");
   assert.deepEqual(memory.bindings, []);
+  const draftRoot = path.join(home, ".stone_memory", "memories", memory.memoryId);
+  for (const relative of [
+    "memory/archive/full", "memory/import/done", "memory/mined/feelings", "rules", "logs",
+    "memory/retain-config.json", "memory/audit-marks.json", "rules/instructions.md", "rules/operations.md",
+  ]) assert.equal(fs.existsSync(path.join(draftRoot, relative)), true, relative);
 
   const settingsFile = path.join(home, "settings.json");
   fs.writeFileSync(settingsFile, JSON.stringify({
     label: "我的记忆", purpose: "coding", ai: "石头", user: "用户",
+    relationshipTimeline: ["2026-01：初识"],
     miner: { mode: "subagent" }, rebuild: { windowDays: 5, keepToolPairs: 12 },
   }));
   const validated = run(home, ["memory", "settings", "--memory", memory.memoryId, "--batch-file", settingsFile, "--validate"]);
@@ -48,6 +54,8 @@ test("memory-first init creates an unbound draft and later keeps its stable iden
   const appliedSettings = run(home, ["memory", "settings", "--memory", memory.memoryId, "--batch-file", settingsFile, "--apply"]);
   assert.equal(appliedSettings.status, 0, appliedSettings.stderr);
   assert.equal(JSON.parse(appliedSettings.stdout).settings.label, "我的记忆");
+  assert.deepEqual(JSON.parse(appliedSettings.stdout).settings.relationshipTimeline, ["2026-01：初识"]);
+  assert.match(fs.readFileSync(path.join(draftRoot, "rules", "instructions.md"), "utf8"), /石头 的系统指令/);
   const repeatedSettings = run(home, ["memory", "settings", "--memory", memory.memoryId, "--batch-file", settingsFile, "--apply"]);
   assert.equal(JSON.parse(repeatedSettings.stdout).changed, false);
 
@@ -73,6 +81,25 @@ test("memory-first init creates an unbound draft and later keeps its stable iden
   assert.equal(fs.existsSync(path.join(root, "watcher.json")), true);
   assert.equal(fs.existsSync(path.join(home, ".stone_memory", "stone-memory.db")), true);
   assert.equal(fs.existsSync(path.join(home, ".stone_memory", "runtimes", "codex", "accompany", "thread-abc")), false);
+});
+
+test("memory repair previews and restores a missing canonical scaffold without overwriting rules", t => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-memory-repair-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const memory = JSON.parse(run(home, ["memory", "create", "--name", "待修复"]).stdout).memory;
+  const root = path.join(home, ".stone_memory", "memories", memory.memoryId);
+  fs.writeFileSync(path.join(root, "rules", "instructions.md"), "自定义规则", "utf8");
+  fs.rmSync(path.join(root, "rules", "operations.md"));
+  fs.rmSync(path.join(root, "memory", "retain-config.json"));
+  const preview = JSON.parse(run(home, ["memory", "repair", "--memory", memory.memoryId]).stdout);
+  assert.equal(preview.applied, false);
+  assert.deepEqual(preview.missingFiles.sort(), ["memory/retain-config.json", "rules/operations.md"]);
+  assert.equal(fs.existsSync(path.join(root, "rules", "operations.md")), false);
+  const repaired = JSON.parse(run(home, ["memory", "repair", "--memory", memory.memoryId, "--apply"]).stdout);
+  assert.equal(repaired.changed, true);
+  assert.equal(fs.readFileSync(path.join(root, "rules", "instructions.md"), "utf8"), "自定义规则");
+  assert.equal(fs.existsSync(path.join(root, "rules", "operations.md")), true);
+  assert.equal(fs.existsSync(path.join(root, "memory", "retain-config.json")), true);
 });
 
 test("formal memory-first creation stores settings, binding and watcher state without a legacy thread entry", t => {
@@ -242,6 +269,12 @@ test("new binding configuration is validated, persisted by memory id and mirrore
   assert.equal(result.changed, true);
   assert.equal(result.binding.externalThreadId, "external-1");
   assert.equal(result.config.primaryBindingId, result.binding.id);
+  assert.equal(result.automationEnabled, true);
+  const watcherAfterBinding = JSON.parse(fs.readFileSync(path.join(home, ".stone_memory", "memories", created.memoryId, "watcher.json"), "utf8"));
+  assert.equal(watcherAfterBinding.enabled, true);
+  assert.equal(watcherAfterBinding.modules.archive, true);
+  assert.equal(watcherAfterBinding.modules.miner, true);
+  assert.equal(watcherAfterBinding.modules.compression, false);
   const repeated = JSON.parse(run(home, ["binding", "add", "--memory", created.memoryId, "--batch-file", batch, "--apply"]).stdout);
   assert.equal(repeated.changed, false);
 

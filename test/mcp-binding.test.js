@@ -55,7 +55,7 @@ test("MCP exposes one current-window bind tool and refuses cross-memory rebindin
   const bindTool = responses[0].result.tools.find(tool => tool.name === "stmem_memory_bind");
   assert.deepEqual(bindTool.inputSchema.required, ["memory"]);
   assert.deepEqual(Object.keys(bindTool.inputSchema.properties), ["memory"]);
-  assert.match(responses[1].result.content[0].text, /已绑定到记忆体“第一记忆体”/);
+  assert.match(responses[1].result.content[0].text, /已绑定到记忆体“第一记忆体”.*已自动开启对话录入和自动生成摘要/);
   assert.equal(responses[1].result.isError, false);
   assert.equal(responses[2].result.isError, true);
   assert.match(responses[2].result.content[0].text, /已绑定到其他记忆体.*不支持改绑/);
@@ -64,4 +64,24 @@ test("MCP exposes one current-window bind tool and refuses cross-memory rebindin
   const secondBindings = JSON.parse(run(home, ["binding", "list", "--memory", second.memoryId]).stdout);
   assert.equal(firstBindings.bindings[0].externalThreadId, "current-window");
   assert.equal(secondBindings.bindings.length, 0);
+  const watcher = JSON.parse(fs.readFileSync(path.join(home, ".stone_memory", "memories", first.memoryId, "watcher.json"), "utf8"));
+  assert.equal(watcher.enabled, true);
+  assert.equal(watcher.modules.archive, true);
+  assert.equal(watcher.modules.miner, true);
+  assert.equal(watcher.modules.compression, false);
+});
+
+test("MCP bind reports the host-specific setup when the current window id is unavailable", t => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-mcp-bind-env-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  createMemory(home, "待绑定记忆体");
+
+  const responses = callMcp(home, [
+    { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "stmem_memory_bind", arguments: { memory: "待绑定记忆体" } } },
+  ], { CODEX_THREAD_ID: "", CLAUDE_CODE_SESSION_ID: "", STMEM_CURRENT_THREAD_ID: "" });
+
+  assert.equal(responses[0].result.isError, true);
+  assert.match(responses[0].result.content[0].text, /env_vars = \["CODEX_THREAD_ID"\]/);
+  assert.match(responses[0].result.content[0].text, /Claude Code.*2\.1\.163.*CLAUDE_CODE_SESSION_ID/);
+  assert.match(responses[0].result.content[0].text, /不要把某次会话 ID 静态写进配置/);
 });

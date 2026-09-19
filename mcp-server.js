@@ -448,7 +448,7 @@ function currentBindingSession(env = process.env) {
   const codexThread = String(env.CODEX_THREAD_ID || "").trim();
   const claudeThread = String(env.CLAUDE_CODE_SESSION_ID || "").trim();
   const externalThreadId = explicitThread || codexThread || claudeThread;
-  if (!externalThreadId) throw new Error("无法识别当前窗口 ID；请从 Codex 或 Claude Code 的当前会话调用此工具");
+  if (!externalThreadId) throw new Error("无法识别当前窗口 ID。Codex：确认 stmem 的 MCP 配置包含 env_vars = [\"CODEX_THREAD_ID\"]，保存后完整重启；Claude Code：升级到 2.1.163 或更高版本，确认 stdio MCP 收到 CLAUDE_CODE_SESSION_ID。不要把某次会话 ID 静态写进配置");
   const explicitProvider = String(env.STMEM_CURRENT_PROVIDER || "").trim().toLowerCase();
   const provider = explicitProvider || (codexThread ? "codex" : claudeThread ? "claude" : "");
   if (!new Set(["codex", "claude"]).has(provider)) throw new Error("无法识别当前窗口属于 Codex 还是 Claude Code");
@@ -473,7 +473,7 @@ function toolMemoryBind(args) {
     ], { encoding: "utf8", timeout: 30_000, maxBuffer: 5 * 1024 * 1024, cwd: PROJECT_ROOT, windowsHide: true });
     const result = JSON.parse(output);
     return result.changed
-      ? `当前窗口已绑定到记忆体“${memory.label}”（${memory.memoryId}）。`
+      ? `当前窗口已绑定到记忆体“${memory.label}”（${memory.memoryId}）。${result.automationEnabled ? "已自动开启对话录入和自动生成摘要。" : ""}`
       : `当前窗口此前已经绑定到记忆体“${memory.label}”（${memory.memoryId}）。`;
   } catch (error) {
     throw new Error(`绑定失败：${String(error.stderr || error.message).trim()}`);

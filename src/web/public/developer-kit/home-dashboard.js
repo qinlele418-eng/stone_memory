@@ -67,7 +67,7 @@
     const copy = element("div", "mapped-memory-copy");
     const name = element("h2", "", memory.libraryName || memory.memoryId || "未命名记忆体");
     name.append(element("span", "", ` · ${purposeLabel(memory.purpose)}`));
-    copy.append(name, element("p", "", `最近对话同步 · ${lastSync(memory.lastMinedAt)}`));
+    copy.append(name, element("p", "", `最近对话同步 · ${lastSync(memory.lastArchivedAt)}`));
     copy.append(element("p", "mapped-memory-meta", `${memory.runtime || "尚未绑定平台"} · ${memory.configured ? "本地记忆体" : "等待配置"}`));
     top.append(avatar, copy, element("span", "mapped-memory-arrow", "›"));
     const healthy = memory.watcherEnabled && memory.automaticFullMining;

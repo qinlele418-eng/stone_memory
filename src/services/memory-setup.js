@@ -12,6 +12,54 @@ function writeJson(file, value) {
   fs.renameSync(temporary, file);
 }
 
+function ruleTemplates(ai = "") {
+  const name = String(ai || "AI").trim() || "AI";
+  return {
+    "instructions.md": `# ${name} 的系统指令\n\n在此定义 ${name} 的基础人格、行为规则、回复风格。\n每次 rebuild 时这些指令会自动注入到新线程头部。\n`,
+    "operations.md": `# ${name} 的操作指令\n\n在此定义 ${name} 可以使用的工具、API、外部系统。\n每次 rebuild 时这些操作指令会自动注入到新线程头部。\n`,
+  };
+}
+
+function memoryScaffoldPlan(root) {
+  const directories = ["memory/archive/full", "memory/import/done", "memory/mined/feelings", "rules", "logs"];
+  const files = ["memory/retain-config.json", "memory/audit-marks.json", "rules/instructions.md", "rules/operations.md"];
+  return {
+    root,
+    missingDirectories: directories.filter(relative => !fs.existsSync(path.join(root, relative))),
+    missingFiles: files.filter(relative => !fs.existsSync(path.join(root, relative))),
+  };
+}
+
+function ensureMemoryScaffold(root, { ai = "", now = new Date(), apply = true } = {}) {
+  const plan = memoryScaffoldPlan(root);
+  if (!apply) return { ...plan, changed: !!(plan.missingDirectories.length || plan.missingFiles.length) };
+  for (const relative of plan.missingDirectories) fs.mkdirSync(path.join(root, relative), { recursive: true });
+  const defaults = {
+    "memory/retain-config.json": JSON.stringify({ retain: {}, eventAnchors: {} }, null, 2),
+    "memory/audit-marks.json": JSON.stringify({ lastCutoffDate: `${now.getFullYear()}-01-01`, retainMarks: {} }, null, 2),
+    ...Object.fromEntries(Object.entries(ruleTemplates(ai)).map(([name, content]) => [`rules/${name}`, content])),
+  };
+  for (const relative of plan.missingFiles) {
+    const file = path.join(root, relative);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, defaults[relative], { encoding: "utf8", mode: 0o600 });
+  }
+  const updatedFiles = [];
+  if (String(ai || "").trim()) {
+    const generic = ruleTemplates("");
+    const named = ruleTemplates(ai);
+    for (const name of Object.keys(named)) {
+      const relative = `rules/${name}`;
+      const file = path.join(root, relative);
+      if (!plan.missingFiles.includes(relative) && fs.readFileSync(file, "utf8") === generic[name]) {
+        fs.writeFileSync(file, named[name], { encoding: "utf8", mode: 0o600 });
+        updatedFiles.push(relative);
+      }
+    }
+  }
+  return { ...plan, updatedFiles, changed: !!(plan.missingDirectories.length || plan.missingFiles.length || updatedFiles.length) };
+}
+
 function memoryRecord(memoryId, value = {}) {
   return {
     memoryId,
@@ -34,6 +82,7 @@ function createMemory({ label = "新建记忆体" } = {}) {
     writeJson(path.join(root, "memory.json"), {
       schemaVersion: 1, memoryId, label: record.label, status: "draft",
       purpose: null, ai: "", user: "", userGender: "unspecified",
+      relationshipTimeline: [],
       miner: { mode: null, apiProfile: null },
       rebuild: { windowDays: 3, keepToolPairs: 30, contextWindowTokens: null, mcpRebuildDefaultsEnabled: false, mcpSummaryLimit: 0, mcpMinImportance: 0 },
       createdAt: record.createdAt, updatedAt: record.updatedAt,
@@ -48,6 +97,7 @@ function createMemory({ label = "新建记忆体" } = {}) {
     writeJson(path.join(root, ".layout-v1.json"), {
       schemaVersion: 1, status: "complete", memoryId, origin: "created", completedAt: record.createdAt,
     });
+    ensureMemoryScaffold(root);
   } catch (error) {
     fs.rmSync(root, { recursive: true, force: true });
     throw error;
@@ -80,6 +130,7 @@ function publicMemorySettings(memoryId) {
     schemaVersion: 1, memoryId: context.memoryId, label: entry.label || context.memoryId, status: "active",
     purpose: entry.purpose || null, ai: entry.ai || "", user: entry.user || "",
     userGender: entry.userGender || "unspecified",
+    relationshipTimeline: Array.isArray(entry.relationshipTimeline) ? entry.relationshipTimeline : [],
     miner: { mode: entry.minerMode || null, apiProfile: entry.apiProvider || null },
     rebuild: {
       windowDays: entry.windowDays ?? 3, keepToolPairs: entry.keepToolPairs ?? 30,
@@ -109,7 +160,7 @@ function boundedInteger(value, label, minimum, maximum, { nullable = false } = {
 
 function validateMemorySettings(current, patch, config = loadConfig()) {
   if (!patch || typeof patch !== "object" || Array.isArray(patch)) throw new Error("设置必须是 JSON 对象");
-  const allowed = new Set(["label", "purpose", "ai", "user", "userGender", "miner", "rebuild"]);
+  const allowed = new Set(["label", "purpose", "ai", "user", "userGender", "relationshipTimeline", "miner", "rebuild"]);
   const unknown = Object.keys(patch).filter(key => !allowed.has(key));
   if (unknown.length) throw new Error(`不支持的记忆体设置：${unknown.join("、")}`);
   const next = JSON.parse(JSON.stringify(current));
@@ -125,6 +176,10 @@ function validateMemorySettings(current, patch, config = loadConfig()) {
     const gender = optionalText(patch.userGender, "用户性别");
     if (!["unspecified", "female", "male"].includes(gender)) throw new Error("用户性别必须是 unspecified、female 或 male");
     next.userGender = gender;
+  }
+  if (Object.hasOwn(patch, "relationshipTimeline")) {
+    if (!Array.isArray(patch.relationshipTimeline)) throw new Error("关系时间轴必须是数组");
+    next.relationshipTimeline = patch.relationshipTimeline.map(value => String(value || "").trim()).filter(Boolean);
   }
   if (Object.hasOwn(patch, "miner")) {
     if (!patch.miner || typeof patch.miner !== "object" || Array.isArray(patch.miner)) throw new Error("miner 设置必须是对象");
@@ -172,6 +227,7 @@ function updateMemorySettings(memoryId, patch, { apply = false } = {}) {
   const changed = JSON.stringify(current) !== JSON.stringify(settings);
   if (!apply) return { valid: true, changed, settings };
   if (!changed) return { applied: true, changed: false, settings: current };
+  ensureMemoryScaffold(context.root, { ai: settings.ai });
   settings.updatedAt = new Date().toISOString();
   const config = loadConfig();
   const original = fs.readFileSync(file, "utf8");
@@ -221,7 +277,16 @@ function deleteDraftMemory(memoryId, { apply = false, now = new Date() } = {}) {
   return { applied: true, ...plan };
 }
 
+function repairMemoryScaffold(memoryId, { apply = false } = {}) {
+  const context = getMemoryContext(memoryId);
+  if (context.layout !== "memory-v1") throw new Error("旧布局记忆体不需要 canonical 骨架修复");
+  const settings = publicMemorySettings(memoryId);
+  const result = ensureMemoryScaffold(context.root, { ai: settings.ai, apply });
+  return { memoryId, applied: apply, ...result };
+}
+
 module.exports = {
   createMemory, getMemory, listMemories, publicMemorySettings,
-  validateMemorySettings, updateMemorySettings, deleteDraftMemory, writeJson,
+  validateMemorySettings, updateMemorySettings, deleteDraftMemory, repairMemoryScaffold,
+  memoryScaffoldPlan, ensureMemoryScaffold, writeJson,
 };
