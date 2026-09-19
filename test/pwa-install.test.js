@@ -19,7 +19,7 @@ function setup(secure = true) {
   return { context, listeners, messages, button, hint };
 }
 
-test('click prompts synchronously, blocks double clicks and consumes a dismissed event', async () => {
+test('click prompts synchronously, blocks double clicks and keeps a dismissed event retryable', async () => {
   const { context, listeners, messages } = setup();
   let calls = 0, finish;
   const choice = new Promise(resolve => { finish = resolve; });
@@ -31,8 +31,8 @@ test('click prompts synchronously, blocks double clicks and consumes a dismissed
   finish({ outcome: 'dismissed' });
   await pending;
   await context.installStoneMemory();
-  assert.equal(calls, 1);
-  assert.match(messages.at(-1), /浏览器暂未提供/);
+  assert.equal(calls, 2);
+  assert.match(messages.at(-1), /再次点击重试/);
 });
 
 test('HTTP addresses explain HTTPS requirement without invoking a prompt', async () => {

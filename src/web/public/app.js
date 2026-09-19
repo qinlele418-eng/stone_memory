@@ -87,7 +87,16 @@ async function installStoneMemory() {
     refreshPwaInstallUi();
     await prompting;
     const choice = await event.userChoice;
-    showToast(choice.outcome === "accepted" ? "已确认安装，请等待浏览器完成。" : "已取消安装。下次可通过浏览器菜单安装，或等待新的安装提示。");
+    if (choice.outcome === "accepted") {
+      deferredPwaInstall = null;
+      showToast("已确认安装，请等待浏览器完成。");
+    } else {
+      // Do not permanently discard the entry point after a dismissal. Some
+      // browsers allow another user-activated prompt; others reject the reuse,
+      // in which case the next click falls back to the browser's install menu.
+      deferredPwaInstall = event;
+      showToast("已取消安装；可以再次点击重试，也可以从浏览器菜单选择“安装应用”。");
+    }
   } catch {
     showToast("未能打开系统安装提示。请从浏览器菜单选择“安装应用”或“添加到主屏幕”。", "error");
   } finally {
