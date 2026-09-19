@@ -31,7 +31,7 @@ test("responsive navigation shell delegates to the stable frontend", () => {
   for (const tab of ["概况", "记忆", "上下文状态", "接入", "设置"]) {
     assert.match(app, new RegExp(`<span>${tab}</span>`));
   }
-  for (const content of ["已生长了", "原始对话", "对话文件总体积", "当前对话线程信息", "当前窗口上下文", "当前窗口注入", "自动化设置"]) {
+  for (const content of ["已生长了", "原始对话", "原始线程总体积", "当前对话线程信息", "当前窗口上下文", "当前窗口注入", "自动化设置"]) {
     assert.match(app, new RegExp(content));
   }
   assert.match(app, /contextUsageHint\(usage,data\.automaticFullMining\)/);
