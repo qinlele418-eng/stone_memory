@@ -7,6 +7,7 @@ const { spawnSync } = require("node:child_process");
 const {
   MAX_ENABLED_BINDINGS,
   bindingCursorFile,
+  rebalanceWatcherBindings,
   validateEnabledBindingLimit,
 } = require("../src/services/watcher-bindings");
 
@@ -24,6 +25,20 @@ test("each formal binding receives an independent sync cursor", () => {
   assert.notEqual(first, second);
   assert.equal(path.basename(first), "binding-one.json");
   assert.match(first, /[\\/]\.sync-state[\\/]/u);
+});
+
+test("binding records are unlimited while live listeners are capped and oldest activity is stopped", () => {
+  const bindings = Array.from({ length: 6 }, (_, index) => ({
+    id: `b-${index}`,
+    enabled: true,
+    mode: "parallel",
+    lastActivityAt: new Date(2026, 0, index + 1).toISOString(),
+  }));
+  const result = rebalanceWatcherBindings(bindings);
+  assert.equal(result.bindings.length, 6);
+  assert.deepEqual(result.stoppedBindingIds, ["b-0"]);
+  assert.equal(result.bindings.find(item => item.id === "b-0").enabled, false);
+  assert.equal(result.bindings.filter(item => item.enabled !== false && item.mode !== "import_only").length, MAX_ENABLED_BINDINGS);
 });
 
 function runWithHome(home, code) {

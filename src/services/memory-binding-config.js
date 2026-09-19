@@ -8,7 +8,7 @@ const { openDatabase } = require("../storage/database");
 const { addBinding: registerBinding } = require("./memory-bindings");
 const { writeJson } = require("./memory-setup");
 const { saveConfig } = require("./thread-setup");
-const { validateEnabledBindingLimit } = require("./watcher-bindings");
+const { rebalanceWatcherBindings } = require("./watcher-bindings");
 
 const PROVIDERS = new Set(["claude", "codex"]);
 const MODES = new Set(["primary", "parallel", "child", "import_only"]);
@@ -60,8 +60,8 @@ function planBindingAdd(memoryId, input) {
     }
   }
   const existing = config.bindings.find(item => item.id === binding.id);
-  if (!existing) validateEnabledBindingLimit([...config.bindings, binding]);
-  return { dryRun: true, action: existing ? "existing" : "create", binding: existing || binding, revision: config.revision };
+  const capacity = existing ? { bindings: config.bindings, stoppedBindingIds: [] } : rebalanceWatcherBindings([...config.bindings, binding]);
+  return { dryRun: true, action: existing ? "existing" : "create", binding: existing || binding, revision: config.revision, stoppedBindingIds: capacity.stoppedBindingIds };
 }
 
 function applyBindingAdd(memoryId, input) {
@@ -73,7 +73,8 @@ function applyBindingAdd(memoryId, input) {
   if (existing) return { applied: true, changed: false, binding: existing, config };
   const now = new Date().toISOString();
   const binding = { ...candidate, createdAt: now, updatedAt: now };
-  const next = { ...config, revision: config.revision + 1, primaryBindingId: config.primaryBindingId || binding.id, bindings: [...config.bindings, binding] };
+  const capacity = rebalanceWatcherBindings([...config.bindings, binding]);
+  const next = { ...config, revision: config.revision + 1, primaryBindingId: config.primaryBindingId || binding.id, bindings: capacity.bindings.map(item => item.id === binding.id ? { ...item, createdAt: now, updatedAt: now } : item) };
   const original = fs.readFileSync(file, "utf8");
   const memoryFile = path.join(context.root, "memory.json");
   const originalMemory = fs.readFileSync(memoryFile, "utf8");
@@ -90,7 +91,14 @@ function applyBindingAdd(memoryId, input) {
     store.db.transaction(() => {
       writeJson(file, next);
       store.registerThread({ runtime: binding.provider, purpose: null, label: null });
-      registerBinding(store, { provider: binding.provider, externalThreadId: binding.externalThreadId, threadFile: binding.resolvedThreadFile, mode: next.primaryBindingId === binding.id ? "primary" : binding.mode });
+      const storedBinding = next.bindings.find(item => item.id === binding.id);
+      registerBinding(store, { provider: binding.provider, externalThreadId: binding.externalThreadId, threadFile: binding.resolvedThreadFile, mode: next.primaryBindingId === binding.id ? "primary" : binding.mode, enabled: storedBinding?.enabled !== false });
+      for (const stoppedId of capacity.stoppedBindingIds) {
+        const stopped = next.bindings.find(item => item.id === stoppedId);
+        if (!stopped) continue;
+        store.db.prepare("UPDATE memory_bindings SET enabled=0,updated_at=? WHERE memory_id=? AND provider=? AND external_thread_id=?")
+          .run(now, memoryId, stopped.provider, stopped.externalThreadId);
+      }
       const memory = JSON.parse(originalMemory);
       if (memory.status !== "active") {
         memory.status = "active";
@@ -124,7 +132,7 @@ function applyBindingAdd(memoryId, input) {
   } finally {
     store.close();
   }
-  return { applied: true, changed: true, binding, config: next, automationEnabled: firstBinding };
+  return { applied: true, changed: true, binding: next.bindings.find(item => item.id === binding.id), config: next, stoppedBindingIds: capacity.stoppedBindingIds, automationEnabled: firstBinding };
 }
 
 function legacyBindingInput(memoryId) {
@@ -281,10 +289,11 @@ function planBindingState(memoryId, id, action) {
     throw new Error("不能删除主 Binding；请先把另一个窗口设为主 Binding");
   }
   const changed = action === "remove" || binding.enabled !== (action === "enable");
-  if (action === "enable" && changed) {
-    validateEnabledBindingLimit(config.bindings.map(item => item.id === id ? { ...item, enabled: true } : item));
-  }
-  return { dryRun: true, action, changed, memoryId, binding, revision: config.revision };
+  const proposed = action === "enable" && changed
+    ? config.bindings.map(item => item.id === id ? { ...item, enabled: true } : item)
+    : config.bindings;
+  const capacity = action === "enable" && changed ? rebalanceWatcherBindings(proposed) : { bindings: proposed, stoppedBindingIds: [] };
+  return { dryRun: true, action, changed, memoryId, binding, revision: config.revision, stoppedBindingIds: capacity.stoppedBindingIds };
 }
 
 function applyBindingState(memoryId, id, action) {
@@ -293,10 +302,13 @@ function applyBindingState(memoryId, id, action) {
   const { context, file } = bindingFile(memoryId);
   const config = readBindingConfig(memoryId);
   const now = new Date().toISOString();
-  const nextBindings = action === "remove"
+  const proposedBindings = action === "remove"
     ? config.bindings.filter(item => item.id !== id)
     : config.bindings.map(item => item.id === id ? { ...item, enabled: action === "enable", updatedAt: now } : item);
-  const next = { ...config, revision: config.revision + 1, bindings: nextBindings };
+  const capacity = action === "enable" ? rebalanceWatcherBindings(proposedBindings) : { bindings: proposedBindings, stoppedBindingIds: [] };
+  const stoppedBindingIds = capacity.stoppedBindingIds;
+  const finalBindings = capacity.bindings;
+  const next = { ...config, revision: config.revision + 1, bindings: finalBindings };
   const original = fs.readFileSync(file, "utf8");
   writeJson(file, next);
   try {
@@ -306,12 +318,18 @@ function applyBindingState(memoryId, id, action) {
       // imported messages and import batches may still reference this Binding.
       store.db.prepare("UPDATE memory_bindings SET enabled=?,updated_at=? WHERE memory_id=? AND provider=? AND external_thread_id=?")
         .run(action === "enable" ? 1 : 0, now, memoryId, plan.binding.provider, plan.binding.externalThreadId);
+      for (const stoppedId of stoppedBindingIds) {
+        const stopped = next.bindings.find(item => item.id === stoppedId);
+        if (!stopped || stopped.id === id) continue;
+        store.db.prepare("UPDATE memory_bindings SET enabled=0,updated_at=? WHERE memory_id=? AND provider=? AND external_thread_id=?")
+          .run(now, memoryId, stopped.provider, stopped.externalThreadId);
+      }
     } finally { store.close(); }
   } catch (error) {
     fs.writeFileSync(file, original, { encoding: "utf8", mode: 0o600 });
     throw error;
   }
-  return { applied: true, changed: true, action, memoryId, bindingId: id, config: next };
+  return { applied: true, changed: true, action, memoryId, bindingId: id, config: next, stoppedBindingIds };
 }
 
 module.exports = {
