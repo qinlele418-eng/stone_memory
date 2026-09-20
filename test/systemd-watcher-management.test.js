@@ -16,7 +16,8 @@ function fixture(t) {
   const run = (_command, args) => {
     calls.push(args);
     const action = args.slice(1).join(" ");
-    if (action === "enable --now stmem-watcher.service") { enabled = true; active = true; return ""; }
+    if (action === "enable stmem-watcher.service") { enabled = true; return ""; }
+    if (action === "start stmem-watcher.service") { active = true; return ""; }
     if (action === "disable --now stmem-watcher.service") { enabled = false; active = false; return ""; }
     if (action === "is-enabled stmem-watcher.service") {
       if (!enabled) throw new Error("disabled");
@@ -43,6 +44,38 @@ test("Linux watcher service install, status, repair and remove use the owned use
   assert.equal(removeSystemdWatcherService(f).removed, true);
   assert.equal(fs.existsSync(servicePath(f.home)), false);
   assert.ok(f.calls.some(args => args.includes("daemon-reload")));
+});
+
+test("Linux watcher service restores the legacy detached supervisor fallback", t => {
+  const f = fixture(t);
+  let settings = null;
+  f.run = () => { throw new Error("user manager unavailable"); };
+  f.startFallback = value => {
+    settings = value;
+    return { running: true, started: true, pid: 4321 };
+  };
+  const result = installSystemdWatcherService(f);
+  assert.equal(result.manager, "local");
+  assert.equal(result.running, true);
+  assert.equal(result.pid, 4321);
+  assert.match(settings.script, /scripts\/watcher-supervisor\.js$/);
+  assert.equal(settings.env.STMEM_SUPERVISOR_SELF_HEAL, "1");
+});
+
+test("Linux watcher status trusts a live supervisor PID when systemd cannot be queried", t => {
+  const f = fixture(t);
+  fs.mkdirSync(path.dirname(servicePath(f.home)), { recursive: true });
+  fs.writeFileSync(servicePath(f.home), "Description=STMEM Memory Watcher\n");
+  fs.mkdirSync(path.join(f.home, ".config", "systemd", "user", "default.target.wants"), { recursive: true });
+  fs.symlinkSync(servicePath(f.home), path.join(f.home, ".config", "systemd", "user", "default.target.wants", "stmem-watcher.service"));
+  f.run = () => { throw new Error("cannot connect to user bus"); };
+  f.readPid = () => 9876;
+  const result = systemdWatcherServiceStatus(f);
+  assert.equal(result.enabled, true);
+  assert.equal(result.running, true);
+  assert.equal(result.manager, "local");
+  assert.equal(result.healthy, true);
+  assert.match(result.queryError, /cannot connect/);
 });
 
 test("Linux watcher service refuses to overwrite or remove an unrelated unit", t => {

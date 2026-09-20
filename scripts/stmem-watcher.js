@@ -90,9 +90,10 @@ if (subcmd === "service") {
       console.log(`watcher systemd 用户服务已安装并启动：${result.unit}`);
     } else if (action === "status") {
       const result = systemdWatcherServiceStatus(options);
-      const pid = readManagedPid(path.join(STONE, "watcher.pid"), "watcher-supervisor.js");
-      console.log(`watcher supervisor: ${pid ? `运行中 (pid ${pid})` : "未运行"}`);
-      console.log(`  systemd unit: ${result.installed ? "已安装" : "未安装"} · ${result.enabled ? "已启用" : "未启用"} · ${result.running ? "active" : "inactive 或无法查询"}`);
+      console.log(`watcher supervisor: ${result.running ? `运行中${result.pid ? ` (pid ${result.pid})` : ""}` : "未运行"}`);
+      console.log(`  systemd unit: ${result.installed ? "已安装" : "未安装"} · ${result.enabled ? "已启用" : "未启用"} · ${result.systemdRunning ? "active" : "inactive"}`);
+      if (result.manager === "local") console.log("  当前由本地常驻 supervisor 接管（systemd user manager 不可用）");
+      if (result.queryError) console.log(`  systemd query: ${result.queryError}`);
     } else if (action === "repair") {
       const result = repairSystemdWatcherService(options);
       console.log(result.repaired === false ? "watcher service 已正常" : `watcher service 已修复：${result.unit}`);
