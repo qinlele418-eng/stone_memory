@@ -623,7 +623,7 @@ function rebuildThread(inputPath, outputPath, dryRun, windowDays, toolPairsOverr
     try { fs.unlinkSync(outputPath); } catch {}
     const outputSize = fs.statSync(inputPath).size;
     const triggerIdx=process.argv.indexOf("--trigger"),trigger=triggerIdx>=0?process.argv[triggerIdx+1]:"cli";
-    require("../src/services/rebuild-log").appendRebuildLog(currentThreadId,{status:"completed",runtime:"claude",trigger,threadFile:inputPath,windowDays,recentMessages:Math.max(0,stats.windowMsg-retainedMessages),retainAnchors:retainFeelings.length,retainedMessages,injectedFeelings:memoryFeelings.length,injectedRules:ruleCount,injectedRuleNames,preservedToolPairs:pairCount,originalBytes:fullArchiveSize,contextBytes:outputSize,outputLines:totalOutput});
+    require("../src/services/rebuild-log").appendRebuildLog(currentThreadId,{status:"completed",runtime:"claude",bindingId:process.env.STMEM_REBUILD_BINDING_ID||null,trigger,threadFile:inputPath,windowDays,recentMessages:Math.max(0,stats.windowMsg-retainedMessages),retainAnchors:retainFeelings.length,retainedMessages,injectedFeelings:memoryFeelings.length,injectedRules:ruleCount,injectedRuleNames,preservedToolPairs:pairCount,originalBytes:fullArchiveSize,contextBytes:outputSize,outputLines:totalOutput});
     console.log(`\n[rebuild] ${(fullArchiveSize / 1024 / 1024).toFixed(2)} MB full → ` +
       `${(outputSize / 1024 / 1024).toFixed(2)} MB ` +
       `(${fullArchiveSize > 0 ? ((1 - outputSize / fullArchiveSize) * 100).toFixed(1) : "—"}% saved)`);

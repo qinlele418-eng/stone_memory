@@ -12,6 +12,22 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
+test("context management keeps usage and rebuild provenance per binding", () => {
+  const root = path.join(__dirname, "..");
+  const watcher = fs.readFileSync(path.join(root, "scripts", "watcher.js"), "utf8");
+  const service = fs.readFileSync(path.join(root, "src", "services", "rebuild-log.js"), "utf8");
+  const rebuild = fs.readFileSync(path.join(root, "scripts", "stmem-rebuild.js"), "utf8");
+  const codex = fs.readFileSync(path.join(root, "scripts", "rebuild-codex-thread.js"), "utf8");
+  const claude = fs.readFileSync(path.join(root, "scripts", "rebuild-thread.js"), "utf8");
+  assert.match(watcher, /for \(const binding of enabledWatcherBindings\(tid\)\)/);
+  assert.match(watcher, /updateContextUsage\(tid, \{ \.\.\.usage, bindingId: binding\.id \}\)/);
+  assert.match(service, /lastCompletedByBinding/);
+  assert.match(service, /contextUsageByBinding/);
+  assert.match(rebuild, /STMEM_REBUILD_BINDING_ID: binding\.id/);
+  assert.match(codex, /bindingId:process\.env\.STMEM_REBUILD_BINDING_ID\|\|null/);
+  assert.match(claude, /bindingId:process\.env\.STMEM_REBUILD_BINDING_ID\|\|null/);
+});
+
 test("restoring official mining prompts never clears the relationship timeline", () => {
   const app = fs.readFileSync(path.join(__dirname, "..", "src", "web", "public", "app.js"), "utf8");
   assert.match(app, /恢复官方提示词/);

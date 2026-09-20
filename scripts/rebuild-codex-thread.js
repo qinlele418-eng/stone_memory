@@ -425,7 +425,7 @@ function main() {
       throw new Error(`重建结果已安全保存在 ${stagedFile}，但无法覆盖活动线程；请关闭占用该线程的 Codex 后重试：${error.message}`);
     }
     const contextBytes=fs.statSync(inputFile).size;
-    require("../src/services/rebuild-log").appendRebuildLog(threadId,{status:"completed",runtime:"codex",trigger,threadFile:inputFile,windowDays,recentMessages:Math.max(0,stats.windowMsg-retainedMessages),retainAnchors:retainFeelings.length,retainedMessages,injectedFeelings:memoryFeelings.length,injectedRules:ruleCount,injectedRuleNames,preservedToolPairs:pairCount,originalBytes:fullArchiveSize,contextBytes,outputLines:totalOutput});
+    require("../src/services/rebuild-log").appendRebuildLog(threadId,{status:"completed",runtime:"codex",bindingId:process.env.STMEM_REBUILD_BINDING_ID||null,trigger,threadFile:inputFile,windowDays,recentMessages:Math.max(0,stats.windowMsg-retainedMessages),retainAnchors:retainFeelings.length,retainedMessages,injectedFeelings:memoryFeelings.length,injectedRules:ruleCount,injectedRuleNames,preservedToolPairs:pairCount,originalBytes:fullArchiveSize,contextBytes,outputLines:totalOutput});
     console.log(`\n[codex-rebuild] ${fullArchiveSize} bytes full → ${contextBytes} bytes (${fullArchiveSize > 0 ? ((1 - contextBytes / fullArchiveSize) * 100).toFixed(1) : "—"}% saved)`);
     console.log(`  Memory blocks: ${stats.memoryBlock} | Messages: ${stats.windowMsg} | Function calls: ${stats.functionCall} | System dropped: ${stats.systemDropped}`);
   } else {

@@ -459,7 +459,7 @@ function workspace(data) {
   const usagePercent=usage&&Number.isFinite(usage.percent)?Math.max(0,Math.min(100,usage.percent)):0;
   const usageTitle=usage?.observedAt?` title="最近一次模型调用 ${escapeHtml(formatBeijingTime(usage.observedAt))}"`:"";
   const automationSwitch=(key,label,checked,test=false)=>`<label class="overview-switch"><span>${label}${test?` <small>测试功能</small>`:""}</span><input type="checkbox" data-automation="${key}" ${checked?"checked":""}><i aria-hidden="true"></i></label>`;
-  app.innerHTML = `<section class="workspace" data-thread-id="${escapeHtml(data.threadId)}" data-library-name="${escapeHtml(data.libraryName)}"><div class="shell workspace-grid workspace-stack"><a class="back-link" href="#">← 返回记忆体</a><div class="dashboard-head workspace-memory-card"><div><p class="eyebrow">Stone Memory</p><h1>${escapeHtml(data.libraryName)}<small>· 已生长了 ${data.growthDays||0} 天</small></h1><div class="status-line ${automationReady&&!data.attention?"":"warning"}"><span class="status-dot"></span>${escapeHtml(statusText)}</div></div>${stoneSvg("mini-stone")}</div><nav class="workspace-nav" aria-label="记忆体页面"><button class="active" role="tab" aria-selected="true" data-view="overview"><span>概况</span></button><button role="tab" aria-selected="false" data-view="memory"><span>记忆</span></button><button role="tab" aria-selected="false" data-view="context"><span>上下文状态</span></button><button role="tab" aria-selected="false" data-view="access"><span>接入</span></button><button role="tab" aria-selected="false" data-view="settings"><span>设置</span></button></nav><main id="workspace-main"><section class="overview-dashboard">
+  app.innerHTML = `<section class="workspace" data-thread-id="${escapeHtml(data.threadId)}" data-library-name="${escapeHtml(data.libraryName)}"><div class="shell workspace-grid workspace-stack"><a class="back-link" href="#">← 返回记忆体</a><div class="dashboard-head workspace-memory-card"><div><p class="eyebrow">Stone Memory</p><h1>${escapeHtml(data.libraryName)}<small>· 已生长了 ${data.growthDays||0} 天</small></h1><div class="status-line ${automationReady&&!data.attention?"":"warning"}"><span class="status-dot"></span>${escapeHtml(statusText)}</div></div>${stoneSvg("mini-stone")}</div><nav class="workspace-nav" aria-label="记忆体页面"><button class="active" role="tab" aria-selected="true" data-view="overview"><span>概况</span></button><button role="tab" aria-selected="false" data-view="memory"><span>记忆</span></button><button role="tab" aria-selected="false" data-view="context"><span>上下文管理</span></button><button role="tab" aria-selected="false" data-view="access"><span>接入</span></button><button role="tab" aria-selected="false" data-view="settings"><span>设置</span></button></nav><main id="workspace-main"><section class="overview-dashboard">
     <article class="overview-card overview-stat-card"><div><span>原始对话</span><strong>${counts.messages||0}<small>条</small></strong></div><div><span>原始线程总体积</span><strong>${formatBytes(data.archiveFullBytes)}</strong></div></article>
     <article class="overview-card overview-stat-card"><div><span>人设 / 规则</span><strong>${counts.rules||0}<small>条</small></strong><small class="corner-note">已停用 ${counts.disabledRules||0} 条</small></div><div><span>已生成摘要</span><strong>${counts.feelings||0}<small>条</small></strong><small class="corner-note">原文锚点 ${counts.retainAnchors||0} 条 · 事件锚点 ${counts.eventAnchors||0} 条 · 隐藏摘要 ${counts.hidden||0} 条</small></div></article>
     <article class="overview-card overview-thread-card"><header><h2>当前对话线程信息</h2><button class="text-link" id="overview-access">接入管理 →</button></header><p class="thread-identity">${escapeHtml(data.runtime||"未接入平台")} · ${escapeHtml(data.externalThreadId||"暂未绑定 UUID")}</p><div class="context-usage"><div class="context-usage-head"><h3>当前窗口上下文</h3><small${usageTitle}>${contextUsageHint(usage,data.automaticFullMining)}</small></div><div class="context-usage-track" role="progressbar" aria-label="当前窗口上下文占用" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(usagePercent)}"><i style="width:${usagePercent.toFixed(1)}%"></i></div></div><div class="injection-heading"><h3>当前窗口注入</h3><small>上次重建：${rebuild?.completedAt?escapeHtml(formatBeijingTime(rebuild.completedAt)):"暂无记录"}</small></div><div class="injection-counts"><div><strong>${injected.rules}</strong><span>人设 / 规则</span></div><div><strong>${injected.messages}</strong><span>对话</span></div><div><strong>${injected.feelings}</strong><span>摘要</span></div><div><strong>${injected.tools}</strong><span>工具链</span></div></div><div id="integrity" class="integrity overview-integrity"></div><footer><button class="secondary" id="overview-repair">线程修复</button><button class="primary" id="overview-rebuild">线程重建</button></footer></article>
@@ -1151,17 +1151,47 @@ async function renderTargetedMining(library,date) {
 async function renderRebuild(library) {
   activateWorkspaceTab("context");
   const main = document.querySelector("#workspace-main");
-  main.innerHTML = `<div class="dashboard-head"><div><p class="eyebrow">线程生命周期</p><h1>线程重建</h1><p class="lead">先检查即将写入线程的内容，再确认应用；线程状态和裁剪工具集中在同一页。</p></div><button class="ghost" id="back-maintenance">返回记忆</button></div><section class="section-card rebuild-command-center"><div id="rebuild-target-slot"></div><div class="rebuild-primary-actions"><button class="primary rebuild-main-button" id="preview-rebuild"><strong>线程重建</strong><span>先生成中文预览，不会立即改写线程</span></button><button class="secondary rebuild-main-button" id="check-thread"><strong>一键修复</strong><span>检查线程结构，发现问题后备份并修复</span></button></div><div id="integrity"></div><details class="injection-settings"><summary><span class="settings-gear" aria-hidden="true">⚙</span><span><strong>注入设置</strong><small>选择本次重建使用的摘要与近期上下文范围</small></span><i>⌄</i></summary><div class="injection-settings-body"><section><h3>摘要保留形式</h3><div class="choice-row"><label><input type="radio" name="summary-mode" value="default" ${rebuildState.summaryMode==="default"?"checked":""}><span><strong>默认</strong><small>注入全部非hidden历史摘要</small></span></label><label><input type="radio" name="summary-mode" value="limited" ${rebuildState.summaryMode==="limited"?"checked":""}><span><strong>特殊设置</strong><small>限定摘要数量和最低importance</small></span></label></div><div id="summary-limit-fields" class="inline-settings"><span>保留最近</span><input id="summary-limit" type="number" min="1" value="${rebuildState.summaryLimit||200}"><span>条 importance ≥</span><select id="min-importance">${[0,1,2,3,4,5].map(value=>`<option value="${value}" ${rebuildState.minImportance===value?"selected":""}>${value}</option>`).join("")}</select><span>的摘要</span></div><label id="mcp-default-row" class="rebuild-watermark-option compact-option"><input id="mcp-summary-default" type="checkbox" ${rebuildState.mcpDefault?"checked":""}><span><strong>MCP调用rebuild时默认使用这一摘要范围</strong><small>Agent显式传参时只覆盖当次调用。</small></span></label><p class="tool-memory-note"><span aria-hidden="true">●</span> 默认保护低importance的原文锚点与事件锚点；锚点占摘要名额，hidden不纳入计算。</p></section><section><h3>上下文保留形式</h3><div class="choice-row"><label><input type="radio" name="context-mode" value="days" ${rebuildState.watermark?"":"checked"}><span><strong>默认</strong><small>按最近发生过对话的活跃日保留原文</small></span></label><label><input type="radio" name="context-mode" value="watermark" ${rebuildState.watermark?"checked":""}><span><strong>特殊设置：水位线模式</strong><small>已挖掘出摘要的历史原文不再重复注入</small></span></label></div><div id="active-days-fields" class="inline-settings"><span>保留活跃对话日</span><input id="window-days" type="number" min="1" max="365" value="${rebuildState.windowDays}"><span>天，保留工具调用</span><input id="tool-pairs" type="number" min="0" max="500" value="${rebuildState.toolPairs}"><span>组</span></div><div id="watermark-fields" class="watermark-description"><p>已挖掘出摘要的历史原文不再进入近期注入范围；从最后一条摘要对应的原文开始保留。工具调用仍使用上方的统一设置。</p></div><p class="tool-memory-note"><span aria-hidden="true">●</span> 如果不保留工具链，Agent重建后会失去近期工具调用及其结果的上下文记忆。</p></section></div></details><div id="rebuild-dry-run"></div></section><section class="section-card rebuild-status"><div class="section-title-row"><div><p class="eyebrow">当前配置</p><h2>线程状态</h2></div></div><details class="rebuild-fold"><summary><span><strong>人设 / 规则</strong><small id="rebuild-rule-summary">正在读取…</small></span><i>⌄</i></summary><div class="rebuild-fold-content" id="rebuild-rules"></div></details><details class="rebuild-fold"><summary><span><strong>摘要</strong><small id="rebuild-feeling-summary">正在读取…</small></span><i>⌄</i></summary><div class="rebuild-fold-content"><p id="rebuild-feeling-detail">正在统计摘要构成…</p><button class="ghost" id="open-feelings">前往记忆档案查看摘要</button></div></details><details class="rebuild-fold" open><summary><span><strong>原文</strong><small>查看并裁剪即将保留的近期对话与工具链</small></span><i>⌄</i></summary><div class="rebuild-fold-content"><button class="secondary" id="open-trim">裁剪对话 / 工具链</button></div></details></section>`;
+  main.innerHTML = `<section class="context-management-grid"><article class="section-card context-status-card"><div class="section-title-row"><div><p class="eyebrow">Current context</p><h2>当前上下文</h2></div><span class="badge" id="context-runtime">正在读取</span></div><div id="context-binding-picker"></div><p class="context-thread-id" id="context-thread-id">正在读取当前线程…</p><div class="context-usage"><div class="context-usage-head"><strong>窗口占用</strong><small id="context-usage-label">正在读取…</small></div><div class="context-usage-track" role="progressbar" aria-label="当前窗口上下文占用" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="context-usage-bar" style="width:0%"></i></div></div><dl class="context-status-list"><div><dt>最近观测</dt><dd id="context-observed">暂无记录</dd></div><div><dt>上次重建</dt><dd id="context-rebuilt">暂无记录</dd></div><div><dt>线程文件</dt><dd id="context-thread-file">正在检查</dd></div></dl></article><article class="section-card context-injection-card"><div class="section-title-row"><div><p class="eyebrow">Current injection</p><h2>当前注入</h2></div><span class="badge" id="context-retention-mode">暂无记录</span></div><div class="context-injection-counts"><div><strong id="context-rules">0</strong><span>人设 / 规则</span></div><div><strong id="context-feelings">0</strong><span>摘要</span></div><div><strong id="context-messages">0</strong><span>近期与锚点原文</span></div><div><strong id="context-tools">0</strong><span>工具链</span></div></div><p class="context-injection-note" id="context-injection-note">生成第一次线程重建后，这里会显示实际注入构成。</p></article></section><section class="section-card rebuild-command-center context-operation-card"><div class="section-title-row"><div><p class="eyebrow">Context actions</p><h2>线程重建</h2><small>先预览将写入当前线程的内容，确认后才会应用。</small></div></div><div id="rebuild-target-slot"></div><div class="rebuild-primary-actions"><button class="primary rebuild-main-button" id="preview-rebuild"><strong>生成重建预览</strong><span>查看摘要、原文与工具链的预计结果</span></button><button class="secondary rebuild-main-button" id="check-thread"><strong>检查线程</strong><span>发现结构异常后再确认修复</span></button></div><div id="integrity"></div><details class="injection-settings"><summary><span class="settings-gear" aria-hidden="true">⚙</span><span><strong>高级注入设置</strong><small>调整摘要范围、近期上下文和工具链数量</small></span><i>⌄</i></summary><div class="injection-settings-body"><section><h3>摘要保留形式</h3><div class="choice-row"><label><input type="radio" name="summary-mode" value="default" ${rebuildState.summaryMode==="default"?"checked":""}><span><strong>默认</strong><small>注入全部非hidden历史摘要</small></span></label><label><input type="radio" name="summary-mode" value="limited" ${rebuildState.summaryMode==="limited"?"checked":""}><span><strong>特殊设置</strong><small>限定摘要数量和最低importance</small></span></label></div><div id="summary-limit-fields" class="inline-settings"><span>保留最近</span><input id="summary-limit" type="number" min="1" value="${rebuildState.summaryLimit||200}"><span>条 importance ≥</span><select id="min-importance">${[0,1,2,3,4,5].map(value=>`<option value="${value}" ${rebuildState.minImportance===value?"selected":""}>${value}</option>`).join("")}</select><span>的摘要</span></div><label id="mcp-default-row" class="rebuild-watermark-option compact-option"><input id="mcp-summary-default" type="checkbox" ${rebuildState.mcpDefault?"checked":""}><span><strong>MCP调用rebuild时默认使用这一摘要范围</strong><small>Agent显式传参时只覆盖当次调用。</small></span></label><p class="tool-memory-note"><span aria-hidden="true">●</span> 默认保护低importance的原文锚点与事件锚点；锚点占摘要名额，hidden不纳入计算。</p></section><section><h3>上下文保留形式</h3><div class="choice-row"><label><input type="radio" name="context-mode" value="days" ${rebuildState.watermark?"":"checked"}><span><strong>默认</strong><small>按最近发生过对话的活跃日保留原文</small></span></label><label><input type="radio" name="context-mode" value="watermark" ${rebuildState.watermark?"checked":""}><span><strong>特殊设置：水位线模式</strong><small>已挖掘出摘要的历史原文不再重复注入</small></span></label></div><div id="active-days-fields" class="inline-settings"><span>保留活跃对话日</span><input id="window-days" type="number" min="1" max="365" value="${rebuildState.windowDays}"><span>天，保留工具调用</span><input id="tool-pairs" type="number" min="0" max="500" value="${rebuildState.toolPairs}"><span>组</span></div><div id="watermark-fields" class="watermark-description"><p>已挖掘出摘要的历史原文不再进入近期注入范围；从最后一条摘要对应的原文开始保留。工具调用仍使用上方的统一设置。</p></div><p class="tool-memory-note"><span aria-hidden="true">●</span> 如果不保留工具链，Agent重建后会失去近期工具调用及其结果的上下文记忆。</p></section></div></details><div id="rebuild-dry-run"></div></section><section class="section-card context-trim-card"><div><p class="eyebrow">Danger zone</p><h2>永久裁剪</h2><p>选择要从活动线程、archive 和 full 中永久移除的对话或工具链。执行前仍会生成预览。</p></div><button class="danger-button" id="open-trim">裁剪对话 / 工具链</button></section>`;
+  const operationCard=main.querySelector(".context-operation-card");
+  const injectionSettings=operationCard.querySelector(".injection-settings");
+  const dryRun=operationCard.querySelector("#rebuild-dry-run");
+  const settingsParking=document.createElement("div");
+  settingsParking.hidden=true;
+  operationCard.after(dryRun,settingsParking);
+  settingsParking.append(injectionSettings);
+  operationCard.classList.remove("section-card","rebuild-command-center");
+  operationCard.classList.add("context-action-strip");
+  operationCard.querySelector(".rebuild-primary-actions").insertAdjacentHTML("beforeend",`<button class="secondary rebuild-main-button" id="open-injection-settings"><strong>注入策略</strong><span>设置摘要、原文和工具链范围</span></button>`);
+  injectionSettings.open=true;
+  injectionSettings.querySelector("summary strong").textContent="注入策略";
+  injectionSettings.querySelector("summary small").textContent="设置下一次重建保留哪些摘要、原文和工具链";
+  dryRun.hidden=true;
   main.insertAdjacentHTML("afterbegin",managementNav("context"));
   bindManagementNav(library);
-  document.querySelector("#back-maintenance").onclick=()=>renderManagement(library);
+  let contextOverview=library;
+  const paintContext=(binding=null,{primary=false}={})=>{
+    const legacyUsage=contextOverview.contextUsage||null,legacyRebuild=contextOverview.rebuild||null;
+    const shownUsage=binding?(contextOverview.contextUsageByBinding?.[binding.id]||(!legacyUsage?.bindingId&&primary?legacyUsage:null)):legacyUsage;
+    const shownRebuild=binding?(contextOverview.rebuildByBinding?.[binding.id]||(!legacyRebuild?.bindingId&&primary?legacyRebuild:null)):legacyRebuild;
+    const percent=shownUsage&&Number.isFinite(shownUsage.percent)?Math.max(0,Math.min(100,shownUsage.percent)):0;
+    document.querySelector("#context-runtime").textContent=binding?.provider||contextOverview.runtime||"未接入平台";
+    document.querySelector("#context-thread-id").textContent=binding?.externalThreadId||contextOverview.externalThreadId||"尚未绑定窗口";
+    document.querySelector("#context-usage-label").textContent=contextUsageHint(shownUsage,contextOverview.automaticFullMining);
+    document.querySelector("#context-usage-bar").style.width=`${percent.toFixed(1)}%`;
+    document.querySelector(".context-usage-track").setAttribute("aria-valuenow",String(Math.round(percent)));
+    document.querySelector("#context-observed").textContent=(shownUsage?.observedAt||shownUsage?.updatedAt)?formatBeijingTime(shownUsage.observedAt||shownUsage.updatedAt):"暂无记录";
+    document.querySelector("#context-rebuilt").textContent=shownRebuild?.completedAt?formatBeijingTime(shownRebuild.completedAt):"该窗口暂无记录";
+    document.querySelector("#context-thread-file").textContent=binding?(binding.resolvedThreadFile||binding.threadFile?"已定位":"等待定位"):(contextOverview.threadFileFound?"已定位":"未找到");
+    document.querySelector("#context-rules").textContent=shownRebuild?.injectedRules||0;
+    document.querySelector("#context-feelings").textContent=shownRebuild?.injectedFeelings||0;
+    document.querySelector("#context-messages").textContent=(shownRebuild?.recentMessages||0)+(shownRebuild?.retainedMessages||0);
+    document.querySelector("#context-tools").textContent=shownRebuild?.preservedToolPairs||0;
+    document.querySelector("#context-retention-mode").textContent=shownRebuild?(shownRebuild.retentionMode==="watermark"?"水位线模式":"活跃日模式"):"暂无记录";
+    document.querySelector("#context-injection-note").textContent=shownRebuild?`上次重建注入 ${shownRebuild.retainAnchors||0} 个原文锚点；高级设置只影响下一次重建。`:"这个窗口还没有可显示的线程重建记录。";
+  };
   try {
-    const [config,rules,daily,coarse,retained,overview]=await Promise.all([
+    const [config,overview]=await Promise.all([
       api(`/api/libraries/${encodeURIComponent(library.threadId)}/settings`),
-      api(`/api/libraries/${encodeURIComponent(library.threadId)}/rules`),
-      api(`/api/libraries/${encodeURIComponent(library.threadId)}/feelings?page=1&mode=daily`),
-      api(`/api/libraries/${encodeURIComponent(library.threadId)}/feelings?page=1&mode=coarse`),
-      api(`/api/libraries/${encodeURIComponent(library.threadId)}/feelings?page=1&retainAnchor=1`),
       api(`/api/libraries/${encodeURIComponent(library.threadId)}/overview`),
     ]);
     rebuildState.windowDays=config.windowDays;rebuildState.toolPairs=config.keepToolPairs;
@@ -1177,18 +1207,7 @@ async function renderRebuild(library) {
     document.querySelector("#min-importance").value=String(rebuildState.minImportance);
     document.querySelector("#mcp-summary-default").checked=rebuildState.mcpDefault;
     document.querySelectorAll('input[name="summary-mode"]').forEach(input=>{input.checked=input.value===rebuildState.summaryMode;});
-    const injected=rules.rows.filter(row=>row.injected);
-    document.querySelector("#rebuild-rule-summary").textContent=injected.length?`将注入 ${injected.length} 份：${injected.map(row=>row.name).join("、")}`:"当前没有启用的人设 / 规则";
-    document.querySelector("#rebuild-rules").innerHTML=`${rules.rows.length?rules.rows.map(row=>`<div class="rebuild-rule-row"><span><strong>${escapeHtml(row.name)}</strong><small>${row.injected?"重建时注入":"当前不注入"}</small></span><span class="badge">${row.injected?"已启用":"已停用"}</span></div>`).join(""):'<div class="empty">还没有规则文档。</div>'}<button class="ghost" id="open-rules">前往记忆档案修改人设 / 规则</button>`;
-    const availableTotal=daily.rows.total+coarse.rows.total;
-    if(overview.rebuild){
-      document.querySelector("#rebuild-feeling-summary").textContent=`当前线程已注入 ${overview.rebuild.injectedFeelings||0} 条摘要`;
-      document.querySelector("#rebuild-feeling-detail").textContent=`上次重建实际写入了 ${overview.rebuild.injectedFeelings||0} 条摘要；另有 ${overview.rebuild.retainAnchors||0} 个原文锚点以原文形式注入，共占 ${overview.rebuild.retainedMessages||0} 行。当前记忆档案共有 ${availableTotal} 条可用摘要，其中 ${daily.rows.total} 条 daily、${coarse.rows.total} 条 coarse。`;
-    }else{
-      document.querySelector("#rebuild-feeling-summary").textContent=`记忆档案共有 ${availableTotal} 条可用摘要`;
-      document.querySelector("#rebuild-feeling-detail").textContent=`其中 ${daily.rows.total} 条全量 daily 摘要、${coarse.rows.total} 条精简 coarse 摘要、${retained.rows.total} 条摘要设有原文锚点；生成重建预览后会显示本次实际注入数量。`;
-    }
-    document.querySelector("#open-rules").onclick=()=>renderMemorySection(library,"rules");
+    contextOverview=overview;paintContext();
   } catch(error){showToast(error.message,"error");}
   try {
     const bindingStatus = await api(`/api/libraries/${encodeURIComponent(library.threadId)}/bindings`);
@@ -1200,15 +1219,21 @@ async function renderRebuild(library) {
         ? bindingStatus.primaryBindingId
         : bindingRows[0]?.id || null;
     rebuildState.bindingMemoryId = library.threadId;
-    const slot = document.querySelector("#rebuild-target-slot");
-    if (slot && bindingRows.length) {
-      slot.innerHTML = `<div class="rebuild-target"><span class="rebuild-target-label">重建目标窗口</span><div class="rebuild-target-choices">${bindingRows.map(row => { const primary = row.id === bindingStatus.primaryBindingId, listening = row.enabled !== false; return `<label title="${escapeHtml(row.externalThreadId || "")}"><input type="radio" name="rebuild-binding" value="${escapeHtml(row.id)}" ${row.id === rebuildState.bindingId ? "checked" : ""}><span><strong>${escapeHtml(row.provider || "未知平台")}</strong><small>${escapeHtml(String(row.externalThreadId || "").slice(0, 8))}${primary ? " · 主窗口" : ""}${listening ? "" : " · 未监听"}</small></span></label>`; }).join("")}</div></div>`;
-      slot.querySelectorAll('input[name="rebuild-binding"]').forEach(input => input.onchange = () => {
-        rebuildState.bindingId = input.value;
-        document.querySelector("#rebuild-dry-run").innerHTML = "";
-        showIntegrity(library, false);
-      });
+    const slot = document.querySelector("#rebuild-target-slot"),picker=document.querySelector("#context-binding-picker");
+    const selectBinding=id=>{
+      const selected=bindingRows.find(row=>row.id===id)||bindingRows[0];if(!selected)return;
+      rebuildState.bindingId=selected.id;
+      if(picker?.querySelector("select"))picker.querySelector("select").value=selected.id;
+      slot.innerHTML=`<div class="context-operation-target"><span>操作目标</span><strong>${escapeHtml(selected.provider||"未知平台")} · ${escapeHtml(String(selected.externalThreadId||"").slice(0,8))}</strong></div>`;
+      paintContext(selected,{primary:selected.id===bindingStatus.primaryBindingId});
+      document.querySelector("#rebuild-dry-run").innerHTML="";
+      showIntegrity(library,false);
+    };
+    if(bindingRows.length>1){
+      picker.innerHTML=`<label class="context-binding-select"><span>查看窗口</span><select>${bindingRows.map(row=>`<option value="${escapeHtml(row.id)}">${escapeHtml(row.provider||"未知平台")} · ${escapeHtml(String(row.externalThreadId||"").slice(0,8))}${row.id===bindingStatus.primaryBindingId?" · 主窗口":""}${row.enabled===false?" · 未监听":""}</option>`).join("")}</select></label>`;
+      picker.querySelector("select").onchange=event=>selectBinding(event.target.value);
     }
+    if(bindingRows.length)selectBinding(rebuildState.bindingId);
   } catch { /* Binding 列表读取失败时退回默认窗口重建 */ }
   const syncInjectionControls=()=>{
     const limited=rebuildState.summaryMode==="limited";
@@ -1228,10 +1253,25 @@ async function renderRebuild(library) {
   document.querySelector("#min-importance").onchange=event=>{rebuildState.minImportance=Math.max(0,Math.min(5,Number(event.target.value)||0));};
   document.querySelector("#mcp-summary-default").onchange=event=>{rebuildState.mcpDefault=event.target.checked;};
   syncInjectionControls();
-  document.querySelector("#preview-rebuild").onclick = () => previewIntegratedRebuild(library);
+  const closeSettings=overlay=>{settingsParking.append(injectionSettings);overlay.remove();};
+  document.querySelector("#open-injection-settings").onclick=()=>{
+    const snapshot={summaryMode:rebuildState.summaryMode,summaryLimit:rebuildState.summaryLimit,minImportance:rebuildState.minImportance,mcpDefault:rebuildState.mcpDefault,watermark:rebuildState.watermark,windowDays:rebuildState.windowDays,toolPairs:rebuildState.toolPairs};
+    const overlay=document.createElement("div");overlay.className="editor-overlay context-settings-overlay";
+    overlay.innerHTML=`<section class="editor-panel context-settings-dialog" role="dialog" aria-modal="true" aria-labelledby="context-settings-title"><button class="editor-close ghost" type="button" aria-label="关闭">×</button><div class="context-settings-dialog-head"><p class="eyebrow">REBUILD POLICY</p><h2 id="context-settings-title">注入策略</h2><p>设置以后线程重建默认保留的摘要、原文和工具链范围。</p></div><div class="context-settings-dialog-body"></div><div class="wizard-actions"><button class="ghost" id="cancel-injection-settings">取消</button><button class="primary" id="save-injection-settings">保存设置</button></div></section>`;
+    overlay.querySelector(".context-settings-dialog-body").append(injectionSettings);document.body.append(overlay);
+    const cancel=()=>{Object.assign(rebuildState,snapshot);closeSettings(overlay);renderRebuild(library);};
+    overlay.querySelector(".editor-close").onclick=cancel;overlay.querySelector("#cancel-injection-settings").onclick=cancel;
+    overlay.addEventListener("click",event=>{if(event.target===overlay)cancel();});
+    overlay.querySelector("#save-injection-settings").onclick=async event=>{const button=event.currentTarget;button.disabled=true;button.textContent="正在保存…";try{const summaryLimit=rebuildState.summaryMode==="limited"?rebuildState.summaryLimit:0,minImportance=rebuildState.summaryMode==="limited"?rebuildState.minImportance:0;await api(`/api/libraries/${encodeURIComponent(library.threadId)}/settings`,{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({windowDays:rebuildState.windowDays,keepToolPairs:rebuildState.toolPairs,mcpRebuildDefaultsEnabled:rebuildState.mcpDefault,mcpSummaryLimit:summaryLimit,mcpMinImportance:minImportance})});closeSettings(overlay);showToast("注入策略已保存");}catch(error){showToast(error.message,"error");button.disabled=false;button.textContent="保存设置";}};
+  };
+  document.querySelector("#preview-rebuild").onclick = () => {
+    const overlay=document.createElement("div");overlay.className="editor-overlay rebuild-preview-overlay";
+    overlay.innerHTML=`<section class="editor-panel rebuild-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="rebuild-preview-title"><button class="editor-close ghost" type="button" aria-label="关闭">×</button><h2 id="rebuild-preview-title">线程重建预览</h2><div id="rebuild-preview-modal-content"></div></section>`;
+    document.body.append(overlay);const close=()=>overlay.remove();overlay.querySelector(".editor-close").onclick=close;overlay.addEventListener("click",event=>{if(event.target===overlay)close();});
+    previewIntegratedRebuild(library,{target:"#rebuild-preview-modal-content",button:"#preview-rebuild"});
+  };
   document.querySelector("#check-thread").onclick = () => checkAndRepair(library);
   document.querySelector("#open-trim").onclick = () => renderTrimWorkbench(library);
-  document.querySelector("#open-feelings").onclick=()=>renderMemorySection(library,"feelings");
   await showIntegrity(library, false);
 }
 
@@ -1258,7 +1298,7 @@ async function previewIntegratedRebuild(library,options={}) {
     const preview=await api(`/api/libraries/${encodeURIComponent(library.threadId)}/rebuild/dry-run`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(request)}),show=value=>value===null||value===undefined?"—":value;
     const retentionLabel=preview.retentionMode==="watermark"?`水位线模式，自 ${escapeHtml(preview.watermarkCutoff||"—")} 起`:preview.watermarkFallback?`活跃日模式（水位线定位失败，已回退）`:`活跃日模式`;
     target.innerHTML=`<div class="rebuild-preview"><div class="section-title-row"><div><p class="eyebrow">正式 Dry-run</p><h3>确认线程重建结果</h3></div><span class="badge">${preview.runtime==="codex"?"Codex":"Claude"}</span></div><div class="rebuild-preview-groups"><section><h4>数据来源</h4><dl><div><dt>full 原始消息</dt><dd>${show(preview.fullMessages??preview.originalMessages)} 条</dd></div><div><dt>full 总体积</dt><dd>${formatBytes(preview.fullArchiveBytes)}</dd></div><div><dt>保留方式</dt><dd>${retentionLabel}</dd></div><div><dt>活跃日设置</dt><dd>${show(preview.windowDays)} 天（普通模式或水位线回退时使用）</dd></div></dl></section><section><h4>摘要去向</h4><dl><div><dt>摘要总数</dt><dd>${show(preview.injectableFeelings)} 条（hidden 已排除）</dd></div><div><dt>历史候选</dt><dd>${show(preview.summaryCandidates)} 条 → 本次选择 ${show(preview.selectedSummaries)} 条</dd></div><div><dt>锚点保护</dt><dd>${show(preview.protectedSummaries)} 条${preview.protectedOverflow?`，超过限制 ${preview.protectedOverflow} 条`:""}</dd></div><div><dt>近期窗口内</dt><dd>${show(preview.inWindowFeelings)} 条，由近期原文承载</dd></div><div><dt>原文锚点替代</dt><dd>${show(preview.retainAnchors)} 条，覆盖 ${show(preview.retainDates)} 个日期</dd></div><div><dt>注入记忆块</dt><dd>${show(preview.memoryFeelings)} 条摘要</dd></div><div><dt>人设 / 规则</dt><dd>${show(preview.injectedRules)} 份</dd></div><div><dt>记忆块</dt><dd>${show(preview.memoryBlocks)} 个</dd></div></dl></section><section><h4>近期上下文</h4><dl><div><dt>近期原文</dt><dd>${show(preview.windowMessages)} 条</dd></div><div><dt>工具链</dt><dd>${show(preview.toolPairs)} 组${preview.toolIds==null?"":`，${preview.toolIds} 个工具 ID`}</dd></div>${preview.functionCalls==null?"":`<div><dt>函数调用</dt><dd>${preview.functionCalls} 条</dd></div>`}<div><dt>移除系统记录</dt><dd>${show(preview.systemDropped)} 条</dd></div></dl></section><section class="rebuild-result-group"><h4>预计结果</h4><dl><div><dt>线程文件大小</dt><dd>${formatBytes(preview.estimatedOutputBytes)}</dd></div><div><dt>重建后行数</dt><dd>${show(preview.outputLines)} 行</dd></div><div><dt>预计压缩率</dt><dd class="rebuild-reduction">${preview.reductionPercent==null?"—":`${preview.reductionPercent}%`}</dd></div></dl></section></div><details class="rebuild-raw-output"><summary>查看原始 dry-run 输出</summary><pre>${escapeHtml(preview.raw)}</pre></details><div class="wizard-actions"><button class="ghost" id="cancel-rebuild-preview">取消</button><button class="primary" id="apply-previewed-rebuild">确认应用线程重建</button></div></div>`;
-    target.querySelector("#cancel-rebuild-preview").onclick=()=>target.innerHTML="";
+    target.querySelector("#cancel-rebuild-preview").onclick=()=>{const overlay=target.closest(".editor-overlay");if(overlay)overlay.remove();else target.innerHTML="";};
     target.querySelector("#apply-previewed-rebuild").onclick=()=>applyIntegratedRebuild(library,{excludedMessages:options.excludedMessages||[],excludedTools:options.excludedTools||[]});
     const feelingSummary=document.querySelector("#rebuild-feeling-summary");
     const feelingDetail=document.querySelector("#rebuild-feeling-detail");
@@ -1278,13 +1318,14 @@ async function previewIntegratedRebuild(library,options={}) {
 }
 
 async function applyIntegratedRebuild(library,{excludedMessages=[],excludedTools=[]}={}) {
-  const button=document.querySelector("#apply-previewed-rebuild"),isCodex=library.runtime==="codex";button.disabled=true;button.textContent=isCodex?"正在应用线程重建…":"正在排队线程重建…";
+  const button=document.querySelector("#apply-previewed-rebuild"),previewOverlay=button?.closest(".rebuild-preview-overlay"),isCodex=library.runtime==="codex";button.disabled=true;button.textContent=isCodex?"正在应用线程重建…":"正在排队线程重建…";
   try{
     const summaryLimit=rebuildState.summaryMode==="limited"?rebuildState.summaryLimit:0,minImportance=rebuildState.summaryMode==="limited"?rebuildState.minImportance:0;
     await api(`/api/libraries/${encodeURIComponent(library.threadId)}/settings`,{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({mcpRebuildDefaultsEnabled:rebuildState.mcpDefault,mcpSummaryLimit:summaryLimit,mcpMinImportance:minImportance})});
     const request={summary:{mode:rebuildState.summaryMode,limit:summaryLimit,minImportance},context:{mode:rebuildState.watermark?"watermark":"active_days",windowDays:rebuildState.windowDays,toolPairs:rebuildState.toolPairs},trim:{excludedMessages,excludedTools},trigger:"web",bindingId:rebuildState.bindingMemoryId===library.threadId?rebuildState.bindingId:null};
     const result=await api(`/api/libraries/${encodeURIComponent(library.threadId)}/rebuild/${isCodex?"apply":"queue"}`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(request)});
     const trimmed=excludedMessages.length||excludedTools.length;
+    previewOverlay?.remove();
     await renderRebuild(library);
     showRebuildCompletion(library,{trimmed,queued:result.queued===true});
   }catch(error){showToast(error.message,"error");button.disabled=false;button.textContent="确认应用线程重建";}

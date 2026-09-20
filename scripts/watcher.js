@@ -261,9 +261,10 @@ async function flushSync(tid, bindingId = null) {
         await checkAndMine(tid);
       }
       if (actions.sync) {
-        const primary = enabledWatcherBindings(tid).find(binding => binding.primary);
-        const usage = latestContextUsage(primary?.threadFile, primary?.provider || config.runtime || "claude");
-        if (usage) updateContextUsage(tid, usage);
+        for (const binding of enabledWatcherBindings(tid)) {
+          const usage = latestContextUsage(binding.threadFile, binding.provider || config.runtime || "claude");
+          if (usage) updateContextUsage(tid, { ...usage, bindingId: binding.id });
+        }
       }
     }
   } finally {
