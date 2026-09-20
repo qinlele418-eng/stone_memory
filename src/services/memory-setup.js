@@ -4,6 +4,7 @@ const path = require("path");
 const { loadConfig, getMemoryContext, CONFIG_PATH } = require("../config");
 const { saveConfig } = require("./thread-setup");
 const { canonicalMemoryDir } = require("./memory-identity");
+const { getScenario, scenarioId } = require("./scenario-registry");
 
 function writeJson(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -128,7 +129,7 @@ function publicMemorySettings(memoryId) {
   const entry = context.config;
   return {
     schemaVersion: 1, memoryId: context.memoryId, label: entry.label || context.memoryId, status: "active",
-    purpose: entry.purpose || null, ai: entry.ai || "", user: entry.user || "",
+    purpose: entry.purpose || null, scenario: scenarioId(entry), ai: entry.ai || "", user: entry.user || "",
     userGender: entry.userGender || "unspecified",
     relationshipTimeline: Array.isArray(entry.relationshipTimeline) ? entry.relationshipTimeline : [],
     miner: { mode: entry.minerMode || null, apiProfile: entry.apiProvider || null },
@@ -160,7 +161,7 @@ function boundedInteger(value, label, minimum, maximum, { nullable = false } = {
 
 function validateMemorySettings(current, patch, config = loadConfig()) {
   if (!patch || typeof patch !== "object" || Array.isArray(patch)) throw new Error("设置必须是 JSON 对象");
-  const allowed = new Set(["label", "purpose", "ai", "user", "userGender", "relationshipTimeline", "miner", "rebuild"]);
+  const allowed = new Set(["label", "purpose", "scenario", "ai", "user", "userGender", "relationshipTimeline", "miner", "rebuild"]);
   const unknown = Object.keys(patch).filter(key => !allowed.has(key));
   if (unknown.length) throw new Error(`不支持的记忆体设置：${unknown.join("、")}`);
   const next = JSON.parse(JSON.stringify(current));
@@ -169,6 +170,11 @@ function validateMemorySettings(current, patch, config = loadConfig()) {
     const purpose = optionalText(patch.purpose, "用途", { nullable: true });
     if (purpose && !["accompany", "coding", "study"].includes(purpose)) throw new Error("用途必须是 accompany、coding 或 study");
     next.purpose = purpose;
+  }
+  if (Object.hasOwn(patch, "scenario")) {
+    const scenario = getScenario(patch.scenario);
+    next.scenario = scenario.id;
+    if (!next.purpose) next.purpose = scenario.storagePurpose;
   }
   if (Object.hasOwn(patch, "ai")) next.ai = optionalText(patch.ai, "AI 名字", { nullable: true }) || "";
   if (Object.hasOwn(patch, "user")) next.user = optionalText(patch.user, "用户名字", { nullable: true }) || "";

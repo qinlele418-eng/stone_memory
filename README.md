@@ -99,6 +99,20 @@ stone_memory/
 
 线程不是记忆体身份，只是记忆体连接到 Codex、Claude Code 或其他 Agent 的运行入口。目标架构使用稳定 `memoryId` 管理记忆，以 `bindingId` 描述线程文件、运行时和读写策略；并行入口、摘要回流分支和隔离分支都是 Binding 策略组合。当前版本仍保留 `threadId/fork` 数据结构与 CLI，迁移完成前不会破坏已有关系。
 
+## 挖掘场景
+
+初始化和前端创建记忆体可选择陪伴、编程、学习、生活监督。生活监督的场景 ID 是 `life-supervision`：摘要记录生活节奏、具体事件和后续跟进动作，特征提示词与陪伴场景相同。
+
+```bash
+stmem init --template --runtime codex --scenario life-supervision
+stmem init --batch-file init.json --validate
+stmem init --batch-file init.json
+```
+
+先将模板保存为 `init.json` 并填写真实线程及个人配置。`scenario` 决定挖掘提示词；生活监督的兼容存储用途 `purpose` 为 `accompany`。已有记忆体可用 `stmem scenario set --memory <id> --scenario life-supervision --apply` 切换，旧布局可用 `--thread <id>`，不会移动目录或重写历史摘要。
+
+`stmem prompt show --memory <id>` 可检查实际提示词。生活监督使用独立的场景提示词和记忆体级覆盖，不读取旧的全局陪伴提示词覆盖；前端挖掘页也可编辑其提示词与关系时间线。
+
 ## 安装
 
 **需要 Node.js 22 或更高版本。** `better-sqlite3` 使用支持现代 Node.js 的预编译原生模块；`npm install` / `npm ci` 会在版本过低时直接停止。正式 CI 同时覆盖 Node 22 与 Node 25。

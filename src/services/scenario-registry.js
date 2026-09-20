@@ -43,4 +43,11 @@ function scenarioId(config = {}) {
   return config.scenario ?? config.purpose ?? "accompany";
 }
 
-module.exports = { TASKS, listScenarios, getScenario, scenarioId, packageFile };
+function normalizeScenarioConfig(input, existing = {}) {
+  const scenario = getScenario(input.scenario ?? existing.scenario ?? input.purpose ?? existing.purpose ?? "accompany");
+  const purpose = input.purpose ?? existing.purpose ?? scenario.storagePurpose;
+  if (!["accompany", "coding", "study"].includes(purpose)) throw new Error("场景存储兼容用途无效");
+  return { ...input, scenario: scenario.id, purpose };
+}
+
+module.exports = { TASKS, listScenarios, getScenario, scenarioId, packageFile, normalizeScenarioConfig };

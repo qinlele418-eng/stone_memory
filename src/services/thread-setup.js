@@ -5,6 +5,7 @@ const { CONFIG_PATH, loadConfig } = require("../config");
 const { MemoryStore } = require("../storage/memory-store");
 const { findThreadSessionFile } = require("../lib/thread-session-file");
 const { canonicalMemoryDir } = require("./memory-identity");
+const { normalizeScenarioConfig } = require("./scenario-registry");
 
 const STONE = path.join(os.homedir(), ".stone_memory");
 const GLOBAL_KEYS = new Set(["runtimes", "threadId", "apiKeys", "web", "memories"]);
@@ -21,6 +22,8 @@ function saveConfig(config) {
 }
 
 function validateThreadInput(input, config = loadConfig(), { allowExisting = false } = {}) {
+  if (!input.scenario && !input.purpose) throw new Error("缺少必填项：scenario 或 purpose");
+  input = normalizeScenarioConfig(input, allowExisting ? config[input.threadId] : undefined);
   const required = ["libraryName", "threadId", "ai", "user", "runtime", "purpose", "minerMode"];
   for (const key of required) if (!String(input[key] || "").trim()) throw new Error(`缺少必填项：${key}`);
   if (!/^[A-Za-z0-9._:-]+$/.test(input.threadId)) throw new Error("真实线程 ID 只能包含字母、数字、点、冒号、下划线和连字符");
@@ -61,6 +64,7 @@ function validateSessionBinding(input) {
 function createThread(input, { allowExisting = false, requireSession = true } = {}) {
   const config = loadConfig();
   validateThreadInput(input, config, { allowExisting });
+  input = normalizeScenarioConfig(input, allowExisting ? config[input.threadId] : undefined);
   const sessionFile = requireSession ? validateSessionBinding(input) : null;
   const existing = config[input.threadId] || {};
   if (allowExisting && existing.runtime && input.runtime !== existing.runtime) throw new Error("运行时暂不支持直接迁移");
@@ -102,6 +106,7 @@ function createThread(input, { allowExisting = false, requireSession = true } = 
     label: libraryName,
     runtime: input.runtime,
     purpose: input.purpose,
+    scenario: input.scenario,
     sessionDir: String(input.sessionDir || "").trim(),
     minerMode: input.minerMode,
     windowDays: Math.max(1, Number(input.windowDays) || 3),
@@ -143,6 +148,9 @@ function createThread(input, { allowExisting = false, requireSession = true } = 
     const bindings = Array.isArray(memory.bindings) ? memory.bindings.filter(item => item.threadId !== threadId) : [];
     bindings.push({ threadId, runtime: entry.runtime, purpose: entry.purpose, sessionDir: entry.sessionDir, boundAt: new Date().toISOString() });
     config.memories[input.memoryId] = { ...memory, label: libraryName, status: "active", updatedAt: new Date().toISOString(), bindings };
+  }
+  if (input.memoryId) {
+    require("./memory-setup").updateMemorySettings(input.memoryId, { scenario: entry.scenario }, { apply: true });
   }
   saveConfig(config);
 

@@ -34,6 +34,9 @@ const { compactTermTimelineReport } = require("../services/term-timeline-report"
 const { listMemories, getMemory } = require("../services/memory-setup");
 const { readBindingConfig } = require("../services/memory-binding-config");
 
+const { scenarioId, normalizeScenarioConfig } = require("../services/scenario-registry");
+const { resolveMiningPrompts, promptOverridePath, renderPrompt } = require("../services/prompt-resolver");
+
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MAX_UPLOAD = 512 * 1024 * 1024;
 const MAX_NOTEBOOK_ASSET_UPLOAD = 20 * 1024 * 1024;
@@ -415,7 +418,7 @@ function publicThreadSettings(threadId) {
   return {
     memoryId, threadId: memoryId, externalThreadId: entry.externalThreadId || (layout !== "memory-v1" ? legacyThreadId : null),
     libraryName: entry.label || memoryId, ai: entry.ai || "", user: entry.user || "",
-    userGender: entry.userGender || "unspecified", runtime: entry.runtime || "claude", purpose: entry.purpose || "accompany",
+    scenario: scenarioId(entry), userGender: entry.userGender || "unspecified", runtime: entry.runtime || "claude", purpose: entry.purpose || "accompany",
     sessionDir: entry.sessionDir || "", minerMode: entry.minerMode || "subagent", apiProvider: entry.apiProvider || "",
     baseUrl: entry.apiProvider ? (config.apiKeys?.[entry.apiProvider]?.baseUrl || "") : "",
     model: entry.apiProvider ? (config.apiKeys?.[entry.apiProvider]?.model || "") : "",
@@ -550,7 +553,7 @@ function listLibraries() {
       const latestArchived = store.db.prepare("SELECT MAX(timestamp) timestamp FROM messages WHERE thread_id=?").get(threadId);
       const latest = store.db.prepare("SELECT MAX(completed_at) completedAt FROM mining_day_state WHERE thread_id=? AND status='completed'").get(threadId);
       return {
-        memoryId, configured: true, bound, bindingCount, threadId, externalThreadId: tc.externalThreadId || (context.layout !== "memory-v1" ? threadId : null), libraryName: tc.label || memoryId, runtime: tc.runtime || null, purpose: tc.purpose || "accompany", createdAt,
+        memoryId, scenario: scenarioId(tc), configured: true, bound, bindingCount, threadId, externalThreadId: tc.externalThreadId || (context.layout !== "memory-v1" ? threadId : null), libraryName: tc.label || memoryId, runtime: tc.runtime || null, purpose: tc.purpose || "accompany", createdAt,
         ai: tc.ai || "", user: tc.user || "", counts,
         lastArchivedAt: latestArchived?.timestamp || null, lastMinedAt: latest?.completedAt || null,
         watcherEnabled: watcherEnabled(tc),
@@ -638,9 +641,10 @@ function homeOverview() {
   return {
     ...totals,
     memoryCount: libraries.length,
-    companionCount: libraries.filter(item => item.purpose === "accompany").length,
-    codingCount: libraries.filter(item => item.purpose === "coding").length,
-    studyCount: libraries.filter(item => item.purpose === "study").length,
+    supervisionCount: libraries.filter(item => scenarioId(item) === "life-supervision").length,
+    companionCount: libraries.filter(item => scenarioId(item) === "accompany").length,
+    codingCount: libraries.filter(item => scenarioId(item) === "coding").length,
+    studyCount: libraries.filter(item => scenarioId(item) === "study").length,
     connectedRuntimeCount: new Set(libraries.map(item => item.runtime).filter(Boolean)).size,
     runningWatcherCount: libraries.filter(item => item.watcherEnabled).length,
     automationRunning: libraries.some(item => item.watcherEnabled),
@@ -1293,7 +1297,7 @@ async function handleApi(req, res, url) {
       let canonical = false;
       try { canonical = getMemoryContext(threadId).layout === "memory-v1"; } catch {}
       const settingsPatch = {
-        label: input.libraryName, ai: input.ai, user: input.user, userGender: input.userGender,
+        label: input.libraryName, scenario: input.scenario, ai: input.ai, user: input.user, userGender: input.userGender,
         miner: { mode: input.minerMode, apiProfile: input.minerMode === "api" ? input.apiProvider : null },
         rebuild: {
           windowDays: input.windowDays, keepToolPairs: input.keepToolPairs,
@@ -1591,19 +1595,22 @@ async function handleApi(req, res, url) {
   if (promptsMatch) {
     const threadId = decodeURIComponent(promptsMatch[1]);
     const settings = publicThreadSettings(threadId);
-    if (settings.purpose !== "accompany") throw new Error("提示词与关系时间轴编辑仅适用于陪伴场景");
+    if (!["accompany", "life-supervision"].includes(scenarioId(settings))) throw new Error("提示词与关系时间轴编辑仅适用于陪伴或生活监督场景");
     const config = loadConfig(); const context = getMemoryContext(threadId);
     const entry = context.layout === "memory-v1" ? getMemoryRuntimeConfig(threadId) : (config[threadId] || {});
     const timeline = Array.isArray(entry.relationshipTimeline) ? entry.relationshipTimeline : [];
     const opsDir = path.join(__dirname, "..", "..", "operations");
-    const overridesDir = path.join(path.dirname(CONFIG_PATH), "prompt-overrides");
-    const summaryDefaultPath = path.join(opsDir, "memory-miner-operations.md");
-    const featureDefaultPath = path.join(opsDir, "memory-miner-feature-operations.md");
-    const summaryPath = path.join(overridesDir, "memory-miner-operations.md");
-    const featurePath = path.join(overridesDir, "memory-miner-feature-operations.md");
+    const supervision = scenarioId(entry) === "life-supervision";
+    const memoryDir = path.join(getThreadDir(threadId), "memory");
+    const defaults = supervision ? resolveMiningPrompts(entry, { defaultsOnly: true }) : null;
+    const overridesDir = supervision ? path.dirname(promptOverridePath(memoryDir, "life-supervision", "feelings")) : path.join(path.dirname(CONFIG_PATH), "prompt-overrides");
+    const summaryDefaultPath = defaults?.tasks.feelings.file || path.join(opsDir, "memory-miner-operations.md");
+    const featureDefaultPath = defaults?.tasks.features.file || path.join(opsDir, "memory-miner-feature-operations.md");
+    const summaryPath = path.join(overridesDir, supervision ? "feelings.md" : "memory-miner-operations.md");
+    const featurePath = path.join(overridesDir, supervision ? "features.md" : "memory-miner-feature-operations.md");
     if (req.method === "GET") {
-      let defaultSummary = buildFeelingPrompt(settings.ai, settings.user, settings.purpose, settings.userGender, timeline);
-      let defaultFeature = buildFeaturePrompt(settings.user, settings.purpose);
+      let defaultSummary = buildFeelingPrompt(settings.ai, settings.user, scenarioId(settings), settings.userGender, timeline);
+      let defaultFeature = buildFeaturePrompt(settings.user, scenarioId(settings));
       try { defaultSummary = fs.readFileSync(summaryDefaultPath, "utf8"); } catch {}
       try { defaultFeature = fs.readFileSync(featureDefaultPath, "utf8"); } catch {}
       let summaryPrompt = "", featurePrompt = "";
@@ -1615,12 +1622,16 @@ async function handleApi(req, res, url) {
     }
     if (req.method === "PUT") {
       const body = await readJson(req);
-      let defSummary = buildFeelingPrompt(settings.ai, settings.user, settings.purpose, settings.userGender, timeline);
-      let defFeature = buildFeaturePrompt(settings.user, settings.purpose);
+      let defSummary = buildFeelingPrompt(settings.ai, settings.user, scenarioId(settings), settings.userGender, timeline);
+      let defFeature = buildFeaturePrompt(settings.user, scenarioId(settings));
       try { defSummary = fs.readFileSync(summaryDefaultPath, "utf8"); } catch {}
       try { defFeature = fs.readFileSync(featureDefaultPath, "utf8"); } catch {}
       if (String(body.summaryPrompt || "").length > 100000 || String(body.featurePrompt || "").length > 100000) {
         throw new Error("单份挖掘提示词不能超过 100000 个字符");
+      }
+      if (supervision) {
+        if (body.summaryPrompt !== undefined) renderPrompt(String(body.summaryPrompt || defSummary), entry);
+        if (body.featurePrompt !== undefined) renderPrompt(String(body.featurePrompt || defFeature), entry);
       }
       fs.mkdirSync(overridesDir, { recursive: true });
       if (body.summaryPrompt !== undefined) fs.writeFileSync(summaryPath, String(body.summaryPrompt || defSummary), "utf8");
@@ -1902,7 +1913,8 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === "POST" && url.pathname === "/api/libraries") {
-    const input = await readJson(req);
+    const body = await readJson(req);
+    const input = body.scenario || body.purpose ? normalizeScenarioConfig(body) : body;
     let createdNow = false;
     if (!input.memoryId) {
       const result = JSON.parse(runStmem(["memory", "create", ...(String(input.libraryName || "").trim() ? ["--name", String(input.libraryName).trim()] : [])]));
@@ -1925,7 +1937,7 @@ async function handleApi(req, res, url) {
       if (!String(input.threadId || "").trim()) {
         const settingsFile = path.join(initDir, "memory-settings.json");
         fs.writeFileSync(settingsFile, JSON.stringify({
-          label: input.libraryName, purpose: input.purpose, ai: input.ai, user: input.user,
+          label: input.libraryName, purpose: input.purpose, scenario: input.scenario, ai: input.ai, user: input.user,
           userGender: input.userGender || "unspecified", miner: { mode: "subagent", apiProfile: null },
         }), { encoding: "utf8", mode: 0o600 });
         runStmem(["memory", "settings", "--memory", input.memoryId, "--batch-file", settingsFile, "--validate"]);
@@ -1942,7 +1954,7 @@ async function handleApi(req, res, url) {
       }
       const settingsFile = path.join(initDir, "memory-settings.json");
       fs.writeFileSync(settingsFile, JSON.stringify({
-        label: input.libraryName, purpose: input.purpose, ai: input.ai, user: input.user,
+        label: input.libraryName, purpose: input.purpose, scenario: input.scenario, ai: input.ai, user: input.user,
         userGender: input.userGender || "unspecified",
         miner: { mode: input.minerMode, apiProfile: input.minerMode === "api" ? input.apiProvider : null },
         rebuild: { windowDays: Number(input.windowDays) || 3, keepToolPairs: Number(input.keepToolPairs) || 0 },

@@ -23,6 +23,7 @@ const {
 } = require("../src/services/thread-setup");
 const { INIT_SCHEMA, buildInitTemplate } = require("../src/services/init-contract");
 const { createMemory, getMemory } = require("../src/services/memory-setup");
+const { listScenarios, getScenario, scenarioId } = require("../src/services/scenario-registry");
 
 function loadCfg() {
   try { return JSON.parse(fs.readFileSync(cfgFile, "utf8")); }
@@ -76,7 +77,8 @@ async function interactiveInit(threadId) {
   }
   const userGender = await askRequired(rl, "用户性别 (male/female)", existing.userGender);
   const runtime = await askRequired(rl, "运行时 (claude/codex)", existing.runtime);
-  const purpose = await askRequired(rl, "用途 (accompany/coding/study)", existing.purpose);
+  const scenario = await askRequired(rl, `场景 (${listScenarios().map(row => `${row.id}=${row.label}`).join(" / ")})`, scenarioId(existing));
+  const purpose = existing.purpose || getScenario(scenario).storagePurpose;
   const defaultSessionDir = runtime === "codex" ? path.join(os.homedir(), ".codex", "sessions") : existing.sessionDir;
   const sessionDir = await askRequired(rl, "线程文件搜索目录（会递归查找）", existing.sessionDir || defaultSessionDir);
   const minerMode = await askRequired(rl, "挖掘模式 (api/subagent)", existing.minerMode || "subagent");
@@ -96,7 +98,7 @@ async function interactiveInit(threadId) {
 
   rl.close();
 
-  return { threadId, libraryName: label, ai, user, userGender, runtime, purpose, sessionDir, minerMode,
+  return { threadId, libraryName: label, ai, user, userGender, runtime, purpose, scenario, sessionDir, minerMode,
     apiProvider, apiKey, baseUrl, model, windowDays, keepToolPairs,
     automaticFullMining: existing.automaticFullMining !== false,
     automaticMemoryMaintenance: existing.automaticMemoryMaintenance !== false,
@@ -114,7 +116,8 @@ async function main() {
   }
   if (args.includes("--template")) {
     const runtimeIndex = args.indexOf("--runtime");
-    console.log(JSON.stringify(buildInitTemplate(runtimeIndex >= 0 ? args[runtimeIndex + 1] : "codex"), null, 2));
+    const scenarioIndex = args.indexOf("--scenario");
+    console.log(JSON.stringify(buildInitTemplate(runtimeIndex >= 0 ? args[runtimeIndex + 1] : "codex", scenarioIndex >= 0 ? args[scenarioIndex + 1] : "accompany"), null, 2));
     return;
   }
   if (args.includes("--schema")) {
@@ -153,7 +156,7 @@ async function main() {
         + "  stmem init --new [--name <名称>]\n"
         + "  stmem init --thread <真实线程ID>\n"
         + "  stmem init --memory <记忆体ID> --thread <真实线程ID> --batch-file <json>\n"
-        + "  stmem init --template --runtime codex\n"
+        + "  stmem init --template --runtime codex --scenario life-supervision\n"
         + "  stmem init --batch-file <json> --validate\n"
         + "  stmem init --batch-file <json>");
       process.exit(1);
@@ -164,7 +167,7 @@ async function main() {
 
   console.log(`\n✅ 初始化完成`);
   console.log(`   AI: ${tc.ai}  用户: ${tc.user}`);
-  console.log(`   运行时: ${tc.runtime}  用途: ${tc.purpose}`);
+  console.log(`   运行时: ${tc.runtime}  场景: ${getScenario(tc.scenario).label} (${tc.scenario})`);
   console.log(`   记忆目录: ${tc.directory}`);
   console.log(`   已绑定线程文件: ${tc.sessionFile}`);
 
