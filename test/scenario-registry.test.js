@@ -16,6 +16,9 @@ function fixture(t) {
 }
 
 test("registered scenarios drive init; existing prompts retain their single-day semantics", t => {
+  assert.deepEqual(listScenarios().slice(0, 3).map(row => [row.id, row.label]), [
+    ["life-supervision", "生活监督"], ["accompany", "情感陪伴"], ["coding", "编程日志"],
+  ]);
   const overridesDir = fixture(t);
   assert.deepEqual(INIT_SCHEMA.properties.scenario.enum, listScenarios().map(row => row.id));
   for (const scenario of listScenarios()) {

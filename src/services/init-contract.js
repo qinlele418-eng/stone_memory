@@ -51,7 +51,7 @@ const INIT_SCHEMA = {
   },
 };
 
-function buildInitTemplate(runtime = "codex", scenario = "accompany") {
+function buildInitTemplate(runtime = "codex", scenario = "life-supervision") {
   const definition = getScenario(scenario);
   const selected = runtime === "claude" ? "claude" : "codex";
   return {

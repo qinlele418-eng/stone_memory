@@ -18,7 +18,7 @@ const path = require("path");
 const os = require("os");
 const { execFile, execSync } = require("child_process");
 
-const { getCfg, getThreadDir, listMemoryIds, getMemoryRuntimeConfig } = require("../src/config");
+const { getCfg, getThreadDir, listMemoryIds, getMemoryRuntimeConfig, getMemoryContext } = require("../src/config");
 const { listJsonlRecursive } = require("../src/lib/archive-paths");
 const { requiresRemine, shouldAttempt } = require("../src/services/mining-state");
 const { resolveAutoCompactConfig } = require("../src/services/auto-compact-config");
@@ -35,6 +35,7 @@ const { enabledWatcherBindings } = require("../src/services/watcher-bindings");
 const LOG_DIR = path.join(os.homedir(), ".stone_memory", "logs");
 let workerLockDir = null;
 let workerLease = null;
+const successorDiscoveryRuns = new Set();
 
 function log(msg) {
   const ts = new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false });
@@ -280,9 +281,31 @@ function scheduleSync(tid, bindingId, debounceMs = 300) {
   }, debounceMs);
 }
 
+function discoverBindingSuccessors(tid) {
+  if (successorDiscoveryRuns.has(tid)) return;
+  try { if (getMemoryContext(tid).layout !== "memory-v1") return; } catch { return; }
+  successorDiscoveryRuns.add(tid);
+  execFile(process.execPath, [path.join(__dirname, "..", "bin", "stmem"), "binding", "discover-successors", "--memory", tid, "--apply"], {
+    cwd: path.join(__dirname, ".."), encoding: "utf8", timeout: 30_000, maxBuffer: 5 * 1024 * 1024, windowsHide: true,
+  }, (error, stdout, stderr) => {
+    successorDiscoveryRuns.delete(tid);
+    if (error) {
+      log(`[${tid}] fork 后继自动绑定失败: ${String(stderr || error.message).trim().slice(0, 300)}`);
+      return;
+    }
+    try {
+      const result = JSON.parse(stdout);
+      if (result.changed) log(`[${tid}] 已自动绑定 ${result.added.length} 个 fork 后继窗口${result.stoppedBindingIds.length ? `，并停止 ${result.stoppedBindingIds.length} 个最久未活动监听` : ""}`);
+    } catch (parseError) {
+      log(`[${tid}] fork 后继自动绑定结果无法解析: ${parseError.message}`);
+    }
+  });
+}
+
 function watchMemoryBindings(tid) {
   const watchers = new Map();
   const reconcile = () => {
+    discoverBindingSuccessors(tid);
     const active = new Set();
     for (const binding of enabledWatcherBindings(tid)) {
       active.add(binding.id);

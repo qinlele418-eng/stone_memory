@@ -2,7 +2,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { getMemoryContext, listMemoryIds, loadConfig } = require("../config");
-const { findThreadSessionFile } = require("../lib/thread-session-file");
+const { findThreadSessionFile, listCodexSuccessors } = require("../lib/thread-session-file");
 const { MemoryStore } = require("../storage/memory-store");
 const { openDatabase } = require("../storage/database");
 const { addBinding: registerBinding } = require("./memory-bindings");
@@ -153,6 +153,61 @@ function migrateLegacyBinding(memoryId, { apply = false } = {}) {
   const input = legacyBindingInput(memoryId);
   if (!input) return { memoryId, changed: false, reason: "legacy-binding-not-found", config };
   return apply ? applyBindingAdd(memoryId, input) : planBindingAdd(memoryId, input);
+}
+
+function planBindingSuccessorDiscovery(memoryId) {
+  const config = readBindingConfig(memoryId);
+  const existing = new Set(config.bindings.map(item => `${item.provider}\0${item.externalThreadId}`));
+  const candidates = [];
+  const seen = new Set();
+  const roots = new Map();
+  for (const binding of config.bindings.filter(item => item.provider === "codex" && item.mode !== "import_only")) {
+    if (!roots.has(binding.sessionRoot)) roots.set(binding.sessionRoot, []);
+    roots.get(binding.sessionRoot).push(binding.externalThreadId);
+  }
+  for (const [sessionRoot, externalThreadIds] of roots) {
+    for (const successor of listCodexSuccessors(sessionRoot, externalThreadIds)) {
+      const key = `codex\0${successor.id}`;
+      if (existing.has(key) || seen.has(key)) continue;
+      seen.add(key);
+      candidates.push({
+        provider: "codex",
+        externalThreadId: successor.id,
+        sessionRoot,
+        mode: "child",
+        enabled: true,
+        parentExternalThreadId: successor.parentId,
+        resolvedThreadFile: successor.file,
+      });
+    }
+  }
+  return { dryRun: true, action: "discover-successors", memoryId, revision: config.revision, changed: candidates.length > 0, candidates };
+}
+
+function applyBindingSuccessorDiscovery(memoryId) {
+  const plan = planBindingSuccessorDiscovery(memoryId);
+  const added = [], stoppedBindingIds = [];
+  for (const candidate of plan.candidates) {
+    const result = applyBindingAdd(memoryId, {
+      provider: candidate.provider,
+      externalThreadId: candidate.externalThreadId,
+      sessionRoot: candidate.sessionRoot,
+      mode: candidate.mode,
+      enabled: candidate.enabled,
+    });
+    if (result.changed) added.push(result.binding);
+    stoppedBindingIds.push(...(result.stoppedBindingIds || []));
+  }
+  return {
+    dryRun: false,
+    applied: true,
+    changed: added.length > 0,
+    action: plan.action,
+    memoryId,
+    added,
+    stoppedBindingIds: [...new Set(stoppedBindingIds)],
+    config: readBindingConfig(memoryId),
+  };
 }
 
 function getConfiguredBinding(memoryId, id) {
@@ -337,5 +392,5 @@ module.exports = {
   getConfiguredBinding, resolvePrimaryBinding, planBindingSwitch, applyBindingSwitch,
   planBindingPrimary, applyBindingPrimary,
   planBindingState, applyBindingState,
-  migrateLegacyBinding,
+  migrateLegacyBinding, planBindingSuccessorDiscovery, applyBindingSuccessorDiscovery,
 };

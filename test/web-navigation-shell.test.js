@@ -14,7 +14,7 @@ test("responsive navigation shell delegates to the stable frontend", () => {
   for (const action of ["home", "memory", "workshop", "me"]) {
     assert.match(html, new RegExp(`data-shell-action="${action}"`));
   }
-  assert.ok(html.indexOf("/app.js?v=40") < html.indexOf("/developer-kit/navigation-shell.js?v=3"));
+  assert.ok(html.indexOf("/app.js?v=43") < html.indexOf("/developer-kit/navigation-shell.js?v=3"));
   assert.match(html, /\/developer-kit\/navigation-shell\.css\?v=5/);
   assert.match(adapter, /MutationObserver/);
   assert.match(adapter, /data-view="\$\{view\}"/);
@@ -64,12 +64,21 @@ test("responsive navigation shell delegates to the stable frontend", () => {
   assert.match(managementOverview, /renderToolPolicy\(library\)/);
   assert.match(managementOverview, /renderMining\(library\)/);
   assert.match(managementOverview, /renderCompression\(library\)/);
+  assert.doesNotMatch(app, /function renderMemoryHub|function renderDataMaintenance|function renderMaintenance/);
+  assert.doesNotMatch(app, /可解释记忆|<h1>摘要记忆<\/h1>|返回维护/);
+  assert.ok((app.match(/renderManagement\(library\)/g) || []).length >= 10);
   assert.match(app, /function renderAccess\(library\)/);
   assert.match(app, /最多同时监听 5 个窗口/);
   assert.match(app, /data-binding-toggle/);
   assert.match(app, /data-binding-delete/);
   assert.match(app, /data-binding-primary/);
   assert.match(app, /settingsRenderVersion/);
+  const settingsPage = app.match(/async function renderSettings\(library\)[\s\S]*?const rebuildState/)?.[0] || "";
+  assert.doesNotMatch(settingsPage, /<h1>设置<\/h1>|setting-threadId|setting-session/);
+  for (const content of ["基本信息", "摘要生成", "上下文默认值", "危险操作", "线程接入和文件定位已由 Binding 管理"]) assert.match(settingsPage, new RegExp(content));
+  assert.ok(settingsPage.indexOf("生活监督") < settingsPage.indexOf("情感陪伴"));
+  assert.ok(settingsPage.indexOf("情感陪伴") < settingsPage.indexOf("编程日志"));
+  assert.match(settingsPage, /name="scenario"/);
   assert.doesNotMatch(app, /querySelector\("\.side-title"\)/);
   assert.match(app, /function showBindingGuide\(library\)/);
   assert.match(app, /请用bind mcp将该窗口和\$\{memoryName\}记忆体绑定/);

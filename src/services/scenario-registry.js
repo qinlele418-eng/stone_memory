@@ -7,6 +7,7 @@ const TASKS = Object.freeze({
   feelings: Object.freeze({ input: "messages", dependsOn: [], contractVersion: 1 }),
   features: Object.freeze({ input: "feelings", dependsOn: ["feelings"], contractVersion: 1 }),
 });
+const SCENARIO_ORDER = Object.freeze(["life-supervision", "accompany", "coding", "study"]);
 
 function packageFile(root, relative) {
   if (typeof relative !== "string" || !relative || path.isAbsolute(relative)) throw new Error("场景文件必须使用包内相对路径");
@@ -30,7 +31,10 @@ function listScenarios(root = ROOT) {
       if (typeof file !== "string" || path.basename(file) !== file) throw new Error("旧提示词文件名无效");
     }
     return { ...manifest, directory };
-  }).sort((a, b) => a.id.localeCompare(b.id));
+  }).sort((a, b) => {
+    const aRank = SCENARIO_ORDER.indexOf(a.id), bRank = SCENARIO_ORDER.indexOf(b.id);
+    return (aRank < 0 ? SCENARIO_ORDER.length : aRank) - (bRank < 0 ? SCENARIO_ORDER.length : bRank) || a.id.localeCompare(b.id);
+  });
 }
 
 function getScenario(id, root = ROOT) {
@@ -43,4 +47,11 @@ function scenarioId(config = {}) {
   return config.scenario ?? config.purpose ?? "accompany";
 }
 
-module.exports = { TASKS, listScenarios, getScenario, scenarioId, packageFile };
+function normalizeScenarioConfig(input, existing = {}) {
+  const scenario = getScenario(input.scenario ?? existing.scenario ?? input.purpose ?? existing.purpose ?? "accompany");
+  const purpose = input.purpose ?? existing.purpose ?? scenario.storagePurpose;
+  if (!["accompany", "coding", "study"].includes(purpose)) throw new Error("场景存储兼容用途无效");
+  return { ...input, scenario: scenario.id, purpose };
+}
+
+module.exports = { TASKS, listScenarios, getScenario, scenarioId, packageFile, normalizeScenarioConfig };

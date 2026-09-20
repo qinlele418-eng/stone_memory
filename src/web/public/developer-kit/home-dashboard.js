@@ -18,7 +18,7 @@
   }
 
   function purposeLabel(value) {
-    return value === "coding" ? "编程" : value === "study" ? "学习" : value === "accompany" ? "陪伴" : "待配置";
+    return value === "life-supervision" ? "生活监督" : value === "coding" ? "编程日志" : value === "study" ? "学习（旧场景）" : value === "accompany" ? "情感陪伴" : "待配置";
   }
 
   function lastSync(value) {
@@ -34,7 +34,7 @@
     const title = element("h2", "today-grain-title");
     title.append("小石头已为你照顾了 ", element("b", "", String(data.caredDays || 0)), " 天记忆");
     copy.append(title);
-    copy.append(element("p", "today-grain-subtitle", `这里有 ${data.memoryCount || 0} 个记忆体：${data.companionCount || 0} 个陪伴 · ${data.codingCount || 0} 个编程 · ${data.studyCount || 0} 个学习`));
+    copy.append(element("p", "today-grain-subtitle", `这里有 ${data.memoryCount || 0} 个记忆体：${data.supervisionCount || 0} 个生活监督 · ${data.companionCount || 0} 个情感陪伴 · ${data.codingCount || 0} 个编程日志`));
     const growth = element("div", "today-grain-growth");
     for (const [label, value] of [["今日新增对话", data.todayMessages], ["新长出摘要", data.todayFeelings]]) {
       const chip = element("span", "today-grain-chip");
@@ -66,7 +66,7 @@
     avatar.append(stoneMark("stone-mark--avatar"));
     const copy = element("div", "mapped-memory-copy");
     const name = element("h2", "", memory.libraryName || memory.memoryId || "未命名记忆体");
-    name.append(element("span", "", ` · ${purposeLabel(memory.purpose)}`));
+    name.append(element("span", "", ` · ${purposeLabel(memory.scenario || memory.purpose)}`));
     copy.append(name, element("p", "", `最近对话同步 · ${lastSync(memory.lastArchivedAt)}`));
     copy.append(element("p", "mapped-memory-meta", `${memory.runtime || "尚未绑定平台"} · ${memory.configured ? "本地记忆体" : "等待配置"}`));
     top.append(avatar, copy, element("span", "mapped-memory-arrow", "›"));

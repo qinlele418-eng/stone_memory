@@ -1,0 +1,11 @@
+{
+  "id": "life-supervision",
+  "version": 1,
+  "label": "生活监督",
+  "storagePurpose": "accompany",
+  "tasks": ["feelings", "features"],
+  "prompts": {
+    "feelings": "summary.md",
+    "features": "features.md"
+  }
+}

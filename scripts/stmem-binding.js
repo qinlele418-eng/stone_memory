@@ -17,6 +17,7 @@ const {
 const {
   readBindingConfig, planBindingAdd, applyBindingAdd, planBindingSwitch, applyBindingSwitch,
   planBindingPrimary, applyBindingPrimary, planBindingState, applyBindingState, migrateLegacyBinding,
+  planBindingSuccessorDiscovery, applyBindingSuccessorDiscovery,
 } = require("../src/services/memory-binding-config");
 
 function parseArgs(argv) {
@@ -61,6 +62,7 @@ function usage() {
   stmem binding primary --memory <记忆体ID> --binding <id> [--apply]
   stmem binding enable|disable|remove --memory <记忆体ID> --binding <id> [--apply]
   stmem binding migrate-legacy --memory <记忆体ID> [--apply]
+  stmem binding discover-successors --memory <记忆体ID> [--apply]
   stmem binding list --thread <记忆体ID>
   stmem binding add --thread <记忆体ID> --provider codex --external-thread <id> --thread-file <jsonl>
   stmem binding add ... --apply
@@ -95,6 +97,9 @@ function runBindingCommand(argv = process.argv.slice(3)) {
     let output;
     if (options.action === "list") output = { memoryId: options.memoryId, ...readBindingConfig(options.memoryId) };
     else if (options.action === "migrate-legacy") output = migrateLegacyBinding(options.memoryId, { apply: options.apply });
+    else if (options.action === "discover-successors") output = options.apply
+      ? applyBindingSuccessorDiscovery(options.memoryId)
+      : planBindingSuccessorDiscovery(options.memoryId);
     else if (options.action === "add") {
       if (!options.batchFile) throw new Error("新 Binding 写入需要 --batch-file <json>");
       const input = JSON.parse(require("fs").readFileSync(options.batchFile, "utf8"));
@@ -119,7 +124,7 @@ function runBindingCommand(argv = process.argv.slice(3)) {
       output = options.apply
         ? applyBindingState(options.memoryId, bindingId, options.action)
         : planBindingState(options.memoryId, bindingId, options.action);
-    } else throw new Error("新记忆体 Binding 支持 list|add|primary|switch|enable|disable|remove|migrate-legacy");
+    } else throw new Error("新记忆体 Binding 支持 list|add|primary|switch|enable|disable|remove|migrate-legacy|discover-successors");
     console.log(JSON.stringify(output, null, 2));
     return output;
   }

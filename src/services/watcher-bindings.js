@@ -1,7 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { getMemoryContext, getMemoryRuntimeConfig, getThreadDir } = require("../config");
-const { findThreadSessionFile } = require("../lib/thread-session-file");
+const { findThreadSessionFile, findExactThreadSessionFile } = require("../lib/thread-session-file");
 
 const MAX_ENABLED_BINDINGS = 5;
 
@@ -17,7 +17,9 @@ function enabledWatcherBindings(memoryId) {
       .map(binding => ({
         ...binding,
         primary: binding.id === config.primaryBindingId,
-        threadFile: findThreadSessionFile(binding.sessionRoot, binding.externalThreadId),
+        threadFile: binding.provider === "codex"
+          ? findExactThreadSessionFile(binding.sessionRoot, binding.externalThreadId)
+          : findThreadSessionFile(binding.sessionRoot, binding.externalThreadId),
       }));
   }
   const config = getMemoryRuntimeConfig(memoryId);

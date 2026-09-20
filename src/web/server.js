@@ -6,7 +6,7 @@ const zlib = require("zlib");
 const crypto = require("crypto");
 const { spawn, spawnSync } = require("child_process");
 const { URL } = require("url");
-const { loadConfig, listThreadIds, listMemoryIds, getThreadDir, getMemoryContext, getMemoryRuntimeConfig, CONFIG_PATH } = require("../config");
+const { loadConfig, listThreadIds, listMemoryIds, getThreadDir, getMemoryContext, getMemoryRuntimeConfig } = require("../config");
 const { readImportSource } = require("../services/import-source");
 const { MemoryStore } = require("../storage/memory-store");
 const { buildRebuildPreview } = require("../services/rebuild-workbench");
@@ -27,12 +27,14 @@ const { watcherActions, watcherEnabled } = require("../services/watcher-runtime"
 const { normalizeMiningApiProfile } = require("../services/mining-api-profile");
 const { normalizeModelName } = require("../lib/model-name");
 const { configuredRuntimeIds, MiningReviewBatchStore } = require("../services/mining-review-batch");
-const { buildFeelingPrompt, buildFeaturePrompt } = require("../services/memory-miner");
 const { normalizeRebuildRequest, rebuildRequestCliArgs } = require("../services/rebuild-request");
 const { loadModules, resolveInside } = require("../services/developer-module-contract");
 const { compactTermTimelineReport } = require("../services/term-timeline-report");
 const { listMemories, getMemory } = require("../services/memory-setup");
 const { readBindingConfig } = require("../services/memory-binding-config");
+
+const { scenarioId, normalizeScenarioConfig } = require("../services/scenario-registry");
+const { resolveMiningPrompts, promptOverridePath, renderPrompt } = require("../services/prompt-resolver");
 
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MAX_UPLOAD = 512 * 1024 * 1024;
@@ -415,7 +417,7 @@ function publicThreadSettings(threadId) {
   return {
     memoryId, threadId: memoryId, externalThreadId: entry.externalThreadId || (layout !== "memory-v1" ? legacyThreadId : null),
     libraryName: entry.label || memoryId, ai: entry.ai || "", user: entry.user || "",
-    userGender: entry.userGender || "unspecified", runtime: entry.runtime || "claude", purpose: entry.purpose || "accompany",
+    scenario: scenarioId(entry), userGender: entry.userGender || "unspecified", runtime: entry.runtime || "claude", purpose: entry.purpose || "accompany",
     sessionDir: entry.sessionDir || "", minerMode: entry.minerMode || "subagent", apiProvider: entry.apiProvider || "",
     baseUrl: entry.apiProvider ? (config.apiKeys?.[entry.apiProvider]?.baseUrl || "") : "",
     model: entry.apiProvider ? (config.apiKeys?.[entry.apiProvider]?.model || "") : "",
@@ -550,7 +552,7 @@ function listLibraries() {
       const latestArchived = store.db.prepare("SELECT MAX(timestamp) timestamp FROM messages WHERE thread_id=?").get(threadId);
       const latest = store.db.prepare("SELECT MAX(completed_at) completedAt FROM mining_day_state WHERE thread_id=? AND status='completed'").get(threadId);
       return {
-        memoryId, configured: true, bound, bindingCount, threadId, externalThreadId: tc.externalThreadId || (context.layout !== "memory-v1" ? threadId : null), libraryName: tc.label || memoryId, runtime: tc.runtime || null, purpose: tc.purpose || "accompany", createdAt,
+        memoryId, scenario: scenarioId(tc), configured: true, bound, bindingCount, threadId, externalThreadId: tc.externalThreadId || (context.layout !== "memory-v1" ? threadId : null), libraryName: tc.label || memoryId, runtime: tc.runtime || null, purpose: tc.purpose || "accompany", createdAt,
         ai: tc.ai || "", user: tc.user || "", counts,
         lastArchivedAt: latestArchived?.timestamp || null, lastMinedAt: latest?.completedAt || null,
         watcherEnabled: watcherEnabled(tc),
@@ -638,9 +640,10 @@ function homeOverview() {
   return {
     ...totals,
     memoryCount: libraries.length,
-    companionCount: libraries.filter(item => item.purpose === "accompany").length,
-    codingCount: libraries.filter(item => item.purpose === "coding").length,
-    studyCount: libraries.filter(item => item.purpose === "study").length,
+    supervisionCount: libraries.filter(item => scenarioId(item) === "life-supervision").length,
+    companionCount: libraries.filter(item => scenarioId(item) === "accompany").length,
+    codingCount: libraries.filter(item => scenarioId(item) === "coding").length,
+    studyCount: libraries.filter(item => scenarioId(item) === "study").length,
     connectedRuntimeCount: new Set(libraries.map(item => item.runtime).filter(Boolean)).size,
     runningWatcherCount: libraries.filter(item => item.watcherEnabled).length,
     automationRunning: libraries.some(item => item.watcherEnabled),
@@ -1293,7 +1296,7 @@ async function handleApi(req, res, url) {
       let canonical = false;
       try { canonical = getMemoryContext(threadId).layout === "memory-v1"; } catch {}
       const settingsPatch = {
-        label: input.libraryName, ai: input.ai, user: input.user, userGender: input.userGender,
+        label: input.libraryName, scenario: input.scenario, ai: input.ai, user: input.user, userGender: input.userGender,
         miner: { mode: input.minerMode, apiProfile: input.minerMode === "api" ? input.apiProvider : null },
         rebuild: {
           windowDays: input.windowDays, keepToolPairs: input.keepToolPairs,
@@ -1590,41 +1593,37 @@ async function handleApi(req, res, url) {
   const promptsMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/mining\/prompts$/);
   if (promptsMatch) {
     const threadId = decodeURIComponent(promptsMatch[1]);
-    const settings = publicThreadSettings(threadId);
-    if (settings.purpose !== "accompany") throw new Error("提示词与关系时间轴编辑仅适用于陪伴场景");
     const config = loadConfig(); const context = getMemoryContext(threadId);
     const entry = context.layout === "memory-v1" ? getMemoryRuntimeConfig(threadId) : (config[threadId] || {});
     const timeline = Array.isArray(entry.relationshipTimeline) ? entry.relationshipTimeline : [];
-    const opsDir = path.join(__dirname, "..", "..", "operations");
-    const overridesDir = path.join(path.dirname(CONFIG_PATH), "prompt-overrides");
-    const summaryDefaultPath = path.join(opsDir, "memory-miner-operations.md");
-    const featureDefaultPath = path.join(opsDir, "memory-miner-feature-operations.md");
-    const summaryPath = path.join(overridesDir, "memory-miner-operations.md");
-    const featurePath = path.join(overridesDir, "memory-miner-feature-operations.md");
+    const memoryDir = path.join(getThreadDir(threadId), "memory");
+    const scenario = scenarioId(entry);
+    const defaults = resolveMiningPrompts(entry, { defaultsOnly: true });
+    const resolved = resolveMiningPrompts(entry, { memoryDir });
+    const summaryPath = promptOverridePath(memoryDir, scenario, "feelings");
+    const featurePath = promptOverridePath(memoryDir, scenario, "features");
     if (req.method === "GET") {
-      let defaultSummary = buildFeelingPrompt(settings.ai, settings.user, settings.purpose, settings.userGender, timeline);
-      let defaultFeature = buildFeaturePrompt(settings.user, settings.purpose);
-      try { defaultSummary = fs.readFileSync(summaryDefaultPath, "utf8"); } catch {}
-      try { defaultFeature = fs.readFileSync(featureDefaultPath, "utf8"); } catch {}
-      let summaryPrompt = "", featurePrompt = "";
-      try { summaryPrompt = fs.readFileSync(summaryPath, "utf8"); }
-      catch { try { summaryPrompt = fs.readFileSync(summaryDefaultPath, "utf8"); } catch { summaryPrompt = defaultSummary; } }
-      try { featurePrompt = fs.readFileSync(featurePath, "utf8"); }
-      catch { try { featurePrompt = fs.readFileSync(featureDefaultPath, "utf8"); } catch { featurePrompt = defaultFeature; } }
-      return json(res, 200, { summaryPrompt, featurePrompt, defaultSummary, defaultFeature, timeline });
+      return json(res, 200, {
+        scenario,
+        summaryPrompt: resolved.tasks.feelings.template,
+        featurePrompt: resolved.tasks.features.template,
+        defaultSummary: defaults.tasks.feelings.template,
+        defaultFeature: defaults.tasks.features.template,
+        timeline,
+      });
     }
     if (req.method === "PUT") {
       const body = await readJson(req);
-      let defSummary = buildFeelingPrompt(settings.ai, settings.user, settings.purpose, settings.userGender, timeline);
-      let defFeature = buildFeaturePrompt(settings.user, settings.purpose);
-      try { defSummary = fs.readFileSync(summaryDefaultPath, "utf8"); } catch {}
-      try { defFeature = fs.readFileSync(featureDefaultPath, "utf8"); } catch {}
       if (String(body.summaryPrompt || "").length > 100000 || String(body.featurePrompt || "").length > 100000) {
         throw new Error("单份挖掘提示词不能超过 100000 个字符");
       }
-      fs.mkdirSync(overridesDir, { recursive: true });
-      if (body.summaryPrompt !== undefined) fs.writeFileSync(summaryPath, String(body.summaryPrompt || defSummary), "utf8");
-      if (body.featurePrompt !== undefined) fs.writeFileSync(featurePath, String(body.featurePrompt || defFeature), "utf8");
+      const summaryPrompt = String(body.summaryPrompt || defaults.tasks.feelings.template);
+      const featurePrompt = String(body.featurePrompt || defaults.tasks.features.template);
+      if (body.summaryPrompt !== undefined) renderPrompt(summaryPrompt, entry);
+      if (body.featurePrompt !== undefined) renderPrompt(featurePrompt, entry);
+      fs.mkdirSync(path.dirname(summaryPath), { recursive: true });
+      if (body.summaryPrompt !== undefined) fs.writeFileSync(summaryPath, summaryPrompt, "utf8");
+      if (body.featurePrompt !== undefined) fs.writeFileSync(featurePath, featurePrompt, "utf8");
       if (Array.isArray(body.timeline)) {
         const strings = body.timeline.map(String).filter(s => s.trim());
         const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-web-timeline-"));
@@ -1902,7 +1901,8 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === "POST" && url.pathname === "/api/libraries") {
-    const input = await readJson(req);
+    const body = await readJson(req);
+    const input = body.scenario || body.purpose ? normalizeScenarioConfig(body) : body;
     let createdNow = false;
     if (!input.memoryId) {
       const result = JSON.parse(runStmem(["memory", "create", ...(String(input.libraryName || "").trim() ? ["--name", String(input.libraryName).trim()] : [])]));
@@ -1925,7 +1925,7 @@ async function handleApi(req, res, url) {
       if (!String(input.threadId || "").trim()) {
         const settingsFile = path.join(initDir, "memory-settings.json");
         fs.writeFileSync(settingsFile, JSON.stringify({
-          label: input.libraryName, purpose: input.purpose, ai: input.ai, user: input.user,
+          label: input.libraryName, purpose: input.purpose, scenario: input.scenario, ai: input.ai, user: input.user,
           userGender: input.userGender || "unspecified", miner: { mode: "subagent", apiProfile: null },
         }), { encoding: "utf8", mode: 0o600 });
         runStmem(["memory", "settings", "--memory", input.memoryId, "--batch-file", settingsFile, "--validate"]);
@@ -1942,7 +1942,7 @@ async function handleApi(req, res, url) {
       }
       const settingsFile = path.join(initDir, "memory-settings.json");
       fs.writeFileSync(settingsFile, JSON.stringify({
-        label: input.libraryName, purpose: input.purpose, ai: input.ai, user: input.user,
+        label: input.libraryName, purpose: input.purpose, scenario: input.scenario, ai: input.ai, user: input.user,
         userGender: input.userGender || "unspecified",
         miner: { mode: input.minerMode, apiProfile: input.minerMode === "api" ? input.apiProvider : null },
         rebuild: { windowDays: Number(input.windowDays) || 3, keepToolPairs: Number(input.keepToolPairs) || 0 },

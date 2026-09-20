@@ -2,15 +2,15 @@
 "use strict";
 const fs = require("node:fs");
 const path = require("node:path");
-const { loadConfig, getThreadDir } = require("../src/config");
+const { getMemoryRuntimeConfig, getThreadDir } = require("../src/config");
 const { resolveMiningPrompts, promptOverridePath, renderPrompt } = require("../src/services/prompt-resolver");
 
 function main() {
   const args = process.argv.slice(3), action = args[0] || "show";
   const value = flag => args.includes(flag) ? args[args.indexOf(flag) + 1] : undefined;
-  const threadId = value("--thread"), config = loadConfig();
-  if (!threadId || !Object.hasOwn(config, threadId) || !config[threadId]?.runtime) throw new Error("需要有效的 --thread");
-  const entry = config[threadId], memoryDir = path.join(getThreadDir(threadId), "memory");
+  const threadId = value("--memory") || value("--thread");
+  if (!threadId) throw new Error("需要有效的 --memory 或 --thread");
+  const entry = getMemoryRuntimeConfig(threadId), memoryDir = path.join(getThreadDir(threadId), "memory");
   const resolved = resolveMiningPrompts(entry, { memoryDir });
   if (action === "show") {
     const defaults = resolveMiningPrompts(entry, { defaultsOnly: true });

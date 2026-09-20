@@ -5,7 +5,7 @@ const { buildStdinCmd } = require("../src/services/subagent-runner");
 const { itemKey, inspectClaude, inspectCodex, conversationWindow, latestConversationDate, trimRows, checkThreadIntegrity } = require("../src/services/rebuild-workbench");
 const { validateThreadInput, validateSessionBinding } = require("../src/services/thread-setup");
 const { INIT_SCHEMA, buildInitTemplate } = require("../src/services/init-contract");
-const { findThreadSessionFile, resolveThreadSession } = require("../src/lib/thread-session-file");
+const { findThreadSessionFile, findExactThreadSessionFile, listCodexSuccessors, resolveThreadSession } = require("../src/lib/thread-session-file");
 const { usageFromRow } = require("../src/lib/thread-context-usage");
 const { MemoryStore } = require("../src/storage/memory-store");
 const fs = require("node:fs");
@@ -411,6 +411,8 @@ test("session lookup follows a Codex forked_from_id lineage to the newest rollou
   fs.writeFileSync(child, `${JSON.stringify({ type: "session_meta", payload: { session_id: childId, forked_from_id: parentId } })}\n`);
   const later = new Date(Date.now() + 1000); fs.utimesSync(child, later, later);
   assert.equal(findThreadSessionFile(root, `rollout-2026-07-15T14-51-49-${parentId}`), child);
+  assert.equal(findExactThreadSessionFile(root, parentId), parent);
+  assert.deepEqual(listCodexSuccessors(root, parentId).map(item => item.id), [childId]);
 });
 
 test("runtime session resolver reports a Claude branch without replacing its parent", t => {
