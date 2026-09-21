@@ -3,7 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const { loadConfig, getMemoryContext, CONFIG_PATH } = require("../config");
 const { saveConfig } = require("./thread-setup");
-const { canonicalMemoryDir } = require("./memory-identity");
+const { canonicalMemoryDir, legacyEntries } = require("./memory-identity");
 const { getScenario, scenarioId } = require("./scenario-registry");
 
 function writeJson(file, value) {
@@ -117,7 +117,19 @@ function getMemory(memoryId, config = loadConfig()) {
 }
 
 function listMemories(config = loadConfig()) {
-  return Object.entries(config.memories || {}).map(([id, value]) => memoryRecord(id, value));
+  const records = new Map(Object.entries(config.memories || {}).map(([id, value]) => [id, memoryRecord(id, value)]));
+  for (const [legacyKey, value] of legacyEntries(config)) {
+    const memoryId = String(value.memoryId || legacyKey);
+    if (records.has(memoryId)) continue;
+    records.set(memoryId, memoryRecord(memoryId, {
+      label: value.label || legacyKey,
+      status: "active",
+      createdAt: value.createdAt,
+      updatedAt: value.updatedAt,
+      bindings: value.bindings,
+    }));
+  }
+  return [...records.values()];
 }
 
 function readJson(file) {

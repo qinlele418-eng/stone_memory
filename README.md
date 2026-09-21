@@ -515,7 +515,7 @@ claude mcp add --scope user stmem -- node /完整路径/stone_memory/mcp-server.
 claude mcp get stmem
 ```
 
-Claude Code 会把当前 stdio MCP 所属窗口的 `CLAUDE_CODE_SESSION_ID` 自动传给 SM。旧版可能完全不提供该变量，或在 `--resume` 后提供错误 ID；低于 `2.1.163` 时请先升级，不要把某次会话 ID 静态写进 MCP 配置。
+Claude Code 可能向 stdio MCP 进程提供 `CLAUDE_CODE_SESSION_ID`，但进程启动环境不能可靠代表每一次工具调用所属的窗口。调用 `stmem_memory_bind` 时应在本次请求中同时传入当前 `thread` 与 `provider: "claude"`；环境变量只作为兼容兜底。不要把某次会话 ID 静态写进 MCP 配置。
 
 **Codex CLI / IDE 扩展**：
 
@@ -524,7 +524,7 @@ codex mcp add stmem -- node /完整路径/stone_memory/mcp-server.js
 codex mcp get stmem
 ```
 
-随后在用户级 `~/.codex/config.toml` 的 `stmem` 配置中加入 `env_vars`；否则 MCP 工具虽然能加载，`stmem_memory_bind` 仍无法识别当前窗口：
+用户级 `~/.codex/config.toml` 可以保留 `env_vars` 作为兼容兜底：
 
 ```toml
 [mcp_servers.stmem]
@@ -533,11 +533,11 @@ args = ["/完整路径/stone_memory/mcp-server.js"]
 env_vars = ["CODEX_THREAD_ID"]
 ```
 
-保存后完整重启 Codex。这里必须使用 `env_vars` 动态转发每个窗口自己的 ID，不能用 `env` 固定写死某次 `CODEX_THREAD_ID`。
+保存后完整重启 Codex。`env_vars` 只影响 MCP 进程启动时的环境，不能保证为每次调用动态切换窗口身份；调用 `stmem_memory_bind` 时应在请求中传入当前 `thread` 与 `provider: "codex"`。不能用 `env` 固定写死某次 `CODEX_THREAD_ID`。
 
 **Cyberboss（tool-host 配置）**：在 tool-host 中添加 stdio MCP server，命令为 `node`，参数为 `mcp-server.js` 的绝对路径。
 
-> 以上操作均可交由 AI 助手完成。注意注册的是 `mcp-server.js`，不是 `stmem` CLI。注册后建议先调用一次 `stmem_memory_bind`；若仍提示无法识别窗口 ID，按报错中的 Codex/Claude Code 专项检查修正配置或版本。
+> 以上操作均可交由 AI 助手完成。注意注册的是 `mcp-server.js`，不是 `stmem` CLI。Bind 请求的正式参数为 `memory`、当前 `thread` 和 `provider`；服务端会验证对应会话文件存在，再创建 Binding。
 
 ### 可用工具
 

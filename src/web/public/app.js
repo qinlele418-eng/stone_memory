@@ -597,16 +597,37 @@ function activateManagementNav() {
 function renderManagement(library) {
   activateManagementNav();
   const main=document.querySelector("#workspace-main"),counts=library.counts||{};
-  main.innerHTML=`${managementNav("overview")}<section class="management-overview-grid"><article class="section-card management-overview-panel"><header><p class="eyebrow">Memory archive</p><h1>记忆档案</h1></header><div class="management-overview-list"><button class="management-overview-entry" data-management-archive="rules"><span><strong>人设 / 规则</strong><small>查看和管理会注入当前记忆体的人设与规则</small></span><b>共 ${counts.rules||0} 条</b><i aria-hidden="true">›</i></button><button class="management-overview-entry" data-management-archive="feelings"><span><strong>摘要</strong><small>查看完整、精简和隐藏的记忆摘要</small></span><b>共 ${counts.feelings||0} 条</b><i aria-hidden="true">›</i></button><button class="management-overview-entry" data-management-archive="conversations"><span><strong>全量对话</strong><small>按日期回看已经进入记忆体的真实原文</small></span><b>共 ${counts.messages||counts.conversations||0} 条</b><i aria-hidden="true">›</i></button><button class="management-overview-entry" data-management-archive="timeline"><span><strong>时间轴</strong><small>查看词频、重要摘要与记忆生命周期</small></span><i aria-hidden="true">›</i></button></div></article><article class="section-card management-overview-panel"><header><p class="eyebrow">Memory maintenance</p><h1>记忆维护</h1></header><div class="management-overview-list"><button class="management-overview-entry" data-management-maintenance="import"><span><strong>数据导入</strong><small>支持直接导入线程文件或符合格式的对话文件</small></span><i aria-hidden="true">›</i></button><button class="management-overview-entry" data-management-maintenance="materials"><span><strong>管理挖掘素材</strong><small>决定哪些对话、工具链成为挖掘摘要的素材，同时避免反复注入的内容污染摘要库</small></span><i aria-hidden="true">›</i></button><button class="management-overview-entry" data-management-maintenance="mining"><span><strong>记忆挖掘台</strong><small>手动生成多日摘要并审核</small></span><i aria-hidden="true">›</i></button><button class="management-overview-entry" data-management-maintenance="compression"><span><strong>记忆压缩（测试功能）</strong><small>预览并逐步精简不再需要完整注入的旧摘要</small></span><i aria-hidden="true">›</i></button></div></article></section>`;
+  main.innerHTML=`${managementNav("overview")}<section class="management-overview-grid"><article class="section-card management-overview-panel"><header><p class="eyebrow">Memory archive</p><h1>记忆档案</h1></header><div class="management-overview-list"><button class="management-overview-entry" data-management-archive="rules"><span><strong>人设 / 规则</strong><small>查看和管理会注入当前记忆体的人设与规则</small></span><b>共 ${counts.rules||0} 条</b><i aria-hidden="true">›</i></button><button class="management-overview-entry" data-management-archive="feelings"><span><strong>摘要</strong><small>查看完整、精简和隐藏的记忆摘要</small></span><b>共 ${counts.feelings||0} 条</b><i aria-hidden="true">›</i></button><button class="management-overview-entry" data-management-archive="conversations"><span><strong>全量对话</strong><small>按日期回看已经进入记忆体的真实原文</small></span><b>共 ${counts.messages||counts.conversations||0} 条</b><i aria-hidden="true">›</i></button><button class="management-overview-entry" data-management-archive="timeline"><span><strong>时间轴</strong><small>查看词频、重要摘要与记忆生命周期</small></span><i aria-hidden="true">›</i></button></div></article><article class="section-card management-overview-panel"><header><p class="eyebrow">Memory maintenance</p><h1>记忆维护</h1></header><div class="management-overview-list"><button class="management-overview-entry" data-management-maintenance="import"><span><strong>数据导入</strong><small>支持直接导入线程文件或符合格式的对话文件</small></span><i aria-hidden="true">›</i></button><button class="management-overview-entry" data-management-maintenance="export"><span><strong>数据导出</strong><small>导出当前记忆体的全量对话与摘要表，不包含密钥和运行配置</small></span><i aria-hidden="true">↓</i></button><button class="management-overview-entry" data-management-maintenance="materials"><span><strong>管理挖掘素材</strong><small>决定哪些对话、工具链成为挖掘摘要的素材，同时避免反复注入的内容污染摘要库</small></span><i aria-hidden="true">›</i></button><button class="management-overview-entry" data-management-maintenance="mining"><span><strong>记忆挖掘台</strong><small>手动生成多日摘要并审核</small></span><i aria-hidden="true">›</i></button><button class="management-overview-entry" data-management-maintenance="compression"><span><strong>记忆压缩（测试功能）</strong><small>预览并逐步精简不再需要完整注入的旧摘要</small></span><i aria-hidden="true">›</i></button></div></article></section>`;
   bindManagementNav(library);
   main.querySelector('[data-management-archive="rules"]').onclick=()=>renderMemorySection(library,"rules");
   main.querySelector('[data-management-archive="feelings"]').onclick=()=>renderMemorySection(library,"feelings");
   main.querySelector('[data-management-archive="conversations"]').onclick=()=>renderConversations(library);
   main.querySelector('[data-management-archive="timeline"]').onclick=()=>renderTimeline(library);
   main.querySelector('[data-management-maintenance="import"]').onclick=()=>renderConversationImport(library);
+  main.querySelector('[data-management-maintenance="export"]').onclick=event=>downloadMemoryExport(library,event.currentTarget);
   main.querySelector('[data-management-maintenance="materials"]').onclick=()=>renderToolPolicy(library);
   main.querySelector('[data-management-maintenance="mining"]').onclick=()=>renderMining(library);
   main.querySelector('[data-management-maintenance="compression"]').onclick=()=>renderCompression(library);
+}
+
+async function downloadMemoryExport(library, button) {
+  const previous=button.innerHTML;
+  button.disabled=true;
+  button.querySelector("strong").textContent="正在导出…";
+  try {
+    const response=await fetch(`/api/libraries/${encodeURIComponent(library.threadId)}/export`,{cache:"no-store"});
+    if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data.error||"导出失败");}
+    const blob=await response.blob(),stamp=new Date().toISOString().slice(0,10),safeName=String(library.libraryName||library.threadId||"memory").replace(/[\\/:*?"<>|]/g,"_");
+    const link=document.createElement("a"),url=URL.createObjectURL(blob);
+    link.href=url;link.download=`${safeName}-记忆导出-${stamp}.json`;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+    showToast(`已导出 ${countsForExport(library).messages} 条对话和 ${countsForExport(library).feelings} 条摘要`);
+  } catch(error) { showToast(error.message,"error"); }
+  finally { button.disabled=false;button.innerHTML=previous; }
+}
+
+function countsForExport(library) {
+  const counts=library.counts||{};
+  return {messages:counts.messages||counts.conversations||0,feelings:counts.feelings||0};
 }
 
 async function renderAutomation(library) {

@@ -408,7 +408,7 @@
     },
     {
       "name": "stmem_memory_bind",
-      "description": "把发起本次 MCP 调用的当前 Codex/Claude Code 窗口绑定到指定记忆体。只支持首次绑定，不提供改绑。",
+      "description": "把指定的当前 Codex/Claude Code 窗口绑定到记忆体。调用方应随请求传入当前 thread 和 provider；环境变量仅作为兼容兜底。只支持首次绑定，不提供改绑。",
       "inputSchema": {
         "type": "object",
         "required": [
@@ -418,6 +418,18 @@
           "memory": {
             "type": "string",
             "description": "目标记忆体的显示名称或 memoryId"
+          },
+          "thread": {
+            "type": "string",
+            "description": "发起本次调用的当前 Codex/Claude Code 线程 ID"
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "codex",
+              "claude"
+            ],
+            "description": "当前窗口所属客户端"
           }
         },
         "additionalProperties": false

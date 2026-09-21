@@ -14,7 +14,7 @@ test("responsive navigation shell delegates to the stable frontend", () => {
   for (const action of ["home", "memory", "workshop", "me"]) {
     assert.match(html, new RegExp(`data-shell-action="${action}"`));
   }
-  assert.ok(html.indexOf("/app.js?v=47") < html.indexOf("/developer-kit/navigation-shell.js?v=3"));
+  assert.ok(html.indexOf("/app.js?v=48") < html.indexOf("/developer-kit/navigation-shell.js?v=3"));
   assert.match(html, /\/developer-kit\/navigation-shell\.css\?v=5/);
   assert.match(adapter, /MutationObserver/);
   assert.match(adapter, /data-view="\$\{view\}"/);
@@ -60,7 +60,7 @@ test("responsive navigation shell delegates to the stable frontend", () => {
   assert.doesNotMatch(managementTabs, /管理二级导航|data-management-view|管理概览|摘要记忆|对话档案|上下文与线程|数据维护/);
   const managementOverview = app.match(/function renderManagement\(library\)[\s\S]*?async function renderAutomation/)?.[0] || "";
   assert.doesNotMatch(managementOverview, /查看记忆、原文和当前上下文/);
-  for (const content of ["记忆档案", "人设 / 规则", "摘要", "全量对话", "时间轴", "记忆维护", "数据导入", "管理挖掘素材", "记忆挖掘台", "记忆压缩（测试功能）"]) {
+  for (const content of ["记忆档案", "人设 / 规则", "摘要", "全量对话", "时间轴", "记忆维护", "数据导入", "数据导出", "管理挖掘素材", "记忆挖掘台", "记忆压缩（测试功能）"]) {
     assert.match(managementOverview, new RegExp(content));
   }
   for (const count of ["counts.rules", "counts.feelings", "counts.messages"]) assert.match(managementOverview, new RegExp(count.replace(".", "\\.")));
@@ -73,6 +73,7 @@ test("responsive navigation shell delegates to the stable frontend", () => {
   assert.match(managementOverview, /renderConversations\(library\)/);
   assert.match(managementOverview, /renderTimeline\(library\)/);
   assert.match(managementOverview, /renderConversationImport\(library\)/);
+  assert.match(managementOverview, /downloadMemoryExport\(library,event\.currentTarget\)/);
   assert.match(managementOverview, /renderToolPolicy\(library\)/);
   assert.match(managementOverview, /renderMining\(library\)/);
   assert.match(managementOverview, /renderCompression\(library\)/);

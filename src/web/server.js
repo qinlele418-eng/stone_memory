@@ -32,6 +32,7 @@ const { loadModules, resolveInside } = require("../services/developer-module-con
 const { compactTermTimelineReport } = require("../services/term-timeline-report");
 const { listMemories, getMemory } = require("../services/memory-setup");
 const { readBindingConfig } = require("../services/memory-binding-config");
+const { memoryExportPayload, sendMemoryExport } = require("./routes/memory");
 
 const { scenarioId, normalizeScenarioConfig } = require("../services/scenario-registry");
 const { resolveMiningPrompts, promptOverridePath, renderPrompt } = require("../services/prompt-resolver");
@@ -930,6 +931,14 @@ function serveNotebookAsset(req, res, asset) {
 }
 
 async function handleApi(req, res, url) {
+  const memoryExportMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/export$/u);
+  if (req.method === "GET" && memoryExportMatch) {
+    const requestedId = decodeURIComponent(memoryExportMatch[1]);
+    const settings = publicThreadSettings(requestedId);
+    const store = new MemoryStore({ memoryDir:path.join(getThreadDir(settings.threadId), "memory"), threadId:settings.threadId });
+    try { return sendMemoryExport(res, memoryExportPayload(store, settings)); }
+    finally { store.close(); }
+  }
   const bindingMcpMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/mcp$/u);
   if (bindingMcpMatch && req.method === "GET") {
     const memoryId = decodeURIComponent(bindingMcpMatch[1]);

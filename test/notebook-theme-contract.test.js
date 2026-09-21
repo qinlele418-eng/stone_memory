@@ -37,11 +37,19 @@ test("notebook does not overwrite host semantic tokens or force a light color sc
 
 test("notebook loads the shared module runtime before its themed stylesheet", () => {
   const runtimeAt = page.indexOf("../developer-kit/runtime.js");
-  const stylesheetAt = page.indexOf("styles.css?v=12");
+  const stylesheetAt = page.indexOf("styles.css?v=14");
   assert.ok(runtimeAt >= 0);
   assert.ok(stylesheetAt > runtimeAt);
   assert.doesNotMatch(page, /theme-studio\//u);
-  assert.match(page, /styles\.css\?v=12/u);
+  assert.match(page, /styles\.css\?v=14/u);
+});
+
+test("notebook reader controls follow custom accent and surface tokens", () => {
+  assert.match(styles, /--reader-control-surface:\s*color-mix\(in srgb, var\(--reader-cover\) 72%, var\(--ink\)\)/u);
+  assert.match(styles, /--reader-control-ink:\s*var\(--reader-ink\)/u);
+  assert.match(styles, /\.paper-style-control select\s*\{[^}]*appearance:none;[^}]*color:var\(--reader-control-ink\);[^}]*background:var\(--reader-control-surface\);/u);
+  assert.match(styles, /\.paper-style-control::after\s*\{[^}]*border-right:[^}]*var\(--reader-control-ink\)/u);
+  assert.match(styles, /#edit-note\s*\{[^}]*color:var\(--reader-control-ink\);[^}]*background:var\(--reader-control-surface\);/u);
 });
 
 test("notebook keeps the mobile reader tools horizontal without forcing page overflow", () => {

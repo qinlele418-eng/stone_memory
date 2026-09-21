@@ -1,4 +1,5 @@
 const { fs, path, os, execFileSync, PROJECT_ROOT, listMemories } = require("./shared");
+const { findThreadSessionFile } = require("../../lib/thread-session-file");
 
 function resolveBindTarget(value) {
   const requested = String(value || "").trim();
@@ -12,25 +13,29 @@ function resolveBindTarget(value) {
   throw new Error(`找不到记忆体“${requested}”`);
 }
 
-function currentBindingSession(env = process.env) {
+function currentBindingSession(input = {}, env = process.env) {
+  const requestThread = String(input.thread || "").trim();
   const explicitThread = String(env.STMEM_CURRENT_THREAD_ID || "").trim();
   const codexThread = String(env.CODEX_THREAD_ID || "").trim();
   const claudeThread = String(env.CLAUDE_CODE_SESSION_ID || "").trim();
-  const externalThreadId = explicitThread || codexThread || claudeThread;
-  if (!externalThreadId) throw new Error("无法识别当前窗口 ID。请确认 MCP 已透传 Codex/Claude Code session ID 并完整重启客户端");
-  const explicitProvider = String(env.STMEM_CURRENT_PROVIDER || "").trim().toLowerCase();
+  const externalThreadId = requestThread || explicitThread || codexThread || claudeThread;
+  if (!externalThreadId) throw new Error("无法识别当前窗口 ID。请在本次 Bind 请求中传入 thread 与 provider，或确认 MCP 已透传会话 ID");
+  if (!/^[A-Za-z0-9._:-]+$/u.test(externalThreadId)) throw new Error("Bind 请求中的 thread 不是合法线程 ID");
+  const requestProvider = String(input.provider || "").trim().toLowerCase();
+  const explicitProvider = requestProvider || String(env.STMEM_CURRENT_PROVIDER || "").trim().toLowerCase();
   const provider = explicitProvider || (codexThread ? "codex" : claudeThread ? "claude" : "");
-  if (!new Set(["codex", "claude"]).has(provider)) throw new Error("无法识别当前窗口属于 Codex 还是 Claude Code");
+  if (!new Set(["codex", "claude"]).has(provider)) throw new Error("无法识别当前窗口属于 Codex 还是 Claude Code；请在 Bind 请求中传入 provider");
   const explicitRoot = String(env.STMEM_CURRENT_SESSION_ROOT || "").trim();
   const sessionRoot = explicitRoot || (provider === "codex"
     ? path.join(env.CODEX_HOME || path.join(os.homedir(), ".codex"), "sessions")
     : path.join(env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude"), "projects"));
+  if (!findThreadSessionFile(sessionRoot, externalThreadId)) throw new Error(`无法验证当前窗口：在 ${sessionRoot} 中找不到线程 ${externalThreadId} 的会话文件`);
   return { provider, externalThreadId, sessionRoot };
 }
 
 function toolMemoryBind(args) {
   const memory = resolveBindTarget(args.memory);
-  const binding = currentBindingSession();
+  const binding = currentBindingSession(args);
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-mcp-bind-"));
   const batchFile = path.join(directory, "binding.json");
   fs.writeFileSync(batchFile, JSON.stringify({ ...binding, mode: "parallel" }), { encoding: "utf8", mode: 0o600 });

@@ -14,8 +14,8 @@ test("home dashboard maps overview data onto the stable memory lobby", () => {
   const transitionStyles = fs.readFileSync(path.join(root, "public", "developer-kit", "page-transition.css"), "utf8");
   const developerStyles = fs.readFileSync(path.join(root, "public", "theme-studio", "developer-common.css"), "utf8");
 
-  assert.ok(html.indexOf("/app.js?v=47") < html.indexOf("/developer-kit/home-dashboard.js?v=7"));
-  assert.ok(html.indexOf("/developer-kit/page-transition.js?v=1") < html.indexOf("/app.js?v=47"));
+  assert.ok(html.indexOf("/app.js?v=48") < html.indexOf("/developer-kit/home-dashboard.js?v=7"));
+  assert.ok(html.indexOf("/developer-kit/page-transition.js?v=1") < html.indexOf("/app.js?v=48"));
   assert.match(adapter, /fetch\("\/api\/home"/);
   assert.match(adapter, /lastSync\(memory\.lastArchivedAt\)/);
   assert.doesNotMatch(adapter, /最近对话同步[^\n]*lastMinedAt/);

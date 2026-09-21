@@ -11,7 +11,43 @@ const { paginate } = require("../view-models");
 const { NOT_HANDLED } = require("../route-result");
 const { parseFeelingTime, feelingToUtc, automaticRetainWindow } = require("../../services/thread-rebuilder");
 
+function memoryExportPayload(store, settings) {
+  const messages = store.db.prepare("SELECT * FROM messages WHERE thread_id=? ORDER BY timestamp,message_seq").all(settings.threadId);
+  const feelings = store.db.prepare("SELECT * FROM feelings WHERE thread_id=? ORDER BY source_date,COALESCE(event_time,''),order_key,id").all(settings.threadId);
+  return {
+    schema: "stone-memory-export",
+    schemaVersion: 1,
+    exportedAt: new Date().toISOString(),
+    memory: { id: settings.threadId, name: settings.libraryName },
+    tables: { messages, feelings },
+  };
+}
+
+function sendMemoryExport(res, payload) {
+  const body = JSON.stringify(payload, null, 2);
+  const stamp = payload.exportedAt.slice(0, 10);
+  const fallback = `stone-memory-${String(payload.memory.id).replace(/[^a-zA-Z0-9_-]/g, "_")}-${stamp}.json`;
+  const display = `${payload.memory.name || payload.memory.id}-记忆导出-${stamp}.json`;
+  res.writeHead(200, {
+    "content-type": "application/json; charset=utf-8",
+    "content-disposition": `attachment; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(display)}`,
+    "content-length": Buffer.byteLength(body),
+    "cache-control": "no-store",
+  });
+  res.end(body);
+}
+
 async function handleMemory(req, res, url) {
+  const exportMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/export$/);
+  if (req.method === "GET" && exportMatch) {
+    const threadId = decodeURIComponent(exportMatch[1]);
+    const settings = publicThreadSettings(threadId);
+    const store = new MemoryStore({ memoryDir: path.join(getThreadDir(settings.threadId), "memory"), threadId: settings.threadId });
+    try { sendMemoryExport(res, memoryExportPayload(store, settings)); }
+    finally { store.close(); }
+    return;
+  }
+
   const promptsMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/mining\/prompts$/);
   if (promptsMatch) {
     const threadId = decodeURIComponent(promptsMatch[1]);
@@ -122,4 +158,4 @@ async function handleMemoryActions(req, res, url) {
   return NOT_HANDLED;
 }
 
-module.exports = { handleMemory, handleMemoryActions };
+module.exports = { handleMemory, handleMemoryActions, memoryExportPayload, sendMemoryExport };
