@@ -101,6 +101,10 @@ test("Web creates a supervision memory, reports its scenario and isolates editab
   const legacy = JSON.parse(cli("prompt", "show", "--thread", "supervision-thread", "--task", "feelings"));
   assert.match(legacy.text, /生活监督 Agent/);
   assert.equal(JSON.parse(cli("prompt", "show", "--memory", id, "--task", "feelings")).text, "监督 小林");
+  await request(`/api/libraries/${id}/settings`, { scenario: "coding" }, "PATCH");
+  assert.equal(getMemoryRuntimeConfig(id).scenario, "coding");
+  assert.equal(getMemoryRuntimeConfig(id).purpose, "accompany");
+  await request(`/api/libraries/${id}/settings`, { scenario: "life-supervision" }, "PATCH");
   cli("scenario", "set", "--memory", id, "--scenario", "study", "--apply");
   assert.equal(getMemoryRuntimeConfig(id).scenario, "study");
   assert.equal(getMemoryRuntimeConfig(id).purpose, "accompany");

@@ -20,7 +20,7 @@
 
 点击“通过 GitHub 登录”后，琢石坊会打开 `https://github.com/login/device`，复制一次性验证码并轮询授权结果，不再要求用户打开终端。OAuth Client ID 是公开应用标识，代码中不包含 Client Secret。
 
-当前 Core 可能是私有仓库，因此实验版申请 OAuth `repo` scope。页面会在跳转前明确提示：该 scope 可访问登录账号有权访问的仓库。得到的 access token 只保存在 global 模块私有 `settings.json`（`0600`），不会返回浏览器、写入 SQLite、argv 或日志；所有 `gh` 调用只通过子进程环境变量接收它。
+当前 Core 可能是私有仓库，因此实验版申请 OAuth `repo` 与 `offline_access` scope。页面会在跳转前明确提示：该 scope 可访问登录账号有权访问的仓库。得到的 access token、refresh token 与到期时间只保存在 global 模块私有 `settings.json`（`0600`），不会返回浏览器、写入 SQLite、argv 或日志；所有 `gh` 调用只通过子进程环境变量接收 access token。access token 临近到期时会自动轮换并重新验证 GitHub 身份；只有用户主动退出、撤销应用授权或长期未使用导致 refresh token 也过期时，才需要重新登录。
 
 官方仓库固定为 `stone-memory-empire/stmem_core`，协作者无需填写。分支试炼默认自动使用当前 Stone Memory Core 代码目录；只有需要在另一份 clone/fork 中试验时，才在高级设置中覆盖本地仓库路径。该路径只保存在模块私有数据目录，不进入源码或日志。
 

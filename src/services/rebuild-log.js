@@ -25,6 +25,9 @@ function appendRebuildLog(threadId, record) {
   const state=readRebuildState(threadId);
   if(row.status==="completed") {
     state.lastCompleted=row;
+    if(row.bindingId) {
+      state.lastCompletedByBinding={...(state.lastCompletedByBinding||{}),[row.bindingId]:row};
+    }
     delete state.pendingReplace;
   } else if(row.status==="pending_replace") state.pendingReplace=row;
   state.updatedAt=new Date().toISOString();
@@ -41,7 +44,11 @@ function latestSuccessfulRebuild(threadId) {
 }
 function updateContextUsage(threadId, usage) {
   const state=readRebuildState(threadId);
-  state.contextUsage={...usage,updatedAt:new Date().toISOString()};
+  const updatedAt=new Date().toISOString();
+  state.contextUsage={...usage,updatedAt};
+  if(usage.bindingId) {
+    state.contextUsageByBinding={...(state.contextUsageByBinding||{}),[usage.bindingId]:state.contextUsage};
+  }
   state.updatedAt=state.contextUsage.updatedAt;
   writeState(threadId,state);
   return state.contextUsage;

@@ -5,7 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 
-test("web dev uses Node watch while preserving the existing managed web boundary", () => {
+test("web dev explicitly watches backend sources while preserving the managed web boundary", () => {
   const root = path.resolve(__dirname, "..");
   const script = fs.readFileSync(path.join(root, "scripts", "stmem-web.js"), "utf8");
   const watcher = fs.readFileSync(path.join(root, "scripts", "stmem-web-watch.js"), "utf8");
@@ -13,7 +13,11 @@ test("web dev uses Node watch while preserving the existing managed web boundary
   const cli = fs.readFileSync(path.join(root, "bin", "stmem"), "utf8");
   assert.equal(manifest.scripts.dev, "node bin/stmem web dev");
   assert.match(script, /script: WATCH_SCRIPT/u);
-  assert.match(watcher, /"--watch", "--watch-preserve-output"/u);
+  assert.match(watcher, /SOURCE_ROOT/u);
+  assert.match(watcher, /PUBLIC_ROOT/u);
+  assert.match(watcher, /fs\.watch\(directory/u);
+  assert.match(watcher, /restartChild/u);
+  assert.doesNotMatch(watcher, /"--watch", "--watch-preserve-output"/u);
   assert.match(watcher, /fs\.writeFileSync\(PID_FILE, String\(process\.pid\)\)/u);
   assert.match(watcher, /child\.kill\(signal\)/u);
   assert.match(script, /请先执行 stmem web stop/u);

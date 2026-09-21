@@ -8,7 +8,7 @@ const test = require("node:test");
 const { openDatabase } = require("../backend/db");
 const { repositorySlug, branchName } = require("../backend/github");
 const github = require("../backend/github");
-const { fallbackReport, workbench, applyPullRequest, resolvePullRequest, tracked, removeChange, removePullRequest, updateOfficial, resolveOfficialUpdate, classifyChangedFiles, supervisorControl, loadSettings, oauthStart, oauthPoll, configure, generate, DEFAULT_REPOSITORY, GITHUB_CLIENT_ID } = require("../backend/commands/community");
+const { fallbackReport, workbench, applyPullRequest, resolvePullRequest, tracked, removeChange, removePullRequest, updateOfficial, resolveOfficialUpdate, classifyChangedFiles, supervisorControl, loadSettings, oauthStart, oauthPoll, refreshGithubToken, configure, generate, DEFAULT_REPOSITORY, GITHUB_CLIENT_ID } = require("../backend/commands/community");
 
 function temporaryContext() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "developer-community-"));
@@ -95,7 +95,7 @@ test("GitHub device flow keeps device and access tokens out of browser results",
   const originalFetch = global.fetch, originalVerifyToken = github.verifyToken;
   const responses = [
     { device_code:"synthetic-device", user_code:"ABCD-EFGH", verification_uri:"https://github.com/login/device", interval:5, expires_in:900 },
-    { access_token:"synthetic-access", token_type:"bearer", scope:"repo" },
+    { access_token:"synthetic-access", expires_in:28800, refresh_token:"synthetic-refresh", refresh_token_expires_in:15897600, token_type:"bearer", scope:"repo" },
     { login:"synthetic-user", avatar_url:"https://avatars.example/user" },
   ];
   global.fetch = async (url, options) => ({ ok:true, status:200, json:async () => {
@@ -113,7 +113,41 @@ test("GitHub device flow keeps device and access tokens out of browser results",
     assert.equal(result.status, "authorized");
     assert.doesNotMatch(JSON.stringify(result), /synthetic-access/);
     assert.equal(loadSettings(fixture.context).github.accessToken, "synthetic-access");
+    assert.equal(loadSettings(fixture.context).github.refreshToken, "synthetic-refresh");
+    assert.match(loadSettings(fixture.context).github.accessTokenExpiresAt, /^\d{4}-/u);
     assert.equal(fs.existsSync(pendingFile), false);
+  } finally {
+    global.fetch = originalFetch; github.verifyToken = originalVerifyToken; fs.rmSync(fixture.root,{recursive:true,force:true});
+  }
+});
+
+test("expiring GitHub login rotates tokens without exposing them to the browser", async () => {
+  const fixture = temporaryContext();
+  const originalFetch = global.fetch, originalVerifyToken = github.verifyToken;
+  let requestBody = null;
+  global.fetch = async (_url, options) => {
+    requestBody = options.body;
+    return { ok:true, status:200, json:async () => ({
+      access_token:"rotated-access", expires_in:28800,
+      refresh_token:"rotated-refresh", refresh_token_expires_in:15897600,
+      token_type:"bearer", scope:"repo",
+    }) };
+  };
+  github.verifyToken = async token => ({ authenticated:token === "rotated-access", login:"synthetic-user", avatarUrl:"" });
+  const settings = loadSettings(fixture.context);
+  settings.github = {
+    accessToken:"expired-access", accessTokenExpiresAt:new Date(Date.now()-1000).toISOString(),
+    refreshToken:"old-refresh", refreshTokenExpiresAt:new Date(Date.now()+86400000).toISOString(),
+    login:"synthetic-user", scope:"repo", tokenType:"bearer",
+  };
+  try {
+    const refreshed = await refreshGithubToken(fixture.context, settings);
+    assert.equal(refreshed.github.accessToken, "rotated-access");
+    assert.equal(refreshed.github.refreshToken, "rotated-refresh");
+    assert.equal(requestBody.get("grant_type"), "refresh_token");
+    assert.equal(requestBody.get("refresh_token"), "old-refresh");
+    const saved = fs.readFileSync(path.join(fixture.root, "settings.json"), "utf8");
+    assert.match(saved, /rotated-refresh/u);
   } finally {
     global.fetch = originalFetch; github.verifyToken = originalVerifyToken; fs.rmSync(fixture.root,{recursive:true,force:true});
   }

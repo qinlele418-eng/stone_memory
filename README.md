@@ -101,7 +101,7 @@ stone_memory/
 
 ## 挖掘场景
 
-初始化和前端创建记忆体可选择陪伴、编程、学习、生活监督。生活监督的场景 ID 是 `life-supervision`：摘要记录生活节奏、具体事件和后续跟进动作，特征提示词与陪伴场景相同。
+初始化和前端创建记忆体可选择生活监督、情感陪伴和编程日志。生活监督排在首位，也是新建记忆体的默认场景；它的场景 ID 是 `life-supervision`，摘要记录生活节奏、具体事件和后续跟进动作。旧的学习场景继续兼容已有记忆体，但不再作为新建选项展示。
 
 ```bash
 stmem init --template --runtime codex --scenario life-supervision

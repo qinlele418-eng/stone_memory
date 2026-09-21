@@ -3,7 +3,7 @@ const toast = document.querySelector("#toast");
 
 const state = {
   libraries: [], step: 1, imports: [], memoryId: null,
-  form: { libraryName: "", threadId: "", ai: "", user: "", userGender: "unspecified", runtime: "codex", scenario: "accompany", sessionDir: "", minerMode: "subagent", apiProvider: "", apiKey: "", baseUrl: "", model: "", windowDays: 3, keepToolPairs: 30, automaticFullMining: true, automaticMemoryMaintenance: true, automaticCompression: false },
+  form: { libraryName: "", threadId: "", ai: "", user: "", userGender: "unspecified", runtime: "codex", scenario: "life-supervision", sessionDir: "", minerMode: "subagent", apiProvider: "", apiKey: "", baseUrl: "", model: "", windowDays: 3, keepToolPairs: 30, automaticFullMining: true, automaticMemoryMaintenance: true, automaticCompression: false },
 };
 
 // 正式发布前在这里补齐公共账号；空值会显示为“待配置”，不会跳往错误地址。
@@ -131,7 +131,7 @@ async function preparePwa() {
 function resetCreateForm(memory = null) {
   state.step = 1; state.imports = [];
   state.memoryId = memory?.memoryId || null;
-  state.form = { libraryName: memory?.libraryName || memory?.label || "", threadId: "", ai: "", user: "", userGender: "unspecified", runtime: "codex", scenario: "accompany", sessionDir: "", minerMode: "subagent", apiProvider: "", apiKey: "", baseUrl: "", model: "", windowDays: 3, keepToolPairs: 30, automaticFullMining: true, automaticMemoryMaintenance: true, automaticCompression: false };
+  state.form = { libraryName: memory?.libraryName || memory?.label || "", threadId: "", ai: "", user: "", userGender: "unspecified", runtime: "codex", scenario: "life-supervision", sessionDir: "", minerMode: "subagent", apiProvider: "", apiKey: "", baseUrl: "", model: "", windowDays: 3, keepToolPairs: 30, automaticFullMining: true, automaticMemoryMaintenance: true, automaticCompression: false };
 }
 
 function stoneSvg(className = "hero-stone") {
@@ -261,7 +261,7 @@ function welcome() {
 
 function createMemoryDraft(button, memory = null) {
   const overlay=document.createElement("div");overlay.className="editor-overlay create-memory-overlay";
-  overlay.innerHTML=`<form class="editor-panel create-memory-dialog"><button class="ghost editor-close" type="button" aria-label="关闭">关闭</button><p class="eyebrow">NEW MEMORY</p><h2>${memory?"完成记忆体设置":"创建记忆体"}</h2><p class="lead">先建立记忆本身。对话绑定、历史导入与自动化可以进入记忆体后再设置。</p><div class="field-grid"><div class="field full"><label for="quick-memory-name">记忆体名字</label><input id="quick-memory-name" name="libraryName" value="${escapeHtml(memory?.libraryName||"")}" required autofocus></div><div class="field"><label for="quick-ai-name">AI 名字</label><input id="quick-ai-name" name="ai" required></div><div class="field"><label for="quick-user-name">用户名字</label><input id="quick-user-name" name="user" required></div><div class="field full"><label for="quick-purpose">记忆体用途</label><select id="quick-purpose" name="scenario"><option value="accompany">陪伴</option><option value="coding">编程</option><option value="study">学习</option><option value="life-supervision">生活监督</option></select><small>用途会影响后续摘要的生成风格，请确认后再选择。</small></div></div><div class="wizard-actions">${memory?'<button class="danger-button" id="delete-draft-memory" type="button">删除这个空记忆体</button>':'<span></span>'}<button class="primary" type="submit">创建并进入</button></div></form>`;
+  overlay.innerHTML=`<form class="editor-panel create-memory-dialog"><button class="ghost editor-close" type="button" aria-label="关闭">关闭</button><p class="eyebrow">NEW MEMORY</p><h2>${memory?"完成记忆体设置":"创建记忆体"}</h2><p class="lead">先建立记忆本身。对话绑定、历史导入与自动化可以进入记忆体后再设置。</p><div class="field-grid"><div class="field full"><label for="quick-memory-name">记忆体名字</label><input id="quick-memory-name" name="libraryName" value="${escapeHtml(memory?.libraryName||"")}" required autofocus></div><div class="field"><label for="quick-ai-name">AI 名字</label><input id="quick-ai-name" name="ai" required></div><div class="field"><label for="quick-user-name">用户名字</label><input id="quick-user-name" name="user" required></div><div class="field full"><label for="quick-purpose">挖掘场景</label><select id="quick-purpose" name="scenario"><option value="life-supervision">生活监督</option><option value="accompany">情感陪伴</option><option value="coding">编程日志</option></select><small>决定今后生成摘要和特征时关注什么。</small></div></div><div class="wizard-actions">${memory?'<button class="danger-button" id="delete-draft-memory" type="button">删除这个空记忆体</button>':'<span></span>'}<button class="primary" type="submit">创建并进入</button></div></form>`;
   document.body.append(overlay);
   const close=()=>{overlay.remove();if(button){button.disabled=false;}};
   overlay.querySelector(".editor-close").onclick=close;
@@ -330,7 +330,7 @@ function basicStep() {
       ${field("ai", "AI 名字", "这段记忆属于哪位 AI。", "required")}
       ${field("user", "用户名字", "AI 在记忆中如何称呼你。", "required")}
       <div class="field"><label for="runtime">对话来源</label><select id="runtime" name="runtime"><option value="codex" ${state.form.runtime === "codex" ? "selected" : ""}>Codex</option><option value="claude" ${state.form.runtime === "claude" ? "selected" : ""}>Claude</option></select><small>用于绑定正确的线程文件格式。</small></div>
-      <div class="field"><label for="purpose">记忆用途</label><select id="purpose" name="scenario"><option value="accompany" ${(state.form.scenario || state.form.purpose) === "accompany" ? "selected" : ""}>陪伴</option><option value="coding" ${(state.form.scenario || state.form.purpose) === "coding" ? "selected" : ""}>编程</option><option value="study" ${(state.form.scenario || state.form.purpose) === "study" ? "selected" : ""}>学习</option><option value="life-supervision" ${state.form.scenario === "life-supervision" ? "selected" : ""}>生活监督</option></select><small>决定摘要与特征挖掘提示词。</small></div>
+      <div class="field"><label for="purpose">挖掘场景</label><select id="purpose" name="scenario"><option value="life-supervision" ${state.form.scenario === "life-supervision" ? "selected" : ""}>生活监督</option><option value="accompany" ${(state.form.scenario || state.form.purpose) === "accompany" ? "selected" : ""}>情感陪伴</option><option value="coding" ${(state.form.scenario || state.form.purpose) === "coding" ? "selected" : ""}>编程日志</option></select><small>决定摘要与特征挖掘提示词。</small></div>
       <div class="field"><label for="minerMode">记忆挖掘方式</label><select id="minerMode" name="minerMode"><option value="subagent" ${state.form.minerMode === "subagent" ? "selected" : ""}>本地 Subagent</option><option value="api" ${state.form.minerMode === "api" ? "selected" : ""}>API</option></select><small>以后可以在设置中调整。</small></div>
       <div class="field"><label for="userGender">用户性别</label><select id="userGender" name="userGender"><option value="unspecified" ${state.form.userGender === "unspecified" ? "selected" : ""}>不指定</option><option value="female" ${state.form.userGender === "female" ? "selected" : ""}>女性</option><option value="male" ${state.form.userGender === "male" ? "selected" : ""}>男性</option></select><small>帮助摘要保持正确的人称。</small></div>
       <div id="runtime-fields" class="field full"></div>
@@ -459,7 +459,7 @@ function workspace(data) {
   const usagePercent=usage&&Number.isFinite(usage.percent)?Math.max(0,Math.min(100,usage.percent)):0;
   const usageTitle=usage?.observedAt?` title="最近一次模型调用 ${escapeHtml(formatBeijingTime(usage.observedAt))}"`:"";
   const automationSwitch=(key,label,checked,test=false)=>`<label class="overview-switch"><span>${label}${test?` <small>测试功能</small>`:""}</span><input type="checkbox" data-automation="${key}" ${checked?"checked":""}><i aria-hidden="true"></i></label>`;
-  app.innerHTML = `<section class="workspace" data-thread-id="${escapeHtml(data.threadId)}" data-library-name="${escapeHtml(data.libraryName)}"><div class="shell workspace-grid workspace-stack"><a class="back-link" href="#">← 返回记忆体</a><div class="dashboard-head workspace-memory-card"><div><p class="eyebrow">Stone Memory</p><h1>${escapeHtml(data.libraryName)}<small>· 已生长了 ${data.growthDays||0} 天</small></h1><div class="status-line ${automationReady&&!data.attention?"":"warning"}"><span class="status-dot"></span>${escapeHtml(statusText)}</div></div>${stoneSvg("mini-stone")}</div><nav class="workspace-nav" aria-label="记忆体页面"><button class="active" role="tab" aria-selected="true" data-view="overview"><span>概况</span></button><button role="tab" aria-selected="false" data-view="memory"><span>记忆</span></button><button role="tab" aria-selected="false" data-view="context"><span>上下文状态</span></button><button role="tab" aria-selected="false" data-view="access"><span>接入</span></button><button role="tab" aria-selected="false" data-view="settings"><span>设置</span></button></nav><main id="workspace-main"><section class="overview-dashboard">
+  app.innerHTML = `<section class="workspace" data-thread-id="${escapeHtml(data.threadId)}" data-library-name="${escapeHtml(data.libraryName)}"><div class="shell workspace-grid workspace-stack"><a class="back-link" href="#">← 返回记忆体</a><div class="dashboard-head workspace-memory-card"><div><p class="eyebrow">Stone Memory</p><h1>${escapeHtml(data.libraryName)}<small>· 已生长了 ${data.growthDays||0} 天</small></h1><div class="status-line ${automationReady&&!data.attention?"":"warning"}"><span class="status-dot"></span>${escapeHtml(statusText)}</div></div>${stoneSvg("mini-stone")}</div><nav class="workspace-nav" aria-label="记忆体页面"><button class="active" role="tab" aria-selected="true" data-view="overview"><span>概况</span></button><button role="tab" aria-selected="false" data-view="memory"><span>记忆</span></button><button role="tab" aria-selected="false" data-view="context"><span>上下文管理</span></button><button role="tab" aria-selected="false" data-view="access"><span>接入</span></button><button role="tab" aria-selected="false" data-view="settings"><span>设置</span></button></nav><main id="workspace-main"><section class="overview-dashboard">
     <article class="overview-card overview-stat-card"><div><span>原始对话</span><strong>${counts.messages||0}<small>条</small></strong></div><div><span>原始线程总体积</span><strong>${formatBytes(data.archiveFullBytes)}</strong></div></article>
     <article class="overview-card overview-stat-card"><div><span>人设 / 规则</span><strong>${counts.rules||0}<small>条</small></strong><small class="corner-note">已停用 ${counts.disabledRules||0} 条</small></div><div><span>已生成摘要</span><strong>${counts.feelings||0}<small>条</small></strong><small class="corner-note">原文锚点 ${counts.retainAnchors||0} 条 · 事件锚点 ${counts.eventAnchors||0} 条 · 隐藏摘要 ${counts.hidden||0} 条</small></div></article>
     <article class="overview-card overview-thread-card"><header><h2>当前对话线程信息</h2><button class="text-link" id="overview-access">接入管理 →</button></header><p class="thread-identity">${escapeHtml(data.runtime||"未接入平台")} · ${escapeHtml(data.externalThreadId||"暂未绑定 UUID")}</p><div class="context-usage"><div class="context-usage-head"><h3>当前窗口上下文</h3><small${usageTitle}>${contextUsageHint(usage,data.automaticFullMining)}</small></div><div class="context-usage-track" role="progressbar" aria-label="当前窗口上下文占用" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(usagePercent)}"><i style="width:${usagePercent.toFixed(1)}%"></i></div></div><div class="injection-heading"><h3>当前窗口注入</h3><small>上次重建：${rebuild?.completedAt?escapeHtml(formatBeijingTime(rebuild.completedAt)):"暂无记录"}</small></div><div class="injection-counts"><div><strong>${injected.rules}</strong><span>人设 / 规则</span></div><div><strong>${injected.messages}</strong><span>对话</span></div><div><strong>${injected.feelings}</strong><span>摘要</span></div><div><strong>${injected.tools}</strong><span>工具链</span></div></div><div id="integrity" class="integrity overview-integrity"></div><footer><button class="secondary" id="overview-repair">线程修复</button><button class="primary" id="overview-rebuild">线程重建</button></footer></article>
@@ -627,14 +627,6 @@ function renderDeveloperMode(library) {
   renderGlobalWorkshop();
 }
 
-function renderMemoryHub(library) {
-  activateManagementNav();
-  const main=document.querySelector("#workspace-main");
-  main.innerHTML=`${managementNav("memories")}<div class="dashboard-head"><div><p class="eyebrow">可解释记忆</p><h1>摘要记忆</h1><p class="lead">查看 AI 会读到的规则、摘要、素材和时间脉络。</p></div></div><section class="memory-entry-grid"><button data-section="rules"><strong>人设 / 规则</strong><span>导入、编辑并控制 rebuild 是否注入</span></button><button data-section="feelings"><strong>摘要</strong><span>查看完整、精简和隐藏记忆</span></button><button data-section="features"><strong>素材库</strong><span>用于收集相处事实的原始分类素材库，与对话无关</span></button><button data-section="timeline"><strong>时间轴</strong><span>查看词频、重要摘要与记忆生命周期</span></button></section>`;
-  bindManagementNav(library);
-  main.querySelectorAll("[data-section]").forEach(button=>button.onclick=()=>button.dataset.section==="timeline"?renderTimeline(library):renderMemorySection(library,button.dataset.section));
-}
-
 const timelineColors=["#397052","#c47686","#6d76a8"];
 const relationLabels={forming:"正在形成",experimental:"短期试验",established:"稳定存在",post_plateau:"平台后回调",retired:"已退出",revived:"重新活跃"};
 const shapeLabels={continuous:"连续型",episodic:"阶段型",episodic_pair:"阶段复现配对",paired_experiment:"试验性配对",retired_pair:"已退出配对"};
@@ -674,9 +666,9 @@ function timelineInterpretation(data,row) {
 
 async function renderTimeline(library,{terms="",from="",to=""}={}) {
   const main=document.querySelector("#workspace-main");
-  main.innerHTML=`${managementNav("memories")}<div class="dashboard-head"><div><p class="eyebrow">Temporal evidence</p><h1>时间轴</h1><p class="lead">把关键词曲线、对应摘要与生命周期证据放在同一条时间线上查看。</p></div><button class="ghost" id="back-memory">返回</button></div><section class="section-card timeline-query-card"><form id="timeline-query"><div class="timeline-term-field"><label for="timeline-terms">关键词</label><input id="timeline-terms" value="${escapeHtml(terms)}" placeholder="输入 1～3 个词，用逗号分隔"></div><div><label for="timeline-from">开始日期</label><input id="timeline-from" type="date" value="${escapeHtml(from)}"></div><div><label for="timeline-to">结束日期</label><input id="timeline-to" type="date" value="${escapeHtml(to)}"></div><button class="primary">生成时间轴</button></form><p class="timeline-query-note">曲线展示真实对话词频；摘要点负责说明这些词在记忆中留下了什么。时间轴仅解释，不会自动修改摘要。</p></section><div id="timeline-results"></div>`;
+  main.innerHTML=`${managementNav("memories")}<div class="dashboard-head"><div><p class="eyebrow">Temporal evidence</p><h1>时间轴</h1><p class="lead">把关键词曲线、对应摘要与生命周期证据放在同一条时间线上查看。</p></div><button class="ghost" id="back-memory">返回记忆</button></div><section class="section-card timeline-query-card"><form id="timeline-query"><div class="timeline-term-field"><label for="timeline-terms">关键词</label><input id="timeline-terms" value="${escapeHtml(terms)}" placeholder="输入 1～3 个词，用逗号分隔"></div><div><label for="timeline-from">开始日期</label><input id="timeline-from" type="date" value="${escapeHtml(from)}"></div><div><label for="timeline-to">结束日期</label><input id="timeline-to" type="date" value="${escapeHtml(to)}"></div><button class="primary">生成时间轴</button></form><p class="timeline-query-note">曲线展示真实对话词频；摘要点负责说明这些词在记忆中留下了什么。时间轴仅解释，不会自动修改摘要。</p></section><div id="timeline-results"></div>`;
   bindManagementNav(library);
-  main.querySelector("#back-memory").onclick=()=>renderMemoryHub(library);
+  main.querySelector("#back-memory").onclick=()=>renderManagement(library);
   main.querySelector("#timeline-query").onsubmit=event=>{event.preventDefault();const nextTerms=main.querySelector("#timeline-terms").value.trim(),nextFrom=main.querySelector("#timeline-from").value,nextTo=main.querySelector("#timeline-to").value;if(!nextTerms)return showToast("请输入至少一个关键词","error");renderTimeline(library,{terms:nextTerms,from:nextFrom,to:nextTo});};
   if(!terms)return;
   const target=main.querySelector("#timeline-results");target.innerHTML='<section class="section-card"><div class="empty">正在构建时间轴…</div></section>';
@@ -699,7 +691,8 @@ async function renderTimeline(library,{terms="",from="",to=""}={}) {
 
 async function renderConversations(library,{search="",date="",focus="",page=1,calendarPage=1}={}) {
   activateManagementNav();
-  const main=document.querySelector("#workspace-main");main.innerHTML=`${managementNav("conversations")}<div class="dashboard-head"><div><p class="eyebrow">SQLite archive</p><h1>对话档案</h1><p class="lead">按日期翻看你和 ${escapeHtml(library.ai||"AI")} 的真实对话记录。</p></div></div><section class="section-card conversation-overview" id="conversation-content"><div class="empty">正在读取…</div></section>`;bindManagementNav(library);
+  const main=document.querySelector("#workspace-main");main.innerHTML=`${managementNav("conversations")}<div class="dashboard-head"><div><p class="eyebrow">SQLite archive</p><h1>对话档案</h1><p class="lead">按日期翻看你和 ${escapeHtml(library.ai||"AI")} 的真实对话记录。</p></div><button class="ghost" id="back-memory">返回记忆</button></div><section class="section-card conversation-overview" id="conversation-content"><div class="empty">正在读取…</div></section>`;bindManagementNav(library);
+  main.querySelector("#back-memory").onclick=()=>renderManagement(library);
   const params=new URLSearchParams({page:String(page),calendarPage:String(calendarPage)});if(search)params.set("search",search);if(date)params.set("date",date);if(focus)params.set("focus",focus);const data=await api(`/api/libraries/${encodeURIComponent(library.threadId)}/conversations?${params}`),card=main.querySelector("#conversation-content"),calendar=data.calendar;
   const calendarHtml=calendar.days.length?`<div class="mining-calendar conversation-calendar"><div class="calendar-head"><button class="calendar-arrow" id="newer-month" aria-label="更新的月份" ${calendar.page<=1?"disabled":""}>‹</button><div><strong>${calendar.month.replace("-"," 年 ")} 月</strong><span>聊天留下的小苔痕</span></div><button class="calendar-arrow" id="older-month" aria-label="更早的月份" ${calendar.page>=calendar.totalPages?"disabled":""}>›</button></div><div class="calendar-weekdays">${["日","一","二","三","四","五","六"].map(day=>`<span>${day}</span>`).join("")}</div><div class="calendar-days">${Array.from({length:calendar.leadingBlanks},()=>'<span class="calendar-blank"></span>').join("")}${calendar.days.map(day=>`<button class="calendar-day level-${day.count===0?0:day.count<=100?1:day.count<200?2:3} ${day.date===date?"selected":""}" data-calendar-date="${day.date}" title="${day.date} · ${day.count} 条对话" aria-label="${day.date}，${day.count} 条对话"></button>`).join("")}</div><div class="conversation-legend"><span><i class="level-0"></i>无对话</span><span><i class="level-1"></i>≤100</span><span><i class="level-2"></i>101–199</span><span><i class="level-3"></i>≥200</span></div></div>`:`<div class="empty">archive 中还没有纯对话。</div>`;
   card.innerHTML=`<div class="mining-overview-grid conversation-overview-grid"><div id="conversation-calendar">${calendarHtml}</div><div class="conversation-archive-panel"><div class="section-title-row"><div><p class="eyebrow">${search?"关键词结果":date?formatChineseDate(date):"按日查看"}</p><h2>${search?`搜索“${escapeHtml(search)}”`:date?`${escapeHtml(library.user||"用户")} 与 ${escapeHtml(library.ai||"AI")}`:"选择一天的对话"}</h2></div></div><div class="conversation-tools"><form id="conversation-search"><input placeholder="搜索关键词" value="${escapeHtml(search)}"><button class="secondary">搜索</button></form><div class="date-jump"><input id="conversation-date" type="date" value="${escapeHtml(date)}"><button class="secondary" id="open-date">按日期查看</button></div></div><div id="conversation-results"></div></div></div>`;
@@ -715,9 +708,9 @@ async function renderConversations(library,{search="",date="",focus="",page=1,ca
 
 async function renderMemorySection(library, section, page=1, search="", category="", mode="", importance="", sort="desc", retainAnchor=false, eventAnchor=false, date="") {
   const main=document.querySelector("#workspace-main"), titles={rules:"人设 / 规则",feelings:"摘要",features:"素材库"};
-  main.innerHTML=`${managementNav("memories")}<div class="dashboard-head"><div><p class="eyebrow">记忆</p><h1>${titles[section]}</h1>${section==="feelings"?'<p class="lead memory-anchor-guide">选择【原文锚点】，将在线程中注入该摘要对应原文；选择【事件锚点】，则该摘要不受衰减模型影响；选择【隐藏摘要】，线程重建时该摘要将不注入线程。</p>':""}</div><button class="ghost" id="back-memory">返回</button></div><section class="section-card" id="memory-content"><div class="empty">正在读取…</div></section>`;
+  main.innerHTML=`${managementNav("memories")}<div class="dashboard-head"><div><p class="eyebrow">记忆</p><h1>${titles[section]}</h1>${section==="feelings"?'<p class="lead memory-anchor-guide">选择【原文锚点】，将在线程中注入该摘要对应原文；选择【事件锚点】，则该摘要不受衰减模型影响；选择【隐藏摘要】，线程重建时该摘要将不注入线程。</p>':""}</div><button class="ghost" id="back-memory">返回记忆</button></div><section class="section-card" id="memory-content"><div class="empty">正在读取…</div></section>`;
   bindManagementNav(library);
-  main.querySelector("#back-memory").onclick=()=>renderMemoryHub(library);
+  main.querySelector("#back-memory").onclick=()=>renderManagement(library);
   const card=main.querySelector("#memory-content");
   if(section==="rules") {
     const data=await api(`/api/libraries/${encodeURIComponent(library.threadId)}/rules`);
@@ -827,27 +820,30 @@ async function renderSettings(library) {
   activateWorkspaceTab("settings");
   const renderVersion=++settingsRenderVersion;
   const main = document.querySelector("#workspace-main");
-  main.innerHTML = `<div class="dashboard-head"><div><p class="eyebrow">记忆体配置</p><h1>设置</h1><p class="lead">这里展示并编辑创建记忆体时填写的 init 配置。</p></div></div><section class="section-card"><div class="empty">正在读取设置…</div></section>`;
+  main.innerHTML = `<section class="section-card settings-loading"><div class="empty">正在读取设置…</div></section>`;
   try {
     const config = await api(`/api/libraries/${encodeURIComponent(library.threadId)}/settings`);
     if(renderVersion!==settingsRenderVersion||!main.isConnected)return;
-    const card = main.querySelector(".section-card");
-    card.innerHTML = `<form id="settings-form"><div class="field-grid">
-      <div class="field full"><label for="setting-libraryName">记忆体名字</label><input id="setting-libraryName" name="libraryName" value="${escapeHtml(config.libraryName)}" required><small>控制台和记忆体大厅显示的名称；不能与其他记忆体重名。</small></div>
-      <div class="field full"><label for="setting-threadId">对应 Claude / Codex 线程 ID</label><input id="setting-threadId" value="${escapeHtml(config.threadId)}" disabled><small>真实线程 UUID，不是记忆体名字；创建后不可修改。</small></div>
-      <div class="field"><label for="setting-ai">AI 名字</label><input id="setting-ai" name="ai" value="${escapeHtml(config.ai)}" required></div>
-      <div class="field"><label for="setting-user">用户名字</label><input id="setting-user" name="user" value="${escapeHtml(config.user)}" required></div>
-      <div class="field"><label for="setting-gender">用户性别</label><select id="setting-gender" name="userGender"><option value="unspecified" ${config.userGender === "unspecified" ? "selected" : ""}>不指定</option><option value="female" ${config.userGender === "female" ? "selected" : ""}>女性</option><option value="male" ${config.userGender === "male" ? "selected" : ""}>男性</option></select></div>
-      <div class="field"><label for="setting-miner">挖掘方式</label><select id="setting-miner" name="minerMode"><option value="subagent" ${config.minerMode === "subagent" ? "selected" : ""}>本地 Subagent</option><option value="api" ${config.minerMode === "api" ? "selected" : ""}>API</option></select></div>
-      <div class="field"><label>运行时</label><input value="${escapeHtml(config.runtime)}" disabled><small>涉及目录迁移，暂不在设置页修改。</small></div>
-      <div class="field"><label>挖掘场景</label><input value="${escapeHtml(config.scenario === "life-supervision" ? "生活监督" : config.scenario || config.purpose)}" disabled><small>决定摘要与特征挖掘提示词。</small></div>
-      <div class="field full"><label for="setting-session">线程文件搜索目录</label><input id="setting-session" name="sessionDir" value="${escapeHtml(config.sessionDir)}" required><small>Stone Memory 会从这里递归查找绑定线程的 JSONL，支持 Codex 的 sessions/年/月/日目录。</small></div>
-      <div id="setting-api-fields" class="field full"></div>
-      <div class="field"><label for="setting-window">默认保留对话天数</label><input id="setting-window" name="windowDays" type="number" min="1" max="365" value="${config.windowDays}"></div>
-      <div class="field"><label for="setting-tools">默认保留工具链组数</label><input id="setting-tools" name="keepToolPairs" type="number" min="0" max="500" value="${config.keepToolPairs}"></div>
-      <div class="field full"><label for="setting-context-window">上下文窗口上限（tokens，可选）</label><input id="setting-context-window" name="contextWindowTokens" type="number" min="1000" step="1000" value="${config.contextWindowTokens||""}" placeholder="例如 1000000"><small>Claude 建议填写；Codex 通常能自动识别。手动值优先。</small></div>
-      <div class="integrity full">纯对话 archive 保存在本地共享 SQLite 的 messages 表；memory/archive/full 才是按天保存的原始线程文件备份。</div>
-    </div><div class="wizard-actions"><button class="danger-button" id="delete-library" type="button">删除记忆体</button><button class="primary" type="submit">保存设置</button></div></form>`;
+    main.innerHTML = `<form id="settings-form" class="settings-page"><div class="settings-grid">
+      <section class="section-card settings-card"><div class="section-title-row"><div><p class="eyebrow">Identity</p><h2>基本信息</h2><small>这些名称会用于显示和生成记忆摘要。</small></div></div><div class="field-grid">
+        <div class="field full"><label for="setting-libraryName">记忆体名字</label><input id="setting-libraryName" name="libraryName" value="${escapeHtml(config.libraryName)}" required><small>控制台和记忆体大厅显示的名称；不能与其他记忆体重名。</small></div>
+        <div class="field"><label for="setting-ai">AI 名字</label><input id="setting-ai" name="ai" value="${escapeHtml(config.ai)}" required></div>
+        <div class="field"><label for="setting-user">用户名字</label><input id="setting-user" name="user" value="${escapeHtml(config.user)}" required></div>
+        <div class="field full"><label for="setting-gender">用户性别</label><select id="setting-gender" name="userGender"><option value="unspecified" ${config.userGender === "unspecified" ? "selected" : ""}>不指定</option><option value="female" ${config.userGender === "female" ? "selected" : ""}>女性</option><option value="male" ${config.userGender === "male" ? "selected" : ""}>男性</option></select></div>
+      </div></section>
+      <section class="section-card settings-card"><div class="section-title-row"><div><p class="eyebrow">Mining</p><h2>摘要生成</h2><small>选择记忆挖掘使用的执行通道。</small></div></div><div class="field-grid">
+        <div class="field full"><label for="setting-scenario">挖掘场景</label><select id="setting-scenario" name="scenario">${(config.scenario||config.purpose)==="study"?'<option value="study" selected>学习（旧场景）</option>':""}<option value="life-supervision" ${config.scenario==="life-supervision"?"selected":""}>生活监督</option><option value="accompany" ${(config.scenario||config.purpose)==="accompany"?"selected":""}>情感陪伴</option><option value="coding" ${(config.scenario||config.purpose)==="coding"?"selected":""}>编程日志</option></select><small>只影响今后生成的摘要和特征，不会移动目录或改写历史记忆。</small></div>
+        <div class="field full"><label for="setting-miner">挖掘方式</label><select id="setting-miner" name="minerMode"><option value="subagent" ${config.minerMode === "subagent" ? "selected" : ""}>本地 Subagent</option><option value="api" ${config.minerMode === "api" ? "selected" : ""}>API</option></select></div>
+        <div id="setting-api-fields" class="field full"></div>
+      </div></section>
+      <section class="section-card settings-card settings-context-card"><div class="section-title-row"><div><p class="eyebrow">Rebuild defaults</p><h2>上下文默认值</h2><small>作为线程重建的初始值，每次重建时仍可临时调整。</small></div><span class="badge">${escapeHtml(config.runtime||"未知运行时")}</span></div><div class="field-grid">
+        <div class="field"><label for="setting-window">默认保留对话天数</label><input id="setting-window" name="windowDays" type="number" min="1" max="365" value="${config.windowDays}"></div>
+        <div class="field"><label for="setting-tools">默认保留工具链组数</label><input id="setting-tools" name="keepToolPairs" type="number" min="0" max="500" value="${config.keepToolPairs}"></div>
+        <div class="field full"><label for="setting-context-window">上下文窗口上限（tokens，可选）</label><input id="setting-context-window" name="contextWindowTokens" type="number" min="1000" step="1000" value="${config.contextWindowTokens||""}" placeholder="例如 1000000"><small>Claude 建议填写；Codex 通常能自动识别。手动值优先。</small></div>
+      </div><p class="settings-binding-note">线程接入和文件定位已由 Binding 管理；新增窗口请前往“接入”，无需在这里填写线程 ID 或搜索目录。</p></section>
+      <section class="section-card settings-card settings-danger-card"><div><p class="eyebrow">Danger zone</p><h2>危险操作</h2><p>永久删除这个记忆体及其本地数据。此操作无法恢复。</p></div><button class="danger-button" id="delete-library" type="button">删除记忆体</button></section>
+    </div><div class="settings-savebar"><span>修改只影响当前记忆体。</span><button class="primary" type="submit">保存设置</button></div></form>`;
+    const card = main;
     const miner = card.querySelector("#setting-miner"), apiFields = card.querySelector("#setting-api-fields");
     const renderApiSettings = () => {
       apiFields.innerHTML = miner.value === "api" ? `<div class="field-grid"><div class="field"><label for="setting-provider">API 厂商</label><input id="setting-provider" name="apiProvider" value="${escapeHtml(config.apiProvider || "")}" required></div><div class="field"><label for="setting-model">模型名</label><input id="setting-model" name="model" value="${escapeHtml(config.model || "")}" required><small>必须与上游当前提供的模型名完全一致；Stone Memory 不预设。</small></div><div class="field"><label for="setting-key">API Key</label><div class="secret-input"><input id="setting-key" name="apiKey" type="password" value="${escapeHtml(config.apiKey || "")}" required><button type="button" id="toggle-key" aria-label="显示 API Key" title="显示 API Key"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z"/><circle cx="12" cy="12" r="2.7"/></svg></button></div><small>Key 只在本机页面显示和保存。</small></div><div class="field"><label for="setting-base">Base URL</label><input id="setting-base" name="baseUrl" value="${escapeHtml(config.baseUrl || "")}"></div></div>` : "";
@@ -891,24 +887,11 @@ const rebuildState = { windowDays: 3, toolPairs: 30, watermark: false, summaryMo
 const miningUi={threadId:null,selected:new Set(),page:1,reportPage:1,reportFilter:"all",monthPage:1,selectedDate:null,mode:null,apiProfile:"optimized",timer:null,targetedSelected:new Set(),targetedLastIndex:null};
 const compressionUi={mode:"subagent",afterDays:90};
 
-function renderDataMaintenance(library) {
-  activateManagementNav();
-  const main=document.querySelector("#workspace-main");
-  main.innerHTML=`${managementNav("maintenance")}<div class="dashboard-head"><div><p class="eyebrow">Data maintenance</p><h1>数据维护</h1><p class="lead">导入、挖掘、清洗并整理记忆材料。高风险操作会在执行前再次确认。</p></div></div><section class="maintenance-grid"><button class="maintenance-card" id="open-import"><span><strong>对话导入</strong><small>导入新的线程文件或历史记录，并预览纯对话识别结果</small></span><i aria-hidden="true">→</i></button><button class="maintenance-card" id="open-tool-policy"><span><strong>全量对话清洗</strong><small>检测重复、注入与召回污染，决定今后的过滤规则</small></span><i aria-hidden="true">→</i></button><button class="maintenance-card" id="open-mining"><span><strong>记忆挖掘</strong><small>从已有对话中挖掘摘要与长期素材</small></span><i aria-hidden="true">→</i></button><button class="maintenance-card" id="open-compression"><span><strong>记忆压缩</strong><small>根据时间曲线与生命周期证据，逐步精简旧摘要</small></span><i aria-hidden="true">→</i></button></section>`;
-  bindManagementNav(library);
-  main.querySelector("#open-import").onclick=()=>renderConversationImport(library);
-  main.querySelector("#open-tool-policy").onclick=()=>renderToolPolicy(library);
-  main.querySelector("#open-mining").onclick=()=>renderMining(library);
-  main.querySelector("#open-compression").onclick=()=>renderCompression(library);
-}
-
-function renderMaintenance(library) { renderDataMaintenance(library); }
-
 async function renderToolPolicy(library){
   document.querySelectorAll(".side-nav button").forEach(button=>button.classList.toggle("active",button.dataset.view==="maintenance"));
   const main=document.querySelector("#workspace-main");
-  main.innerHTML=`<div class="dashboard-head"><div><p class="eyebrow">Conversation cleaning</p><h1>全量对话清洗</h1><p class="lead">查出混进对话里的重复、注入和召回内容。原始 full 始终保留，清洗只影响前端浏览与后续挖掘。</p></div><button class="ghost" id="back-maintenance">返回维护</button></div><div id="cleaning-workspace"><section class="section-card"><div class="empty">正在读取清洗设置…</div></section></div>`;
-  main.querySelector("#back-maintenance").onclick=()=>renderMaintenance(library);
+  main.innerHTML=`<div class="dashboard-head"><div><p class="eyebrow">Conversation cleaning</p><h1>全量对话清洗</h1><p class="lead">查出混进对话里的重复、注入和召回内容。原始 full 始终保留，清洗只影响前端浏览与后续挖掘。</p></div><button class="ghost" id="back-maintenance">返回记忆</button></div><div id="cleaning-workspace"><section class="section-card"><div class="empty">正在读取清洗设置…</div></section></div>`;
+  main.querySelector("#back-maintenance").onclick=()=>renderManagement(library);
   try{
     let data=await api(`/api/libraries/${encodeURIComponent(library.threadId)}/tool-policy`);
     const draw=()=>{
@@ -967,8 +950,8 @@ async function renderToolPolicy(library){
 
 async function renderCompression(library,kind="compact",report=null) {
   const main=document.querySelector("#workspace-main");
-  main.innerHTML=`<div class="dashboard-head"><div><p class="eyebrow">Memory lifecycle</p><h1>记忆压缩</h1><p class="lead">先查看系统建议，再决定是否精简或隐藏；完整摘要内容始终保留在 SQLite 中。</p></div><button class="ghost" id="back-maintenance">返回维护</button></div><section class="compression-mode-grid"><button class="${kind==="compact"?"active":""}" data-compression-kind="compact"><strong>摘要精简</strong><span>将适合压缩的 daily 摘要改为 coarse，保留日期、事实与关键感受</span></button><button class="${kind==="hidden"?"active":""}" data-compression-kind="hidden"><strong>长期隐藏</strong><span>将长期沉寂的 coarse 摘要停止注入线程，不删除完整内容</span></button></section><section class="section-card compression-control"><div><p class="eyebrow">${kind==="compact"?"推荐窗口":"沉寂检查"}</p><h2>${kind==="compact"?"寻找低风险、高收益的一周":"检查长期不再出现的事实"}</h2><p>${kind==="compact"?"系统综合锚点、关系阶段、副核心与 importance 排序；预览不会调用模型。":"默认只检查核心词至少 90 天未再出现的 coarse 摘要；锚点和仍由 relation 接管的摘要受保护。"}</p></div>${kind==="compact"?`<label>执行通道<select id="compression-mode"><option value="subagent" ${compressionUi.mode==="subagent"?"selected":""}>Subagent</option><option value="api" ${compressionUi.mode==="api"?"selected":""}>API</option></select></label>`:`<label>沉寂阈值<div class="compact-number"><input id="hidden-days" type="number" min="1" max="3650" value="${compressionUi.afterDays}"><span>天</span></div></label>`}<button class="primary" id="preview-compression">生成压缩建议</button></section><div id="compression-report">${report?renderCompressionReport(kind,report):""}</div>`;
-  main.querySelector("#back-maintenance").onclick=()=>renderMaintenance(library);
+  main.innerHTML=`<div class="dashboard-head"><div><p class="eyebrow">Memory lifecycle</p><h1>记忆压缩</h1><p class="lead">先查看系统建议，再决定是否精简或隐藏；完整摘要内容始终保留在 SQLite 中。</p></div><button class="ghost" id="back-maintenance">返回记忆</button></div><section class="compression-mode-grid"><button class="${kind==="compact"?"active":""}" data-compression-kind="compact"><strong>摘要精简</strong><span>将适合压缩的 daily 摘要改为 coarse，保留日期、事实与关键感受</span></button><button class="${kind==="hidden"?"active":""}" data-compression-kind="hidden"><strong>长期隐藏</strong><span>将长期沉寂的 coarse 摘要停止注入线程，不删除完整内容</span></button></section><section class="section-card compression-control"><div><p class="eyebrow">${kind==="compact"?"推荐窗口":"沉寂检查"}</p><h2>${kind==="compact"?"寻找低风险、高收益的一周":"检查长期不再出现的事实"}</h2><p>${kind==="compact"?"系统综合锚点、关系阶段、副核心与 importance 排序；预览不会调用模型。":"默认只检查核心词至少 90 天未再出现的 coarse 摘要；锚点和仍由 relation 接管的摘要受保护。"}</p></div>${kind==="compact"?`<label>执行通道<select id="compression-mode"><option value="subagent" ${compressionUi.mode==="subagent"?"selected":""}>Subagent</option><option value="api" ${compressionUi.mode==="api"?"selected":""}>API</option></select></label>`:`<label>沉寂阈值<div class="compact-number"><input id="hidden-days" type="number" min="1" max="3650" value="${compressionUi.afterDays}"><span>天</span></div></label>`}<button class="primary" id="preview-compression">生成压缩建议</button></section><div id="compression-report">${report?renderCompressionReport(kind,report):""}</div>`;
+  main.querySelector("#back-maintenance").onclick=()=>renderManagement(library);
   main.querySelectorAll("[data-compression-kind]").forEach(button=>button.onclick=()=>renderCompression(library,button.dataset.compressionKind));
   main.querySelector("#compression-mode")?.addEventListener("change",event=>{compressionUi.mode=event.target.value;});
   main.querySelector("#hidden-days")?.addEventListener("change",event=>{compressionUi.afterDays=Math.max(1,Number(event.target.value)||90);});
@@ -1013,7 +996,7 @@ function renderConversationImport(library) {
   state.imports=[];
   document.querySelectorAll(".side-nav button").forEach(button=>button.classList.toggle("active",button.dataset.view==="maintenance"));
   const main=document.querySelector("#workspace-main");
-  main.innerHTML=`<div class="dashboard-head"><div><p class="eyebrow">对话维护</p><h1>对话导入</h1><p class="lead">支持 Claude、Codex 线程文件、JSON、JSONL 和 SQLite；确认识别结果后再写入当前记忆体。</p></div><button class="ghost" id="back-maintenance">返回维护</button></div><section class="section-card"><div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="上传对话文件"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v4a2 2 0 002 2h10a2 2 0 002-2v-4"/></svg><strong>把文件拖到这里</strong><p>或者点击打开文件资源管理器</p><button class="secondary" type="button">选择文件</button><input id="file-input" type="file" accept=".json,.jsonl,.db,.sqlite,.sqlite3" multiple hidden></div><div class="import-list" id="import-list"></div><div class="wizard-actions"><span></span><button class="primary" id="apply-import" disabled>导入当前记忆体</button></div></section>`;
+  main.innerHTML=`<div class="dashboard-head"><div><p class="eyebrow">对话维护</p><h1>对话导入</h1><p class="lead">支持 Claude、Codex 线程文件、JSON、JSONL 和 SQLite；确认识别结果后再写入当前记忆体。</p></div><button class="ghost" id="back-maintenance">返回记忆</button></div><section class="section-card"><div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="上传对话文件"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v4a2 2 0 002 2h10a2 2 0 002-2v-4"/></svg><strong>把文件拖到这里</strong><p>或者点击打开文件资源管理器</p><button class="secondary" type="button">选择文件</button><input id="file-input" type="file" accept=".json,.jsonl,.db,.sqlite,.sqlite3" multiple hidden></div><div class="import-list" id="import-list"></div><div class="wizard-actions"><span></span><button class="primary" id="apply-import" disabled>导入当前记忆体</button></div></section>`;
   const input=main.querySelector("#file-input"),zone=main.querySelector("#dropzone"),apply=main.querySelector("#apply-import");
   const receive=async files=>{await uploadFiles(files);apply.disabled=!state.imports.length;apply.textContent=state.imports.length?`导入 ${state.imports.length} 个文件`:"导入当前记忆体";};
   zone.onclick=event=>{if(event.target.tagName!=="INPUT")input.click();};
@@ -1022,12 +1005,12 @@ function renderConversationImport(library) {
   zone.ondragleave=()=>zone.classList.remove("dragging");
   zone.ondrop=event=>{event.preventDefault();zone.classList.remove("dragging");receive(event.dataTransfer.files);};
   input.onchange=()=>receive(input.files);
-  main.querySelector("#back-maintenance").onclick=()=>renderMaintenance(library);
+  main.querySelector("#back-maintenance").onclick=()=>renderManagement(library);
   apply.onclick=async()=>{
     apply.disabled=true;apply.textContent="正在导入…";
     try{
       const result=await api(`/api/libraries/${encodeURIComponent(library.threadId)}/imports`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({importTokens:state.imports.map(item=>item.token)})});
-      state.imports=[];showToast(`已导入 ${result.imported} 条纯对话`);renderMaintenance(library);
+      state.imports=[];showToast(`已导入 ${result.imported} 条纯对话`);renderManagement(library);
     }catch(error){showToast(error.message,"error");apply.disabled=false;apply.textContent=`导入 ${state.imports.length} 个文件`;}
   };
   renderImports();
@@ -1045,8 +1028,8 @@ async function renderMining(library,page=1) {
   clearTimeout(miningUi.timer);miningUi.page=page;
   document.querySelectorAll(".side-nav button").forEach(button=>button.classList.toggle("active",button.dataset.view==="maintenance"));
   const main=document.querySelector("#workspace-main");
-  main.innerHTML=`<div class="dashboard-head"><div><p class="eyebrow">记忆维护</p><h1>记忆挖掘</h1><p class="lead">查看每天从对话中留下的摘要与特征。</p><p class="mining-first-run"><strong>第一次重建线程前需要挖掘全量对话；此后可通过“自动挖掘全量对话 / 自动执行记忆挖掘”让系统自行维护。</strong></p></div><button class="ghost" id="back-maintenance">返回维护</button></div><div id="mining-content"><section class="section-card"><div class="empty">正在读取挖掘结果…</div></section></div>`;
-  main.querySelector("#back-maintenance").onclick=()=>{clearTimeout(miningUi.timer);renderMaintenance(library);};
+  main.innerHTML=`<div class="dashboard-head"><div><p class="eyebrow">记忆维护</p><h1>记忆挖掘</h1><p class="lead">查看每天从对话中留下的摘要与特征。</p><p class="mining-first-run"><strong>第一次重建线程前需要挖掘全量对话；此后可通过“自动挖掘全量对话 / 自动执行记忆挖掘”让系统自行维护。</strong></p></div><button class="ghost" id="back-maintenance">返回记忆</button></div><div id="mining-content"><section class="section-card"><div class="empty">正在读取挖掘结果…</div></section></div>`;
+  main.querySelector("#back-maintenance").onclick=()=>{clearTimeout(miningUi.timer);renderManagement(library);};
   try{
     const [data,config]=await Promise.all([api(`/api/libraries/${encodeURIComponent(library.threadId)}/mining/status`),miningUi.mode?Promise.resolve(null):api(`/api/libraries/${encodeURIComponent(library.threadId)}/settings`)]);
     if(!miningUi.mode)miningUi.mode=config?.minerMode==="api"?"api":"subagent";
@@ -1071,8 +1054,7 @@ async function renderMining(library,page=1) {
     content.querySelector("#mining-newer")?.addEventListener("click",()=>{miningUi.monthPage=calendar.page-1;renderMining(library,miningUi.page);});content.querySelector("#mining-older")?.addEventListener("click",()=>{miningUi.monthPage=calendar.page+1;renderMining(library,miningUi.page);});
     content.querySelector("#open-targeted")?.addEventListener("click",()=>renderTargetedMining(library,miningUi.selectedDate));
     if(miningUi.selectedDate)bindFeelingCards(content,library,detail.feelings,content.querySelector("#feeling-editor"),()=>renderMining(library,miningUi.page));
-    if(["accompany","life-supervision"].includes(library.scenario||library.purpose))loadMiningPrompts(content,library);
-    else content.querySelector(".mining-prompts-section")?.remove();
+    loadMiningPrompts(content,library);
     const reportList=content.querySelector(".mining-report-list");
     const updateCount=()=>{reportList.querySelector("#selected-count").textContent=miningUi.selected.size;reportList.querySelector("#start-mining").disabled=active||!miningUi.selected.size;};
     reportList.querySelectorAll('.mining-report-check input').forEach(input=>input.onchange=()=>{input.checked?miningUi.selected.add(input.value):miningUi.selected.delete(input.value);updateCount();});
@@ -1169,17 +1151,47 @@ async function renderTargetedMining(library,date) {
 async function renderRebuild(library) {
   activateWorkspaceTab("context");
   const main = document.querySelector("#workspace-main");
-  main.innerHTML = `<div class="dashboard-head"><div><p class="eyebrow">线程生命周期</p><h1>线程重建</h1><p class="lead">先检查即将写入线程的内容，再确认应用；线程状态和裁剪工具集中在同一页。</p></div><button class="ghost" id="back-maintenance">返回维护</button></div><section class="section-card rebuild-command-center"><div id="rebuild-target-slot"></div><div class="rebuild-primary-actions"><button class="primary rebuild-main-button" id="preview-rebuild"><strong>线程重建</strong><span>先生成中文预览，不会立即改写线程</span></button><button class="secondary rebuild-main-button" id="check-thread"><strong>一键修复</strong><span>检查线程结构，发现问题后备份并修复</span></button></div><div id="integrity"></div><details class="injection-settings"><summary><span class="settings-gear" aria-hidden="true">⚙</span><span><strong>注入设置</strong><small>选择本次重建使用的摘要与近期上下文范围</small></span><i>⌄</i></summary><div class="injection-settings-body"><section><h3>摘要保留形式</h3><div class="choice-row"><label><input type="radio" name="summary-mode" value="default" ${rebuildState.summaryMode==="default"?"checked":""}><span><strong>默认</strong><small>注入全部非hidden历史摘要</small></span></label><label><input type="radio" name="summary-mode" value="limited" ${rebuildState.summaryMode==="limited"?"checked":""}><span><strong>特殊设置</strong><small>限定摘要数量和最低importance</small></span></label></div><div id="summary-limit-fields" class="inline-settings"><span>保留最近</span><input id="summary-limit" type="number" min="1" value="${rebuildState.summaryLimit||200}"><span>条 importance ≥</span><select id="min-importance">${[0,1,2,3,4,5].map(value=>`<option value="${value}" ${rebuildState.minImportance===value?"selected":""}>${value}</option>`).join("")}</select><span>的摘要</span></div><label id="mcp-default-row" class="rebuild-watermark-option compact-option"><input id="mcp-summary-default" type="checkbox" ${rebuildState.mcpDefault?"checked":""}><span><strong>MCP调用rebuild时默认使用这一摘要范围</strong><small>Agent显式传参时只覆盖当次调用。</small></span></label><p class="tool-memory-note"><span aria-hidden="true">●</span> 默认保护低importance的原文锚点与事件锚点；锚点占摘要名额，hidden不纳入计算。</p></section><section><h3>上下文保留形式</h3><div class="choice-row"><label><input type="radio" name="context-mode" value="days" ${rebuildState.watermark?"":"checked"}><span><strong>默认</strong><small>按最近发生过对话的活跃日保留原文</small></span></label><label><input type="radio" name="context-mode" value="watermark" ${rebuildState.watermark?"checked":""}><span><strong>特殊设置：水位线模式</strong><small>已挖掘出摘要的历史原文不再重复注入</small></span></label></div><div id="active-days-fields" class="inline-settings"><span>保留活跃对话日</span><input id="window-days" type="number" min="1" max="365" value="${rebuildState.windowDays}"><span>天，保留工具调用</span><input id="tool-pairs" type="number" min="0" max="500" value="${rebuildState.toolPairs}"><span>组</span></div><div id="watermark-fields" class="watermark-description"><p>已挖掘出摘要的原文不再进入近期注入范围；从最后一条摘要对应的原文开始保留。工具调用仍使用上方的统一设置。</p></div><p class="tool-memory-note"><span aria-hidden="true">●</span> 如果不保留工具链，Agent重建后会失去近期工具调用及其结果的上下文记忆。</p></section></div></details><div id="rebuild-dry-run"></div></section><section class="section-card rebuild-status"><div class="section-title-row"><div><p class="eyebrow">当前配置</p><h2>线程状态</h2></div></div><details class="rebuild-fold"><summary><span><strong>人设 / 规则</strong><small id="rebuild-rule-summary">正在读取…</small></span><i>⌄</i></summary><div class="rebuild-fold-content" id="rebuild-rules"></div></details><details class="rebuild-fold"><summary><span><strong>摘要</strong><small id="rebuild-feeling-summary">正在读取…</small></span><i>⌄</i></summary><div class="rebuild-fold-content"><p id="rebuild-feeling-detail">正在统计摘要构成…</p><button class="ghost" id="open-feelings">前往记忆档案查看摘要</button></div></details><details class="rebuild-fold" open><summary><span><strong>原文</strong><small>查看并裁剪即将保留的近期对话与工具链</small></span><i>⌄</i></summary><div class="rebuild-fold-content"><button class="secondary" id="open-trim">裁剪对话 / 工具链</button></div></details></section>`;
+  main.innerHTML = `<section class="context-management-grid"><article class="section-card context-status-card"><div class="section-title-row"><div><p class="eyebrow">Current context</p><h2>当前上下文</h2></div><span class="badge" id="context-runtime">正在读取</span></div><div id="context-binding-picker"></div><p class="context-thread-id" id="context-thread-id">正在读取当前线程…</p><div class="context-usage"><div class="context-usage-head"><strong>窗口占用</strong><small id="context-usage-label">正在读取…</small></div><div class="context-usage-track" role="progressbar" aria-label="当前窗口上下文占用" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="context-usage-bar" style="width:0%"></i></div></div><dl class="context-status-list"><div><dt>最近观测</dt><dd id="context-observed">暂无记录</dd></div><div><dt>上次重建</dt><dd id="context-rebuilt">暂无记录</dd></div><div><dt>线程文件</dt><dd id="context-thread-file">正在检查</dd></div></dl></article><article class="section-card context-injection-card"><div class="section-title-row"><div><p class="eyebrow">Current injection</p><h2>当前注入</h2></div><span class="badge" id="context-retention-mode">暂无记录</span></div><div class="context-injection-counts"><div><strong id="context-rules">0</strong><span>人设 / 规则</span></div><div><strong id="context-feelings">0</strong><span>摘要</span></div><div><strong id="context-messages">0</strong><span>近期与锚点原文</span></div><div><strong id="context-tools">0</strong><span>工具链</span></div></div><p class="context-injection-note" id="context-injection-note">生成第一次线程重建后，这里会显示实际注入构成。</p></article></section><section class="section-card rebuild-command-center context-operation-card"><div class="section-title-row"><div><p class="eyebrow">Context actions</p><h2>线程重建</h2><small>先预览将写入当前线程的内容，确认后才会应用。</small></div></div><div id="rebuild-target-slot"></div><div class="rebuild-primary-actions"><button class="primary rebuild-main-button" id="preview-rebuild"><strong>生成重建预览</strong><span>查看摘要、原文与工具链的预计结果</span></button><button class="secondary rebuild-main-button" id="check-thread"><strong>检查线程</strong><span>发现结构异常后再确认修复</span></button></div><div id="integrity"></div><details class="injection-settings"><summary><span class="settings-gear" aria-hidden="true">⚙</span><span><strong>高级注入设置</strong><small>调整摘要范围、近期上下文和工具链数量</small></span><i>⌄</i></summary><div class="injection-settings-body"><section><h3>摘要保留形式</h3><div class="choice-row"><label><input type="radio" name="summary-mode" value="default" ${rebuildState.summaryMode==="default"?"checked":""}><span><strong>默认</strong><small>注入全部非hidden历史摘要</small></span></label><label><input type="radio" name="summary-mode" value="limited" ${rebuildState.summaryMode==="limited"?"checked":""}><span><strong>特殊设置</strong><small>限定摘要数量和最低importance</small></span></label></div><div id="summary-limit-fields" class="inline-settings"><span>保留最近</span><input id="summary-limit" type="number" min="1" value="${rebuildState.summaryLimit||200}"><span>条 importance ≥</span><select id="min-importance">${[0,1,2,3,4,5].map(value=>`<option value="${value}" ${rebuildState.minImportance===value?"selected":""}>${value}</option>`).join("")}</select><span>的摘要</span></div><label id="mcp-default-row" class="rebuild-watermark-option compact-option"><input id="mcp-summary-default" type="checkbox" ${rebuildState.mcpDefault?"checked":""}><span><strong>MCP调用rebuild时默认使用这一摘要范围</strong><small>Agent显式传参时只覆盖当次调用。</small></span></label><p class="tool-memory-note"><span aria-hidden="true">●</span> 默认保护低importance的原文锚点与事件锚点；锚点占摘要名额，hidden不纳入计算。</p></section><section><h3>上下文保留形式</h3><div class="choice-row"><label><input type="radio" name="context-mode" value="days" ${rebuildState.watermark?"":"checked"}><span><strong>默认</strong><small>按最近发生过对话的活跃日保留原文</small></span></label><label><input type="radio" name="context-mode" value="watermark" ${rebuildState.watermark?"checked":""}><span><strong>特殊设置：水位线模式</strong><small>已挖掘出摘要的历史原文不再重复注入</small></span></label></div><div id="active-days-fields" class="inline-settings"><span>保留活跃对话日</span><input id="window-days" type="number" min="1" max="365" value="${rebuildState.windowDays}"><span>天，保留工具调用</span><input id="tool-pairs" type="number" min="0" max="500" value="${rebuildState.toolPairs}"><span>组</span></div><div id="watermark-fields" class="watermark-description"><p>已挖掘出摘要的历史原文不再进入近期注入范围；从最后一条摘要对应的原文开始保留。工具调用仍使用上方的统一设置。</p></div><p class="tool-memory-note"><span aria-hidden="true">●</span> 如果不保留工具链，Agent重建后会失去近期工具调用及其结果的上下文记忆。</p></section></div></details><div id="rebuild-dry-run"></div></section><section class="section-card context-trim-card"><div><p class="eyebrow">Danger zone</p><h2>永久裁剪</h2><p>选择要从活动线程、archive 和 full 中永久移除的对话或工具链。执行前仍会生成预览。</p></div><button class="danger-button" id="open-trim">裁剪对话 / 工具链</button></section>`;
+  const operationCard=main.querySelector(".context-operation-card");
+  const injectionSettings=operationCard.querySelector(".injection-settings");
+  const dryRun=operationCard.querySelector("#rebuild-dry-run");
+  const settingsParking=document.createElement("div");
+  settingsParking.hidden=true;
+  operationCard.after(dryRun,settingsParking);
+  settingsParking.append(injectionSettings);
+  operationCard.classList.remove("section-card","rebuild-command-center");
+  operationCard.classList.add("context-action-strip");
+  operationCard.querySelector(".rebuild-primary-actions").insertAdjacentHTML("beforeend",`<button class="secondary rebuild-main-button" id="open-injection-settings"><strong>注入策略</strong><span>设置摘要、原文和工具链范围</span></button>`);
+  injectionSettings.open=true;
+  injectionSettings.querySelector("summary strong").textContent="注入策略";
+  injectionSettings.querySelector("summary small").textContent="设置下一次重建保留哪些摘要、原文和工具链";
+  dryRun.hidden=true;
   main.insertAdjacentHTML("afterbegin",managementNav("context"));
   bindManagementNav(library);
-  document.querySelector("#back-maintenance").onclick=()=>renderManagement(library);
+  let contextOverview=library;
+  const paintContext=(binding=null,{primary=false}={})=>{
+    const legacyUsage=contextOverview.contextUsage||null,legacyRebuild=contextOverview.rebuild||null;
+    const shownUsage=binding?(contextOverview.contextUsageByBinding?.[binding.id]||(!legacyUsage?.bindingId&&primary?legacyUsage:null)):legacyUsage;
+    const shownRebuild=binding?(contextOverview.rebuildByBinding?.[binding.id]||(!legacyRebuild?.bindingId&&primary?legacyRebuild:null)):legacyRebuild;
+    const percent=shownUsage&&Number.isFinite(shownUsage.percent)?Math.max(0,Math.min(100,shownUsage.percent)):0;
+    document.querySelector("#context-runtime").textContent=binding?.provider||contextOverview.runtime||"未接入平台";
+    document.querySelector("#context-thread-id").textContent=binding?.externalThreadId||contextOverview.externalThreadId||"尚未绑定窗口";
+    document.querySelector("#context-usage-label").textContent=contextUsageHint(shownUsage,contextOverview.automaticFullMining);
+    document.querySelector("#context-usage-bar").style.width=`${percent.toFixed(1)}%`;
+    document.querySelector(".context-usage-track").setAttribute("aria-valuenow",String(Math.round(percent)));
+    document.querySelector("#context-observed").textContent=(shownUsage?.observedAt||shownUsage?.updatedAt)?formatBeijingTime(shownUsage.observedAt||shownUsage.updatedAt):"暂无记录";
+    document.querySelector("#context-rebuilt").textContent=shownRebuild?.completedAt?formatBeijingTime(shownRebuild.completedAt):"该窗口暂无记录";
+    document.querySelector("#context-thread-file").textContent=binding?(binding.resolvedThreadFile||binding.threadFile?"已定位":"等待定位"):(contextOverview.threadFileFound?"已定位":"未找到");
+    document.querySelector("#context-rules").textContent=shownRebuild?.injectedRules||0;
+    document.querySelector("#context-feelings").textContent=shownRebuild?.injectedFeelings||0;
+    document.querySelector("#context-messages").textContent=(shownRebuild?.recentMessages||0)+(shownRebuild?.retainedMessages||0);
+    document.querySelector("#context-tools").textContent=shownRebuild?.preservedToolPairs||0;
+    document.querySelector("#context-retention-mode").textContent=shownRebuild?(shownRebuild.retentionMode==="watermark"?"水位线模式":"活跃日模式"):"暂无记录";
+    document.querySelector("#context-injection-note").textContent=shownRebuild?`上次重建注入 ${shownRebuild.retainAnchors||0} 个原文锚点；高级设置只影响下一次重建。`:"这个窗口还没有可显示的线程重建记录。";
+  };
   try {
-    const [config,rules,daily,coarse,retained,overview]=await Promise.all([
+    const [config,overview]=await Promise.all([
       api(`/api/libraries/${encodeURIComponent(library.threadId)}/settings`),
-      api(`/api/libraries/${encodeURIComponent(library.threadId)}/rules`),
-      api(`/api/libraries/${encodeURIComponent(library.threadId)}/feelings?page=1&mode=daily`),
-      api(`/api/libraries/${encodeURIComponent(library.threadId)}/feelings?page=1&mode=coarse`),
-      api(`/api/libraries/${encodeURIComponent(library.threadId)}/feelings?page=1&retainAnchor=1`),
       api(`/api/libraries/${encodeURIComponent(library.threadId)}/overview`),
     ]);
     rebuildState.windowDays=config.windowDays;rebuildState.toolPairs=config.keepToolPairs;
@@ -1195,18 +1207,7 @@ async function renderRebuild(library) {
     document.querySelector("#min-importance").value=String(rebuildState.minImportance);
     document.querySelector("#mcp-summary-default").checked=rebuildState.mcpDefault;
     document.querySelectorAll('input[name="summary-mode"]').forEach(input=>{input.checked=input.value===rebuildState.summaryMode;});
-    const injected=rules.rows.filter(row=>row.injected);
-    document.querySelector("#rebuild-rule-summary").textContent=injected.length?`将注入 ${injected.length} 份：${injected.map(row=>row.name).join("、")}`:"当前没有启用的人设 / 规则";
-    document.querySelector("#rebuild-rules").innerHTML=`${rules.rows.length?rules.rows.map(row=>`<div class="rebuild-rule-row"><span><strong>${escapeHtml(row.name)}</strong><small>${row.injected?"重建时注入":"当前不注入"}</small></span><span class="badge">${row.injected?"已启用":"已停用"}</span></div>`).join(""):'<div class="empty">还没有规则文档。</div>'}<button class="ghost" id="open-rules">前往记忆档案修改人设 / 规则</button>`;
-    const availableTotal=daily.rows.total+coarse.rows.total;
-    if(overview.rebuild){
-      document.querySelector("#rebuild-feeling-summary").textContent=`当前线程已注入 ${overview.rebuild.injectedFeelings||0} 条摘要`;
-      document.querySelector("#rebuild-feeling-detail").textContent=`上次重建实际写入了 ${overview.rebuild.injectedFeelings||0} 条摘要；另有 ${overview.rebuild.retainAnchors||0} 个原文锚点以原文形式注入，共占 ${overview.rebuild.retainedMessages||0} 行。当前记忆档案共有 ${availableTotal} 条可用摘要，其中 ${daily.rows.total} 条 daily、${coarse.rows.total} 条 coarse。`;
-    }else{
-      document.querySelector("#rebuild-feeling-summary").textContent=`记忆档案共有 ${availableTotal} 条可用摘要`;
-      document.querySelector("#rebuild-feeling-detail").textContent=`其中 ${daily.rows.total} 条全量 daily 摘要、${coarse.rows.total} 条精简 coarse 摘要、${retained.rows.total} 条摘要设有原文锚点；生成重建预览后会显示本次实际注入数量。`;
-    }
-    document.querySelector("#open-rules").onclick=()=>renderMemorySection(library,"rules");
+    contextOverview=overview;paintContext();
   } catch(error){showToast(error.message,"error");}
   try {
     const bindingStatus = await api(`/api/libraries/${encodeURIComponent(library.threadId)}/bindings`);
@@ -1218,15 +1219,21 @@ async function renderRebuild(library) {
         ? bindingStatus.primaryBindingId
         : bindingRows[0]?.id || null;
     rebuildState.bindingMemoryId = library.threadId;
-    const slot = document.querySelector("#rebuild-target-slot");
-    if (slot && bindingRows.length) {
-      slot.innerHTML = `<div class="rebuild-target"><span class="rebuild-target-label">重建目标窗口</span><div class="rebuild-target-choices">${bindingRows.map(row => { const primary = row.id === bindingStatus.primaryBindingId, listening = row.enabled !== false; return `<label title="${escapeHtml(row.externalThreadId || "")}"><input type="radio" name="rebuild-binding" value="${escapeHtml(row.id)}" ${row.id === rebuildState.bindingId ? "checked" : ""}><span><strong>${escapeHtml(row.provider || "未知平台")}</strong><small>${escapeHtml(String(row.externalThreadId || "").slice(0, 8))}${primary ? " · 主窗口" : ""}${listening ? "" : " · 未监听"}</small></span></label>`; }).join("")}</div></div>`;
-      slot.querySelectorAll('input[name="rebuild-binding"]').forEach(input => input.onchange = () => {
-        rebuildState.bindingId = input.value;
-        document.querySelector("#rebuild-dry-run").innerHTML = "";
-        showIntegrity(library, false);
-      });
+    const slot = document.querySelector("#rebuild-target-slot"),picker=document.querySelector("#context-binding-picker");
+    const selectBinding=id=>{
+      const selected=bindingRows.find(row=>row.id===id)||bindingRows[0];if(!selected)return;
+      rebuildState.bindingId=selected.id;
+      if(picker?.querySelector("select"))picker.querySelector("select").value=selected.id;
+      slot.innerHTML=`<div class="context-operation-target"><span>操作目标</span><strong>${escapeHtml(selected.provider||"未知平台")} · ${escapeHtml(String(selected.externalThreadId||"").slice(0,8))}</strong></div>`;
+      paintContext(selected,{primary:selected.id===bindingStatus.primaryBindingId});
+      document.querySelector("#rebuild-dry-run").innerHTML="";
+      showIntegrity(library,false);
+    };
+    if(bindingRows.length>1){
+      picker.innerHTML=`<label class="context-binding-select"><span>查看窗口</span><select>${bindingRows.map(row=>`<option value="${escapeHtml(row.id)}">${escapeHtml(row.provider||"未知平台")} · ${escapeHtml(String(row.externalThreadId||"").slice(0,8))}${row.id===bindingStatus.primaryBindingId?" · 主窗口":""}${row.enabled===false?" · 未监听":""}</option>`).join("")}</select></label>`;
+      picker.querySelector("select").onchange=event=>selectBinding(event.target.value);
     }
+    if(bindingRows.length)selectBinding(rebuildState.bindingId);
   } catch { /* Binding 列表读取失败时退回默认窗口重建 */ }
   const syncInjectionControls=()=>{
     const limited=rebuildState.summaryMode==="limited";
@@ -1246,10 +1253,25 @@ async function renderRebuild(library) {
   document.querySelector("#min-importance").onchange=event=>{rebuildState.minImportance=Math.max(0,Math.min(5,Number(event.target.value)||0));};
   document.querySelector("#mcp-summary-default").onchange=event=>{rebuildState.mcpDefault=event.target.checked;};
   syncInjectionControls();
-  document.querySelector("#preview-rebuild").onclick = () => previewIntegratedRebuild(library);
+  const closeSettings=overlay=>{settingsParking.append(injectionSettings);overlay.remove();};
+  document.querySelector("#open-injection-settings").onclick=()=>{
+    const snapshot={summaryMode:rebuildState.summaryMode,summaryLimit:rebuildState.summaryLimit,minImportance:rebuildState.minImportance,mcpDefault:rebuildState.mcpDefault,watermark:rebuildState.watermark,windowDays:rebuildState.windowDays,toolPairs:rebuildState.toolPairs};
+    const overlay=document.createElement("div");overlay.className="editor-overlay context-settings-overlay";
+    overlay.innerHTML=`<section class="editor-panel context-settings-dialog" role="dialog" aria-modal="true" aria-labelledby="context-settings-title"><button class="editor-close ghost" type="button" aria-label="关闭">×</button><div class="context-settings-dialog-head"><p class="eyebrow">REBUILD POLICY</p><h2 id="context-settings-title">注入策略</h2><p>设置以后线程重建默认保留的摘要、原文和工具链范围。</p></div><div class="context-settings-dialog-body"></div><div class="wizard-actions"><button class="ghost" id="cancel-injection-settings">取消</button><button class="primary" id="save-injection-settings">保存设置</button></div></section>`;
+    overlay.querySelector(".context-settings-dialog-body").append(injectionSettings);document.body.append(overlay);
+    const cancel=()=>{Object.assign(rebuildState,snapshot);closeSettings(overlay);renderRebuild(library);};
+    overlay.querySelector(".editor-close").onclick=cancel;overlay.querySelector("#cancel-injection-settings").onclick=cancel;
+    overlay.addEventListener("click",event=>{if(event.target===overlay)cancel();});
+    overlay.querySelector("#save-injection-settings").onclick=async event=>{const button=event.currentTarget;button.disabled=true;button.textContent="正在保存…";try{const summaryLimit=rebuildState.summaryMode==="limited"?rebuildState.summaryLimit:0,minImportance=rebuildState.summaryMode==="limited"?rebuildState.minImportance:0;await api(`/api/libraries/${encodeURIComponent(library.threadId)}/settings`,{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({windowDays:rebuildState.windowDays,keepToolPairs:rebuildState.toolPairs,mcpRebuildDefaultsEnabled:rebuildState.mcpDefault,mcpSummaryLimit:summaryLimit,mcpMinImportance:minImportance})});closeSettings(overlay);showToast("注入策略已保存");}catch(error){showToast(error.message,"error");button.disabled=false;button.textContent="保存设置";}};
+  };
+  document.querySelector("#preview-rebuild").onclick = () => {
+    const overlay=document.createElement("div");overlay.className="editor-overlay rebuild-preview-overlay";
+    overlay.innerHTML=`<section class="editor-panel rebuild-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="rebuild-preview-title"><button class="editor-close ghost" type="button" aria-label="关闭">×</button><h2 id="rebuild-preview-title">线程重建预览</h2><div id="rebuild-preview-modal-content"></div></section>`;
+    document.body.append(overlay);const close=()=>overlay.remove();overlay.querySelector(".editor-close").onclick=close;overlay.addEventListener("click",event=>{if(event.target===overlay)close();});
+    previewIntegratedRebuild(library,{target:"#rebuild-preview-modal-content",button:"#preview-rebuild"});
+  };
   document.querySelector("#check-thread").onclick = () => checkAndRepair(library);
   document.querySelector("#open-trim").onclick = () => renderTrimWorkbench(library);
-  document.querySelector("#open-feelings").onclick=()=>renderMemorySection(library,"feelings");
   await showIntegrity(library, false);
 }
 
@@ -1276,7 +1298,7 @@ async function previewIntegratedRebuild(library,options={}) {
     const preview=await api(`/api/libraries/${encodeURIComponent(library.threadId)}/rebuild/dry-run`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(request)}),show=value=>value===null||value===undefined?"—":value;
     const retentionLabel=preview.retentionMode==="watermark"?`水位线模式，自 ${escapeHtml(preview.watermarkCutoff||"—")} 起`:preview.watermarkFallback?`活跃日模式（水位线定位失败，已回退）`:`活跃日模式`;
     target.innerHTML=`<div class="rebuild-preview"><div class="section-title-row"><div><p class="eyebrow">正式 Dry-run</p><h3>确认线程重建结果</h3></div><span class="badge">${preview.runtime==="codex"?"Codex":"Claude"}</span></div><div class="rebuild-preview-groups"><section><h4>数据来源</h4><dl><div><dt>full 原始消息</dt><dd>${show(preview.fullMessages??preview.originalMessages)} 条</dd></div><div><dt>full 总体积</dt><dd>${formatBytes(preview.fullArchiveBytes)}</dd></div><div><dt>保留方式</dt><dd>${retentionLabel}</dd></div><div><dt>活跃日设置</dt><dd>${show(preview.windowDays)} 天（普通模式或水位线回退时使用）</dd></div></dl></section><section><h4>摘要去向</h4><dl><div><dt>摘要总数</dt><dd>${show(preview.injectableFeelings)} 条（hidden 已排除）</dd></div><div><dt>历史候选</dt><dd>${show(preview.summaryCandidates)} 条 → 本次选择 ${show(preview.selectedSummaries)} 条</dd></div><div><dt>锚点保护</dt><dd>${show(preview.protectedSummaries)} 条${preview.protectedOverflow?`，超过限制 ${preview.protectedOverflow} 条`:""}</dd></div><div><dt>近期窗口内</dt><dd>${show(preview.inWindowFeelings)} 条，由近期原文承载</dd></div><div><dt>原文锚点替代</dt><dd>${show(preview.retainAnchors)} 条，覆盖 ${show(preview.retainDates)} 个日期</dd></div><div><dt>注入记忆块</dt><dd>${show(preview.memoryFeelings)} 条摘要</dd></div><div><dt>人设 / 规则</dt><dd>${show(preview.injectedRules)} 份</dd></div><div><dt>记忆块</dt><dd>${show(preview.memoryBlocks)} 个</dd></div></dl></section><section><h4>近期上下文</h4><dl><div><dt>近期原文</dt><dd>${show(preview.windowMessages)} 条</dd></div><div><dt>工具链</dt><dd>${show(preview.toolPairs)} 组${preview.toolIds==null?"":`，${preview.toolIds} 个工具 ID`}</dd></div>${preview.functionCalls==null?"":`<div><dt>函数调用</dt><dd>${preview.functionCalls} 条</dd></div>`}<div><dt>移除系统记录</dt><dd>${show(preview.systemDropped)} 条</dd></div></dl></section><section class="rebuild-result-group"><h4>预计结果</h4><dl><div><dt>线程文件大小</dt><dd>${formatBytes(preview.estimatedOutputBytes)}</dd></div><div><dt>重建后行数</dt><dd>${show(preview.outputLines)} 行</dd></div><div><dt>预计压缩率</dt><dd class="rebuild-reduction">${preview.reductionPercent==null?"—":`${preview.reductionPercent}%`}</dd></div></dl></section></div><details class="rebuild-raw-output"><summary>查看原始 dry-run 输出</summary><pre>${escapeHtml(preview.raw)}</pre></details><div class="wizard-actions"><button class="ghost" id="cancel-rebuild-preview">取消</button><button class="primary" id="apply-previewed-rebuild">确认应用线程重建</button></div></div>`;
-    target.querySelector("#cancel-rebuild-preview").onclick=()=>target.innerHTML="";
+    target.querySelector("#cancel-rebuild-preview").onclick=()=>{const overlay=target.closest(".editor-overlay");if(overlay)overlay.remove();else target.innerHTML="";};
     target.querySelector("#apply-previewed-rebuild").onclick=()=>applyIntegratedRebuild(library,{excludedMessages:options.excludedMessages||[],excludedTools:options.excludedTools||[]});
     const feelingSummary=document.querySelector("#rebuild-feeling-summary");
     const feelingDetail=document.querySelector("#rebuild-feeling-detail");
@@ -1296,13 +1318,14 @@ async function previewIntegratedRebuild(library,options={}) {
 }
 
 async function applyIntegratedRebuild(library,{excludedMessages=[],excludedTools=[]}={}) {
-  const button=document.querySelector("#apply-previewed-rebuild"),isCodex=library.runtime==="codex";button.disabled=true;button.textContent=isCodex?"正在应用线程重建…":"正在排队线程重建…";
+  const button=document.querySelector("#apply-previewed-rebuild"),previewOverlay=button?.closest(".rebuild-preview-overlay"),isCodex=library.runtime==="codex";button.disabled=true;button.textContent=isCodex?"正在应用线程重建…":"正在排队线程重建…";
   try{
     const summaryLimit=rebuildState.summaryMode==="limited"?rebuildState.summaryLimit:0,minImportance=rebuildState.summaryMode==="limited"?rebuildState.minImportance:0;
     await api(`/api/libraries/${encodeURIComponent(library.threadId)}/settings`,{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({mcpRebuildDefaultsEnabled:rebuildState.mcpDefault,mcpSummaryLimit:summaryLimit,mcpMinImportance:minImportance})});
     const request={summary:{mode:rebuildState.summaryMode,limit:summaryLimit,minImportance},context:{mode:rebuildState.watermark?"watermark":"active_days",windowDays:rebuildState.windowDays,toolPairs:rebuildState.toolPairs},trim:{excludedMessages,excludedTools},trigger:"web",bindingId:rebuildState.bindingMemoryId===library.threadId?rebuildState.bindingId:null};
     const result=await api(`/api/libraries/${encodeURIComponent(library.threadId)}/rebuild/${isCodex?"apply":"queue"}`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(request)});
     const trimmed=excludedMessages.length||excludedTools.length;
+    previewOverlay?.remove();
     await renderRebuild(library);
     showRebuildCompletion(library,{trimmed,queued:result.queued===true});
   }catch(error){showToast(error.message,"error");button.disabled=false;button.textContent="确认应用线程重建";}

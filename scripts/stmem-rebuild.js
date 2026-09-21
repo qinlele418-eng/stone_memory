@@ -57,6 +57,7 @@ function runRuntimeRebuild({ threadId, summary, context, trim, trigger, planFile
   const env = binding ? {
     ...process.env,
     STMEM_REBUILD_PROVIDER: binding.provider,
+    STMEM_REBUILD_BINDING_ID: binding.id,
     STMEM_REBUILD_EXTERNAL_THREAD_ID: binding.externalThreadId,
     STMEM_REBUILD_SESSION_ROOT: binding.sessionRoot,
   } : process.env;

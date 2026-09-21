@@ -69,12 +69,17 @@ function overview(threadId) {
       FROM feelings WHERE thread_id=? ORDER BY source_date DESC,COALESCE(event_time,'') DESC,order_key DESC LIMIT 5`).all(threadId);
     const daily = store.db.prepare("SELECT COUNT(*) count FROM feelings WHERE thread_id=? AND summary_mode='daily'").get(threadId).count;
     const failed = store.db.prepare("SELECT COUNT(*) count FROM mining_day_state WHERE thread_id=? AND status='failed'").get(threadId).count;
-    const rebuild=latestSuccessfulRebuild(threadId), file=sessionFile(threadId,library.runtime);
-    const rawUsage=readRebuildState(threadId).contextUsage||null, configuredMax=Number(loadConfig()[threadId]?.contextWindowTokens);
-    const contextUsage=rawUsage?{...rawUsage,maxTokens:configuredMax>0?configuredMax:rawUsage.detectedMaxTokens||null}:null;
-    if(contextUsage?.maxTokens)contextUsage.percent=contextUsage.usedTokens/contextUsage.maxTokens*100;
+    const rebuildState=readRebuildState(threadId), rebuild=latestSuccessfulRebuild(threadId), file=sessionFile(threadId,library.runtime);
+    const configuredMax=Number(loadConfig()[threadId]?.contextWindowTokens);
+    const withUsageLimit=rawUsage=>{
+      const usage=rawUsage?{...rawUsage,maxTokens:configuredMax>0?configuredMax:rawUsage.detectedMaxTokens||null}:null;
+      if(usage?.maxTokens)usage.percent=usage.usedTokens/usage.maxTokens*100;
+      return usage;
+    };
+    const contextUsage=withUsageLimit(rebuildState.contextUsage||null);
+    const contextUsageByBinding=Object.fromEntries(Object.entries(rebuildState.contextUsageByBinding||{}).map(([id,usage])=>[id,withUsageLimit(usage)]));
     const pendingMiningDays=store.db.prepare(`SELECT COUNT(DISTINCT m.source_date) count FROM messages m LEFT JOIN mining_day_state s ON s.thread_id=m.thread_id AND s.source_date=m.source_date AND s.status IN ('completed','completed_empty') WHERE m.thread_id=? AND s.source_date IS NULL`).get(threadId).count;
-    return { ...library, counts: { ...library.counts, daily }, recent, rebuild, contextUsage, threadFileFound:!!file, pendingMiningDays, attention: failed ? `${failed} 个日期挖掘失败` : null };
+    return { ...library, counts: { ...library.counts, daily }, recent, rebuild, rebuildByBinding:rebuildState.lastCompletedByBinding||{}, contextUsage, contextUsageByBinding, threadFileFound:!!file, pendingMiningDays, attention: failed ? `${failed} 个日期挖掘失败` : null };
   } finally { store.close(); }
 }
 

@@ -6,7 +6,7 @@ const zlib = require("zlib");
 const crypto = require("crypto");
 const { spawn, spawnSync } = require("child_process");
 const { URL } = require("url");
-const { loadConfig, listThreadIds, listMemoryIds, getThreadDir, getMemoryContext, getMemoryRuntimeConfig, CONFIG_PATH } = require("../config");
+const { loadConfig, listThreadIds, listMemoryIds, getThreadDir, getMemoryContext, getMemoryRuntimeConfig } = require("../config");
 const { readImportSource } = require("../services/import-source");
 const { MemoryStore } = require("../storage/memory-store");
 const { buildRebuildPreview } = require("../services/rebuild-workbench");
@@ -27,7 +27,6 @@ const { watcherActions, watcherEnabled } = require("../services/watcher-runtime"
 const { normalizeMiningApiProfile } = require("../services/mining-api-profile");
 const { normalizeModelName } = require("../lib/model-name");
 const { configuredRuntimeIds, MiningReviewBatchStore } = require("../services/mining-review-batch");
-const { buildFeelingPrompt, buildFeaturePrompt } = require("../services/memory-miner");
 const { normalizeRebuildRequest, rebuildRequestCliArgs } = require("../services/rebuild-request");
 const { loadModules, resolveInside } = require("../services/developer-module-contract");
 const { compactTermTimelineReport } = require("../services/term-timeline-report");
@@ -788,11 +787,16 @@ function overview(identifier) {
       FROM feelings WHERE thread_id=? ORDER BY source_date DESC,COALESCE(event_time,'') DESC,order_key DESC LIMIT 5`).all(threadId);
     const daily = store.db.prepare("SELECT COUNT(*) count FROM feelings WHERE thread_id=? AND summary_mode='daily'").get(threadId).count;
     const failed = store.db.prepare("SELECT COUNT(*) count FROM mining_day_state WHERE thread_id=? AND status='failed'").get(threadId).count;
-    const rebuild=latestSuccessfulRebuild(threadId); let file=null;
+    const rebuildState=readRebuildState(threadId), rebuild=latestSuccessfulRebuild(threadId); let file=null;
     try { if (library.runtime) file=sessionFile(threadId,library.runtime); } catch {}
-    const rawUsage=readRebuildState(threadId).contextUsage||null, configuredMax=Number(getMemoryRuntimeConfig(threadId)?.contextWindowTokens);
-    const contextUsage=rawUsage?{...rawUsage,maxTokens:configuredMax>0?configuredMax:rawUsage.detectedMaxTokens||null}:null;
-    if(contextUsage?.maxTokens)contextUsage.percent=contextUsage.usedTokens/contextUsage.maxTokens*100;
+    const configuredMax=Number(getMemoryRuntimeConfig(threadId)?.contextWindowTokens);
+    const withUsageLimit=rawUsage=>{
+      const usage=rawUsage?{...rawUsage,maxTokens:configuredMax>0?configuredMax:rawUsage.detectedMaxTokens||null}:null;
+      if(usage?.maxTokens)usage.percent=usage.usedTokens/usage.maxTokens*100;
+      return usage;
+    };
+    const contextUsage=withUsageLimit(rebuildState.contextUsage||null);
+    const contextUsageByBinding=Object.fromEntries(Object.entries(rebuildState.contextUsageByBinding||{}).map(([id,usage])=>[id,withUsageLimit(usage)]));
     const pendingMiningDays=store.db.prepare(`SELECT COUNT(DISTINCT m.source_date) count FROM messages m LEFT JOIN mining_day_state s ON s.thread_id=m.thread_id AND s.source_date=m.source_date AND s.status IN ('completed','completed_empty') WHERE m.thread_id=? AND s.source_date IS NULL`).get(threadId).count;
     const rules=listRules(threadId),enabledRules=rules.filter(rule=>rule.injected).length;
     let anchors={retain:{},eventAnchors:{}};
@@ -813,7 +817,7 @@ function overview(identifier) {
         eventAnchors: Object.keys(anchors.eventAnchors||{}).length,
       },
       archiveFullBytes: directoryBytes(path.join(getThreadDir(threadId),"memory","archive","full")),
-      recent, rebuild, contextUsage, threadFileFound:!!file, pendingMiningDays,
+      recent, rebuild, rebuildByBinding:rebuildState.lastCompletedByBinding||{}, contextUsage, contextUsageByBinding, threadFileFound:!!file, pendingMiningDays,
       attention: failed ? `${failed} 个日期挖掘失败` : null,
     };
   } finally { store.close(); }
@@ -1594,48 +1598,37 @@ async function handleApi(req, res, url) {
   const promptsMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/mining\/prompts$/);
   if (promptsMatch) {
     const threadId = decodeURIComponent(promptsMatch[1]);
-    const settings = publicThreadSettings(threadId);
-    if (!["accompany", "life-supervision"].includes(scenarioId(settings))) throw new Error("提示词与关系时间轴编辑仅适用于陪伴或生活监督场景");
     const config = loadConfig(); const context = getMemoryContext(threadId);
     const entry = context.layout === "memory-v1" ? getMemoryRuntimeConfig(threadId) : (config[threadId] || {});
     const timeline = Array.isArray(entry.relationshipTimeline) ? entry.relationshipTimeline : [];
-    const opsDir = path.join(__dirname, "..", "..", "operations");
-    const supervision = scenarioId(entry) === "life-supervision";
     const memoryDir = path.join(getThreadDir(threadId), "memory");
-    const defaults = supervision ? resolveMiningPrompts(entry, { defaultsOnly: true }) : null;
-    const overridesDir = supervision ? path.dirname(promptOverridePath(memoryDir, "life-supervision", "feelings")) : path.join(path.dirname(CONFIG_PATH), "prompt-overrides");
-    const summaryDefaultPath = defaults?.tasks.feelings.file || path.join(opsDir, "memory-miner-operations.md");
-    const featureDefaultPath = defaults?.tasks.features.file || path.join(opsDir, "memory-miner-feature-operations.md");
-    const summaryPath = path.join(overridesDir, supervision ? "feelings.md" : "memory-miner-operations.md");
-    const featurePath = path.join(overridesDir, supervision ? "features.md" : "memory-miner-feature-operations.md");
+    const scenario = scenarioId(entry);
+    const defaults = resolveMiningPrompts(entry, { defaultsOnly: true });
+    const resolved = resolveMiningPrompts(entry, { memoryDir });
+    const summaryPath = promptOverridePath(memoryDir, scenario, "feelings");
+    const featurePath = promptOverridePath(memoryDir, scenario, "features");
     if (req.method === "GET") {
-      let defaultSummary = buildFeelingPrompt(settings.ai, settings.user, scenarioId(settings), settings.userGender, timeline);
-      let defaultFeature = buildFeaturePrompt(settings.user, scenarioId(settings));
-      try { defaultSummary = fs.readFileSync(summaryDefaultPath, "utf8"); } catch {}
-      try { defaultFeature = fs.readFileSync(featureDefaultPath, "utf8"); } catch {}
-      let summaryPrompt = "", featurePrompt = "";
-      try { summaryPrompt = fs.readFileSync(summaryPath, "utf8"); }
-      catch { try { summaryPrompt = fs.readFileSync(summaryDefaultPath, "utf8"); } catch { summaryPrompt = defaultSummary; } }
-      try { featurePrompt = fs.readFileSync(featurePath, "utf8"); }
-      catch { try { featurePrompt = fs.readFileSync(featureDefaultPath, "utf8"); } catch { featurePrompt = defaultFeature; } }
-      return json(res, 200, { summaryPrompt, featurePrompt, defaultSummary, defaultFeature, timeline });
+      return json(res, 200, {
+        scenario,
+        summaryPrompt: resolved.tasks.feelings.template,
+        featurePrompt: resolved.tasks.features.template,
+        defaultSummary: defaults.tasks.feelings.template,
+        defaultFeature: defaults.tasks.features.template,
+        timeline,
+      });
     }
     if (req.method === "PUT") {
       const body = await readJson(req);
-      let defSummary = buildFeelingPrompt(settings.ai, settings.user, scenarioId(settings), settings.userGender, timeline);
-      let defFeature = buildFeaturePrompt(settings.user, scenarioId(settings));
-      try { defSummary = fs.readFileSync(summaryDefaultPath, "utf8"); } catch {}
-      try { defFeature = fs.readFileSync(featureDefaultPath, "utf8"); } catch {}
       if (String(body.summaryPrompt || "").length > 100000 || String(body.featurePrompt || "").length > 100000) {
         throw new Error("单份挖掘提示词不能超过 100000 个字符");
       }
-      if (supervision) {
-        if (body.summaryPrompt !== undefined) renderPrompt(String(body.summaryPrompt || defSummary), entry);
-        if (body.featurePrompt !== undefined) renderPrompt(String(body.featurePrompt || defFeature), entry);
-      }
-      fs.mkdirSync(overridesDir, { recursive: true });
-      if (body.summaryPrompt !== undefined) fs.writeFileSync(summaryPath, String(body.summaryPrompt || defSummary), "utf8");
-      if (body.featurePrompt !== undefined) fs.writeFileSync(featurePath, String(body.featurePrompt || defFeature), "utf8");
+      const summaryPrompt = String(body.summaryPrompt || defaults.tasks.feelings.template);
+      const featurePrompt = String(body.featurePrompt || defaults.tasks.features.template);
+      if (body.summaryPrompt !== undefined) renderPrompt(summaryPrompt, entry);
+      if (body.featurePrompt !== undefined) renderPrompt(featurePrompt, entry);
+      fs.mkdirSync(path.dirname(summaryPath), { recursive: true });
+      if (body.summaryPrompt !== undefined) fs.writeFileSync(summaryPath, summaryPrompt, "utf8");
+      if (body.featurePrompt !== undefined) fs.writeFileSync(featurePath, featurePrompt, "utf8");
       if (Array.isArray(body.timeline)) {
         const strings = body.timeline.map(String).filter(s => s.trim());
         const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-web-timeline-"));

@@ -127,7 +127,7 @@
       <p>已打开 GitHub 官方授权页。复制下面的一次性验证码并粘贴到 GitHub：</p>
       <button id="oauth-code" class="device-code" type="button">----</button>
       <p id="oauth-state" class="muted">正在创建安全登录流程…</p>
-      <p class="scope-warning"><strong>授权范围：repo</strong><br>琢石坊需要读取和协作当前可能为私有的 Stone Memory Core。OAuth 的 repo scope 会授权访问该账号可访问的仓库，请确认后再继续。</p>
+      <p class="scope-warning"><strong>授权范围：repo · offline_access</strong><br>琢石坊需要读取和协作当前可能为私有的 Stone Memory Core，并在短期令牌到期时自动续期。repo 会授权访问该账号可访问的仓库；offline_access 只用于保持登录，请确认后再继续。</p>
       <a id="oauth-link" class="primary oauth-link" href="https://github.com/login/device" target="_blank" rel="noreferrer">前往 GitHub 授权</a>
       <label class="oauth-url-label">授权地址（打不开时复制到普通浏览器）<input id="oauth-url" type="text" readonly value="https://github.com/login/device"></label>
       <button id="copy-oauth-url" class="secondary" type="button">复制授权地址</button>

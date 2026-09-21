@@ -107,6 +107,35 @@ function sessionMeta(file) {
   return { file, id: quotedField(head, "session_id") || quotedField(head, "id"), parentId: quotedField(head, "forked_from_id"), mtimeMs: stat.mtimeMs };
 }
 
+function findExactThreadSessionFile(root, threadId) {
+  if (!root || !threadId || !fs.existsSync(root)) return null;
+  const target = String(threadId), targetIds = new Set([target, ...(target.match(UUID_RE) || [])]);
+  const candidates = sessionFiles(root).map(sessionMeta)
+    .filter(node => node.id && targetIds.has(node.id));
+  candidates.sort((a, b) => b.mtimeMs - a.mtimeMs || b.file.localeCompare(a.file));
+  return candidates[0]?.file || null;
+}
+
+function listCodexSuccessors(root, threadId) {
+  if (!root || !threadId || !fs.existsSync(root)) return [];
+  const targets = (Array.isArray(threadId) ? threadId : [threadId]).map(value => String(value));
+  const targetIds = new Set(targets.flatMap(target => [target, ...(target.match(UUID_RE) || [])]));
+  const nodes = sessionFiles(root).map(sessionMeta).filter(node => node.id);
+  for (const node of nodes) if (targets.some(target => node.file.includes(target))) targetIds.add(node.id);
+  const reachable = new Set(targetIds), successors = [];
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const node of nodes) {
+      if (!node.parentId || !reachable.has(node.parentId) || reachable.has(node.id)) continue;
+      reachable.add(node.id);
+      successors.push({ ...node, relation: "successor" });
+      changed = true;
+    }
+  }
+  return successors.sort((a, b) => a.mtimeMs - b.mtimeMs || a.file.localeCompare(b.file));
+}
+
 function runtimeSessionMeta(file, runtime = "codex") {
   return normalizedRuntime(runtime) === "claude" ? claudeSessionMeta(file) : sessionMeta(file);
 }
@@ -186,6 +215,8 @@ function findThreadSessionFile(root, threadId) {
 
 module.exports = {
   findThreadSessionFile,
+  findExactThreadSessionFile,
+  listCodexSuccessors,
   sessionMeta,
   runtimeSessionMeta,
   resolveThreadSession,

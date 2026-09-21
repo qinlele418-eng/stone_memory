@@ -84,6 +84,7 @@ function createMemory({ label = "新建记忆体" } = {}) {
       schemaVersion: 1, memoryId, label: record.label, status: "draft",
       purpose: null, ai: "", user: "", userGender: "unspecified",
       relationshipTimeline: [],
+      mcpModules: ["notebook-lab", "dream-lab"], mcpModuleConfigVersion: 1,
       miner: { mode: null, apiProfile: null },
       rebuild: { windowDays: 3, keepToolPairs: 30, contextWindowTokens: null, mcpRebuildDefaultsEnabled: false, mcpSummaryLimit: 0, mcpMinImportance: 0 },
       createdAt: record.createdAt, updatedAt: record.updatedAt,

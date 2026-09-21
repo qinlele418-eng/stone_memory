@@ -1,7 +1,7 @@
 {
   "id": "accompany",
   "version": 1,
-  "label": "陪伴",
+  "label": "情感陪伴",
   "storagePurpose": "accompany",
   "tasks": [
     "feelings",

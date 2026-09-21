@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const { execFileSync } = require("child_process");
-const { getCfg, getThreadDir, listThreadIds } = require("../../config");
+const { getCfg, getThreadDir, listThreadIds, getMemoryRuntimeConfig } = require("../../config");
 const { runSubagent } = require("../../services/subagent-runner");
 const { readFeelings: readDatabaseFeelings, readFeatures: readDatabaseFeatures } = require("../../storage/memory-reader");
 const { MemoryStore } = require("../../storage/memory-store");
@@ -11,7 +11,6 @@ const { buildMcpRebuildRequest, buildMcpRebuildPreviewArgs, buildMcpRebuildExecu
 const { buildMcpMineArgs } = require("../../services/mcp-mine-command");
 const { NotebookService } = require("../../services/notebook-service");
 const { listMemories } = require("../../services/memory-setup");
-const { resolveCurrentBinding } = require("../../services/developer-module-mcp-config");
 
 const CONFIG_PATH = path.join(os.homedir(), ".stone_memory", "stmem.json");
 const PROJECT_ROOT = path.resolve(__dirname, "../../..");
@@ -38,14 +37,10 @@ function log(msg) {
   try { fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] ${msg}\n`, "utf8"); } catch {}
 }
 
-function resolveThread(args, cfg) {
+function resolveThread(args = {}, cfg) {
   const config = cfg || {};
-  let sessionId = SEARCH_THREAD_ID;
-  if (!sessionId && !args?.thread && !args?.memoryId) {
-    try { sessionId = resolveCurrentBinding()?.memoryId || null; } catch {}
-  }
-  sessionId = sessionId || resolveMcpThread(args, config, listThreadIds());
-  const tc = config[sessionId] || {};
+  const sessionId = resolveMcpThread(args, config, listThreadIds());
+  const tc = getMemoryRuntimeConfig(sessionId);
   return {
     threadId: sessionId,
     runtime: tc.runtime || "claude",

@@ -5,12 +5,28 @@ const { buildStdinCmd } = require("../src/services/subagent-runner");
 const { itemKey, inspectClaude, inspectCodex, conversationWindow, latestConversationDate, trimRows, checkThreadIntegrity } = require("../src/services/rebuild-workbench");
 const { validateThreadInput, validateSessionBinding } = require("../src/services/thread-setup");
 const { INIT_SCHEMA, buildInitTemplate } = require("../src/services/init-contract");
-const { findThreadSessionFile, resolveThreadSession } = require("../src/lib/thread-session-file");
+const { findThreadSessionFile, findExactThreadSessionFile, listCodexSuccessors, resolveThreadSession } = require("../src/lib/thread-session-file");
 const { usageFromRow } = require("../src/lib/thread-context-usage");
 const { MemoryStore } = require("../src/storage/memory-store");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+
+test("context management keeps usage and rebuild provenance per binding", () => {
+  const root = path.join(__dirname, "..");
+  const watcher = fs.readFileSync(path.join(root, "scripts", "watcher.js"), "utf8");
+  const service = fs.readFileSync(path.join(root, "src", "services", "rebuild-log.js"), "utf8");
+  const rebuild = fs.readFileSync(path.join(root, "scripts", "stmem-rebuild.js"), "utf8");
+  const codex = fs.readFileSync(path.join(root, "scripts", "rebuild-codex-thread.js"), "utf8");
+  const claude = fs.readFileSync(path.join(root, "scripts", "rebuild-thread.js"), "utf8");
+  assert.match(watcher, /for \(const binding of enabledWatcherBindings\(tid\)\)/);
+  assert.match(watcher, /updateContextUsage\(tid, \{ \.\.\.usage, bindingId: binding\.id \}\)/);
+  assert.match(service, /lastCompletedByBinding/);
+  assert.match(service, /contextUsageByBinding/);
+  assert.match(rebuild, /STMEM_REBUILD_BINDING_ID: binding\.id/);
+  assert.match(codex, /bindingId:process\.env\.STMEM_REBUILD_BINDING_ID\|\|null/);
+  assert.match(claude, /bindingId:process\.env\.STMEM_REBUILD_BINDING_ID\|\|null/);
+});
 
 test("restoring official mining prompts never clears the relationship timeline", () => {
   const app = fs.readFileSync(path.join(__dirname, "..", "src", "web", "public", "app.js"), "utf8");
@@ -411,6 +427,8 @@ test("session lookup follows a Codex forked_from_id lineage to the newest rollou
   fs.writeFileSync(child, `${JSON.stringify({ type: "session_meta", payload: { session_id: childId, forked_from_id: parentId } })}\n`);
   const later = new Date(Date.now() + 1000); fs.utimesSync(child, later, later);
   assert.equal(findThreadSessionFile(root, `rollout-2026-07-15T14-51-49-${parentId}`), child);
+  assert.equal(findExactThreadSessionFile(root, parentId), parent);
+  assert.deepEqual(listCodexSuccessors(root, parentId).map(item => item.id), [childId]);
 });
 
 test("runtime session resolver reports a Claude branch without replacing its parent", t => {

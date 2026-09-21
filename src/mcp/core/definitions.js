@@ -81,7 +81,8 @@ const TOOLS = [
       type: "object",
       properties: {
         query: { type: "string", description: "搜索关键词" },
-        thread: { type: "string", description: "线程 ID；存在多个记忆体时必须提供" },
+        thread: { type: "string", description: "发起请求的 Codex/Claude 线程 ID（通过 Binding 解析）；也兼容 memoryId。省略时使用当前窗口绑定。" },
+        memoryId: { type: "string", description: "显式指定记忆体 ID，优先于 thread；未绑定窗口且存在多个记忆体时需要指定目标。" },
       },
       required: ["query"],
       additionalProperties: false,
@@ -94,7 +95,8 @@ const TOOLS = [
       type: "object",
       properties: {
         query: { type: "string", description: "搜索内容（自然语言）" },
-        thread: { type: "string", description: "线程 ID；存在多个记忆体时必须提供" },
+        thread: { type: "string", description: "发起请求的 Codex/Claude 线程 ID（通过 Binding 解析）；也兼容 memoryId。省略时使用当前窗口绑定。" },
+        memoryId: { type: "string", description: "显式指定记忆体 ID，优先于 thread；未绑定窗口且存在多个记忆体时需要指定目标。" },
       },
       required: ["query"],
       additionalProperties: false,

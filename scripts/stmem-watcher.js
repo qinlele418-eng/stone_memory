@@ -9,7 +9,7 @@ const os = require("os");
 const { loadConfig, listMemoryIds, getMemoryContext, getMemoryRuntimeConfig } = require("../src/config");
 const { saveConfig } = require("../src/services/thread-setup");
 const { writeJson } = require("../src/services/memory-setup");
-const { processMatches } = require("../src/lib/process-identity");
+const { readManagedPid } = require("../src/services/managed-local-process");
 const { readWatcherState, watcherActions, watcherEnabled } = require("../src/services/watcher-runtime");
 const {
   installWindowsWatcherService, windowsWatcherServiceStatus,
@@ -90,8 +90,10 @@ if (subcmd === "service") {
       console.log(`watcher systemd 用户服务已安装并启动：${result.unit}`);
     } else if (action === "status") {
       const result = systemdWatcherServiceStatus(options);
-      console.log(`watcher service: ${result.healthy ? "正常" : "需要修复"}`);
-      console.log(`  unit: ${result.installed ? "已安装" : "未安装"} · ${result.enabled ? "已启用" : "未启用"} · ${result.running ? "运行中" : "未运行"}`);
+      console.log(`watcher supervisor: ${result.running ? `运行中${result.pid ? ` (pid ${result.pid})` : ""}` : "未运行"}`);
+      console.log(`  systemd unit: ${result.installed ? "已安装" : "未安装"} · ${result.enabled ? "已启用" : "未启用"} · ${result.systemdRunning ? "active" : "inactive"}`);
+      if (result.manager === "local") console.log("  当前由本地常驻 supervisor 接管（systemd user manager 不可用）");
+      if (result.queryError) console.log(`  systemd query: ${result.queryError}`);
     } else if (action === "repair") {
       const result = repairSystemdWatcherService(options);
       console.log(result.repaired === false ? "watcher service 已正常" : `watcher service 已修复：${result.unit}`);
@@ -153,9 +155,8 @@ if (subcmd === "set") {
 
 if (subcmd !== "status") throw new Error("用法：stmem watcher [status|on|off|set|service] --memory <id>");
 
-let supervisorPid = null;
-try { supervisorPid = Number(fs.readFileSync(path.join(STONE, "watcher.pid"), "utf8")); } catch {}
-const supervisorRunning = !!supervisorPid && processMatches(supervisorPid, "watcher-supervisor.js");
+const supervisorPid = readManagedPid(path.join(STONE, "watcher.pid"), "watcher-supervisor.js");
+const supervisorRunning = !!supervisorPid;
 const config = loadConfig();
 const ids = threadId ? [threadId] : listMemoryIds();
 console.log(`watcher supervisor: ${supervisorRunning ? `运行中 (pid ${supervisorPid})` : "未运行"}`);

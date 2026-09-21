@@ -14,7 +14,7 @@ test("responsive navigation shell delegates to the stable frontend", () => {
   for (const action of ["home", "memory", "workshop", "me"]) {
     assert.match(html, new RegExp(`data-shell-action="${action}"`));
   }
-  assert.ok(html.indexOf("/app.js?v=40") < html.indexOf("/developer-kit/navigation-shell.js?v=3"));
+  assert.ok(html.indexOf("/app.js?v=47") < html.indexOf("/developer-kit/navigation-shell.js?v=3"));
   assert.match(html, /\/developer-kit\/navigation-shell\.css\?v=5/);
   assert.match(adapter, /MutationObserver/);
   assert.match(adapter, /data-view="\$\{view\}"/);
@@ -28,7 +28,7 @@ test("responsive navigation shell delegates to the stable frontend", () => {
   assert.match(app, /关注项目/);
   assert.match(app, /召唤赞赏码/);
   assert.match(app, /class="workspace-nav"/);
-  for (const tab of ["概况", "记忆", "上下文状态", "接入", "设置"]) {
+  for (const tab of ["概况", "记忆", "上下文管理", "接入", "设置"]) {
     assert.match(app, new RegExp(`<span>${tab}</span>`));
   }
   for (const content of ["已生长了", "原始对话", "原始线程总体积", "当前对话线程信息", "当前窗口上下文", "当前窗口注入", "自动化设置"]) {
@@ -37,9 +37,21 @@ test("responsive navigation shell delegates to the stable frontend", () => {
   assert.match(app, /contextUsageHint\(usage,data\.automaticFullMining\)/);
   assert.match(app, /context-usage-track/);
   assert.match(app, /data\.contextUsage/);
-  assert.match(app, /重建目标窗口/);
-  assert.match(app, /name="rebuild-binding"/);
   assert.match(app, /bindingId:rebuildState\.bindingMemoryId===library\.threadId\?rebuildState\.bindingId:null/);
+  const contextManagement = app.match(/async function renderRebuild\(library\)[\s\S]*?async function renderTrimWorkbench/)?.[0] || "";
+  for (const content of ["当前上下文", "当前注入", "生成重建预览", "检查线程", "高级注入设置", "永久裁剪"]) assert.match(contextManagement, new RegExp(content));
+  assert.doesNotMatch(contextManagement, /<h1>线程重建<\/h1>|一键修复|rebuild-status|open-rules|open-feelings/);
+  assert.match(contextManagement, /bindingRows\.length>1/);
+  assert.match(contextManagement, /id="context-binding-picker"/);
+  assert.match(contextManagement, /操作目标/);
+  assert.match(contextManagement, /contextUsageByBinding/);
+  assert.match(contextManagement, /rebuildByBinding/);
+  assert.match(contextManagement, /paintContext\(selected,\{primary:selected\.id===bindingStatus\.primaryBindingId\}\)/);
+  assert.match(contextManagement, /open-injection-settings/);
+  assert.match(contextManagement, /textContent="注入策略"/);
+  assert.match(contextManagement, /save-injection-settings/);
+  assert.match(contextManagement, /rebuild-preview-modal-content/);
+  assert.match(app, /确认应用线程重建/);
   assert.match(app, /automationSwitch\("automaticFullMining"/);
   assert.match(app, /automationSwitch\("automaticMemoryMaintenance"/);
   assert.match(app, /automationSwitch\("automaticCompression"/);
@@ -64,12 +76,21 @@ test("responsive navigation shell delegates to the stable frontend", () => {
   assert.match(managementOverview, /renderToolPolicy\(library\)/);
   assert.match(managementOverview, /renderMining\(library\)/);
   assert.match(managementOverview, /renderCompression\(library\)/);
+  assert.doesNotMatch(app, /function renderMemoryHub|function renderDataMaintenance|function renderMaintenance/);
+  assert.doesNotMatch(app, /可解释记忆|<h1>摘要记忆<\/h1>|返回维护/);
+  assert.ok((app.match(/renderManagement\(library\)/g) || []).length >= 9);
   assert.match(app, /function renderAccess\(library\)/);
   assert.match(app, /最多同时监听 5 个窗口/);
   assert.match(app, /data-binding-toggle/);
   assert.match(app, /data-binding-delete/);
   assert.match(app, /data-binding-primary/);
   assert.match(app, /settingsRenderVersion/);
+  const settingsPage = app.match(/async function renderSettings\(library\)[\s\S]*?const rebuildState/)?.[0] || "";
+  assert.doesNotMatch(settingsPage, /<h1>设置<\/h1>|setting-threadId|setting-session/);
+  for (const content of ["基本信息", "摘要生成", "上下文默认值", "危险操作", "线程接入和文件定位已由 Binding 管理"]) assert.match(settingsPage, new RegExp(content));
+  assert.ok(settingsPage.indexOf("生活监督") < settingsPage.indexOf("情感陪伴"));
+  assert.ok(settingsPage.indexOf("情感陪伴") < settingsPage.indexOf("编程日志"));
+  assert.match(settingsPage, /name="scenario"/);
   assert.doesNotMatch(app, /querySelector\("\.side-title"\)/);
   assert.match(app, /function showBindingGuide\(library\)/);
   assert.match(app, /请用bind mcp将该窗口和\$\{memoryName\}记忆体绑定/);

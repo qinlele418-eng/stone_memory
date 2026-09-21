@@ -117,7 +117,7 @@ async function main() {
   if (args.includes("--template")) {
     const runtimeIndex = args.indexOf("--runtime");
     const scenarioIndex = args.indexOf("--scenario");
-    console.log(JSON.stringify(buildInitTemplate(runtimeIndex >= 0 ? args[runtimeIndex + 1] : "codex", scenarioIndex >= 0 ? args[scenarioIndex + 1] : "accompany"), null, 2));
+    console.log(JSON.stringify(buildInitTemplate(runtimeIndex >= 0 ? args[runtimeIndex + 1] : "codex", scenarioIndex >= 0 ? args[scenarioIndex + 1] : "life-supervision"), null, 2));
     return;
   }
   if (args.includes("--schema")) {

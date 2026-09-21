@@ -12,6 +12,7 @@ const DEFAULT_REPOSITORY = "stone-memory-empire/stmem_core";
 const DEFAULT_LOCAL_REPOSITORY = path.resolve(__dirname, "..", "..", "..", "..");
 const GITHUB_CLIENT_ID = "Ov23liGbwfGo2V7ZdsoT";
 const STMEM_CLI = path.resolve(__dirname, "..", "..", "..", "..", "bin", "stmem");
+const TOKEN_REFRESH_MARGIN_MS = 5 * 60 * 1000;
 
 function settingsPath(context) { return context.resolveDataPath("settings.json"); }
 
@@ -49,6 +50,11 @@ function publicSettings(settings) {
 
 function githubToken(settings) { return String(settings.github?.accessToken || ""); }
 
+function expiryFromNow(seconds, now = Date.now()) {
+  const value = Number(seconds);
+  return Number.isFinite(value) && value > 0 ? new Date(now + value * 1000).toISOString() : null;
+}
+
 function pendingAuthFile(context, flowId) {
   if (!/^[0-9a-f-]{36}$/iu.test(String(flowId || ""))) throw new Error("GitHub 登录流程编号无效");
   return context.resolveDataPath(`oauth-pending/${flowId}.json`);
@@ -66,7 +72,7 @@ async function githubForm(url, fields) {
 }
 
 async function oauthStart(context) {
-  const result = await githubForm("https://github.com/login/device/code", { client_id:GITHUB_CLIENT_ID, scope:"repo" });
+  const result = await githubForm("https://github.com/login/device/code", { client_id:GITHUB_CLIENT_ID, scope:"repo offline_access" });
   if (!result.device_code || !result.user_code || !result.verification_uri) throw new Error("GitHub 没有返回完整的设备授权信息");
   const flowId = crypto.randomUUID();
   const file = pendingAuthFile(context, flowId);
@@ -77,7 +83,7 @@ async function oauthStart(context) {
     expiresAt:Date.now()+(Math.min(900,Number(result.expires_in)||900)*1000),
     nextPollAt:0,
   })}\n`, { mode:0o600 });
-  return { flowId, userCode:result.user_code, verificationUri:result.verification_uri, interval:Math.max(5,Number(result.interval)||5), expiresIn:Math.min(900,Number(result.expires_in)||900), scope:"repo" };
+  return { flowId, userCode:result.user_code, verificationUri:result.verification_uri, interval:Math.max(5,Number(result.interval)||5), expiresIn:Math.min(900,Number(result.expires_in)||900), scope:"repo offline_access" };
 }
 
 async function oauthPoll(context, settings, flowId) {
@@ -105,10 +111,52 @@ async function oauthPoll(context, settings, flowId) {
   if (!result.access_token) throw new Error("GitHub 登录响应缺少 access token");
   const identity = await github.verifyToken(result.access_token);
   if (!identity.authenticated) throw new Error(`GitHub 登录令牌无法验证身份：${identity.reason || "未知原因"}`);
-  settings.github = { accessToken:result.access_token, scope:String(result.scope||""), tokenType:String(result.token_type||"bearer"), login:identity.login };
+  const now = Date.now();
+  settings.github = {
+    accessToken:result.access_token,
+    accessTokenExpiresAt:expiryFromNow(result.expires_in, now),
+    refreshToken:String(result.refresh_token || ""),
+    refreshTokenExpiresAt:expiryFromNow(result.refresh_token_expires_in, now),
+    scope:String(result.scope||""), tokenType:String(result.token_type||"bearer"), login:identity.login,
+  };
   saveSettings(context, settings);
   fs.rmSync(file,{force:true});
   return { status:"authorized", identity };
+}
+
+async function refreshGithubToken(context, settings, { force = false, now = Date.now() } = {}) {
+  const current = settings.github || {};
+  if (!current.accessToken || !current.refreshToken) return settings;
+  const accessExpiresAt = Date.parse(current.accessTokenExpiresAt || "");
+  if (!force && (!Number.isFinite(accessExpiresAt) || accessExpiresAt - now > TOKEN_REFRESH_MARGIN_MS)) return settings;
+  const refreshExpiresAt = Date.parse(current.refreshTokenExpiresAt || "");
+  if (Number.isFinite(refreshExpiresAt) && refreshExpiresAt <= now) throw new Error("GitHub 长期登录已过期，请重新登录");
+  const result = await githubForm("https://github.com/login/oauth/access_token", {
+    client_id:GITHUB_CLIENT_ID,
+    grant_type:"refresh_token",
+    refresh_token:current.refreshToken,
+  });
+  if (result.error === "bad_refresh_token") {
+    delete settings.github;
+    saveSettings(context, settings);
+    throw new Error("GitHub 长期登录已失效，请重新登录");
+  }
+  if (result.error || !result.access_token || !result.refresh_token) throw new Error("GitHub 登录自动续期失败，请稍后重试");
+  const identity = await github.verifyToken(result.access_token);
+  if (!identity.authenticated) throw new Error(`GitHub 续期令牌无法验证身份：${identity.reason || "未知原因"}`);
+  if (current.login && identity.login !== current.login) throw new Error("GitHub 续期后的账号与原登录账号不一致，已拒绝替换凭据");
+  settings.github = {
+    ...current,
+    accessToken:result.access_token,
+    accessTokenExpiresAt:expiryFromNow(result.expires_in, now),
+    refreshToken:result.refresh_token,
+    refreshTokenExpiresAt:expiryFromNow(result.refresh_token_expires_in, now),
+    scope:String(result.scope || current.scope || ""),
+    tokenType:String(result.token_type || current.tokenType || "bearer"),
+    login:identity.login,
+  };
+  saveSettings(context, settings);
+  return settings;
 }
 
 function logout(context, settings) {
@@ -667,9 +715,14 @@ async function run(context, input) {
     if (input.action === "oauth-start") return oauthStart(context);
     if (input.action === "oauth-poll") return oauthPoll(context, settings, payload.flowId);
     if (input.action === "logout") return logout(context, settings);
+    settings = await refreshGithubToken(context, settings);
     if (input.action === "status") {
       const repository = settings.repository ? github.repositorySlug(settings.repository) : "";
-      const auth = await github.verifyToken(githubToken(settings));
+      let auth = await github.verifyToken(githubToken(settings));
+      if (!auth.authenticated && settings.github?.refreshToken) {
+        settings = await refreshGithubToken(context, settings, { force:true });
+        auth = await github.verifyToken(githubToken(settings));
+      }
       return {
         auth, settings: publicSettings(settings),
         repository: repository ? { slug: repository, url: `https://github.com/${repository}`, starred: auth.authenticated ? github.isStarred(repository, githubToken(settings)) : false } : null,
@@ -729,4 +782,4 @@ async function run(context, input) {
   } finally { db.close(); }
 }
 
-module.exports = { run, loadSettings, publicSettings, fallbackReport, workbench, applyPullRequest, resolvePullRequest, tracked, removeChange, removePullRequest, updateOfficial, resolveOfficialUpdate, restartPlan, classifyChangedFiles, supervisorControl, oauthStart, oauthPoll, configure, generate, DEFAULT_REPOSITORY, GITHUB_CLIENT_ID };
+module.exports = { run, loadSettings, publicSettings, fallbackReport, workbench, applyPullRequest, resolvePullRequest, tracked, removeChange, removePullRequest, updateOfficial, resolveOfficialUpdate, restartPlan, classifyChangedFiles, supervisorControl, oauthStart, oauthPoll, refreshGithubToken, configure, generate, DEFAULT_REPOSITORY, GITHUB_CLIENT_ID };

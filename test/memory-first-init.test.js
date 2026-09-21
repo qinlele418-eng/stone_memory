@@ -36,6 +36,9 @@ test("memory-first init creates an unbound draft and later keeps its stable iden
   assert.equal(memory.status, "draft");
   assert.deepEqual(memory.bindings, []);
   const draftRoot = path.join(home, ".stone_memory", "memories", memory.memoryId);
+  const initialSettings = JSON.parse(fs.readFileSync(path.join(draftRoot, "memory.json"), "utf8"));
+  assert.deepEqual(initialSettings.mcpModules, ["notebook-lab", "dream-lab"]);
+  assert.equal(initialSettings.mcpModuleConfigVersion, 1);
   for (const relative of [
     "memory/archive/full", "memory/import/done", "memory/mined/feelings", "rules", "logs",
     "memory/retain-config.json", "memory/audit-marks.json", "rules/instructions.md", "rules/operations.md",
