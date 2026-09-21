@@ -9,23 +9,73 @@
   <link rel="stylesheet" href="styles.css">
   <script src="app.js" defer></script>
 </head>
-<body>
-  <stone-module-page eyebrow="DEVELOPER COMMUNITY · STONE WORKSHOP" title="琢石坊" description="给 Stone Memory 协作者的项目合作社区：从采石、读矿、讨论，到把精矿放进自己的分支试炼。">
-    <span slot="meta" class="chip">Global · 所有记忆体共享</span>
+<body class="community-app">
+  <aside class="community-nav" aria-label="琢石坊导航">
+    <div class="community-brand"><span class="community-mark">琢</span><span><b>STONE WORKSHOP</b><small>琢石坊</small></span></div>
+    <nav class="community-nav-links">
+      <button class="active" type="button" data-community-view="project"><span aria-hidden="true">◇</span><b>项目</b></button>
+      <button type="button" data-community-view="mine"><span aria-hidden="true">○</span><b>我的</b></button>
+    </nav>
+    <div class="community-nav-bottom">
+      <button type="button" data-open-settings><span aria-hidden="true">⚙</span><b>设置</b></button>
+      <button type="button" data-stone-back><span aria-hidden="true">←</span><b>返回琢石坊</b></button>
+      <small><i></i>连接 GitHub 协作</small>
+    </div>
+  </aside>
 
-    <section class="hero grid-two">
-      <article class="panel identity">
-        <div class="identity-copy"><img id="auth-avatar" alt="" hidden><div><p class="eyebrow">GITHUB 身份</p><h2 id="auth-title">正在验明身份…</h2><p id="auth-copy" class="muted"></p></div></div>
-        <button id="login" class="secondary" type="button">通过 GitHub 登录</button>
-      </article>
-      <article class="panel repository">
-        <div><p class="eyebrow">项目矿脉</p><h2 id="repo-title">尚未配置仓库</h2><a id="repo-link" target="_blank" rel="noreferrer"></a></div>
-        <button id="star" class="primary" type="button" disabled>为项目点星</button>
-      </article>
-    </section>
+  <div class="community-application-frame">
+    <main class="community-main">
+      <header class="community-page-head">
+        <div><p class="eyebrow">DEVELOPER COMMUNITY · STONE WORKSHOP</p><h1>琢石坊</h1><p>阅读项目动态，也管理自己带回本地分支的改动。</p></div>
+        <div class="community-head-actions"><button class="icon-button mobile-back" type="button" data-stone-back aria-label="返回琢石坊">←</button><span class="chip">Global</span><button class="icon-button" type="button" data-open-settings aria-label="打开设置">⚙</button></div>
+      </header>
 
-    <details class="panel settings">
-      <summary><span><b>AI 读矿助手（可选）</b><small>把 PR / Issue 翻译成人话，并给出具体审阅建议</small></span><span>配置 API</span></summary>
+      <section class="community-view active" data-community-panel="project">
+        <section class="project-identity-strip">
+          <div class="identity-copy"><img id="auth-avatar" alt="" hidden><div><p class="eyebrow">GITHUB 身份</p><h2 id="auth-title">正在验明身份…</h2><p id="auth-copy" class="muted"></p></div></div>
+          <button id="login" class="secondary" type="button">通过 GitHub 登录</button>
+          <div class="repository-copy"><p class="eyebrow">项目</p><h2 id="repo-title">尚未配置仓库</h2><a id="repo-link" target="_blank" rel="noreferrer"></a></div>
+          <button id="star" class="primary" type="button" disabled>为项目点星</button>
+        </section>
+
+        <section class="content-section mine">
+          <div class="section-head"><div><p class="eyebrow">矿脉总览</p><h2>协作现场</h2></div><button id="refresh" class="secondary" type="button">同步刷新</button></div>
+          <div id="load-error" class="notice danger" hidden></div>
+          <div class="dossier-columns">
+            <div><h3>PR · 精矿 <span id="pr-count" class="count">0 个开放 PR</span></h3><div id="pr-list" class="cards dossier-list empty">尚未刷新</div><div class="pager"><button id="prev-pr" class="secondary" type="button" disabled>上一页</button><span id="page-pr">第 1 页</span><button id="next-pr" class="secondary" type="button" disabled>下一页</button></div></div>
+            <div><h3>Issue · 采石场 <span id="issue-count" class="count">0 个开放 Issue</span></h3><div id="issue-list" class="cards dossier-list empty">尚未刷新</div><div class="pager"><button id="prev-issue" class="secondary" type="button" disabled>上一页</button><span id="page-issue">第 1 页</span><button id="next-issue" class="secondary" type="button" disabled>下一页</button></div></div>
+          </div>
+        </section>
+      </section>
+
+      <section class="community-view" data-community-panel="mine" hidden>
+        <section class="content-section local-overview">
+          <div class="section-head"><div><p class="eyebrow">LOCAL BRANCH</p><h2>我的改动</h2></div><button id="refresh-local" class="secondary" type="button">刷新状态</button></div>
+          <div id="local-state" class="overview-grid"><p class="muted">进入“我的”后读取本地分支状态。</p></div>
+          <div class="overview-columns"><div><h3>官方领先提交 <span id="official-leading-count" class="count">0 条</span></h3><div id="official-commits" class="compact-list empty">当前已跟上官方</div></div><div><h3>本地未提交改动</h3><div id="local-changes" class="compact-list empty">暂无</div></div><div><h3>已提交至 Fork</h3><div id="pushed-commits" class="compact-list empty">暂无</div></div></div>
+          <div class="actions"><button id="update-official" class="secondary" type="button">拉取官方更新</button><button id="restart" class="restart" type="button">智能应用改动</button></div>
+        </section>
+
+        <section class="content-section contributions"><div class="section-head"><div><p class="eyebrow">MY CONTRIBUTIONS</p><h2>我提交过的 PR / Issue</h2></div><button id="refresh-contributions" class="secondary" type="button">刷新</button></div><div id="my-contributions" class="contribution-grid"><p class="muted">进入“我的”后读取…</p></div><div class="pager"><button id="prev-contributions" class="secondary" type="button" disabled>上一页</button><span id="page-contributions">第 1 页</span><button id="next-contributions" class="secondary" type="button" disabled>下一页</button></div></section>
+
+        <section class="personal-tools">
+          <article class="content-section">
+            <div class="section-head"><div><p class="eyebrow">给 AGENT 的案头</p><h2>工作台</h2></div><button id="copy-workbench" class="secondary" type="button">一键复制</button></div>
+            <div id="workbench" class="cards empty">还没有收入项目</div>
+          </article>
+          <article class="content-section">
+            <div class="section-head"><div><p class="eyebrow">RECORDED PR</p><h2>合并记录</h2></div><button id="refresh-tracked" class="secondary" type="button">检查动态</button></div>
+            <div id="tracked" class="cards empty">还没有通过琢石坊合入的 PR</div>
+          </article>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="settings-dialog">
+    <article class="dialog-card settings-dialog-card">
+      <button id="close-settings" class="close" aria-label="关闭">×</button>
+      <p class="eyebrow">WORKSHOP SETTINGS</p><h2>琢石坊设置</h2><p class="muted">配置可选的 AI 读矿，以及分支试炼使用的本地仓库。</p>
       <div class="api-explainer">
         <strong>这个 API 用来做什么？</strong>
         <p>配置后，AI 会阅读 PR/Issue 的正文、文件列表、提交记录和 CI，告诉你它实现了什么、改了哪些地方、有什么值得做，以及有哪些修改建议。AI 只负责阅读和建议，不会替你 Star、回复、合并或修改代码。</p>
@@ -41,37 +91,8 @@
       </div>
       <p class="privacy-note">内置阅读规则由琢石坊维护，不需要手工填写 Prompt。API Key 不会进入 GitHub、命令行参数、SQLite、浏览器存储或日志。</p>
       <div class="actions"><button id="save-settings" class="primary" type="button">保存配置</button></div>
-    </details>
-
-    <section class="panel local-overview">
-      <div class="section-head"><div><p class="eyebrow">LOCAL BRANCH</p><h2>我的改动</h2></div><button id="refresh-local" class="secondary" type="button">刷新状态</button></div>
-      <div id="local-state" class="overview-grid"><p class="muted">正在读取本地分支状态…</p></div>
-      <div class="overview-columns"><div><h3>官方近期提交 <span class="count">7天</span></h3><div id="official-commits" class="compact-list empty">暂无</div></div><div><h3>本地未提交改动</h3><div id="local-changes" class="compact-list empty">暂无</div></div><div><h3>已提交至 Fork</h3><div id="pushed-commits" class="compact-list empty">暂无</div></div><div><h3>已合并的精矿</h3><div id="merged-prs" class="compact-list empty">暂无</div></div></div>
-      <div class="actions"><button id="update-official" class="secondary" type="button">拉取官方更新</button><button id="restart" class="restart" type="button">智能应用改动</button></div>
-    </section>
-
-    <section class="panel mine">
-      <div class="section-head"><div><p class="eyebrow">矿脉总览</p><h2>协作现场</h2></div><button id="refresh" class="secondary" type="button">刷新</button></div>
-      <div id="load-error" class="notice danger" hidden></div>
-      <div class="dossier-columns">
-        <div><h3>PR · 精矿 <span id="pr-count" class="count">0 个开放 PR</span></h3><div id="pr-list" class="cards dossier-list empty">尚未刷新</div><div class="pager"><button id="prev-pr" class="secondary" type="button" disabled>上一页</button><span id="page-pr">第 1 页</span><button id="next-pr" class="secondary" type="button" disabled>下一页</button></div></div>
-        <div><h3>Issue · 采石场 <span id="issue-count" class="count">0 个开放 Issue</span></h3><div id="issue-list" class="cards dossier-list empty">尚未刷新</div><div class="pager"><button id="prev-issue" class="secondary" type="button" disabled>上一页</button><span id="page-issue">第 1 页</span><button id="next-issue" class="secondary" type="button" disabled>下一页</button></div></div>
-      </div>
-    </section>
-
-    <section class="panel contributions"><div class="section-head"><div><p class="eyebrow">MY CONTRIBUTIONS</p><h2>我提交过的 PR / Issue</h2></div><button id="refresh-contributions" class="secondary" type="button">刷新</button></div><div id="my-contributions" class="contribution-grid"><p class="muted">正在读取…</p></div><div class="pager"><button id="prev-contributions" class="secondary" type="button" disabled>上一页</button><span id="page-contributions">第 1 页</span><button id="next-contributions" class="secondary" type="button" disabled>下一页</button></div></section>
-
-    <section class="grid-two lower">
-      <article class="panel">
-        <div class="section-head"><div><p class="eyebrow">给 AGENT 的案头</p><h2>工作台</h2></div><button id="copy-workbench" class="secondary" type="button">一键复制</button></div>
-        <div id="workbench" class="cards empty">还没有收入项目</div>
-      </article>
-      <article class="panel">
-        <div class="section-head"><div><p class="eyebrow">RECORDED PR</p><h2>琢石坊记录</h2></div><button id="refresh-tracked" class="secondary" type="button">检查动态</button></div>
-        <div id="tracked" class="cards empty">还没有通过琢石坊合入的 PR</div>
-      </article>
-    </section>
-  </stone-module-page>
+    </article>
+  </dialog>
 
   <dialog id="dossier-dialog">
     <article class="dialog-card">

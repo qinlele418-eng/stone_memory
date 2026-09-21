@@ -61,12 +61,53 @@ function pendingAuthFile(context, flowId) {
 }
 
 async function githubForm(url, fields) {
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { accept:"application/json", "content-type":"application/x-www-form-urlencoded", "user-agent":"Stone-Memory-Developer-Community" },
-    body: new URLSearchParams(fields),
-    signal: AbortSignal.timeout(30_000),
-  });
+  return githubFormRequest(url, fields);
+}
+
+function curlGithubForm(url, body, run = execFileSync) {
+  let output;
+  try {
+    output = run("curl", [
+      "--silent", "--show-error", "--max-time", "30", "--request", "POST",
+      "--header", "accept: application/json",
+      "--header", "content-type: application/x-www-form-urlencoded",
+      "--header", "user-agent: Stone-Memory-Developer-Community",
+      "--data-binary", "@-", "--write-out", "\n%{http_code}", url,
+    ], {
+      input: body.toString(), encoding:"utf8", timeout:35_000,
+      maxBuffer:1024*1024, windowsHide:true,
+    });
+  } catch {
+    throw new Error("GitHub 登录服务暂不可用，请检查代理或网络连接");
+  }
+  const match = String(output || "").match(/\n(\d{3})\s*$/u);
+  if (!match) throw new Error("GitHub 登录服务返回了无法识别的响应");
+  const status = Number(match[1]);
+  const text = String(output).slice(0, match.index);
+  if (status < 200 || status >= 300) throw new Error(`GitHub 登录服务暂不可用（HTTP ${status}）`);
+  try { return JSON.parse(text); }
+  catch { throw new Error("GitHub 登录服务没有返回有效 JSON"); }
+}
+
+async function githubFormRequest(url, fields, {
+  fetchImpl = global.fetch,
+  curlForm = curlGithubForm,
+} = {}) {
+  const body = new URLSearchParams(fields);
+  let response;
+  try {
+    response = await fetchImpl(url, {
+      method: "POST",
+      headers: { accept:"application/json", "content-type":"application/x-www-form-urlencoded", "user-agent":"Stone-Memory-Developer-Community" },
+      body,
+      signal: AbortSignal.timeout(30_000),
+    });
+  } catch {
+    // Node 22 fetch does not use HTTP(S)_PROXY unless the process starts with
+    // --use-env-proxy. curl is already part of the supported Git/GitHub toolchain
+    // and reads those proxy variables. Keep OAuth secrets in stdin, never argv.
+    return curlForm(url, body);
+  }
   if (!response.ok) throw new Error(`GitHub 登录服务暂不可用（HTTP ${response.status}）`);
   return response.json();
 }
@@ -483,7 +524,6 @@ function removePullRequest(db, settings, payload) {
 
 function localOverview(db, settings) {
   const repository = requiredRepository(settings);
-  const token = githubToken(settings);
   const localRepo = path.resolve(String(settings.localRepoPath || ""));
   if (!settings.localRepoPath || !fs.existsSync(path.join(localRepo, ".git"))) throw new Error("请先配置有效的本地仓库路径");
   const branch = github.run("git", ["branch", "--show-current"], { cwd:localRepo });
@@ -516,18 +556,15 @@ function localOverview(db, settings) {
       pushedCommits = github.run("git", ["log", "--first-parent", "-20", "--format=%H%x1f%an%x1f%ad%x1f%s", "--date=short", `${officialRef}..${upstream}`], { cwd:localRepo }).split(/\r?\n/u).filter(Boolean).map(line => { const [sha,author,date,message] = line.split("\x1f"); return { sha,author,date,message }; }).filter(item => !hidden.has(item.sha));
     } catch {}
   }
-  const merged = [];
+  let officialCommits = [];
   try {
-    const mergeRows = github.run("git", ["log", "--all", "--merges", "-100", "--format=%H"], { cwd:localRepo }).split(/\r?\n/u).filter(Boolean);
-    const closed = github.ghJson(["api", `repos/${repository}/pulls?state=closed&sort=updated&direction=desc&per_page=100`], { token:githubToken(settings) }) || [];
-    const bySha = new Map(closed.filter(item => item.merged_at && item.merge_commit_sha).map(item => [item.merge_commit_sha, item]));
-    for (const sha of mergeRows) { const item = bySha.get(sha); if (item) merged.push({ number:item.number, title:item.title, author:item.user?.login || "", mergeCommit:sha, mergedAt:item.merged_at, url:item.html_url }); }
+    officialCommits = github.run("git", ["log", "-20", "--format=%H%x1f%an%x1f%ad%x1f%s", "--date=short", `HEAD..${officialRef}`], { cwd:localRepo })
+      .split(/\r?\n/u).filter(Boolean).map(line => { const [sha,author,date,message] = line.split("\x1f"); return { sha,author,date,message }; });
   } catch {}
   return {
     repository, branch, defaultBranch, behind, ahead, upstream,
     dirty:statusRows.length > 0, changes:statusRows, localCommits:commits,
-    pushedCommits, mergedPrs:merged,
-    officialCommits: (() => { try { return github.recentCommits(repository, token); } catch { return []; } })(),
+    pushedCommits, officialCommits,
   };
 }
 
@@ -782,4 +819,4 @@ async function run(context, input) {
   } finally { db.close(); }
 }
 
-module.exports = { run, loadSettings, publicSettings, fallbackReport, workbench, applyPullRequest, resolvePullRequest, tracked, removeChange, removePullRequest, updateOfficial, resolveOfficialUpdate, restartPlan, classifyChangedFiles, supervisorControl, oauthStart, oauthPoll, refreshGithubToken, configure, generate, DEFAULT_REPOSITORY, GITHUB_CLIENT_ID };
+module.exports = { run, loadSettings, publicSettings, fallbackReport, workbench, localOverview, applyPullRequest, resolvePullRequest, tracked, removeChange, removePullRequest, updateOfficial, resolveOfficialUpdate, restartPlan, classifyChangedFiles, supervisorControl, oauthStart, oauthPoll, refreshGithubToken, configure, generate, githubFormRequest, curlGithubForm, DEFAULT_REPOSITORY, GITHUB_CLIENT_ID };

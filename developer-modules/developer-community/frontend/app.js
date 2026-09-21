@@ -2,7 +2,7 @@
   "use strict";
   const runtime = window.StoneDeveloperModule;
   const $ = selector => document.querySelector(selector);
-  let state = { status: null, dossiers: { pullRequests:[], issues:[] }, pages:{ pr:0, issue:0 }, totalCount:{pr:0,issue:0}, hasMore:{ pr:false, issue:false }, active: null, mergeConflict:null };
+  let state = { status: null, dossiers: { pullRequests:[], issues:[] }, pages:{ pr:0, issue:0 }, totalCount:{pr:0,issue:0}, hasMore:{ pr:false, issue:false }, active: null, mergeConflict:null, myLoaded:false };
   let oauthTimer = null;
 
   function toast(message) {
@@ -56,7 +56,7 @@
   }
 
   function dossierCard(item, kind) {
-    return `<button class="card" data-kind="${kind}" data-number="${item.number}"><strong>#${item.number} ${escapeHtml(item.title)}</strong><span>@${escapeHtml(item.author)} · ${new Date(item.updatedAt).toLocaleString("zh-CN")}${item.draft ? " · 草稿" : ""}</span></button>`;
+    return `<button class="official-commit-card dossier-card" data-kind="${kind}" data-number="${item.number}"><b>#${item.number} ${escapeHtml(item.title)}</b><small>@${escapeHtml(item.author)} · ${new Date(item.updatedAt).toLocaleString("zh-CN")}${item.draft ? " · 草稿" : ""}</small></button>`;
   }
 
   function renderDossiers(data, appendKind = "") {
@@ -115,8 +115,16 @@
 
   function renderWorkbench(items) {
     $("#workbench").classList.toggle("empty", !items.length);
-    $("#workbench").innerHTML = items.length ? items.map(item => `<article class="card"><strong>${item.kind.toUpperCase()} #${item.number} · ${escapeHtml(item.title)}</strong><small>@${escapeHtml(item.author)}</small></article>`).join("") : "还没有收入项目";
+    $("#workbench").innerHTML = items.length ? items.map(item => `<article class="stream-card workbench-item"><div><b>${item.kind.toUpperCase()} #${item.number} · ${escapeHtml(item.title)}</b><small>@${escapeHtml(item.author)}</small></div><button class="workbench-remove" type="button" data-workbench-kind="${item.kind}" data-workbench-number="${item.number}" aria-label="从工作台删除 ${item.kind.toUpperCase()} #${item.number}">删除</button></article>`).join("") : "还没有收入项目";
     state.workbench = items;
+    $("#workbench").querySelectorAll("[data-workbench-kind]").forEach(button => button.addEventListener("click", async () => {
+      const kind = button.dataset.workbenchKind, number = Number(button.dataset.workbenchNumber);
+      if (!confirm(`确认从工作台删除 ${kind.toUpperCase()} #${number}？不会删除 GitHub 上的内容。`)) return;
+      try {
+        const result = await command("workbench", { mode:"remove", kind, number });
+        renderWorkbench(result.workbench); toast("已从工作台删除");
+      } catch (error) { toast(error.message); }
+    }));
   }
 
   function renderLocalOverview(data) {
@@ -128,20 +136,20 @@
     ];
     $("#local-state").innerHTML = stats.map(([value,label]) => `<article class="overview-stat"><b>${escapeHtml(value)}</b><span>${label}</span></article>`).join("");
     const render = (selector, rows, empty, mapper) => { const node=$(selector); node.classList.toggle("empty", !rows.length); node.innerHTML=rows.length ? rows.map(mapper).join("") : empty; };
-    render("#official-commits", data.officialCommits, "近 7 天没有新提交，或暂时无法读取", item => `<button class="official-commit-card" data-sha="${escapeHtml(item.sha)}"><b>${escapeHtml(item.message)}</b><small>@${escapeHtml(item.author)} · ${escapeHtml(item.date)}</small></button>`);
+    $("#official-leading-count").textContent = `${data.officialCommits.length} 条`;
+    render("#official-commits", data.officialCommits, "当前分支已跟上官方", item => `<button class="official-commit-card" data-sha="${escapeHtml(item.sha)}"><b>${escapeHtml(item.message)}</b><small>@${escapeHtml(item.author)} · ${escapeHtml(item.date)}</small></button>`);
     $("#official-commits").querySelectorAll("[data-sha]").forEach(item => item.addEventListener("click", () => openOfficialCommit(item.dataset.sha)));
     render("#local-changes", data.changes, "暂无未提交改动", item => `<article><code>${escapeHtml(item.code)} ${escapeHtml(item.path)}</code></article>`);
     render("#pushed-commits", data.pushedCommits, "暂无已推送提交", item => `<article><b>${escapeHtml(item.message)}</b><small>${escapeHtml(item.date)} · ${escapeHtml(item.sha.slice(0,7))}</small></article>`);
-    render("#merged-prs", data.mergedPrs, "暂无匹配到的已合并 PR", item => `<article><b>PR #${item.number} ${escapeHtml(item.title)}</b><small>@${escapeHtml(item.author)} · ${escapeHtml(item.mergedAt)}</small></article>`);
   }
   async function loadLocalOverview() { try { renderLocalOverview(await command("local-overview")); } catch (error) { $("#local-state").innerHTML=`<p class="notice danger">${escapeHtml(error.message)}</p>`; } }
   async function openOfficialCommit(sha) { try { const result=await command("official-commit", { sha }); const commit=result.dossier; $("#dialog-kind").textContent=`官方提交 · Core · ${result.source === "api-cache" ? "AI 缓存" : result.source === "api" ? "AI 刚刚生成" : "原文模式"}`; $("#dialog-title").textContent=commit.message.split("\n")[0]; $("#dialog-author").textContent=`提交者：@${commit.author} · ${commit.date}`; $("#report").innerHTML=(result.report ? reportBlock("提交实现了什么", result.report.summary) + reportBlock("影响范围", result.report.impact) + reportBlock("风险与注意事项", result.report.risks) : "") + filesBlock(commit.files); $("#commits").innerHTML=`<p><code>${escapeHtml(commit.sha.slice(0,12))}</code></p>`; $("#checks").innerHTML="<p class=muted>官方单次提交没有独立 CI 汇总</p>"; $("#comments").innerHTML=`<p><a href="${escapeHtml(commit.url)}" target="_blank" rel="noreferrer">在 GitHub 查看提交</a></p>`; $("#reply").value=""; $("#reply").hidden=true; $("#send-reply").hidden=true; $("#add-workbench").hidden=true; $("#apply-pr").hidden=true; $("#dossier-dialog").showModal(); } catch(error) { toast(error.message); } }
   let contributionPage = 1;
-  async function loadContributions(page = 1) { try { const data=await command("my-contributions", { page }); const rows=[...(data.pullRequests||[]),...(data.issues||[])]; const node=$("#my-contributions"); node.innerHTML=rows.length?rows.map(item=>`<button class="card contribution-card" data-kind="${item.kind}" data-number="${item.number}"><span class="contribution-number">${item.kind.toUpperCase()} #${item.number}</span><strong class="contribution-title">${escapeHtml(item.title)}</strong><span class="contribution-meta">${new Date(item.updatedAt).toLocaleDateString("zh-CN")} · ${item.hasReplies?"<b class=reply-hint>有回复</b>":"暂无回复"}</span></button>`).join(""):"<p class=muted>还没有找到你提交的 PR / Issue</p>"; contributionPage=page; $("#prev-contributions").disabled=page<=1; $("#next-contributions").disabled=!data.hasMore; $("#page-contributions").textContent=`第 ${page} 页`; node.querySelectorAll("[data-kind]").forEach(item=>item.addEventListener("click",()=>openDossier(item.dataset.kind,Number(item.dataset.number)))); } catch(error) { $("#my-contributions").innerHTML=`<p class="notice danger">${escapeHtml(error.message)}</p>`; } }
+  async function loadContributions(page = 1) { try { const data=await command("my-contributions", { page }); const rows=[...(data.pullRequests||[]),...(data.issues||[])]; const node=$("#my-contributions"); node.innerHTML=rows.length?rows.map(item=>`<button class="official-commit-card contribution-card" data-kind="${item.kind}" data-number="${item.number}"><span class="contribution-number">${item.kind.toUpperCase()} #${item.number}</span><b class="contribution-title">${escapeHtml(item.title)}</b><small class="contribution-meta">${new Date(item.updatedAt).toLocaleDateString("zh-CN")} · ${item.hasReplies?"<b class=reply-hint>有回复</b>":"暂无回复"}</small></button>`).join(""):"<p class=muted>还没有找到你提交的 PR / Issue</p>"; contributionPage=page; $("#prev-contributions").disabled=page<=1; $("#next-contributions").disabled=!data.hasMore; $("#page-contributions").textContent=`第 ${page} 页`; node.querySelectorAll("[data-kind]").forEach(item=>item.addEventListener("click",()=>openDossier(item.dataset.kind,Number(item.dataset.number)))); } catch(error) { $("#my-contributions").innerHTML=`<p class="notice danger">${escapeHtml(error.message)}</p>`; } }
 
   function renderTracked(items) {
     $("#tracked").classList.toggle("empty", !items.length);
-    $("#tracked").innerHTML = items.length ? items.map(item => `<article class="card ${item.hasUpdate ? "update" : ""}"><strong>PR #${item.number} · ${escapeHtml(item.title)}</strong><span>${escapeHtml(item.targetBranch)} · ${escapeHtml(item.mergeCommit.slice(0,7))}${item.versionCount > 1 ? ` · 已拉取 ${item.versionCount} 个版本` : ""}${item.hasUpdate ? " · 有新动态" : ""}${item.removedAt ? " · 已移除" : ""}</span>${item.removedAt ? "" : `<div class="tracked-actions">${item.hasUpdate ? `<button class="primary update-change" data-number="${item.number}" data-branch="${escapeHtml(item.targetBranch)}">拉取更新</button>` : ""}<button class="secondary remove-pr" data-number="${item.number}" data-branch="${escapeHtml(item.targetBranch)}">删除对应更改</button></div>`}</article>`).join("") : "还没有通过琢石坊合入的 PR";
+    $("#tracked").innerHTML = items.length ? items.map(item => `<article class="stream-card tracked-item ${item.hasUpdate ? "update" : ""}"><b>PR #${item.number} · ${escapeHtml(item.title)}</b><small>${escapeHtml(item.targetBranch)} · ${escapeHtml(item.mergeCommit.slice(0,7))}${item.versionCount > 1 ? ` · 已拉取 ${item.versionCount} 个版本` : ""}${item.hasUpdate ? " · 有新动态" : ""}${item.removedAt ? " · 已移除" : ""}</small>${item.removedAt ? "" : `<div class="tracked-actions">${item.hasUpdate ? `<button class="primary update-change" data-number="${item.number}" data-branch="${escapeHtml(item.targetBranch)}">拉取更新</button>` : ""}<button class="secondary remove-pr" data-number="${item.number}" data-branch="${escapeHtml(item.targetBranch)}">删除对应更改</button></div>`}</article>`).join("") : "还没有通过琢石坊合入的 PR";
     document.querySelectorAll(".update-change").forEach(button => button.addEventListener("click", async () => {
       if (!confirm(`确认把 PR #${button.dataset.number} 的最新提交合并到 ${button.dataset.branch}？`)) return;
       try { const result=await command("apply-pr", { number:Number(button.dataset.number), targetBranch:button.dataset.branch }); if(result.conflict){showMergeConflict(result,"pr");return;} toast("PR 更新已合入本地分支"); await loadTracked(); }
@@ -166,9 +174,34 @@
     }
   }
 
+  async function loadProjectDossiers() {
+    const button = $("#refresh"), previous = button.textContent;
+    button.disabled = true; button.textContent = "同步中…"; $("#load-error").hidden = true;
+    try { renderDossiers(await command("refresh", { page:1 })); }
+    catch (error) { $("#load-error").hidden=false; $("#load-error").textContent=error.message; }
+    finally { button.disabled = false; button.textContent = previous; }
+  }
+
   async function loadAuthenticatedViews(status = state.status) {
     if (!status?.auth?.authenticated) return;
-    await Promise.all([loadLocalOverview(), loadContributions()]);
+    await Promise.all([loadLocalOverview(), loadContributions(), loadTracked()]);
+    state.myLoaded = true;
+  }
+
+  async function activateCommunityView(view, { updateHash = true } = {}) {
+    const selected = view === "mine" ? "mine" : "project";
+    document.querySelectorAll("[data-community-view]").forEach(button => {
+      const active = button.dataset.communityView === selected;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-current", active ? "page" : "false");
+    });
+    document.querySelectorAll("[data-community-panel]").forEach(panel => {
+      const active = panel.dataset.communityPanel === selected;
+      panel.hidden = !active; panel.classList.toggle("active", active);
+    });
+    if (updateHash) history.replaceState(null, "", selected === "mine" ? "#mine" : "#project");
+    if (selected === "mine" && state.status?.auth?.authenticated && !state.myLoaded) await loadAuthenticatedViews();
+    window.scrollTo({ top:0, behavior:matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
   }
 
   function showMergeConflict(result, kind) {
@@ -234,7 +267,8 @@
         if (result.status === "authorized") {
           $("#oauth-state").textContent = `登录成功：@${result.identity.login}`;
           const status = await loadStatus();
-          await loadAuthenticatedViews(status);
+          await loadProjectDossiers();
+          if (location.hash === "#mine") await loadAuthenticatedViews(status);
           setTimeout(() => $("#oauth-dialog").close(), 700); return;
         }
         if (result.status === "denied" || result.status === "expired") {
@@ -252,18 +286,23 @@
       try { await command("logout"); await loadStatus(); toast("已退出琢石坊登录"); } catch (error) { toast(error.message); }
       return;
     }
+    // Keep navigation inside the original click gesture. Waiting for the
+    // backend first makes Safari and mobile browsers block window.open.
+    window.open("https://github.com/login/device", "_blank", "noopener,noreferrer");
     try {
       const flow = await command("oauth-start");
       $("#oauth-code").textContent = flow.userCode; $("#oauth-state").textContent = "等待你在 GitHub 确认授权…";
       $("#oauth-link").href = flow.verificationUri; $("#oauth-url").value = flow.verificationUri; $("#oauth-dialog").showModal();
       await copyText(flow.userCode, "验证码");
-      window.open(flow.verificationUri, "_blank", "noopener,noreferrer");
       pollOAuth(flow.flowId, flow.interval);
     } catch (error) { toast(error.message); }
   });
   $("#oauth-code").addEventListener("click", async () => { if (await copyText($("#oauth-code").textContent, "验证码")) toast("验证码已复制"); });
   $("#copy-oauth-url").addEventListener("click", async () => { if (await copyText($("#oauth-url").value, "授权地址")) toast("授权地址已复制"); });
   $("#close-oauth").addEventListener("click", () => { clearTimeout(oauthTimer); $("#oauth-dialog").close(); });
+  document.querySelectorAll("[data-community-view]").forEach(button => button.addEventListener("click", () => activateCommunityView(button.dataset.communityView)));
+  document.querySelectorAll("[data-open-settings]").forEach(button => button.addEventListener("click", () => $("#settings-dialog").showModal()));
+  $("#close-settings").addEventListener("click", () => $("#settings-dialog").close());
   $("#star").addEventListener("click", async () => { try { await command("star"); toast("项目已经点亮 ✦"); await loadStatus(); } catch (error) { toast(error.message); } });
   $("#save-settings").addEventListener("click", async () => {
     try {
@@ -272,10 +311,10 @@
         throw new Error("要启用 AI，请把接口地址、模型名称和 API Key 三项填完整");
       }
       await command("configure", { localRepoPath:$("#local-repo").value, api:{ endpoint, model, apiKey:apiKey || "••••••••", enabled:$("#api-enabled").checked } });
-      $("#api-key").value = ""; await loadStatus(); toast("读矿设置已保存");
+      $("#api-key").value = ""; await loadStatus(); $("#settings-dialog").close(); toast("读矿设置已保存");
     } catch (error) { toast(error.message); }
   });
-  $("#refresh").addEventListener("click", async () => { try { $("#load-error").hidden=true; renderDossiers(await command("refresh", { page:1 })); } catch (error) { $("#load-error").hidden=false; $("#load-error").textContent=error.message; } });
+  $("#refresh").addEventListener("click", loadProjectDossiers);
   $("#prev-pr").addEventListener("click", () => loadPage("pr", state.pages.pr - 1)); $("#next-pr").addEventListener("click", () => loadPage("pr", state.pages.pr + 1));
   $("#prev-issue").addEventListener("click", () => loadPage("issue", state.pages.issue - 1)); $("#next-issue").addEventListener("click", () => loadPage("issue", state.pages.issue + 1));
   $("#close-dialog").addEventListener("click", () => $("#dossier-dialog").close());
@@ -312,7 +351,8 @@
   }));
   async function bootstrap() {
     const status = await loadStatus();
-    await loadAuthenticatedViews(status);
+    if (status?.auth?.authenticated) await loadProjectDossiers();
+    await activateCommunityView(location.hash === "#mine" ? "mine" : "project", { updateHash:false });
   }
 
   bootstrap();

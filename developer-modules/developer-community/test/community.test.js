@@ -8,7 +8,7 @@ const test = require("node:test");
 const { openDatabase } = require("../backend/db");
 const { repositorySlug, branchName } = require("../backend/github");
 const github = require("../backend/github");
-const { fallbackReport, workbench, applyPullRequest, resolvePullRequest, tracked, removeChange, removePullRequest, updateOfficial, resolveOfficialUpdate, classifyChangedFiles, supervisorControl, loadSettings, oauthStart, oauthPoll, refreshGithubToken, configure, generate, DEFAULT_REPOSITORY, GITHUB_CLIENT_ID } = require("../backend/commands/community");
+const { fallbackReport, workbench, localOverview, applyPullRequest, resolvePullRequest, tracked, removeChange, removePullRequest, updateOfficial, resolveOfficialUpdate, classifyChangedFiles, supervisorControl, loadSettings, oauthStart, oauthPoll, refreshGithubToken, configure, generate, githubFormRequest, curlGithubForm, DEFAULT_REPOSITORY, GITHUB_CLIENT_ID } = require("../backend/commands/community");
 
 function temporaryContext() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "developer-community-"));
@@ -44,9 +44,59 @@ test("module SQLite migrates in its resolved global data directory and workbench
     assert.equal(first.length, 1);
     assert.equal(second.length, 1);
     assert.equal(second[0].title, "Updated title");
+    assert.deepEqual(workbench(db, "example/stone-memory", { mode:"remove", kind:"pr", number:7 }), []);
     assert.equal(db.prepare("SELECT COUNT(*) count FROM schema_migrations").get().count, 2);
     assert.ok(fs.existsSync(path.join(fixture.root, "module.sqlite")));
   } finally { db.close(); fs.rmSync(fixture.root, { recursive:true, force:true }); }
+});
+
+test("local overview reports only commits that official still leads by", () => {
+  const fixture = temporaryContext();
+  const repository = path.join(fixture.root, "repo");
+  fs.mkdirSync(path.join(repository, ".git"), { recursive:true });
+  const db = openDatabase(fixture.context);
+  const originalRun = github.run, originalGhJson = github.ghJson;
+  const calls = [];
+  github.ghJson = args => {
+    calls.push(["gh", ...args]);
+    if (String(args[1] || "").startsWith("repos/example/stone-memory")) return { default_branch:"main" };
+    throw new Error("unexpected GitHub request");
+  };
+  github.run = (file, args) => {
+    calls.push([file, ...args]);
+    if (args[0] === "branch") return "feature/local";
+    if (args[0] === "status") return "";
+    if (args[0] === "fetch") return "";
+    if (args[0] === "rev-list") return "2 3";
+    if (args[0] === "rev-parse") throw new Error("no upstream");
+    if (args[0] === "log" && String(args.at(-1)).startsWith("HEAD..refs/stmem/")) {
+      return "officialsha\x1fMaintainer\x1f2026-09-21\x1fofficial only";
+    }
+    if (args[0] === "log") return "localsha\x1fContributor\x1f2026-09-20\x1flocal only";
+    throw new Error(`unexpected command: ${file} ${args.join(" ")}`);
+  };
+  try {
+    const result = localOverview(db, { repository:"example/stone-memory", localRepoPath:repository });
+    assert.equal(result.behind, 2);
+    assert.deepEqual(result.officialCommits, [{ sha:"officialsha", author:"Maintainer", date:"2026-09-21", message:"official only" }]);
+    assert.equal("mergedPrs" in result, false);
+    assert.ok(calls.some(row => row.at(-1) === "HEAD..refs/stmem/developer-community/official-main"));
+    assert.equal(calls.some(row => String(row[2] || "").includes("pulls?state=closed")), false);
+  } finally {
+    github.run = originalRun; github.ghJson = originalGhJson; db.close(); fs.rmSync(fixture.root,{recursive:true,force:true});
+  }
+});
+
+test("GitHub identity verification falls back to proxy-aware gh", async () => {
+  const result = await github.verifyToken("synthetic-token", {
+    fetchImpl:async () => { throw new TypeError("fetch failed"); },
+    ghJsonImpl:(args, options) => {
+      assert.deepEqual(args, ["api", "user"]);
+      assert.equal(options.token, "synthetic-token");
+      return { login:"proxy-user", avatar_url:"https://avatars.example/proxy-user" };
+    },
+  });
+  assert.deepEqual(result, { authenticated:true, login:"proxy-user", avatarUrl:"https://avatars.example/proxy-user" });
 });
 
 test("no-API fallback exposes original content, changed files and CI without inventing advice", () => {
@@ -119,6 +169,37 @@ test("GitHub device flow keeps device and access tokens out of browser results",
   } finally {
     global.fetch = originalFetch; github.verifyToken = originalVerifyToken; fs.rmSync(fixture.root,{recursive:true,force:true});
   }
+});
+
+test("GitHub OAuth falls back to proxy-aware curl without putting form secrets in argv", async () => {
+  const calls = [];
+  const body = await githubFormRequest("https://github.com/login/oauth/access_token", {
+    client_id:GITHUB_CLIENT_ID,
+    refresh_token:"private-refresh-token",
+    grant_type:"refresh_token",
+  }, {
+    fetchImpl:async () => { throw new TypeError("fetch failed"); },
+    curlForm:(url, form) => {
+      calls.push({ url, form:String(form) });
+      return { access_token:"rotated-access" };
+    },
+  });
+  assert.deepEqual(body, { access_token:"rotated-access" });
+  assert.equal(calls[0].url, "https://github.com/login/oauth/access_token");
+  assert.match(calls[0].form, /refresh_token=private-refresh-token/u);
+
+  let invocation;
+  const result = curlGithubForm("https://github.com/login/device/code", new URLSearchParams({
+    client_id:GITHUB_CLIENT_ID,
+    device_code:"private-device-code",
+  }), (file, args, options) => {
+    invocation = { file, args, options };
+    return `${JSON.stringify({ user_code:"ABCD-EFGH" })}\n200`;
+  });
+  assert.deepEqual(result, { user_code:"ABCD-EFGH" });
+  assert.equal(invocation.file, "curl");
+  assert.doesNotMatch(invocation.args.join(" "), /private-device-code/u);
+  assert.match(invocation.options.input, /device_code=private-device-code/u);
 });
 
 test("expiring GitHub login rotates tokens without exposing them to the browser", async () => {
@@ -512,10 +593,26 @@ test("frontend uses the shared shell, theme contract, mobile layout and confirma
   const app = fs.readFileSync(path.join(root, "frontend", "app.js"), "utf8");
   assert.match(html, /\/developer-kit\/runtime\.js/);
   assert.ok(html.indexOf("/theme-studio/first-frame.js") < html.indexOf("/developer-kit/runtime.js"));
-  assert.equal((html.match(/<stone-module-page\b/gu) || []).length, 1);
+  assert.equal((html.match(/<stone-module-page\b/gu) || []).length, 0);
+  assert.match(html, /class="community-nav"/u);
+  assert.match(html, /data-community-view="project"/u);
+  assert.match(html, /data-community-view="mine"/u);
+  assert.match(html, /id="settings-dialog"/u);
+  assert.match(css, /@media\(max-width:700px\)[\s\S]*inset:auto 0 0/u);
+  assert.match(css, /\.community-application-frame\s*\{[^}]*margin-left:210px/su);
+  assert.match(app, /activateCommunityView/u);
+  assert.match(app, /loadProjectDossiers/u);
+  assert.match(app, /data-workbench-kind/u);
+  assert.match(app, /mode:"remove"/u);
+  assert.match(app, /window\.open\("https:\/\/github\.com\/login\/device"/u);
   assert.match(css, /--stone-theme-/);
   assert.match(css, /@media\(max-width:720px\)/);
   assert.match(css, /\.dossier-list\s*\{[^}]*max-height:[^}]*overflow-y:auto/s);
+  assert.match(css, /\.local-overview \.compact-list\s*\{[^}]*max-height:220px;[^}]*overflow-y:auto/su);
+  assert.match(app, /class="official-commit-card dossier-card"/u);
+  assert.match(app, /class="official-commit-card contribution-card"/u);
+  assert.match(app, /class="stream-card workbench-item"/u);
+  assert.match(app, /class="stream-card tracked-item/u);
   assert.match(css, /\.restart \{[^}]*background:var\(--stone-theme-accent/s);
   assert.match(css, /\.contribution-card \.contribution-title\s*\{[^}]*-webkit-line-clamp:2/s);
   assert.match(app, /class="contribution-meta"/);
@@ -536,7 +633,8 @@ test("frontend uses the shared shell, theme contract, mobile layout and confirma
   assert.match(html, /GITHUB DEVICE AUTHORIZATION/);
   assert.match(app, /oauth-start/);
   assert.match(app, /if \(!status\?\.auth\?\.authenticated\) return/);
-  assert.match(app, /const status = await loadStatus\(\);\s*await loadAuthenticatedViews\(status\)/);
+  assert.match(app, /selected === "mine" && state\.status\?\.auth\?\.authenticated && !state\.myLoaded/);
+  assert.match(app, /Promise\.all\(\[loadLocalOverview\(\), loadContributions\(\), loadTracked\(\)\]\)/);
   assert.doesNotMatch(app, /loadStatus\(\);\s*loadLocalOverview\(\);\s*loadContributions\(\);/);
   assert.match(app, /filesBlock\(dossier\.files\)/);
   assert.match(app, /value == null \? "" : value/);
@@ -544,6 +642,8 @@ test("frontend uses the shared shell, theme contract, mobile layout and confirma
   assert.match(app, /command\("refresh", \{ kind, page \}/);
   assert.match(html, /id="next-pr"/);
   assert.match(html, /id="next-issue"/);
+  assert.match(html, /官方领先提交/u);
+  assert.doesNotMatch(html, /已合并的精矿|id="merged-prs"/u);
   const githubSource = fs.readFileSync(path.join(root, "backend", "github.js"), "utf8");
   assert.match(githubSource, /search\/issues\?q=\$\{encodeURIComponent/);
   assert.match(githubSource, /totalCount/);

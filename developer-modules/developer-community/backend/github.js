@@ -62,10 +62,10 @@ function authStatus(token = "") {
   }
 }
 
-async function verifyToken(token = "") {
+async function verifyToken(token = "", { fetchImpl = global.fetch, ghJsonImpl = ghJson } = {}) {
   if (!token) return { authenticated:false, login:"", reason:"令牌为空" };
   try {
-    const response = await fetch("https://api.github.com/user", {
+    const response = await fetchImpl("https://api.github.com/user", {
       headers: { accept:"application/vnd.github+json", authorization:`Bearer ${token}`, "x-github-api-version":"2022-11-28", "user-agent":"Stone-Memory-Developer-Community" },
       signal: AbortSignal.timeout(30_000),
     });
@@ -77,6 +77,10 @@ async function verifyToken(token = "") {
     if (!body.login) return { authenticated:false, login:"", reason:"GitHub 返回的身份信息不完整" };
     return { authenticated:true, login:body.login, avatarUrl:body.avatar_url || "" };
   } catch (error) {
+    try {
+      const body = ghJsonImpl(["api", "user"], { token });
+      if (body?.login) return { authenticated:true, login:body.login, avatarUrl:body.avatar_url || "" };
+    } catch {}
     return { authenticated:false, login:"", reason:`无法连接 GitHub 校验服务：${error.message || "网络错误"}` };
   }
 }
