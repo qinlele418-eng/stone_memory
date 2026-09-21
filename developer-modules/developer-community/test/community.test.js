@@ -609,6 +609,8 @@ test("frontend uses the shared shell, theme contract, mobile layout and confirma
   assert.match(css, /@media\(max-width:720px\)/);
   assert.match(css, /\.dossier-list\s*\{[^}]*max-height:[^}]*overflow-y:auto/s);
   assert.match(css, /\.local-overview \.compact-list\s*\{[^}]*max-height:220px;[^}]*overflow-y:auto/su);
+  assert.match(css, /\.dossier-list\s*\{[^}]*max-height:none;[^}]*overflow:visible;[^}]*overscroll-behavior:auto/su);
+  assert.match(css, /\.dossier-card,\.contribution-card\s*\{[^}]*touch-action:pan-y/su);
   assert.match(app, /class="official-commit-card dossier-card"/u);
   assert.match(app, /class="official-commit-card contribution-card"/u);
   assert.match(app, /class="stream-card workbench-item"/u);
