@@ -20,6 +20,9 @@ test("repairs a Claude orphan chain and removes a dangling tool result",()=>{
   const result=repairIntegrityFile(file,"claude","claude-1");
   assert.equal(result.after.healthy,true);
   assert.ok(result.backup);
+  const repaired=fs.readFileSync(file,"utf8").split("\n").filter(Boolean).map(JSON.parse);
+  assert.ok(repaired[0].uuid);
+  assert.equal(repaired.some(row=>row.type==="system"&&row.subtype==="init"),false);
 });
 
 test("repair preserves existing POSIX thread metadata", { skip: process.platform === "win32" }, () => {

@@ -17,7 +17,6 @@
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
-const os = require("os");
 
 const { FullArchive, dateKeyFromTs } = require("../src/services/memory-archive");
 const { getCfg, getThreadDir } = require("../src/config");
@@ -474,18 +473,6 @@ function rebuildThread(inputPath, outputPath, dryRun, windowDays, toolPairsOverr
     return uuid;
   }
 
-  // 0. System init
-  const sysMsg = {
-    type: "system",
-    subtype: "init",
-    session_id: path.basename(inputPath, ".jsonl"),
-    timestamp: now.toISOString(),
-    cwd: os.homedir(),
-    version: "2.1.144",
-  };
-  outputLines.push(JSON.stringify(sysMsg));
-  prevUuid = sysMsg.session_id;
-
   // 1. 注入 rules/ 下所有 .md 文件（标记: <!-- stmem-rule: <filename> -->）
   const RULE_MARKER = "<!-- stmem-rule:";
   let ruleCount = 0;
@@ -575,8 +562,8 @@ function rebuildThread(inputPath, outputPath, dryRun, windowDays, toolPairsOverr
       try {
         var d = JSON.parse(line);
         if (d.uuid) { seenUuids.add(d.uuid); prevValidUuid = d.uuid; }
-        if (d.parentUuid && d.parentUuid !== sysMsg.session_id && !seenUuids.has(d.parentUuid)) {
-          d.parentUuid = prevValidUuid || sysMsg.session_id;
+        if (d.parentUuid && !seenUuids.has(d.parentUuid)) {
+          d.parentUuid = prevValidUuid || null;
           outputLines[i] = JSON.stringify(d);
           seenUuids.add(d.uuid);
           chainFixed++;

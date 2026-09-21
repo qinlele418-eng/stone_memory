@@ -134,9 +134,8 @@ function checkClaude(rows, threadId) {
   const uuids = new Set(rows.map(row => row.uuid).filter(Boolean));
   const duplicates = rows.map(row => row.uuid).filter(Boolean).filter((id, index, all) => all.indexOf(id) !== index);
   const initRows=rows.filter(row=>row.type==="system"&&row.subtype==="init");
-  const sessionIds = new Set(initRows.map(row => row.session_id).filter(Boolean));
-  const orphans = rows.filter(row => row.parentUuid && !uuids.has(row.parentUuid) && !sessionIds.has(row.parentUuid));
-  const seen=new Set(sessionIds),forwardParents=[];
+  const orphans = rows.filter(row => row.parentUuid && !uuids.has(row.parentUuid));
+  const seen=new Set(),forwardParents=[];
   for(const row of rows){
     if(row.parentUuid&&!seen.has(row.parentUuid))forwardParents.push(row);
     if(row.uuid)seen.add(row.uuid);
@@ -149,7 +148,7 @@ function checkClaude(rows, threadId) {
   }
   const missingResults = [...toolUses].filter(id => !toolResults.has(id));
   const missingUses = [...toolResults].filter(id => !toolUses.has(id));
-  return { threadId, runtime: "claude", missingSessionInit:initRows.length?0:1,duplicateSessionInit:Math.max(0,initRows.length-1),duplicates: duplicates.length, orphanParents: orphans.length,forwardParents:forwardParents.length,unexpectedRoots,missingToolResults: missingResults.length, missingToolUses: missingUses.length };
+  return { threadId, runtime: "claude", syntheticSessionInit:initRows.filter(row=>!row.uuid).length,duplicates: duplicates.length, orphanParents: orphans.length,forwardParents:forwardParents.length,unexpectedRoots,missingToolResults: missingResults.length, missingToolUses: missingUses.length };
 }
 
 function checkCodex(rows, threadId) {
@@ -198,16 +197,13 @@ function repairIntegrityFile(file,runtime,threadId=path.basename(file)) {
   fs.copyFileSync(file, backup);
   let output = rows;
   if (before.runtime === "claude") {
-    let init = rows.find(row => row.type === "system" && row.subtype === "init");
-    if(!init)init={type:"system",subtype:"init",session_id:threadId,timestamp:new Date().toISOString(),cwd:process.cwd(),version:"unknown"};
-    const root = init?.session_id || threadId;
     const toolUses=new Set(),toolResults=new Set();
     for(const row of rows)for(const block of Array.isArray(row.message?.content)?row.message.content:[]){
       if(block.type==="tool_use"&&block.id)toolUses.add(block.id);
       if(block.type==="tool_result"&&block.tool_use_id)toolResults.add(block.tool_use_id);
     }
-    let parent = root;
-    const source=[init,...rows.filter(row=>row!==init&&!(row.type==="system"&&row.subtype==="init"))];
+    let parent = null;
+    const source=rows.filter(row=>!(row.type==="system"&&row.subtype==="init"&&!row.uuid));
     output = source.map(row => {
       let clean=row;
       if(Array.isArray(row.message?.content)){

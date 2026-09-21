@@ -90,10 +90,14 @@ test("rebuild dry-run previews catch-up without writing full or SQLite", t => {
 });
 
 test("rebuild apply catches unarchived messages up before replacing the thread", t => {
-  const { stoneDir, env } = setupHome(t);
+  const { stoneDir, threadFile, env } = setupHome(t);
   const result = rebuild(env, true);
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.deepEqual(archivedTexts(stoneDir).sort(), ["今天想去河边散步", "好呀，带上相机一起去"].sort());
+  const rebuilt = fs.readFileSync(threadFile, "utf8").split("\n").filter(Boolean).map(JSON.parse);
+  assert.ok(rebuilt.length > 0);
+  assert.ok(rebuilt[0].uuid);
+  assert.equal(rebuilt.some(row => row.type === "system" && row.subtype === "init"), false);
 });
 
 test("Codex rebuild dry-run does not write full or SQLite", t => {
