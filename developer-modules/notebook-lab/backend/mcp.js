@@ -2,7 +2,7 @@
 const tools = [
   {
     "name": "status",
-    "description": "高级/调试用低层工具：查看当前记忆体的主题目录与安全概览。日常自然语言操作优先使用 stmem_notebook_delegate。封存笔记不返回正文摘要。",
+    "description": "高级/调试用低层工具：查看当前记忆体的主题目录与安全概览。普通笔记日常自然语言操作优先使用 stmem_notebook_delegate。句子册请使用 topic_manage(kind=sentence-book)、query、read、write；与网页共用相同主题和笔记。封存笔记不返回正文摘要。",
     "inputSchema": {
       "type": "object",
       "properties": {},
@@ -17,7 +17,7 @@ const tools = [
   },
   {
     "name": "query",
-    "description": "高级/调试用低层工具：组合搜索主题笔记。日常查询优先使用 stmem_notebook_delegate。包含封存笔记，因为封存不是 Agent 读取权限。",
+    "description": "高级/调试用低层工具：组合搜索主题笔记，包含句子册的说话者、收藏者、涟漪、来源对话和来源ID。结果包含 metadata，metadata.sentenceRemoved=true 表示已移除但可恢复的收藏。日常查询优先使用 stmem_notebook_delegate。包含封存笔记，因为封存不是 Agent 读取权限。",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -76,7 +76,7 @@ const tools = [
 tools.push(...[
   {
     "name": "topic_manage",
-    "description": "高级/调试用低层工具：创建或更新主题笔记本。日常归类优先使用 stmem_notebook_delegate。create 需要 name；update 需要 topicId。",
+    "description": "高级/调试用低层工具：创建或更新主题笔记本。日常归类优先使用 stmem_notebook_delegate。create 需要 name；update 需要 topicId。创建句子册必须传 kind=sentence-book，普通笔记为 standard。",
     "inputSchema": {
       "type": "object",
       "required": [
@@ -111,6 +111,30 @@ tools.push(...[
           ],
           "description": "内置封面预设；留空或 preset:forest 为默认松林绿。"
         },
+        "kind": {
+          "type": "string",
+          "enum": ["standard", "sentence-book"]
+        },
+        "presentation": {
+          "type": "object",
+          "properties": {
+            "coverPath": { "type": "string" },
+            "headerPath": { "type": "string" },
+            "footerPath": { "type": "string" },
+            "palette": {
+              "type": "object",
+              "properties": {
+                "paper": { "type": "string" },
+                "ink": { "type": "string" },
+                "accent": { "type": "string" }
+              },
+              "additionalProperties": false
+            },
+            "offsets": { "type": "object", "properties": {}, "additionalProperties": false }
+          },
+          "additionalProperties": false,
+          "description": "按笔记本保存的展示配置；图片应通过现有主题资产接口写入。"
+        },
         "visibility": {
           "type": "string",
           "enum": [
@@ -137,7 +161,7 @@ tools.push(...[
   },
   {
     "name": "write",
-    "description": "高级/调试用低层工具：创建或更新 Markdown 笔记。日常写作优先使用 stmem_notebook_delegate，由管家处理主题和 revision。直接更新必须提供 noteId 与当前 expectedRevision。",
+    "description": "高级/调试用低层工具：创建或更新 Markdown 笔记。日常写作优先使用 stmem_notebook_delegate，由管家处理主题和 revision。直接更新必须提供 noteId 与当前 expectedRevision。句子册请直接用本工具：body 是原句，metadata 包含 speaker、collector、note(涟漪)、note_author、conversation_title。修改时先 read，保留原 metadata 再合并修改字段。移除/恢复句子必须保留正文及其他字段，用 metadata.sentenceRemoved=true/false；这是可恢复移除，不是物理删除。",
     "inputSchema": {
       "type": "object",
       "required": [
@@ -164,6 +188,22 @@ tools.push(...[
           },
           "maxItems": 20
         },
+        "metadata": {
+          "type": "object",
+          "properties": {
+            "speaker": { "type": "string" },
+            "collector": { "type": "string" },
+            "note": { "type": "string" },
+            "note_author": { "type": "string" },
+            "conversation_title": { "type": "string" },
+            "source": { "type": "string" },
+            "source_id": { "type": "string" },
+            "originalCreatedAt": { "type": "string" },
+            "sentenceRemoved": { "type": "boolean" }
+          },
+          "additionalProperties": false,
+          "description": "结构化条目元数据；句子册可保存 speaker、collector、note、note_author、source 等字段。"
+        },
         "visibility": {
           "type": "string",
           "enum": [
@@ -187,7 +227,7 @@ tools.push(...[
   },
   {
     "name": "delegate",
-    "description": "主题小笔记的日常自然语言入口。主 Agent 只需提供 request；新建或改正文时附 content，可选 title/tags/visibility，查询/读取/移动时不需重传正文。临时规划子代理只有目录、搜索、精读三项只读工具，不持有写权限且不会收到正文；它返回计划后，由 Stone 受控执行器复核 threadId、目标、歧义、主题、路径和 revision，再通过正式 CLI 执行并返回透明收据。纸篓仅用于已有笔记的可逆软删除，不会物理删除。全新记忆体可以是 0 主题、0 笔记。",
+    "description": "主题小笔记的日常自然语言入口。普通笔记主 Agent 只需提供 request；句子册的结构化收藏、涟漪、移除和恢复请使用 topic_manage/query/read/write，不要使用本规划入口；新建或改正文时附 content，可选 title/tags/visibility，查询/读取/移动时不需重传正文。临时规划子代理只有目录、搜索、精读三项只读工具，不持有写权限且不会收到正文；它返回计划后，由 Stone 受控执行器复核 threadId、目标、歧义、主题、路径和 revision，再通过正式 CLI 执行并返回透明收据。纸篓仅用于已有笔记的可逆软删除，不会物理删除。全新记忆体可以是 0 主题、0 笔记。",
     "inputSchema": {
       "type": "object",
       "required": [
