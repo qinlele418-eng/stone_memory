@@ -34,7 +34,7 @@ test("material-library brand icons survive main-page validation and first-frame 
   for (const source of [studio, bootstrap, firstFrame]) assert.match(source, /brand-icons/);
   const html = fs.readFileSync(path.join(__dirname, "..", "src", "web", "public", "index.html"), "utf8");
   assert.match(html, /first-frame\.js\?v=4/);
-  assert.match(html, /bootstrap\.js\?v=18/);
+  assert.match(html, /bootstrap\.js\?v=19/);
 });
 
 test("desktop shortcut reads its independent custom icon", () => {
@@ -45,11 +45,10 @@ test("desktop shortcut reads its independent custom icon", () => {
   assert.match(app, /data:image\\\/\(\?:png\|webp\)/);
 });
 
-test("theme studio offers a real independent desktop icon picker", () => {
+test("theme studio keeps desktop icon controls without exposing an upload button", () => {
   const studio = fs.readFileSync(path.join(__dirname, "..", "src", "web", "public", "theme-studio", "standalone-app.js"), "utf8");
-  assert.match(studio, /id="import-desktop-icon"/);
-  assert.match(studio, /function chooseDesktopIcon\(file\)/);
-  assert.match(studio, /localStorage\.setItem\(DESKTOP_ICON_STORAGE_KEY, dataUrl\)/);
+  assert.doesNotMatch(studio, /id="import-desktop-icon"/);
+  assert.doesNotMatch(studio, /上传图标/);
   assert.match(studio, /id="use-brand-desktop-icon"/);
   assert.match(studio, /id="reset-desktop-icon"/);
 });

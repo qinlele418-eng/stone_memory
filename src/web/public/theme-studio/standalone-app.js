@@ -434,22 +434,6 @@
     if (preview) preview.innerHTML = `<img src="${escapeHtml(desktopIconSource())}" alt="当前桌面图标预览">`;
   }
 
-  async function chooseDesktopIcon(file) {
-    if (!file) return;
-    try {
-      if (!LOGO_TYPES.has(file.type)) throw new Error("请选择 PNG 或 WebP 图片");
-      if (file.size > MAX_LOGO_FILE_SIZE) throw new Error("桌面图标不能超过 200KB");
-      const dataUrl = await fileDataUrl(file);
-      const { width, height } = await imageDimensions(dataUrl);
-      if (width < 128 || height < 128 || width > 2048 || height > 2048) throw new Error("桌面图标宽高应在 128–2048px 之间");
-      localStorage.setItem(DESKTOP_ICON_STORAGE_KEY, dataUrl);
-      renderDesktopIcon();
-      status("自定义桌面图标已保存；重新添加桌面链接时生效");
-    } catch (error) {
-      status(`桌面图标保存失败：${error.message}`, true);
-    }
-  }
-
   function normalize(input) {
     const defaults = state.contract.defaults;
     if (isRetiredBuiltinTheme(input)) throw new Error("该历史内置主题已停止支持，请选择新的磐石主题");
@@ -675,7 +659,7 @@
     const themeGroup = createUtilityGroup("主题", "命名、保存、导入与切换主题", "token-group-theme");
     const logoGroup = createUtilityGroup("品牌图标", $("#theme-logo-meta")?.textContent || "上传、替换或恢复品牌图片", "token-group-logo");
     const desktopIconGroup = createUtilityGroup("桌面图标", "独立设置添加到桌面时使用的图标，不跟随品牌 Logo", "token-group-desktop-icon");
-    desktopIconGroup.body.innerHTML = `<div class="theme-logo-controls"><div id="desktop-icon-preview" class="theme-logo-preview"></div><div class="theme-logo-buttons"><label class="secondary theme-inline-upload" for="import-desktop-icon">上传图标</label><input id="import-desktop-icon" type="file" accept="image/png,image/webp,.png,.webp" hidden><button class="secondary" id="use-brand-desktop-icon" type="button">使用品牌图</button><button class="ghost" id="reset-desktop-icon" type="button">恢复石头小花</button></div><small class="theme-logo-status">建议使用正方形图片；非正方形图片会在生成图标时自动留边。</small></div>`;
+    desktopIconGroup.body.innerHTML = `<div class="theme-logo-controls"><div id="desktop-icon-preview" class="theme-logo-preview"></div><div class="theme-logo-buttons"><button class="secondary" id="use-brand-desktop-icon" type="button">使用品牌图</button><button class="ghost" id="reset-desktop-icon" type="button">恢复石头小花</button></div><small class="theme-logo-status">桌面图标跟随品牌图或恢复为原版石头小花。</small></div>`;
     const logoMeta = logoGroup.section.querySelector(".token-group-head p");
     logoMeta.id = "theme-logo-meta";
 
@@ -907,7 +891,6 @@
       $("#reset-theme").onclick = () => { state.theme = normalize(state.contract.defaults); applyTheme(); renderFields(); clearActiveTheme(); status("已恢复磐石记忆原版主题"); };
       $("#import-theme").onchange = event => { importTheme(event.target.files?.[0]); event.target.value = ""; };
       $("#import-theme-logo").onchange = event => { chooseLogo(event.target.files?.[0]); event.target.value = ""; };
-      $("#import-desktop-icon").onchange = event => { chooseDesktopIcon(event.target.files?.[0]); event.target.value = ""; };
       $("#use-brand-desktop-icon").onclick = () => {
         const logo = state.theme.assets?.logo;
         const source = logo?.builtinUrl || logo?.dataUrl || "";
@@ -934,10 +917,6 @@
         logoStatus("");
         status("已恢复原版石头小花，保存主题后正式保留");
       };
-
-      const focus = new URLSearchParams(location.search).get("focus");
-      const focusTarget = focus === "brand" ? $(".token-group-logo") || $(".theme-logo-row") : $("#theme-palette");
-      if (focusTarget) requestAnimationFrame(() => focusTarget.scrollIntoView({ block: "start" }));
 
     } catch (error) {
       $("#theme-studio-mount").innerHTML = `<section class="theme-card error-card">主题契约加载失败：${escapeHtml(error.message)}</section>`;

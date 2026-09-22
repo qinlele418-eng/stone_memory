@@ -342,7 +342,6 @@
     sortDeveloperModules(host);
     card.onclick = event => {
       const destination = new URL("/theme-studio/", window.location.origin);
-      destination.searchParams.set("focus", event.target.closest("[data-theme-focus]")?.dataset.themeFocus || "themes");
       window.location.href = destination;
     };
     card.onkeydown = event => {
