@@ -1,5 +1,5 @@
 const { json, readJson } = require("../http-io");
-const { listDeveloperModules } = require("../static-files");
+const { listDeveloperModules, listDeveloperAdapters } = require("../static-files");
 const { publicThreadSettings } = require("../library-queries");
 const { runStmem, runStmemBatch } = require("../cli-client");
 const { loadModules } = require("../../services/developer-module-contract");
@@ -8,6 +8,9 @@ const { NOT_HANDLED } = require("../route-result");
 async function handleDeveloperModules(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/developer-modules") {
     return json(res, 200, { modules: listDeveloperModules() });
+  }
+  if (req.method === "GET" && url.pathname === "/api/developer-adapters") {
+    return json(res, 200, { adapters: listDeveloperAdapters() });
   }
 
   const bindingsMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/bindings$/);

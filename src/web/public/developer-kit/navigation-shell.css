@@ -99,9 +99,11 @@
 .me-inline-links { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 7px; }
 .me-inline-links a { padding: 4px 9px; color: var(--stone-theme-accent-strong); border-radius: var(--stone-theme-radius-pill); background: var(--stone-theme-accent-soft); font-size: 11px; text-decoration: none; }
 .me-inline-links button { min-height: 28px; padding: 4px 9px; color: var(--stone-theme-accent-strong); border: 0; border-radius: var(--stone-theme-radius-pill); background: var(--stone-theme-accent-soft); font: 700 11px var(--stone-theme-font-body); }
-.support-dialog { width: min(420px, calc(100% - 32px)); padding: 24px; color: var(--stone-theme-ink); border: 1px solid var(--stone-theme-line); border-radius: var(--stone-theme-radius-md); background: var(--stone-theme-surface); }
-.support-dialog::backdrop { background: color-mix(in srgb, var(--stone-theme-ink) 34%, transparent); }
-.support-dialog .dialog-close { float: right; border: 0; background: transparent; font-size: 24px; }
+.support-dialog, .privacy-dialog { width: min(520px, calc(100% - 32px)); padding: 24px; color: var(--stone-theme-ink); border: 1px solid var(--stone-theme-line); border-radius: var(--stone-theme-radius-md); background: var(--stone-theme-surface); }
+.support-dialog::backdrop, .privacy-dialog::backdrop { background: color-mix(in srgb, var(--stone-theme-ink) 34%, transparent); }
+.support-dialog .dialog-close, .privacy-dialog .dialog-close { float: right; border: 0; background: transparent; font-size: 24px; }
+.privacy-dialog h2 { margin: 0 0 14px; }
+.privacy-dialog p { margin: 12px 0 0; color: var(--stone-theme-ink-soft); font-size: 13px; line-height: 1.75; }
 .support-dialog .support-code { margin: 18px auto 0; }
 
 .stone-global-brand {

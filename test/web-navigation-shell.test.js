@@ -14,7 +14,7 @@ test("responsive navigation shell delegates to the stable frontend", () => {
   for (const action of ["home", "memory", "workshop", "me"]) {
     assert.match(html, new RegExp(`data-shell-action="${action}"`));
   }
-  assert.ok(html.indexOf("/app.js?v=48") < html.indexOf("/developer-kit/navigation-shell.js?v=3"));
+  assert.ok(html.indexOf("/app.js?v=49") < html.indexOf("/developer-kit/navigation-shell.js?v=3"));
   assert.match(html, /\/developer-kit\/navigation-shell\.css\?v=5/);
   assert.match(adapter, /MutationObserver/);
   assert.match(adapter, /data-view="\$\{view\}"/);
@@ -26,6 +26,8 @@ test("responsive navigation shell delegates to the stable frontend", () => {
   assert.match(adapter, /state === "global-workshop"/);
   assert.match(app, /function renderMyContent/);
   assert.match(app, /关注项目/);
+  assert.match(app, /隐私声明/);
+  assert.match(app, /privacy-statement-dialog/);
   assert.match(app, /召唤赞赏码/);
   assert.match(app, /class="workspace-nav"/);
   for (const tab of ["概况", "记忆", "上下文管理", "接入", "设置"]) {
@@ -74,6 +76,7 @@ test("responsive navigation shell delegates to the stable frontend", () => {
   assert.match(managementOverview, /renderTimeline\(library\)/);
   assert.match(managementOverview, /renderConversationImport\(library\)/);
   assert.match(managementOverview, /downloadMemoryExport\(library,event\.currentTarget\)/);
+  assert.match(managementOverview, /data-management-maintenance="export"[\s\S]*aria-hidden="true">›/);
   assert.match(managementOverview, /renderToolPolicy\(library\)/);
   assert.match(managementOverview, /renderMining\(library\)/);
   assert.match(managementOverview, /renderCompression\(library\)/);
@@ -81,6 +84,10 @@ test("responsive navigation shell delegates to the stable frontend", () => {
   assert.doesNotMatch(app, /可解释记忆|<h1>摘要记忆<\/h1>|返回维护/);
   assert.ok((app.match(/renderManagement\(library\)/g) || []).length >= 9);
   assert.match(app, /function renderAccess\(library\)/);
+  assert.match(app, /接入线程/);
+  assert.doesNotMatch(app, /接入新线程/);
+  assert.match(app, /api\/developer-adapters/);
+  assert.match(app, /正在读取适配器注册状态/);
   assert.match(app, /最多同时监听 5 个窗口/);
   assert.match(app, /data-binding-toggle/);
   assert.match(app, /data-binding-delete/);

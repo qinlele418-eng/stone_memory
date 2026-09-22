@@ -1,7 +1,7 @@
 const path = require("path");
 const fs = require("fs");
 const zlib = require("zlib");
-const { PUBLIC_DIR } = require("./paths");
+const { PUBLIC_DIR, PROJECT_ROOT } = require("./paths");
 const { loadModules, resolveInside } = require("../services/developer-module-contract");
 
 function listDeveloperModules(publicDir = PUBLIC_DIR) {
@@ -50,6 +50,31 @@ function listDeveloperModules(publicDir = PUBLIC_DIR) {
   const byId = new Map(legacyModules.map(item => [item.id, item]));
   for (const item of canonicalModules) byId.set(item.id, item);
   return [...byId.values()].sort((left, right) => left.order - right.order || left.id.localeCompare(right.id));
+}
+
+function listDeveloperAdapters(adapterRoot = path.join(PROJECT_ROOT, "developer-adapters")) {
+  if (!fs.existsSync(adapterRoot)) return [];
+  return fs.readdirSync(adapterRoot, { withFileTypes: true })
+    .filter(entry => entry.isDirectory())
+    .flatMap(entry => {
+      try {
+        const manifest = JSON.parse(fs.readFileSync(path.join(adapterRoot, entry.name, "adapter.json"), "utf8"));
+        const id = String(manifest.id || "").trim();
+        if (!/^[a-z0-9][a-z0-9-]*$/u.test(id) || id !== entry.name) return [];
+        return [{
+          id,
+          title: String(manifest.title || id),
+          summary: String(manifest.summary || ""),
+          version: String(manifest.version || ""),
+          host: String(manifest.host || "gateway"),
+          status: String(manifest.status || "registered"),
+          enabled: manifest.enabled !== false,
+        }];
+      } catch {
+        return [];
+      }
+    })
+    .sort((left, right) => left.title.localeCompare(right.title) || left.id.localeCompare(right.id));
 }
 
 function serveCanonicalDeveloperModule(req, res, pathname) {
@@ -139,4 +164,4 @@ function serveNotebookAsset(req, res, asset) {
   return true;
 }
 
-module.exports = { listDeveloperModules, serveCanonicalDeveloperModule, serveLegacyDreamLab, serveStatic, serveNotebookAsset };
+module.exports = { listDeveloperModules, listDeveloperAdapters, serveCanonicalDeveloperModule, serveLegacyDreamLab, serveStatic, serveNotebookAsset };

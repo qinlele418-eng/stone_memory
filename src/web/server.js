@@ -36,6 +36,7 @@ const { memoryExportPayload, sendMemoryExport } = require("./routes/memory");
 
 const { scenarioId, normalizeScenarioConfig } = require("../services/scenario-registry");
 const { resolveMiningPrompts, promptOverridePath, renderPrompt } = require("../services/prompt-resolver");
+const { listDeveloperAdapters } = require("./static-files");
 
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MAX_UPLOAD = 512 * 1024 * 1024;
@@ -959,6 +960,9 @@ async function handleApi(req, res, url) {
   }
   if (req.method === "GET" && url.pathname === "/api/developer-modules") {
     return json(res, 200, { modules: listDeveloperModules() });
+  }
+  if (req.method === "GET" && url.pathname === "/api/developer-adapters") {
+    return json(res, 200, { adapters: listDeveloperAdapters() });
   }
   const moduleDetailMatch = url.pathname.match(/^\/api\/developer-modules\/([a-z0-9][a-z0-9-]*)$/u);
   if (req.method === "GET" && moduleDetailMatch) {
