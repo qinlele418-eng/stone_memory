@@ -260,3 +260,42 @@ test("sentence metadata is searchable and removal state is visible to MCP reader
   }
   assert.equal(store.query({topicId:topic.id,query:"not-present"}).matchCount,0);
 });
+
+test("version 15 notebooks upgrade before creating standard and sentence books without losing existing notes", t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-notebook-upgrade-"));
+  const previous = process.env.STMEM_DB_PATH;
+  process.env.STMEM_DB_PATH = path.join(root, "memory.sqlite");
+  let store;
+  t.after(() => {
+    store?.close();
+    if (previous === undefined) delete process.env.STMEM_DB_PATH;
+    else process.env.STMEM_DB_PATH = previous;
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+  const options = { threadId: "upgrade-test", root: path.join(root, "notebook") };
+  store = new NotebookStore(options);
+  const originalTopic = store.createTopic({ name: "Existing notebook", isDefault: true });
+  const originalNote = store.writeEntry({ topicId: originalTopic.id, title: "Existing note", body: "Original body", tags: ["preserve"] });
+  // Reproduce the exact pre-sentence-book schema: version 15 without these columns.
+  store.db.exec("ALTER TABLE notebook_topics DROP COLUMN kind; ALTER TABLE notebook_topics DROP COLUMN presentation_json; ALTER TABLE notebook_entries DROP COLUMN metadata_json; DELETE FROM schema_migrations WHERE version > 15;");
+  const markdown = fs.readFileSync(path.join(options.root, originalNote.relativePath || originalNote.path), "utf8");
+  store.close(); store = null;
+  assert.throws(() => new NotebookStore({ ...options, readonly: true }), /STORAGE_UPGRADE_REQUIRED/);
+  store = new NotebookStore(options);
+  assert.equal(store.readEntry(originalNote.id).body, "Original body");
+  assert.equal(store.readEntry(originalNote.id).revision, originalNote.revision);
+  assert.equal(store.getTopic(originalTopic.id).isDefault, true);
+  assert.equal(store.getTopic(originalTopic.id).kind, "standard");
+  assert.deepEqual(store.readEntry(originalNote.id).metadata, {});
+  assert.equal(fs.readFileSync(path.join(options.root, originalNote.relativePath || originalNote.path), "utf8"), markdown);
+  for (const kind of ["standard", "sentence-book"]) {
+    const topic = store.createTopic({ name: kind, kind });
+    assert.equal(topic.kind, kind);
+    const note = store.writeEntry({ topicId: topic.id, title: "New note", body: "New body", metadata: { speaker: "Synthetic speaker" } });
+    assert.equal(store.readEntry(note.id).metadata.speaker, "Synthetic speaker");
+  }
+  store.close(); store = null;
+  store = new NotebookStore(options);
+  assert.equal(store.status().topicCount, 3);
+  assert.equal(store.status().entryCount, 3);
+});

@@ -4,7 +4,8 @@ const Database = require("better-sqlite3");
 const { resolveDatabasePath } = require("./database-location");
 const { messageIdentity } = require("../lib/message-identity");
 
-const SCHEMA_VERSION = 15;
+// Version 16 applies the sentence-book columns to existing version 15 databases.
+const SCHEMA_VERSION = 16;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS schema_migrations (

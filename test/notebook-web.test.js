@@ -107,4 +107,23 @@ test("notebook web API reads directly and routes confirmed writes through the CL
   assert.equal(archived.name, "海边手册");
   assert.equal(archived.visibility, "sealed");
   assert.equal(archived.isArchived, true);
+
+  // Reproduce an existing version-15 installation before its first new write.
+  const Database = require("better-sqlite3");
+  const oldDatabase = new Database(process.env.STMEM_DB_PATH);
+  oldDatabase.exec("ALTER TABLE notebook_topics DROP COLUMN kind; ALTER TABLE notebook_topics DROP COLUMN presentation_json; ALTER TABLE notebook_entries DROP COLUMN metadata_json; DELETE FROM schema_migrations WHERE version > 15;");
+  oldDatabase.close();
+  for (const kind of ["standard", "sentence-book"]) {
+    const created = await request("/api/libraries/thread-test/notebooks/topics", {
+      method: "POST", body: JSON.stringify({ name: "Upgrade " + kind, kind, coverPath: "preset:night" }),
+    });
+    assert.equal(created.kind, kind);
+    const entry = await request("/api/libraries/thread-test/notebooks/entries", {
+      method: "POST", body: JSON.stringify({ topicId: created.id, title: "Upgrade entry", body: "New content" }),
+    });
+    assert.equal(entry.body, "New content");
+  }
+  const preserved = await request(`/api/libraries/thread-test/notebooks/entries/${encodeURIComponent(note.id)}`);
+  assert.equal(preserved.body, updated.body);
+  assert.equal(preserved.revision, updated.revision);
 });
