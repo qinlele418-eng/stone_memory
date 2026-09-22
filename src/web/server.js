@@ -405,14 +405,14 @@ function refreshMiningBatchJob(job){
   return job;
 }
 
-function publicThreadSettings(threadId) {
+function publicThreadSettings(threadId, { redactLocalPaths = false } = {}) {
   const config = loadConfig(), entry = config[threadId];
   if (!entry) throw new Error(`记忆体不存在：${threadId}`);
   const actions = watcherActions(entry);
   return {
     threadId, libraryName: entry.label || threadId, ai: entry.ai || "", user: entry.user || "",
     userGender: entry.userGender || "unspecified", runtime: entry.runtime || "claude", purpose: entry.purpose || "accompany",
-    sessionDir: entry.sessionDir || "", minerMode: entry.minerMode || "subagent", apiProvider: entry.apiProvider || "",
+    sessionDir: redactLocalPaths ? "" : (entry.sessionDir || ""), minerMode: entry.minerMode || "subagent", apiProvider: entry.apiProvider || "",
     baseUrl: entry.apiProvider ? (config.apiKeys?.[entry.apiProvider]?.baseUrl || "") : "",
     model: entry.apiProvider ? (config.apiKeys?.[entry.apiProvider]?.model || "") : "",
     hasApiKey: !!(entry.apiProvider && config.apiKeys?.[entry.apiProvider]?.key),
@@ -1035,7 +1035,7 @@ async function handleApi(req, res, url, { isRemote = false } = {}) {
   const settingsMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/settings$/);
   if (settingsMatch) {
     const threadId = decodeURIComponent(settingsMatch[1]);
-    if (req.method === "GET") return json(res, 200, publicThreadSettings(threadId));
+    if (req.method === "GET") return json(res, 200, publicThreadSettings(threadId, { redactLocalPaths: isRemote }));
     if (req.method === "PATCH") {
       const body = await readJson(req);
       const current = publicThreadSettings(threadId);
@@ -1069,7 +1069,7 @@ async function handleApi(req, res, url, { isRemote = false } = {}) {
             || resulting.automaticCompression || resulting.automaticDream;
           runStmem(["watcher", anyModule ? "on" : "off", "--thread", threadId]);
         }
-        return json(res, 200, { success: true, config: publicThreadSettings(threadId) });
+        return json(res, 200, { success: true, config: publicThreadSettings(threadId, { redactLocalPaths: isRemote }) });
       } finally { fs.rmSync(dir, { recursive: true, force: true }); }
     }
   }
