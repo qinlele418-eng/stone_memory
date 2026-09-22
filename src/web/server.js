@@ -37,6 +37,8 @@ const { memoryExportPayload, sendMemoryExport } = require("./routes/memory");
 const { scenarioId, normalizeScenarioConfig } = require("../services/scenario-registry");
 const { resolveMiningPrompts, promptOverridePath, renderPrompt } = require("../services/prompt-resolver");
 const { listDeveloperAdapters } = require("./static-files");
+const { WebAuthError, isLoopbackHost, isLoopbackAddress, configuredAuth, isPublicWebApiRoute, createWebAuth } = require("../security/web-auth");
+const { webSecurityStatus } = require("../services/web-security");
 
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MAX_UPLOAD = 512 * 1024 * 1024;
@@ -50,8 +52,19 @@ const scratchJobs = new Map();
 const PROJECT_ROOT = path.join(__dirname, "..", "..");
 const STMEM_BIN = path.join(PROJECT_ROOT, "bin", "stmem");
 
+function redactWebSecrets(value) {
+  let output = String(value || "");
+  const configuredKeys = Object.values(loadConfig().apiKeys || {})
+    .map(item => String(item?.key || ""))
+    .filter(key => key.length >= 8);
+  for (const key of configuredKeys) output = output.split(key).join("[REDACTED]");
+  return output
+    .replace(/\\b(stmem_[A-Za-z0-9_-]+)\\b/g, "[REDACTED]")
+    .replace(/(["']?(?:authorization|api[_ -]?key)["']?\\s*[:=]\\s*["']?)(?:bearer\\s+)?[^"'\\s,;}\\]]+/gi, "$1[REDACTED]");
+}
+
 function safeStmemFailure(stderr, command, status) {
-  const lines = String(stderr || "").split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  const lines = redactWebSecrets(stderr).split(/\r?\n/).map(line => line.trim()).filter(Boolean);
   const marked = lines.reverse().find(line =>
     /^\[(?:memory-miner|memory-compressor)\]\s+(?:subagent\s+)?error:/i.test(line)
     || /^\[(?:tool-policy|module|init|memory|api-profile)\]\s+error:/i.test(line)
@@ -401,7 +414,7 @@ function refreshMiningBatchJob(job){
   return job;
 }
 
-function publicThreadSettings(threadId) {
+function publicThreadSettings(threadId, { redactLocalPaths = false } = {}) {
   const config = loadConfig();
   let entry = config[threadId];
   let memoryId = entry?.memoryId || threadId;
@@ -420,7 +433,7 @@ function publicThreadSettings(threadId) {
     memoryId, threadId: memoryId, externalThreadId: entry.externalThreadId || (layout !== "memory-v1" ? legacyThreadId : null),
     libraryName: entry.label || memoryId, ai: entry.ai || "", user: entry.user || "",
     scenario: scenarioId(entry), userGender: entry.userGender || "unspecified", runtime: entry.runtime || "claude", purpose: entry.purpose || "accompany",
-    sessionDir: entry.sessionDir || "", minerMode: entry.minerMode || "subagent", apiProvider: entry.apiProvider || "",
+    sessionDir: redactLocalPaths ? "" : (entry.sessionDir || ""), minerMode: entry.minerMode || "subagent", apiProvider: entry.apiProvider || "",
     baseUrl: entry.apiProvider ? (config.apiKeys?.[entry.apiProvider]?.baseUrl || "") : "",
     model: entry.apiProvider ? (config.apiKeys?.[entry.apiProvider]?.model || "") : "",
     apiKey: entry.apiProvider ? (config.apiKeys?.[entry.apiProvider]?.key || "") : "",
@@ -438,13 +451,19 @@ function publicThreadSettings(threadId) {
   };
 }
 
-function json(res, status, data) {
+function json(res, status, data, headers = {}) {
   const body = JSON.stringify(data);
-  res.writeHead(status, { "content-type": "application/json; charset=utf-8", "content-length": Buffer.byteLength(body) });
+  res.writeHead(status, {
+    "content-type": "application/json; charset=utf-8",
+    "content-length": Buffer.byteLength(body),
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
+    ...headers,
+  });
   res.end(body);
 }
 
-function error(res, status, message) { json(res, status, { error: message }); }
+function error(res, status, message, headers = {}) { json(res, status, { error: redactWebSecrets(message) }, headers); }
 
 function readBody(req, limit = 2 * 1024 * 1024) {
   return new Promise((resolve, reject) => {
@@ -931,7 +950,11 @@ function serveNotebookAsset(req, res, asset) {
   return true;
 }
 
-async function handleApi(req, res, url) {
+async function handleApi(req, res, url, { isRemote = false } = {}) {
+  if (req.method === "GET" && url.pathname === "/api/web-security") return json(res, 200, webSecurityStatus());
+  if (req.method === "POST" && url.pathname === "/api/web-security/token") {
+    return json(res, 200, JSON.parse(runStmem(["web", "auth", "rotate", "--json"])));
+  }
   const memoryExportMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/export$/u);
   if (req.method === "GET" && memoryExportMatch) {
     const requestedId = decodeURIComponent(memoryExportMatch[1]);
@@ -2023,16 +2046,34 @@ function cleanupPreviews() {
 }
 
 function startWebServer({ host = "127.0.0.1", port = 4173 } = {}) {
+  if (!isLoopbackHost(host) && !configuredAuth(loadConfig())) {
+    throw new Error("非 loopback Web 监听必须先配置 Web API Token");
+  }
+  const webAuth = createWebAuth({ host, configProvider: loadConfig });
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host || `${host}:${port}`}`);
     try {
-      if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/review-lab/api/")) return await handleApi(req, res, url);
+      if (isPublicWebApiRoute(req.method, url.pathname) && url.pathname === "/api/auth/status") return json(res, 200, webAuth.status());
+      if (isPublicWebApiRoute(req.method, url.pathname) && url.pathname === "/api/auth/unlock") {
+        webAuth.assertSameOrigin(req, { kind: "none" });
+        const body = await readJson(req);
+        const cookie = webAuth.unlock(String(body.token || ""), req);
+        return json(res, 200, { unlocked: true }, { "set-cookie": cookie });
+      }
+      if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/review-lab/api/")) {
+        const principal = webAuth.authenticate(req);
+        webAuth.assertSameOrigin(req, principal);
+        return await handleApi(req, res, url, { isRemote: !isLoopbackHost(host) || !isLoopbackAddress(req.socket?.remoteAddress) });
+      }
       if (serveLegacyDreamLab(res, url)) return;
       if (serveCanonicalDeveloperModule(req, res, url.pathname)) return;
       if (serveStatic(req, res, url.pathname)) return;
       if (!path.extname(url.pathname)) return serveStatic(req, res, "/");
       error(res, 404, "页面不存在");
-    } catch (cause) { error(res, 400, cause.message || "请求失败"); }
+    } catch (cause) {
+      if (cause instanceof WebAuthError) return error(res, cause.status, cause.message || "认证失败", cause.headers);
+      error(res, 400, cause.message || "请求失败");
+    }
   });
   const timer = setInterval(cleanupPreviews, 10 * 60 * 1000);
   timer.unref();
