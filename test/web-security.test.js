@@ -224,15 +224,17 @@ test("public thread settings never serialise the configured model API key", t =>
   const configPath = path.join(home, ".stone_memory", "stmem.json");
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   fs.writeFileSync(configPath, JSON.stringify({
-    "thread-safe": { label: "Safe", runtime: "codex", purpose: "coding", apiProvider: "provider" },
+    "thread-safe": { label: "Safe", runtime: "codex", purpose: "coding", apiProvider: "provider", sessionDir: "/srv/private/codex/sessions" },
     apiKeys: { provider: { key: "model-secret-must-not-leak", model: "model-a", baseUrl: "https://example.test" } },
   }));
-  const script = `const { publicThreadSettings } = require(${JSON.stringify(path.join(__dirname, "..", "src", "web", "server.js"))}); console.log(JSON.stringify(publicThreadSettings("thread-safe")));`;
+  const script = `const { publicThreadSettings } = require(${JSON.stringify(path.join(__dirname, "..", "src", "web", "server.js"))}); console.log(JSON.stringify({ local: publicThreadSettings("thread-safe"), remote: publicThreadSettings("thread-safe", { redactLocalPaths: true }) }));`;
   const child = spawnSync(process.execPath, ["-e", script], { env: { ...process.env, HOME: home, USERPROFILE: home }, encoding: "utf8", timeout: 10_000 });
   assert.equal(child.status, 0, child.stderr);
-  const settings = JSON.parse(child.stdout);
-  assert.equal(settings.hasApiKey, true);
-  assert.equal(Object.hasOwn(settings, "apiKey"), false);
+  const { local, remote } = JSON.parse(child.stdout);
+  assert.equal(local.hasApiKey, true);
+  assert.equal(Object.hasOwn(local, "apiKey"), false);
+  assert.equal(local.sessionDir, "/srv/private/codex/sessions");
+  assert.equal(remote.sessionDir, "");
   assert.equal(child.stdout.includes("model-secret-must-not-leak"), false);
 });
 
@@ -321,7 +323,7 @@ test("a non-loopback Web listener cannot name server files, but CLI-registered B
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   fs.writeFileSync(configPath, JSON.stringify({
     web: { auth: { tokenVerifier: hash(token), tokenVersion: 1 } },
-    "thread-security": { label: "Security", runtime: "codex", purpose: "coding", ai: "A", user: "U" },
+    "thread-security": { label: "Security", runtime: "codex", purpose: "coding", ai: "A", user: "U", sessionDir: source },
   }));
   const env = { ...process.env, HOME: home, USERPROFILE: home };
   const bin = path.join(__dirname, "..", "bin", "stmem");
@@ -341,6 +343,7 @@ test("a non-loopback Web listener cannot name server files, but CLI-registered B
     (async () => {
       const server = await startWebServer({ host: "0.0.0.0", port: 0 });
       const port = server.address().port;
+      const settings = await call(port, "/api/libraries/thread-security/settings", {}, "GET");
       const add = await call(port, "/api/libraries/thread-security/bindings", { provider: "codex", threadFile: ${JSON.stringify(source)} });
       const temporary = await call(port, "/api/libraries/thread-security/bindings/not-real/import", { source: ${JSON.stringify(source)} });
       const sessionCheck = await call(port, "/api/session-file/check", { threadId: "thread-security", sessionDir: ${JSON.stringify(source)} });
@@ -348,12 +351,15 @@ test("a non-loopback Web listener cannot name server files, but CLI-registered B
       const sessionCreate = await call(port, "/api/libraries", { threadId: "remote-new", sessionDir: ${JSON.stringify(source)} });
       const registered = await call(port, "/api/libraries/thread-security/bindings/${bindingId}/import", {});
       await new Promise(resolve => server.close(resolve));
-      console.log(JSON.stringify({ add, temporary, sessionCheck, sessionUpdate, sessionCreate, registered }));
+      console.log(JSON.stringify({ settings, add, temporary, sessionCheck, sessionUpdate, sessionCreate, registered }));
     })().catch(error => { console.error(error.stack); process.exit(1); });
   `;
   const child = spawnSync(process.execPath, ["-e", script], { env, encoding: "utf8", timeout: 20_000 });
   assert.equal(child.status, 0, child.stderr);
   const result = JSON.parse(child.stdout);
+  assert.equal(result.settings.status, 200);
+  assert.equal(JSON.parse(result.settings.body).sessionDir, "");
+  assert.equal(result.settings.body.includes(${JSON.stringify("/srv/private/codex/sessions")}), false);
   assert.equal(result.add.status, 400);
   assert.match(result.add.body, /不能注册服务器本地 Binding 路径/);
   assert.equal(result.temporary.status, 400);
