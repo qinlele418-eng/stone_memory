@@ -436,7 +436,6 @@ function publicThreadSettings(threadId, { redactLocalPaths = false } = {}) {
     sessionDir: redactLocalPaths ? "" : (entry.sessionDir || ""), minerMode: entry.minerMode || "subagent", apiProvider: entry.apiProvider || "",
     baseUrl: entry.apiProvider ? (config.apiKeys?.[entry.apiProvider]?.baseUrl || "") : "",
     model: entry.apiProvider ? (config.apiKeys?.[entry.apiProvider]?.model || "") : "",
-    apiKey: entry.apiProvider ? (config.apiKeys?.[entry.apiProvider]?.key || "") : "",
     hasApiKey: !!(entry.apiProvider && config.apiKeys?.[entry.apiProvider]?.key),
     windowDays: entry.windowDays ?? 3, keepToolPairs: entry.keepToolPairs ?? 30,
     mcpRebuildDefaultsEnabled: entry.mcpRebuildDefaultsEnabled === true,
@@ -1027,6 +1026,9 @@ async function handleApi(req, res, url, { isRemote = false } = {}) {
     }
     if (req.method === "POST") {
       const body = await readJson(req);
+      if (isRemote && (body.threadFile || body.sessionRoot || body.sessionDir || body.source)) {
+        throw new Error("远程 Web 不能为 Binding 指定服务器本地来源路径；请在本机 CLI / loopback Web 中注册");
+      }
       const args = ["binding", "add", "--thread", threadId, "--provider", String(body.provider || "")];
       if (body.externalThreadId) args.push("--external-thread", String(body.externalThreadId));
       if (body.threadFile) args.push("--thread-file", String(body.threadFile));
@@ -1061,6 +1063,7 @@ async function handleApi(req, res, url, { isRemote = false } = {}) {
     const bindingId = decodeURIComponent(bindingImportMatch[2]);
     publicThreadSettings(threadId);
     const body = await readJson(req);
+    if (isRemote && body.source) throw new Error("远程 Web 不能临时指定服务器本地 Binding 来源；请使用已注册的 Binding");
     const args = ["binding", "import", "--thread", threadId, "--binding", bindingId];
     if (body.source) args.push("--source", String(body.source));
     if (body.apply === true) args.push("--apply");
@@ -1308,6 +1311,7 @@ async function handleApi(req, res, url, { isRemote = false } = {}) {
   if (req.method === "GET" && url.pathname === "/api/libraries") return json(res, 200, { libraries: listLibraries() });
 
   if (req.method === "POST" && url.pathname === "/api/session-file/check") {
+    if (isRemote) throw new Error("远程 Web 不能探测服务器本地线程文件目录；请在本机 CLI / loopback Web 中检查");
     const body = await readJson(req);
     const threadId = String(body.threadId || "").trim(), sessionDir = String(body.sessionDir || "").trim();
     if (!threadId || !sessionDir) throw new Error("请先填写真实 Claude/Codex 线程 ID 和线程文件搜索目录");
@@ -1325,10 +1329,13 @@ async function handleApi(req, res, url, { isRemote = false } = {}) {
   const settingsMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/settings$/);
   if (settingsMatch) {
     const threadId = decodeURIComponent(settingsMatch[1]);
-    if (req.method === "GET") return json(res, 200, publicThreadSettings(threadId));
+    if (req.method === "GET") return json(res, 200, publicThreadSettings(threadId, { redactLocalPaths: isRemote }));
     if (req.method === "PATCH") {
       const body = await readJson(req);
       const current = publicThreadSettings(threadId);
+      if (isRemote && ["sessionDir", "threadFile"].some(key => Object.hasOwn(body, key))) {
+        throw new Error("远程 Web 不能修改服务器本地 Binding 来源；请在本机 CLI / loopback Web 中修改");
+      }
       const automationKeys = ["automaticFullMining", "automaticMemoryMaintenance", "automaticCompression", "automaticDream", "watcherEnabled"];
       const regularBody = Object.fromEntries(Object.entries(body).filter(([key]) => !automationKeys.includes(key)));
       const input = { ...current, ...regularBody, threadId, runtime: current.runtime, purpose: current.purpose };
@@ -1378,7 +1385,7 @@ async function handleApi(req, res, url, { isRemote = false } = {}) {
             || resulting.automaticCompression || resulting.automaticDream;
           runStmem(["watcher", anyModule ? "on" : "off", canonical ? "--memory" : "--thread", threadId]);
         }
-        return json(res, 200, { success: true, config: publicThreadSettings(threadId) });
+        return json(res, 200, { success: true, config: publicThreadSettings(threadId, { redactLocalPaths: isRemote }) });
       } finally { fs.rmSync(dir, { recursive: true, force: true }); }
     }
   }
@@ -1943,6 +1950,9 @@ async function handleApi(req, res, url, { isRemote = false } = {}) {
 
   if (req.method === "POST" && url.pathname === "/api/libraries") {
     const body = await readJson(req);
+    if (isRemote && (body.threadId || body.sessionDir || body.threadFile || body.source)) {
+      throw new Error("远程 Web 可以创建和配置记忆体，但不能同时注册服务器本地 Binding；请在本机完成接入");
+    }
     const input = body.scenario || body.purpose ? normalizeScenarioConfig(body) : body;
     let createdNow = false;
     if (!input.memoryId) {
