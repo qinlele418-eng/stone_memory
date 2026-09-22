@@ -359,7 +359,7 @@ test("a non-loopback Web listener cannot name server files, but CLI-registered B
   const result = JSON.parse(child.stdout);
   assert.equal(result.settings.status, 200);
   assert.equal(JSON.parse(result.settings.body).sessionDir, "");
-  assert.equal(result.settings.body.includes(${JSON.stringify("/srv/private/codex/sessions")}), false);
+  assert.equal(result.settings.body.includes(source), false);
   assert.equal(result.add.status, 400);
   assert.match(result.add.body, /不能注册服务器本地 Binding 路径/);
   assert.equal(result.temporary.status, 400);
