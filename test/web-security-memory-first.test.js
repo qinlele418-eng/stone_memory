@@ -1,0 +1,120 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const { spawnSync } = require("node:child_process");
+
+const root = path.resolve(__dirname, "..");
+const stmem = path.join(root, "bin", "stmem");
+
+function run(home, args) {
+  const env = { ...process.env, HOME: home, USERPROFILE: home };
+  delete env.NODE_TEST_CONTEXT;
+  return spawnSync(process.execPath, [stmem, ...args], { cwd: root, env, encoding: "utf8", timeout: 20_000 });
+}
+
+test("Memory-first remote Web hides Binding paths and cannot name server files", t => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-memory-web-security-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+
+  const created = run(home, ["memory", "create", "--name", "安全记忆"]);
+  assert.equal(created.status, 0, created.stderr);
+  const memoryId = JSON.parse(created.stdout).memory.memoryId;
+
+  const settings = path.join(home, "settings.json");
+  fs.writeFileSync(settings, JSON.stringify({
+    label: "安全记忆", purpose: "coding", ai: "A", user: "U",
+    miner: { mode: "subagent", apiProfile: null },
+  }));
+  for (const apply of [false, true]) {
+    const result = run(home, ["memory", "settings", "--memory", memoryId, "--batch-file", settings, ...(apply ? ["--apply"] : ["--validate"])]);
+    assert.equal(result.status, 0, result.stderr);
+  }
+
+  const sessionRoot = path.join(home, "private-sessions");
+  fs.mkdirSync(sessionRoot, { recursive: true });
+  fs.writeFileSync(path.join(sessionRoot, "rollout-external-safe.jsonl"),
+    JSON.stringify({ type: "session_meta", payload: { id: "external-safe", base_instructions: "test" } }) + "\n");
+  const binding = path.join(home, "binding.json");
+  fs.writeFileSync(binding, JSON.stringify({
+    provider: "codex", externalThreadId: "external-safe", sessionRoot, mode: "primary",
+  }));
+  const bound = run(home, ["binding", "add", "--memory", memoryId, "--batch-file", binding, "--apply"]);
+  assert.equal(bound.status, 0, bound.stderr);
+
+  const rotated = run(home, ["web", "auth", "rotate", "--json"]);
+  assert.equal(rotated.status, 0, rotated.stderr);
+  const token = JSON.parse(rotated.stdout).token;
+  const serverPath = path.join(root, "src", "web", "server.js");
+  const script = `
+    const http = require("http");
+    const { startWebServer } = require(${JSON.stringify(serverPath)});
+    const token = process.argv[1], memoryId = process.argv[2], localPath = process.argv[3];
+    const call = (port, method, pathname, body) => new Promise((resolve, reject) => {
+      const payload = body === undefined ? "" : JSON.stringify(body);
+      const req = http.request({
+        host: "127.0.0.1", port, method, path: pathname,
+        headers: { authorization: "Bearer " + token, "content-type": "application/json" },
+      }, res => {
+        const chunks = [];
+        res.on("data", chunk => chunks.push(chunk));
+        res.on("end", () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString("utf8") }));
+      });
+      req.on("error", reject);
+      req.end(payload);
+    });
+    (async () => {
+      const server = await startWebServer({ host: "0.0.0.0", port: 0 });
+      const port = server.address().port;
+      const settings = await call(port, "GET", "/api/libraries/" + encodeURIComponent(memoryId) + "/settings");
+      const binding = await call(port, "POST", "/api/libraries/" + encodeURIComponent(memoryId) + "/bindings", {
+        provider: "codex", externalThreadId: "remote-thread", threadFile: localPath, apply: true,
+      });
+      const probe = await call(port, "POST", "/api/session-file/check", {
+        threadId: "external-safe", sessionDir: localPath,
+      });
+      const draft = await call(port, "POST", "/api/libraries", { libraryName: "远程草稿" });
+      await new Promise(resolve => server.close(resolve));
+      console.log(JSON.stringify({ settings, binding, probe, draft }));
+    })().catch(error => { console.error(error.stack); process.exit(1); });
+  `;
+  const child = spawnSync(process.execPath, ["-e", script, token, memoryId, sessionRoot], {
+    cwd: root,
+    env: { ...process.env, HOME: home, USERPROFILE: home },
+    encoding: "utf8",
+    timeout: 20_000,
+  });
+  assert.equal(child.status, 0, child.stderr);
+  const result = JSON.parse(child.stdout);
+  assert.equal(result.settings.status, 200);
+  const publicSettings = JSON.parse(result.settings.body);
+  assert.equal(publicSettings.memoryId, memoryId);
+  assert.equal(publicSettings.sessionDir, "");
+  assert.equal(result.settings.body.includes(sessionRoot), false);
+  assert.equal(result.binding.status, 400);
+  assert.match(result.binding.body, /不能为 Binding 指定服务器本地来源路径/);
+  assert.equal(result.probe.status, 400);
+  assert.match(result.probe.body, /不能探测服务器本地线程文件目录/);
+  assert.equal(result.draft.status, 201, result.draft.body);
+  assert.match(JSON.parse(result.draft.body).library.memoryId, /^[0-9a-f-]{36}$/);
+});
+
+test("Web auth stores only a verifier and token rotation invalidates old sessions", () => {
+  const { createWebAuth, hashToken } = require("../src/security/web-auth");
+  let verifier = hashToken("stmem_old_token");
+  const configProvider = () => ({ web: { auth: { tokenVerifier: verifier, tokenVersion: 1 } } });
+  let now = 1_000;
+  const auth = createWebAuth({ host: "0.0.0.0", configProvider, now: () => now });
+  const request = (headers = {}, method = "GET") => ({
+    method, headers, socket: { remoteAddress: "127.0.0.1", encrypted: false },
+  });
+  assert.equal(auth.authenticate(request({ authorization: "Bearer stmem_old_token" })).kind, "bearer");
+  const cookie = auth.unlock("stmem_old_token", request());
+  const session = cookie.split(";")[0];
+  assert.equal(auth.authenticate(request({ cookie: session })).kind, "session");
+  verifier = hashToken("stmem_new_token");
+  assert.throws(() => auth.authenticate(request({ authorization: "Bearer stmem_old_token" })), /访问令牌/);
+  assert.throws(() => auth.authenticate(request({ cookie: session })), /访问令牌/);
+  assert.equal(auth.authenticate(request({ authorization: "Bearer stmem_new_token" })).kind, "bearer");
+});
