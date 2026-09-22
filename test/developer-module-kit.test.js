@@ -4,6 +4,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const publicDir = path.join(__dirname, "..", "src", "web", "public");
+const repositoryDir = path.join(__dirname, "..");
 
 test("developer kit consumes an optional semantic snapshot without reading theme persistence", () => {
   const runtime = fs.readFileSync(path.join(publicDir, "developer-kit", "runtime.js"), "utf8");
@@ -43,6 +44,12 @@ test("developer kit consumes an optional semantic snapshot without reading theme
   assert.match(index, /自动注册/);
   assert.match(index, /无需修改核心/);
   assert.match(index, /title="制作台"/);
+  assert.match(index, /name="project-kind" value="plugin"/);
+  assert.match(index, /name="project-kind" value="adapter"/);
+  assert.match(index, /id="adapter-protocol"/);
+  assert.match(index, /id="adapter-target"/);
+  assert.match(index, /作者昵称（或 GitHub 账号）/);
+  assert.match(app, /作者昵称（或 GitHub 账号）：/);
   assert.match(index, /CLI · 正式写入/);
   assert.match(index, /MCP · Agent 能力/);
   assert.match(index, /Watcher · 后台自动化/);
@@ -54,7 +61,35 @@ test("developer kit consumes an optional semantic snapshot without reading theme
   assert.match(app, /npm run audit:developer-modules/);
   assert.match(app, /建议合并/);
   assert.match(app, /CI 通过只代表满足基础技术规范/);
+  assert.match(app, /function pluginPrompt\(\)/);
+  assert.match(app, /function adapterPrompt\(\)/);
+  assert.match(app, /developer-adapters\/\$\{id\}\//);
+  assert.match(app, /不要求手机运行 Stone Memory watcher/);
+  assert.match(app, /常驻系统提示词、SM 上次投递的记忆块/);
   assert.doesNotMatch(index, /theme-studio/);
+});
+
+test("gateway adapter contract is separate from developer modules", () => {
+  const adapterDir = path.join(repositoryDir, "developer-adapters");
+  const contract = JSON.parse(fs.readFileSync(path.join(adapterDir, "contract.json"), "utf8"));
+  const readme = fs.readFileSync(path.join(adapterDir, "README.md"), "utf8");
+  const development = fs.readFileSync(path.join(adapterDir, "DEVELOPMENT.md"), "utf8");
+
+  assert.equal(contract.adapterRoot, "developer-adapters/<adapter-id>");
+  assert.equal(contract.developerContract, "developer-adapters/DEVELOPMENT.md");
+  assert.deepEqual(contract.requiredFiles, ["adapter.json", "README.md"]);
+  assert.ok(contract.requiredResponsibilities.includes("bidirectional conversation protocol conversion"));
+  assert.ok(contract.requiredResponsibilities.includes("idempotent scheduled import"));
+  assert.ok(contract.requiredResponsibilities.includes("memory block selection and delivery"));
+  assert.match(readme, /手机端 harness/);
+  assert.match(readme, /适配器与插件不是同一种扩展/);
+  assert.match(development, /每天一至两次/);
+  assert.match(development, /stmem import/);
+  assert.match(development, /stmem mine/);
+  assert.match(development, /SM → harness/);
+  assert.match(development, /同目录临时文件 \+ 原子替换/);
+  assert.match(development, /不得使用 `module\.json` 冒充插件/);
+  assert.match(development, /不直接操作 SQLite 或 `archive\/full`/);
 });
 
 test("extended mining workbench stays detachable and uses the shared module contract", () => {
@@ -129,7 +164,6 @@ test("theme studio applies the saved theme before standalone CSS paints", () => 
   const stylesAt = html.indexOf("standalone.css");
   assert.ok(runtimeAt > 0 && runtimeAt < stylesAt);
   assert.match(html, /<stone-module-page/);
-  assert.match(bootstrap, /destination\.searchParams\.set\("focus"/);
-  assert.match(bootstrap, /data-theme-focus/);
+  assert.doesNotMatch(bootstrap, /destination\.searchParams\.set\("focus"/);
   assert.match(bootstrap, /#theme-entry-host/);
 });

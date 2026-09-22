@@ -203,7 +203,7 @@
     card.className = "developer-experiment-card plugin-card";
     card.dataset.developerModule = MODULE_ID;
     card.dataset.moduleOrder = String(MODULE_ORDER);
-    card.innerHTML = `<span class="developer-experiment-glow" aria-hidden="true"></span><div class="plugin-card-top">${pluginMark("spark")}<div class="developer-experiment-copy"><h2>制作台</h2><p class="module-summary">查看可复用的 CLI、MCP、Watcher 与 SQLite 能力，把想法整理成符合模块契约的开发工单。</p></div></div><footer class="plugin-card-status"><button class="developer-enter plugin-detail-button" type="button">详情</button><button class="developer-enter plugin-enter-button" type="button">进入</button></footer>`;
+    card.innerHTML = `<span class="developer-experiment-glow" aria-hidden="true"></span><div class="plugin-card-top">${pluginMark("spark")}<div class="developer-experiment-copy"><h2>制作台</h2><p class="module-summary">选择插件或适配器，查看可复用能力并生成符合对应契约的开发工单。</p></div></div><footer class="plugin-card-status"><button class="developer-enter plugin-detail-button" type="button">详情</button><button class="developer-enter plugin-enter-button" type="button">进入</button></footer>`;
     card.querySelector(".plugin-detail-button").onclick = showMakerDetail;
     card.querySelector(".plugin-enter-button").onclick = () => {
       location.href = "/developer-kit/";
@@ -216,7 +216,7 @@
     document.querySelector(".plugin-detail-dialog")?.remove();
     const dialog = document.createElement("dialog");
     dialog.className = "plugin-detail-dialog";
-    dialog.innerHTML = `<section><header><div><span class="plugin-detail-kicker">制作台详情</span><h2>制作台</h2></div><button class="plugin-detail-close" type="button" aria-label="关闭">×</button></header><p class="plugin-detail-summary">根据 Stone Memory Plugin Contract v1 审计现有能力，并生成带目录、权限、数据边界、测试和 PR 规则的开发工单。</p><div class="plugin-detail-capabilities"><span>能力地图</span><span>CLI 正式写入</span><span>MCP 能力审计</span><span>Watcher 契约</span><span>独立 SQLite</span><span>PR / CI 验收</span></div></section>`;
+    dialog.innerHTML = `<section><header><div><span class="plugin-detail-kicker">制作台详情</span><h2>制作台</h2></div><button class="plugin-detail-close" type="button" aria-label="关闭">×</button></header><p class="plugin-detail-summary">按 Plugin Contract 或 Gateway Adapter Contract 审计现有能力，并生成带目录、协议、权限、数据边界、测试和 PR 规则的开发工单。</p><div class="plugin-detail-capabilities"><span>插件 / 适配器</span><span>CLI 正式写入</span><span>协议转换</span><span>定时批量同步</span><span>记忆块投递</span><span>PR / CI 验收</span></div></section>`;
     const close = () => dialog.close();
     dialog.querySelector(".plugin-detail-close").onclick = close;
     dialog.addEventListener("click", event => { if (event.target === dialog) close(); });
@@ -265,7 +265,7 @@
     dialog.className = "plugin-detail-dialog";
     dialog.innerHTML = `<section><header><div><span class="plugin-detail-kicker">插件详情</span><h2></h2></div><button class="plugin-detail-close" type="button" aria-label="关闭">×</button></header><p class="plugin-detail-byline"></p><p class="plugin-detail-summary"></p><h3 class="plugin-detail-section-title">插件能力</h3><div class="plugin-detail-capabilities" aria-label="插件能力"></div><details class="plugin-detail-readme"><summary>开发说明 README</summary><pre>正在读取…</pre></details></section>`;
     dialog.querySelector("h2").textContent = module.title;
-    dialog.querySelector(".plugin-detail-byline").textContent = `贡献人 · ${String(module.contributor || "未署名").replace(/^贡献人[：:]?\s*/u, "")}`;
+    dialog.querySelector(".plugin-detail-byline").textContent = `作者昵称（或 GitHub 账号） · ${String(module.contributor || "未署名").replace(/^贡献人[：:]?\s*/u, "")}`;
     dialog.querySelector(".plugin-detail-summary").textContent = module.summary || "这个模块暂未填写中文简介。";
     const close = () => dialog.close();
     dialog.querySelector(".plugin-detail-close").onclick = close;

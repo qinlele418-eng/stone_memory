@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "adapterRoot": "developer-adapters/<adapter-id>",
+  "developerContract": "developer-adapters/DEVELOPMENT.md",
+  "requiredFiles": ["adapter.json", "README.md"],
+  "requiredResponsibilities": [
+    "bidirectional conversation protocol conversion",
+    "idempotent scheduled import",
+    "scheduled mining orchestration",
+    "memory block selection and delivery"
+  ],
+  "rules": [
+    "宿主负责每天一至两次定时调用，适配器不得要求手机运行 Stone Memory watcher",
+    "对话写入复用 stmem import 或正式 API，不得直写 Core SQLite 或 archive/full",
+    "摘要挖掘复用 stmem mine，不复制挖掘业务逻辑",
+    "常驻提示词和旧记忆块必须从回流对话中排除",
+    "增量同步必须使用稳定消息 ID、游标或指纹保证幂等",
+    "记忆块提取策略必须可配置、可预览、可复现并受字符预算约束",
+    "宿主目标路径只能由运行时配置提供，写入必须原子化且保留权限",
+    "正式读取能力不足时提交 Core proposal，不得绕过边界直接读库"
+  ]
+}

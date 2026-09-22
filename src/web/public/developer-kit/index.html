@@ -3,16 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <title>Stone Memory · 插件工坊</title>
+  <title>Stone Memory · 开发制作台</title>
   <script src="/developer-kit/runtime.js?v=7"></script>
-  <link rel="stylesheet" href="/developer-kit/styles.css?v=3">
+  <link rel="stylesheet" href="/developer-kit/styles.css?v=4">
 </head>
 <body class="stone-theme-enabled">
-  <stone-module-page eyebrow="STONE PLUGIN WORKSHOP · CONTRACT v1" title="制作台" description="先看 Stone Memory 已经提供什么，再让 Agent 在统一的数据、运行与提交边界内施工。">
+  <stone-module-page eyebrow="STONE DEVELOPER WORKSHOP · CONTRACT v1" title="制作台" description="选择插件或适配器，再让 Agent 在对应的数据、运行与提交边界内施工。">
     <section class="kit-grid principles-grid">
       <article class="kit-card">
-        <span>01 · 隔离</span><h2>代码只住在模块里</h2>
-        <p>新模块统一放在 <code>developer-modules/&lt;module-id&gt;/</code>，入口由 <code>module.json</code> 自动注册，无需修改核心 <code>app.js</code>。</p>
+        <span>01 · 分型</span><h2>插件与适配器各归其位</h2>
+        <p>插件放在 <code>developer-modules/</code> 并由清单自动注册；网关适配器放在 <code>developer-adapters/</code>。两者无需修改核心，但使用不同清单和运行契约。</p>
       </article>
       <article class="kit-card">
         <span>02 · 复用</span><h2>正式能力不重写</h2>
@@ -37,22 +37,33 @@
 
     <section class="builder-card">
       <div class="section-head"><div><p class="eyebrow">WORK ORDER</p><h2>生成给 Agent 的开发工单</h2></div><span>只生成说明，不改项目文件</span></div>
-      <p class="skill-notice">开工前，Agent 必须完整阅读 <code>sm-developer-docs/AGENTS.md</code>、<code>developer-modules/DEVELOPMENT.md</code> 与 <code>sm-developer-docs/skills/stone-memory-maintainer/SKILL.md</code>。</p>
+      <p class="skill-notice">开工前，Agent 必须完整阅读 <code>sm-developer-docs/AGENTS.md</code>、所选类型的 <code>DEVELOPMENT.md</code> 与 <code>sm-developer-docs/skills/stone-memory-maintainer/SKILL.md</code>。</p>
+      <fieldset class="project-kind-picker">
+        <legend>要制作什么</legend>
+        <label><input type="radio" name="project-kind" value="plugin" checked><span><b>插件</b><small>扩展 SM 内部能力，可注册前端、命令、MCP 或 Watcher</small></span></label>
+        <label><input type="radio" name="project-kind" value="adapter"><span><b>适配器</b><small>连接手机端 harness / 网关，批量同步对话并投递记忆块</small></span></label>
+      </fieldset>
       <div class="builder-grid">
-        <label>模块 ID<input id="module-id" value="my-module" maxlength="48"></label>
-        <label>模块名称<input id="module-title" value="我的实验模块" maxlength="60"></label>
-        <label>贡献人<input id="module-contributor" value="@" maxlength="60"></label>
-        <label>数据作用域<select id="module-scope"><option value="memory">按记忆体隔离</option><option value="global">全局共享</option></select></label>
+        <label><span id="project-id-label">模块 ID</span><input id="module-id" value="my-module" maxlength="48"></label>
+        <label><span id="project-title-label">模块名称</span><input id="module-title" value="我的实验模块" maxlength="60"></label>
+        <label>作者昵称（或 GitHub 账号）<input id="module-contributor" value="@" maxlength="60"></label>
+        <label id="module-scope-field">数据作用域<select id="module-scope"><option value="memory">按记忆体隔离</option><option value="global">全局共享</option></select></label>
         <label class="wide-field">功能简介<textarea id="module-summary" maxlength="500">说明这个模块解决什么问题、谁会使用，以及什么不在本次范围内。</textarea></label>
         <label>提交意图<select id="submission-intent"><option value="community">独立模块分发（默认不合并）</option><option value="merge">建议合并至官方主线</option><option value="fix">功能修复</option></select></label>
       </div>
-      <fieldset class="capability-picker">
+      <fieldset class="capability-picker" id="plugin-fields">
         <legend>计划复用的能力</legend>
         <label><input type="checkbox" value="cli" checked>CLI 正式写入</label>
         <label><input type="checkbox" value="mcp">MCP / Agent 工具</label>
         <label><input type="checkbox" value="watcher">Watcher 自动任务</label>
         <label><input type="checkbox" value="sqlite">独立 SQLite</label>
       </fieldset>
+      <div class="builder-grid adapter-fields" id="adapter-fields" hidden>
+        <label class="wide-field">宿主协议与对话来源<textarea id="adapter-protocol" maxlength="500">说明手机端 harness 的消息字段、角色、时间戳、会话 ID，如何取得新增对话，以及对话如何双向导入导出。</textarea></label>
+        <label>同步频率<input id="adapter-schedule" value="每天 1–2 次，由手机端后台任务触发" maxlength="120"></label>
+        <label>记忆块目标路径<input id="adapter-target" value="由 harness 运行时配置提供" maxlength="240"></label>
+        <label class="wide-field">记忆块提取规则<textarea id="adapter-selection" maxlength="500">在字符预算内保留重要记忆和锚点；其余候选按可复现规则抽取最多 X 条，并提供 dry-run。</textarea></label>
+      </div>
       <div class="builder-actions"><button id="generate" type="button">生成开发工单</button><button id="copy-prompt" class="secondary" type="button">复制给 Agent</button></div>
       <pre id="agent-prompt"></pre>
     </section>
@@ -71,6 +82,6 @@
     </section>
     <p id="kit-status" role="status"></p>
   </stone-module-page>
-  <script src="/developer-kit/app.js?v=3"></script>
+  <script src="/developer-kit/app.js?v=4"></script>
 </body>
 </html>
