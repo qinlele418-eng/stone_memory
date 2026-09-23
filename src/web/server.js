@@ -173,8 +173,7 @@ const REVIEW_RULE_IDS = {
 
 function reviewProviders(threadId) {
   const config = loadConfig();
-  const thread = config[threadId];
-  if (!thread) throw new Error(`记忆体不存在：${threadId}`);
+  getMemoryContext(threadId);
   return Object.entries(config.apiKeys || {}).flatMap(([id, credential]) =>
     credential?.key && (credential?.baseUrl || id === "deepseek")
       ? [{ id, label: id, defaultModel: String(credential.model || "") }]

@@ -20,6 +20,7 @@ test("developer kit consumes an optional semantic snapshot without reading theme
   assert.match(runtime, /window\.StoneDeveloperModule/);
   assert.match(runtime, /threadId/);
   assert.match(runtime, /stone-memory-developer-thread/);
+  assert.match(runtime, /无法读取当前记忆体/);
   assert.match(runtime, /\/developer-kit\/module-theme\.css\?v=2/);
   const primary = moduleTheme.match(/body\.stone-developer-module \.primary,[\s\S]*?body\.stone-developer-module \.restart \{([\s\S]*?)\n\}/)?.[1] || "";
   const secondary = moduleTheme.match(/body\.stone-developer-module \.secondary \{([\s\S]*?)\n\}/)?.[1] || "";
@@ -140,6 +141,11 @@ test("global workshop lazy-loads plugin entries and keeps the maker separate", (
   const bootstrap = fs.readFileSync(path.join(publicDir, "developer-kit", "bootstrap.js"), "utf8");
   assert.match(bootstrap, /MODULE_ORDER = 1/);
   assert.match(app, /function renderGlobalWorkshop/);
+  assert.match(app, /function rememberWorkshopMemory/);
+  assert.match(app, /renderGlobalWorkshop\("plugins", identifier\)/);
+  assert.match(app, /aria-label="选择插件使用的记忆体"/);
+  assert.match(app, /moduleHost\.dataset\.memoryId = memoryId/);
+  assert.match(app, /sessionStorage\.setItem\("stone-memory-developer-thread", memoryId\)/);
   assert.match(app, /data-workshop-tab="plugins"[\s\S]*data-workshop-tab="community"[\s\S]*data-workshop-tab="maker"/);
   assert.match(bootstrap, /data-developer-kit-host/);
   assert.match(bootstrap, /module\.workshopSection \|\| "plugins"/);

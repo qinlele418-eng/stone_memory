@@ -230,14 +230,23 @@ function openGlobalWorkshopPanel(panel = "plugins") {
   });
 }
 
-function renderGlobalWorkshop(panel = "plugins") {
+function rememberWorkshopMemory(identifier) {
+  const memoryId = String(identifier || "").trim();
+  if (!memoryId) return;
+  try {
+    sessionStorage.setItem("stone-memory-shell-last-memory", memoryId);
+    sessionStorage.setItem("stone-memory-developer-thread", memoryId);
+  } catch {}
+}
+
+function renderGlobalWorkshop(panel = "plugins", preferredMemoryId = "") {
   let rememberedMemoryId = "";
   try { rememberedMemoryId = sessionStorage.getItem("stone-memory-shell-last-memory") || ""; } catch {}
   const workspaceMemoryId = document.querySelector(".workspace")?.dataset.threadId || "";
-  const requestedMemoryId = new URLSearchParams(location.search).get("threadId") || "";
-  const activeMemoryId = [workspaceMemoryId, requestedMemoryId, rememberedMemoryId]
+  const route = new URLSearchParams(location.search);
+  const requestedMemoryId = route.get("memoryId") || route.get("threadId") || "";
+  const activeMemoryId = [preferredMemoryId, workspaceMemoryId, requestedMemoryId, rememberedMemoryId]
     .find(identifier => state.libraries.some(library => (library.memoryId || library.threadId) === identifier)) || "";
-  const activeMemory = state.libraries.find(library => (library.memoryId || library.threadId) === activeMemoryId);
   app.innerHTML = `<section class="global-workshop"><main class="shell global-workshop-main"><div class="dashboard-head"><div><p class="eyebrow">Stone Memory Workshop</p><h1>琢石坊</h1><p class="lead">先使用已经装好的能力，再逛协作社区，或者开始制作自己的模块。</p></div></div><nav class="workshop-tabs" aria-label="琢石坊导航" role="tablist"><button type="button" data-workshop-tab="plugins" role="tab">插件工坊</button><button type="button" data-workshop-tab="community" role="tab">琢石坊</button><button type="button" data-workshop-tab="maker" role="tab">制作台</button></nav><section class="workshop-panel" data-workshop-panel="plugins"><div class="workshop-panel-head"><div><h2>插件工坊</h2><p>查看笔记、织梦与其他已安装模块。需要记忆体的能力会在进入后请你明确选择。</p></div></div><div id="developer-module-host" class="developer-module-host" data-module-section="plugins" aria-live="polite"></div></section><section class="workshop-panel" data-workshop-panel="community" hidden><div class="developer-module-host" data-module-section="community" aria-live="polite"></div></section><section class="workshop-panel" data-workshop-panel="maker" hidden><div data-developer-kit-host></div></section></main></section>`;
   document.querySelectorAll("[data-workshop-tab]").forEach(button => {
     button.onclick = () => openGlobalWorkshopPanel(button.dataset.workshopTab);
@@ -246,10 +255,24 @@ function renderGlobalWorkshop(panel = "plugins") {
   if (moduleHost && state.libraries.length) {
     const picker = document.createElement("div");
     picker.className = "workshop-memory-picker";
-    picker.innerHTML = `<span>当前记忆体：</span><strong>${escapeHtml(activeMemory?.libraryName || activeMemory?.label || "暂未选择")}</strong>`;
+    picker.innerHTML = `<span>当前记忆体：</span><select aria-label="选择插件使用的记忆体"><option value="">请选择记忆体</option>${state.libraries.map(library => {
+      const id = library.memoryId || library.threadId;
+      return `<option value="${escapeHtml(id)}" ${id === activeMemoryId ? "selected" : ""}>${escapeHtml(library.libraryName || library.label || id)}</option>`;
+    }).join("")}</select>`;
     moduleHost.dataset.memoryId = activeMemoryId;
+    picker.querySelector("select").onchange = event => {
+      const memoryId = event.currentTarget.value;
+      moduleHost.dataset.memoryId = memoryId;
+      rememberWorkshopMemory(memoryId);
+      const next = new URL(location.href);
+      next.searchParams.set("view", "workshop");
+      if (memoryId) next.searchParams.set("threadId", memoryId);
+      else next.searchParams.delete("threadId");
+      history.replaceState(null, "", next);
+    };
     moduleHost.before(picker);
   }
+  rememberWorkshopMemory(activeMemoryId);
   openGlobalWorkshopPanel(panel);
   loadDeveloperModules();
 }
@@ -440,7 +463,7 @@ function lobby() {
 }
 
 async function openLibrary(identifier, view = "overview") {
-  if (view === "developer") { renderGlobalWorkshop(); return; }
+  if (view === "developer") { renderGlobalWorkshop("plugins", identifier); return; }
   try {
     const data = await api(`/api/libraries/${encodeURIComponent(identifier)}/overview`);
     if (!data.configured) { createMemoryDraft(null,data); return; }
@@ -451,6 +474,7 @@ async function openLibrary(identifier, view = "overview") {
 }
 
 function workspace(data) {
+  rememberWorkshopMemory(data.memoryId || data.threadId);
   const counts = data.counts, rebuild=data.rebuild;
   const automationReady=data.automaticFullMining&&data.automaticMemoryMaintenance;
   const statusText=!data.bound?"尚未绑定对话窗口":data.attention||(!automationReady?"自动挖掘未完全开启":"记忆运行正常");
@@ -668,8 +692,7 @@ async function renderAutomation(library) {
 }
 
 function renderDeveloperMode(library) {
-  void library;
-  renderGlobalWorkshop();
+  renderGlobalWorkshop("plugins", library.memoryId || library.threadId);
 }
 
 const timelineColors=["#397052","#c47686","#6d76a8"];

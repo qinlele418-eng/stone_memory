@@ -163,6 +163,26 @@ test("formal memory-first creation stores settings, binding and watcher state wi
   assert.equal(web.libraries[0].externalThreadId, "real-thread");
   assert.equal(web.libraries[0].configured, true);
   assert.equal(web.overview.libraryName, "正式记忆");
+
+  const splitWeb = runCode(home, `
+    const { listLibraries, publicThreadSettings, overview } = require("./src/web/library-queries");
+    const { reviewProviders } = require("./src/web/review");
+    const memoryId = process.argv[1];
+    console.log(JSON.stringify({
+      library: listLibraries().find(item => item.memoryId === memoryId),
+      settings: publicThreadSettings(memoryId),
+      overview: overview(memoryId),
+      providers: reviewProviders(memoryId),
+    }));
+  `, [memory.memoryId]);
+  assert.equal(splitWeb.status, 0, splitWeb.stderr);
+  const split = JSON.parse(splitWeb.stdout);
+  assert.equal(split.library.memoryId, memory.memoryId);
+  assert.equal(split.library.threadId, memory.memoryId);
+  assert.equal(split.library.externalThreadId, "real-thread");
+  assert.equal(split.settings.memoryId, memory.memoryId);
+  assert.equal(split.overview.libraryName, "正式记忆");
+  assert.deepEqual(split.providers, []);
 });
 
 test("API profiles are validated before their secrets are written", t => {

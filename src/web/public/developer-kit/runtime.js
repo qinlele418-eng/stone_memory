@@ -138,7 +138,11 @@
       document.querySelectorAll("[data-stone-library]").forEach(node => {
         node.textContent = library?.libraryName || library?.label || "未绑定记忆体";
       });
-    }).catch(() => {});
+    }).catch(() => {
+      document.querySelectorAll("[data-stone-library]").forEach(node => {
+        node.textContent = "无法读取当前记忆体";
+      });
+    });
   });
 
   window.StoneDeveloperModule = Object.freeze({

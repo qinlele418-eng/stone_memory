@@ -1,17 +1,31 @@
 const path = require("path");
-const { loadConfig, listThreadIds, getThreadDir } = require("../config");
+const { loadConfig, listMemoryIds, getThreadDir, getMemoryContext, getMemoryRuntimeConfig } = require("../config");
 const { watcherActions, watcherEnabled } = require("../services/watcher-runtime");
 const { scenarioId } = require("../services/scenario-registry");
 const { MemoryStore } = require("../storage/memory-store");
 const { latestSuccessfulRebuild, readRebuildState } = require("../services/rebuild-log");
 const { sessionFile } = require("../services/rebuild-workbench");
+const { listMemories } = require("../services/memory-setup");
+const { readBindingConfig } = require("../services/memory-binding-config");
 
 function publicThreadSettings(threadId) {
-  const config = loadConfig(), entry = config[threadId];
+  const config = loadConfig();
+  let entry = config[threadId];
+  let memoryId = entry?.memoryId || threadId;
+  let layout = "legacy";
+  let legacyThreadId = threadId;
+  try {
+    const context = getMemoryContext(threadId);
+    memoryId = context.memoryId;
+    layout = context.layout;
+    legacyThreadId = context.legacyKey || threadId;
+    if (context.layout === "memory-v1") entry = getMemoryRuntimeConfig(memoryId);
+  } catch {}
   if (!entry) throw new Error(`记忆体不存在：${threadId}`);
   const actions = watcherActions(entry);
   return {
-    threadId, libraryName: entry.label || threadId, ai: entry.ai || "", user: entry.user || "",
+    memoryId, threadId: memoryId, externalThreadId: entry.externalThreadId || (layout !== "memory-v1" ? legacyThreadId : null),
+    libraryName: entry.label || memoryId, ai: entry.ai || "", user: entry.user || "",
     scenario: scenarioId(entry), relationshipTimeline: entry.relationshipTimeline || [],
     userGender: entry.userGender || "unspecified", runtime: entry.runtime || "claude", purpose: entry.purpose || "accompany",
     sessionDir: entry.sessionDir || "", minerMode: entry.minerMode || "subagent", apiProvider: entry.apiProvider || "",
@@ -34,8 +48,31 @@ function publicThreadSettings(threadId) {
 
 function listLibraries() {
   const config = loadConfig();
-  return listThreadIds().map(threadId => {
-    const tc = config[threadId] || {};
+  const configured = listMemoryIds().flatMap(memoryId => {
+    let context;
+    try { context = getMemoryContext(memoryId); } catch { return []; }
+    let tc, threadId, bound, bindingCount, createdAt;
+    if (context.layout === "memory-v1") {
+      let bindings;
+      try { bindings = readBindingConfig(memoryId); } catch { return []; }
+      const primary = bindings.bindings.find(item => item.id === bindings.primaryBindingId && item.enabled !== false);
+      const enabledBindings = bindings.bindings.filter(item => item.enabled !== false);
+      const memory = context.memoryConfig || {};
+      const settingsComplete = !!(String(memory.label || "").trim() && String(memory.ai || "").trim()
+        && String(memory.user || "").trim() && String(memory.purpose || "").trim());
+      if (!primary && !settingsComplete) return [];
+      tc = getMemoryRuntimeConfig(memoryId);
+      threadId = memoryId;
+      bound = !!primary?.externalThreadId;
+      bindingCount = enabledBindings.length;
+      createdAt = memory.createdAt || null;
+    } else {
+      tc = context.config || {};
+      threadId = context.legacyKey || memoryId;
+      bound = !!threadId;
+      bindingCount = bound ? 1 : 0;
+      createdAt = tc.createdAt || null;
+    }
     const actions = watcherActions(tc);
     const memoryDir = path.join(getThreadDir(threadId), "memory");
     const store = new MemoryStore({ memoryDir, threadId });
@@ -48,8 +85,10 @@ function listLibraries() {
         (SELECT COUNT(*) FROM feelings WHERE thread_id=? AND summary_mode='hidden') hidden`).get(threadId, threadId, threadId, threadId, threadId);
       const latest = store.db.prepare("SELECT MAX(completed_at) completedAt FROM mining_day_state WHERE thread_id=? AND status='completed'").get(threadId);
       return {
-        threadId, scenario: scenarioId(tc), libraryName: tc.label || threadId, runtime: tc.runtime || "claude", purpose: tc.purpose || "accompany",
-        ai: tc.ai || "", user: tc.user || "", counts, lastMinedAt: latest?.completedAt || null,
+        memoryId, configured: true, bound, bindingCount, threadId,
+        externalThreadId: tc.externalThreadId || (context.layout !== "memory-v1" ? threadId : null),
+        scenario: scenarioId(tc), libraryName: tc.label || memoryId, runtime: tc.runtime || null, purpose: tc.purpose || "accompany",
+        ai: tc.ai || "", user: tc.user || "", createdAt, counts, lastMinedAt: latest?.completedAt || null,
         watcherEnabled: watcherEnabled(tc),
         automaticFullMining: actions.sync,
         automaticMemoryMaintenance: actions.mine,
@@ -58,11 +97,22 @@ function listLibraries() {
       };
     } finally { store.close(); }
   });
+  const configuredMemoryIds = new Set(configured.map(item => item.memoryId));
+  const drafts = listMemories(config).filter(memory => !configuredMemoryIds.has(memory.memoryId)).map(memory => ({
+    memoryId: memory.memoryId, configured: false, bound: false, bindingCount: 0, threadId: null,
+    libraryName: memory.label, runtime: null, purpose: null, ai: "", user: "", createdAt: memory.createdAt,
+    counts: { messages: 0, feelings: 0, features: 0, coarse: 0, hidden: 0 },
+    lastMinedAt: null, watcherEnabled: false, automaticFullMining: false,
+    automaticMemoryMaintenance: false, automaticCompression: false, automaticDream: false,
+  }));
+  return [...drafts, ...configured];
 }
 
 function overview(threadId) {
-  const library = listLibraries().find(item => item.threadId === threadId);
+  const library = listLibraries().find(item => item.threadId === threadId || item.memoryId === threadId);
   if (!library) return null;
+  if (!library.configured) return library;
+  threadId = library.threadId;
   const store = new MemoryStore({ memoryDir: path.join(getThreadDir(threadId), "memory"), threadId });
   try {
     const recent = store.db.prepare(`SELECT id,source_date sourceDate,event_time eventTime,content,importance,summary_mode summaryMode
@@ -70,7 +120,7 @@ function overview(threadId) {
     const daily = store.db.prepare("SELECT COUNT(*) count FROM feelings WHERE thread_id=? AND summary_mode='daily'").get(threadId).count;
     const failed = store.db.prepare("SELECT COUNT(*) count FROM mining_day_state WHERE thread_id=? AND status='failed'").get(threadId).count;
     const rebuildState=readRebuildState(threadId), rebuild=latestSuccessfulRebuild(threadId), file=sessionFile(threadId,library.runtime);
-    const configuredMax=Number(loadConfig()[threadId]?.contextWindowTokens);
+    const configuredMax=Number(getMemoryRuntimeConfig(threadId)?.contextWindowTokens);
     const withUsageLimit=rawUsage=>{
       const usage=rawUsage?{...rawUsage,maxTokens:configuredMax>0?configuredMax:rawUsage.detectedMaxTokens||null}:null;
       if(usage?.maxTokens)usage.percent=usage.usedTokens/usage.maxTokens*100;
