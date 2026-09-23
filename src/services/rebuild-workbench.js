@@ -134,21 +134,28 @@ function checkClaude(rows, threadId) {
   const uuids = new Set(rows.map(row => row.uuid).filter(Boolean));
   const duplicates = rows.map(row => row.uuid).filter(Boolean).filter((id, index, all) => all.indexOf(id) !== index);
   const initRows=rows.filter(row=>row.type==="system"&&row.subtype==="init");
-  const orphans = rows.filter(row => row.parentUuid && !uuids.has(row.parentUuid));
-  const seen=new Set(),forwardParents=[];
-  for(const row of rows){
-    if(row.parentUuid&&!seen.has(row.parentUuid))forwardParents.push(row);
-    if(row.uuid)seen.add(row.uuid);
-  }
-  const unexpectedRoots=Math.max(0,rows.filter(row=>row.uuid&&!row.parentUuid).length-1);
   const toolUses = new Set(), toolResults = new Set();
   for (const row of rows) for (const block of Array.isArray(row.message?.content) ? row.message.content : []) {
     if (block.type === "tool_use" && block.id) toolUses.add(block.id);
     if (block.type === "tool_result" && block.tool_use_id) toolResults.add(block.tool_use_id);
   }
+  const resultText=block=>typeof block.content==="string"?block.content:Array.isArray(block.content)?block.content.map(item=>typeof item==="string"?item:item?.text||"").join("\n"):"";
+  const acceptedRebuildBoundaries=new Set(rows.filter(row=>{
+    if(row.type!=="user"||!row.parentUuid||uuids.has(row.parentUuid)||!Array.isArray(row.message?.content))return false;
+    const results=row.message.content.filter(block=>block.type==="tool_result"&&block.tool_use_id&&!toolUses.has(block.tool_use_id));
+    return results.length>0&&results.every(block=>/^\[stmem\]\s+claude rebuild\b/u.test(resultText(block).trim()));
+  }));
+  const orphans = rows.filter(row => row.parentUuid && !uuids.has(row.parentUuid)&&!acceptedRebuildBoundaries.has(row));
+  const seen=new Set(),forwardParents=[];
+  for(const row of rows){
+    if(row.parentUuid&&uuids.has(row.parentUuid)&&!seen.has(row.parentUuid))forwardParents.push(row);
+    if(row.uuid)seen.add(row.uuid);
+  }
+  const unexpectedRoots=Math.max(0,rows.filter(row=>row.uuid&&!row.parentUuid).length-1);
   const missingResults = [...toolUses].filter(id => !toolResults.has(id));
-  const missingUses = [...toolResults].filter(id => !toolUses.has(id));
-  return { threadId, runtime: "claude", syntheticSessionInit:initRows.filter(row=>!row.uuid).length,duplicates: duplicates.length, orphanParents: orphans.length,forwardParents:forwardParents.length,unexpectedRoots,missingToolResults: missingResults.length, missingToolUses: missingUses.length };
+  const acceptedToolResults=new Set([...acceptedRebuildBoundaries].flatMap(row=>row.message.content.filter(block=>block.type==="tool_result").map(block=>block.tool_use_id)));
+  const missingUses = [...toolResults].filter(id => !toolUses.has(id)&&!acceptedToolResults.has(id));
+  return { threadId, runtime: "claude", syntheticSessionInit:initRows.filter(row=>!row.uuid).length,duplicates: duplicates.length, orphanParents: orphans.length,forwardParents:forwardParents.length,unexpectedRoots,missingToolResults: missingResults.length, missingToolUses: missingUses.length,acceptedRebuildBoundaries:acceptedRebuildBoundaries.size };
 }
 
 function checkCodex(rows, threadId) {
@@ -162,7 +169,7 @@ function checkCodex(rows, threadId) {
 function checkIntegrityFile(file,runtime,threadId=path.basename(file)) {
   const { rows, malformed } = readJsonl(file);
   const details = runtime === "codex" ? checkCodex(rows, threadId) : checkClaude(rows, threadId);
-  const issues = malformed + Object.entries(details).filter(([key]) => !["threadId", "runtime"].includes(key)).reduce((sum, [, value]) => sum + value, 0);
+  const issues = malformed + Object.entries(details).filter(([key]) => !["threadId", "runtime", "acceptedRebuildBoundaries"].includes(key)).reduce((sum, [, value]) => sum + value, 0);
   return { file, malformed, ...details, issues, healthy: issues === 0 };
 }
 

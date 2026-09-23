@@ -16,6 +16,7 @@ test("repairs a Claude orphan chain and removes a dangling tool result",()=>{
   ]);
   const before=checkIntegrityFile(file,"claude","claude-1");
   assert.equal(before.orphanParents,1);
+  assert.equal(before.forwardParents,0);
   assert.equal(before.missingToolUses,1);
   const result=repairIntegrityFile(file,"claude","claude-1");
   assert.equal(result.after.healthy,true);
@@ -23,6 +24,22 @@ test("repairs a Claude orphan chain and removes a dangling tool result",()=>{
   const repaired=fs.readFileSync(file,"utf8").split("\n").filter(Boolean).map(JSON.parse);
   assert.ok(repaired[0].uuid);
   assert.equal(repaired.some(row=>row.type==="system"&&row.subtype==="init"),false);
+});
+
+test("accepts the detached tool result Claude appends after a Stone Memory rebuild",()=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),"stmem-claude-rebuild-boundary-")),file=path.join(dir,"thread.jsonl");
+  writeRows(file,[
+    {type:"user",uuid:"a",parentUuid:null,message:{content:[{type:"text",text:"rebuilt thread"}]}},
+    {type:"user",uuid:"b",parentUuid:"removed-rebuild-tool-use",message:{content:[{type:"tool_result",tool_use_id:"rebuild-call",content:[{type:"text",text:"[stmem] claude rebuild memory-1, window=3, pairs=10...\n[rebuild] done"}]}]}},
+    {type:"assistant",uuid:"c",parentUuid:"b",message:{content:[{type:"text",text:"done"}]}},
+  ]);
+  const report=checkIntegrityFile(file,"claude","claude-1");
+  assert.equal(report.acceptedRebuildBoundaries,1);
+  assert.equal(report.orphanParents,0);
+  assert.equal(report.forwardParents,0);
+  assert.equal(report.missingToolUses,0);
+  assert.equal(report.issues,0);
+  assert.equal(report.healthy,true);
 });
 
 test("repair preserves existing POSIX thread metadata", { skip: process.platform === "win32" }, () => {

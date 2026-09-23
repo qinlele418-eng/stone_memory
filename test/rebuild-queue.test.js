@@ -12,6 +12,14 @@ const {
   finishQueuedRebuildClaim,
   buildQueuedApplyArgs,
 } = require("../src/services/rebuild-queue");
+const { isUnsafeActiveClaudeApply } = require("../src/services/rebuild-request");
+
+test("direct apply is blocked only inside an active Claude Code session", () => {
+  assert.equal(isUnsafeActiveClaudeApply("claude", { CLAUDE_CODE_SESSION_ID: "session-1" }), true);
+  assert.equal(isUnsafeActiveClaudeApply("claude", { CLAUDE_CODE_SESSION_ID: "  " }), false);
+  assert.equal(isUnsafeActiveClaudeApply("claude", {}), false);
+  assert.equal(isUnsafeActiveClaudeApply("codex", { CLAUDE_CODE_SESSION_ID: "session-1" }), false);
+});
 
 test("rebuild queue keeps one latest request per thread and applies through CLI args", t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-rebuild-queue-"));

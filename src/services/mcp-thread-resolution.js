@@ -24,6 +24,9 @@ function resolveMcpThread(args = {}, cfg = {}, configuredThreadIds = [], env = p
     if (matches.size > 1) throw new Error("线程对应多个记忆体，请显式指定 memoryId");
     throw new Error(`未配置线程：${id}；未找到对应的记忆体或 Binding`);
   }
+  const resolveCallingBinding = options.resolveCallingBinding || (config => require("./mcp-calling-binding").resolveCallingBinding(config));
+  const callingBinding = resolveCallingBinding(cfg);
+  if (callingBinding?.memoryId) return callingBinding.memoryId;
   const candidates = memoryIds.length ? memoryIds : [...new Set(configuredThreadIds)];
   if (options.allowSoleMemory !== false && candidates.length === 1) return candidates[0];
   if (candidates.length === 1) {

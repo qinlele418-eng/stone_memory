@@ -54,4 +54,8 @@ function rebuildRequestCliArgs(request) {
   return args;
 }
 
-module.exports = { normalizeRebuildRequest, rebuildRequestCliArgs };
+function isUnsafeActiveClaudeApply(runtime, env = process.env) {
+  return runtime !== "codex" && Boolean(String(env.CLAUDE_CODE_SESSION_ID || "").trim());
+}
+
+module.exports = { normalizeRebuildRequest, rebuildRequestCliArgs, isUnsafeActiveClaudeApply };

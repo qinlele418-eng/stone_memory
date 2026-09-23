@@ -28,14 +28,15 @@ test("resolver maps host sessions to memory IDs and rejects ambiguous or unknown
   }
   assert.equal(resolveMcpThread({ memoryId: "two", thread: "one-session" }, cfg, [], {}, options), "two");
   assert.equal(resolveMcpThread({ thread: "two-session" }, cfg, [], { STMEM_THREAD_ID: "one" }, options), "two");
-  assert.throws(() => resolveMcpThread({}, cfg, [], {}, options), /多个记忆体/);
+  assert.throws(() => resolveMcpThread({}, cfg, [], {}, { ...options, resolveCallingBinding: () => null }), /多个记忆体/);
+  assert.equal(resolveMcpThread({}, cfg, [], {}, { ...options, resolveCallingBinding: () => ({ memoryId: "two" }) }), "two");
   assert.throws(() => resolveMcpThread({ thread: "missing" }, cfg, [], {}, options), /未找到/);
   assert.throws(() => resolveMcpThread({ thread: "duplicate" }, cfg, [], {}, {
     readBindings: () => [{ externalThreadId: "duplicate" }],
   }), /多个记忆体/);
   assert.throws(() => resolveMcpThread({ thread: "apiKeys" }, { apiKeys: {} }, [], {}), /未配置线程/);
-  assert.equal(resolveMcpThread({}, { memories: { one: {} } }, [], {}, options), "one");
-  assert.throws(() => resolveMcpThread({}, { memories: { one: {} } }, [], {}, { ...options, allowSoleMemory: false }), /显式指定记忆体/);
+  assert.equal(resolveMcpThread({}, { memories: { one: {} } }, [], {}, { ...options, resolveCallingBinding: () => null }), "one");
+  assert.throws(() => resolveMcpThread({}, { memories: { one: {} } }, [], {}, { ...options, allowSoleMemory: false, resolveCallingBinding: () => null }), /显式指定记忆体/);
 });
 
 function fixture(label, session, enabled) {
@@ -91,6 +92,7 @@ test("real MCP dispatch and child retrieval use the requesting Binding's canonic
       encoding: "utf8", timeout: 15000,
     });
     assert.equal(child.status, 0, child.stderr);
+    assert.ok(child.stdout.trim(), child.stderr || child.error?.message || "MCP server returned no response");
     return JSON.parse(child.stdout.trim()).result;
   }
   for (const [args, host] of [[{ thread: "session-two" }, ""], [{ thread: second }, ""], [{ memoryId: second }, ""], [{}, "session-two"], [{ memoryId: second }, "session-one"]]) {
@@ -98,6 +100,19 @@ test("real MCP dispatch and child retrieval use the requesting Binding's canonic
     assert.equal(result.isError, false, JSON.stringify(result));
     assert.deepEqual(JSON.parse(result.content[0].text), { memoryId: second, keyword: true, archive: true, leaked: false });
   }
+  const sessionFile = path.join(home, "session-two.jsonl");
+  const bindingsFile = path.join(getThreadDir(second), "bindings.json");
+  const bindingConfig = JSON.parse(fs.readFileSync(bindingsFile, "utf8"));
+  bindingConfig.bindings[0].resolvedThreadFile = sessionFile;
+  fs.writeFileSync(bindingsFile, JSON.stringify(bindingConfig));
+  const pendingCall = { type: "response_item", timestamp: new Date().toISOString(), payload: {
+    type: "function_call", call_id: "pending-stmem-call", name: "mcp__stmem__stmem_memory_deep_search", arguments: "{\"query\":\"测试灯塔\"}",
+  } };
+  fs.writeFileSync(sessionFile, `${JSON.stringify(pendingCall)}\n`);
+  const inferred = call({});
+  assert.equal(inferred.isError, false, JSON.stringify(inferred));
+  assert.equal(JSON.parse(inferred.content[0].text).memoryId, second);
+  fs.appendFileSync(sessionFile, `${JSON.stringify({ type: "response_item", timestamp: new Date().toISOString(), payload: { type: "function_call_output", call_id: "pending-stmem-call", output: "ok" } })}\n`);
   const keyword = call({ thread: "session-two" }, "", "stmem_memory_search");
   assert.equal(keyword.isError, false);
   assert.match(keyword.content[0].text, /第二份/);

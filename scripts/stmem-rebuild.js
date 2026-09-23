@@ -164,6 +164,11 @@ function main() {
   const request = requestFromArgs(args, threadId, getCfg);
   if (apply) {
     const runtime = binding?.provider || getCfg("runtime", threadId, "claude");
+    const { isUnsafeActiveClaudeApply } = require("../src/services/rebuild-request");
+    if (isUnsafeActiveClaudeApply(runtime)) {
+      console.error("检测到当前命令运行在 Claude Code 活动会话内，禁止同步 rebuild --apply：这会在工具结果返回前替换线程文件并破坏 UUID 链。请使用 stmem_memory_rebuild，或改用 stmem rebuild --queue 后重载 Claude Code。");
+      process.exit(1);
+    }
     if (runtime !== "codex" && request.trigger !== "cli") {
       console.error("Claude Code 的 Web/MCP 重建必须使用 --queue，以避免 UUID 链断裂");
       process.exit(1);
