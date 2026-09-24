@@ -171,3 +171,28 @@ test("LAN status is read-only and defaults to loopback", t => {
   assert.equal(status.host, "127.0.0.1");
   assert.deepEqual(status.urls, []);
 });
+
+test("legacy non-loopback Web config migrates without exposing its bootstrap token", t => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-web-upgrade-"));
+  t.after(() => fs.rmSync(home, { recursive:true, force:true }));
+  const stone = path.join(home, ".stone_memory"), configFile = path.join(stone, "stmem.json");
+  fs.mkdirSync(stone, { recursive:true });
+  fs.writeFileSync(configFile, JSON.stringify({ web:{ host:"0.0.0.0", port:4173 } }), { mode:0o600 });
+  const service = path.join(root, "src", "services", "web-security.js");
+  const migrated = spawnSync(process.execPath, ["-e", `console.log(JSON.stringify(require(${JSON.stringify(service)}).ensureLegacyWebAuth()))`], {
+    cwd:root, env:{ ...process.env, HOME:home, USERPROFILE:home }, encoding:"utf8",
+  });
+  assert.equal(migrated.status, 0, migrated.stderr);
+  assert.equal(JSON.parse(migrated.stdout).migrated, true);
+  const config = JSON.parse(fs.readFileSync(configFile, "utf8"));
+  assert.match(config.web.auth.tokenVerifier, /^sha256:/);
+  assert.equal(JSON.stringify(config).includes("stmem_"), false);
+  const bootstrap = path.join(stone, "web-auth-bootstrap");
+  if (process.platform !== "win32") assert.equal(fs.statSync(bootstrap).mode & 0o777, 0o600);
+  const claimed = run(home, ["web", "auth", "claim", "--json"]);
+  assert.equal(claimed.status, 0, claimed.stderr);
+  assert.match(JSON.parse(claimed.stdout).token, /^stmem_/);
+  assert.equal(fs.existsSync(bootstrap), false);
+  const claimedAgain = run(home, ["web", "auth", "claim", "--json"]);
+  assert.notEqual(claimedAgain.status, 0);
+});

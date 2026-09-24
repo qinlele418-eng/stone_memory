@@ -16,6 +16,20 @@ function defaultSessionFile() {
   return path.join(os.homedir(), ".stone_memory", "web-sessions.json");
 }
 
+function defaultBootstrapFile() {
+  return path.join(os.homedir(), ".stone_memory", "web-auth-bootstrap");
+}
+
+function clearBootstrapToken(file = defaultBootstrapFile()) {
+  assertPrivateFileTarget(file);
+  try { fs.unlinkSync(file); } catch (error) { if (error.code !== "ENOENT") throw error; }
+}
+
+function bootstrapPending(file = defaultBootstrapFile()) {
+  assertPrivateFileTarget(file);
+  return fs.existsSync(file);
+}
+
 function deviceLabel(req) {
   return String(req?.headers?.["user-agent"] || "浏览器设备").replace(/[\u0000-\u001f\u007f]/gu, " ").trim().slice(0, 160) || "浏览器设备";
 }
@@ -88,7 +102,7 @@ function createWebSessionStore({ file = defaultSessionFile(), now = () => Date.n
 
 function webSecurityStatus(config = loadConfig()) {
   const auth = configuredAuth(config);
-  return { enabled: Boolean(auth), tokenVersion: Number(auth?.tokenVersion || 0) };
+  return { enabled: Boolean(auth), tokenVersion: Number(auth?.tokenVersion || 0), bootstrapPending:bootstrapPending() };
 }
 
 function rotateWebApiToken() {
@@ -97,12 +111,38 @@ function rotateWebApiToken() {
   const previous = configuredAuth(config);
   config.web = { ...(config.web || {}), auth: { tokenVerifier: hashToken(token), tokenVersion: Number(previous?.tokenVersion || 0) + 1 } };
   saveConfig(config);
+  clearBootstrapToken();
   createWebSessionStore().clear();
   return { ...webSecurityStatus(config), token };
+}
+
+function ensureLegacyWebAuth() {
+  const config = loadConfig();
+  if (configuredAuth(config)) return { migrated:false };
+  const token = generateToken(), file = defaultBootstrapFile();
+  writePrivateFile(file, `${token}\n`, { encoding:"utf8" });
+  try {
+    config.web = { ...(config.web || {}), auth:{ tokenVerifier:hashToken(token), tokenVersion:1 } };
+    saveConfig(config);
+    createWebSessionStore().clear();
+    return { migrated:true, bootstrapPending:true };
+  } catch (error) {
+    clearBootstrapToken(file);
+    throw error;
+  }
+}
+
+function claimBootstrapToken({ file = defaultBootstrapFile() } = {}) {
+  assertPrivateFileTarget(file);
+  if (!fs.existsSync(file)) return null;
+  const token = fs.readFileSync(file, "utf8").trim();
+  if (!/^stmem_[A-Za-z0-9_-]{40,}$/u.test(token)) throw new Error("旧版 Web 认证迁移文件无效，请执行 stmem web auth rotate");
+  fs.unlinkSync(file);
+  return token;
 }
 
 function listWebDevices() { return createWebSessionStore().list(); }
 function revokeWebDevice(id) { return createWebSessionStore().revoke(String(id || "")); }
 function clearWebDevices() { return createWebSessionStore().clear(); }
 
-module.exports = { DEVICE_TTL_MS, webSecurityStatus, rotateWebApiToken, createWebSessionStore, listWebDevices, revokeWebDevice, clearWebDevices };
+module.exports = { DEVICE_TTL_MS, webSecurityStatus, rotateWebApiToken, ensureLegacyWebAuth, claimBootstrapToken, clearBootstrapToken, createWebSessionStore, listWebDevices, revokeWebDevice, clearWebDevices };

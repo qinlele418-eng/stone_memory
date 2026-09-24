@@ -189,7 +189,7 @@ async function api(url, options = {}) {
   return data;
 }
 
-function renderWebLogin(message = "") {
+function renderWebLogin(message = "", bootstrapPending = false) {
   document.body.classList.add("web-auth-locked");
   app.innerHTML = `<section class="web-auth-page"><form class="web-auth-card" id="web-auth-form">
     <div class="web-auth-mark" aria-hidden="true">石</div>
@@ -199,6 +199,7 @@ function renderWebLogin(message = "") {
     <label for="web-auth-token">访问令牌</label>
     <input id="web-auth-token" name="token" type="password" autocomplete="current-password" placeholder="stmem_…" required autofocus>
     <small>令牌只用于首次验证，不会保存在浏览器存储中；成功后会记住这台设备 30 天。</small>
+    ${bootstrapPending ? '<p class="notice warning">这是从旧版远程访问自动升级的首次登录。请在服务器终端运行 <code>stmem web auth claim</code> 领取一次性 Token。</p>' : ""}
     <div class="notice danger" id="web-auth-error" ${message ? "" : "hidden"}>${escapeHtml(message)}</div>
     <button class="primary" type="submit">登录</button>
   </form></section>`;
@@ -230,7 +231,7 @@ async function startStoneMemory() {
 
 async function bootstrapStoneMemory() {
   const status = await api("/api/auth/status");
-  if (status.authenticationRequired) return renderWebLogin();
+  if (status.authenticationRequired) return renderWebLogin("", status.bootstrapPending);
   return startStoneMemory();
 }
 

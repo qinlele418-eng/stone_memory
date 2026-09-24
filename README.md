@@ -225,6 +225,20 @@ stmem web --port 4173   # 或 npm run web
 
 所有正式写入仍经过 `stmem` CLI；HTTP 层只做本地参数适配和结果展示，不另建第二套写逻辑。
 
+### 局域网访问
+
+```bash
+stmem web lan enable                 # 开启、重启 Web，并输出手机地址和首次登录 Token
+stmem web lan status                 # 查看监听状态与局域网地址
+stmem web auth devices               # 查看已登录浏览器设备
+stmem web auth revoke --device <ID>  # 撤销单台设备
+stmem web lan disable                # 恢复为仅 localhost 可访问
+```
+
+默认仍只监听 `127.0.0.1`。局域网模式强制启用认证；浏览器首次输入 Token 后，设备会话保存在本机私有文件中，Web 重启后继续有效，活跃时按 30 天续期。服务端只保存设备凭证哈希。局域网 HTTP 只适合可信网络，不等同于公网 HTTPS，也不保证可以安装 PWA。
+
+从旧版升级时，默认 localhost 配置无需操作。旧版已经监听 non-loopback、但没有认证配置的安装会在首次启动时自动加固并继续启动；页面提示登录时，在服务器执行一次 `stmem web auth claim` 领取迁移 Token。Token 只显示一次，领取后迁移文件立即删除。
+
 ### Web 开发模式
 
 ```bash

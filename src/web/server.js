@@ -2077,7 +2077,7 @@ function startWebServer({ host = "127.0.0.1", port = 4173 } = {}) {
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host || `${host}:${port}`}`);
     try {
-      if (isPublicWebApiRoute(req.method, url.pathname) && url.pathname === "/api/auth/status") return json(res, 200, webAuth.status());
+      if (isPublicWebApiRoute(req.method, url.pathname) && url.pathname === "/api/auth/status") return json(res, 200, { ...webAuth.status(), bootstrapPending:webSecurityStatus().bootstrapPending });
       if (isPublicWebApiRoute(req.method, url.pathname) && url.pathname === "/api/auth/unlock") {
         webAuth.assertSameOrigin(req, { kind: "none" });
         const body = await readJson(req);

@@ -10,7 +10,7 @@ const { loadConfig } = require("../src/config");
 const { saveConfig } = require("../src/services/thread-setup");
 const { readManagedPid, startManagedProcess, stopManagedProcess } = require("../src/services/managed-local-process");
 const { isLoopbackHost, configuredAuth } = require("../src/security/web-auth");
-const { webSecurityStatus, rotateWebApiToken, listWebDevices, revokeWebDevice, clearWebDevices } = require("../src/services/web-security");
+const { webSecurityStatus, rotateWebApiToken, ensureLegacyWebAuth, claimBootstrapToken, clearBootstrapToken, listWebDevices, revokeWebDevice, clearWebDevices } = require("../src/services/web-security");
 
 const STONE = path.join(os.homedir(), ".stone_memory");
 const PID_FILE = path.join(STONE, "web.pid");
@@ -52,7 +52,8 @@ function webConfig({ persistFlags = false } = {}) {
 
 function assertNetworkAuth(config) {
   if (!isLoopbackHost(config.host) && !configuredAuth(loadConfig())) {
-    throw new Error("非 loopback Web 监听必须先执行 stmem web auth rotate 配置 Web API Token");
+    const migration = ensureLegacyWebAuth();
+    if (migration.migrated) console.warn("已为旧版远程 Web 配置自动启用访问保护。请执行 stmem web auth claim 领取一次性登录 Token。");
   }
 }
 
@@ -77,6 +78,16 @@ function runAuthCommand() {
     }
     return;
   }
+  if (subcommand === "claim") {
+    const token = claimBootstrapToken();
+    if (!token) throw new Error("没有待领取的旧版 Web 迁移 Token；如需新 Token，请执行 stmem web auth rotate");
+    if (args.includes("--json")) console.log(JSON.stringify({ claimed:true, token }));
+    else {
+      console.log("旧版 Web 访问已完成安全迁移。登录 Token 只显示这一次：");
+      console.log(token);
+    }
+    return;
+  }
   if (subcommand === "devices") {
     const devices = listWebDevices();
     console.log(args.includes("--json") ? JSON.stringify({ devices }) : JSON.stringify({ devices }, null, 2));
@@ -94,7 +105,7 @@ function runAuthCommand() {
     console.log(args.includes("--json") ? JSON.stringify({ cleared:true }) : "已撤销全部 Web 登录设备");
     return;
   }
-  throw new Error("用法：stmem web auth status | rotate | devices | revoke --device <ID> | clear [--json]");
+  throw new Error("用法：stmem web auth status | rotate | claim | devices | revoke --device <ID> | clear [--json]");
 }
 
 function localNetworkUrls(port) {
@@ -156,6 +167,7 @@ function runLanCommand() {
     delete nextWeb.auth;
     config.web = nextWeb;
     saveConfig(config);
+    clearBootstrapToken();
     clearWebDevices();
     const processResult = restartAfterAccessChange();
     const result = { enabled:false, running:true, pid:processResult.pid, host:"127.0.0.1", port, url:`http://127.0.0.1:${port}` };
