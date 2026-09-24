@@ -99,8 +99,8 @@
   function renderLatestRelease(release) {
     const title = $("#release-title"), content = $("#release-content");
     if (!release) {
-      title.textContent = "暂未发布正式 Release";
-      content.innerHTML = '<p class="muted">项目目前没有可展示的正式 Release。</p>';
+      title.textContent = "暂未发布 Release";
+      content.innerHTML = '<p class="muted">项目目前没有可展示的 Release。</p>';
       return;
     }
     const date = release.publishedAt ? new Date(release.publishedAt).toLocaleDateString("zh-CN") : "发布时间未知";

@@ -35,15 +35,18 @@ test("repository and branch inputs reject traversal and option injection", () =>
   assert.throws(() => branchName("feature/../main"), /分支/);
 });
 
-test("latest release maps GitHub metadata and treats a missing release as empty", () => {
+test("latest release includes prereleases, skips drafts, and treats a missing release as empty", () => {
   const calls = [];
   const release = github.latestRelease("example/stone-memory", "secret", (args, options) => {
     calls.push({ args, options });
-    return { tag_name:"v1.2.3", name:"Stone 1.2.3", body:"修复若干问题", published_at:"2026-09-24T00:00:00Z", html_url:"https://github.com/example/stone-memory/releases/tag/v1.2.3", assets:[{ name:"stone.zip", size:2048, download_count:7, browser_download_url:"https://example.test/stone.zip" }] };
+    return [{ draft:true, tag_name:"draft" }, { tag_name:"v1.2.3-beta.1", name:"Stone 1.2.3 Beta", body:"修复若干问题", published_at:"2026-09-24T00:00:00Z", html_url:"https://github.com/example/stone-memory/releases/tag/v1.2.3-beta.1", prerelease:true, assets:[{ name:"stone.zip", size:2048, download_count:7, browser_download_url:"https://example.test/stone.zip" }] }];
   });
-  assert.equal(calls[0].args[1], "repos/example/stone-memory/releases/latest");
+  assert.equal(calls[0].args[1], "repos/example/stone-memory/releases?per_page=10");
   assert.equal(calls[0].options.token, "secret");
+  assert.equal(release.tag, "v1.2.3-beta.1");
+  assert.equal(release.prerelease, true);
   assert.deepEqual(release.assets[0], { name:"stone.zip", size:2048, downloads:7, url:"https://example.test/stone.zip" });
+  assert.equal(github.latestRelease("example/stone-memory", "secret", () => []), null);
   assert.equal(github.latestRelease("example/stone-memory", "secret", () => { throw new Error("HTTP 404: Not Found"); }), null);
 });
 

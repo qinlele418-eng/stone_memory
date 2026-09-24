@@ -110,13 +110,14 @@ function listDossiers(repository, token = "", page = 1, pageSize = 10, kind = "a
 function latestRelease(repository, token = "", ghJsonImpl = ghJson) {
   requireToken(token);
   const repo = repositorySlug(repository);
-  let item;
+  let releases;
   try {
-    item = ghJsonImpl(["api", `repos/${repo}/releases/latest`], { token });
+    releases = ghJsonImpl(["api", `repos/${repo}/releases?per_page=10`], { token });
   } catch (error) {
     if (/HTTP\s*404|Not Found/iu.test(String(error?.message || ""))) return null;
     throw error;
   }
+  const item = (Array.isArray(releases) ? releases : []).find(release => !release?.draft);
   if (!item?.tag_name) return null;
   return {
     tag: String(item.tag_name),
