@@ -37,6 +37,8 @@ const { memoryExportPayload, sendMemoryExport } = require("./routes/memory");
 const { scenarioId, normalizeScenarioConfig } = require("../services/scenario-registry");
 const { resolveMiningPrompts, promptOverridePath, renderPrompt } = require("../services/prompt-resolver");
 const { listDeveloperAdapters } = require("./static-files");
+const { WebAuthError, isLoopbackHost, isLoopbackAddress, configuredAuth, isPublicWebApiRoute, createWebAuth } = require("../security/web-auth");
+const { webSecurityStatus } = require("../services/web-security");
 
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MAX_UPLOAD = 512 * 1024 * 1024;
@@ -50,8 +52,19 @@ const scratchJobs = new Map();
 const PROJECT_ROOT = path.join(__dirname, "..", "..");
 const STMEM_BIN = path.join(PROJECT_ROOT, "bin", "stmem");
 
+function redactWebSecrets(value) {
+  let output = String(value || "");
+  const configuredKeys = Object.values(loadConfig().apiKeys || {})
+    .map(item => String(item?.key || ""))
+    .filter(key => key.length >= 8);
+  for (const key of configuredKeys) output = output.split(key).join("[REDACTED]");
+  return output
+    .replace(/\\b(stmem_[A-Za-z0-9_-]+)\\b/g, "[REDACTED]")
+    .replace(/(["']?(?:authorization|api[_ -]?key)["']?\\s*[:=]\\s*["']?)(?:bearer\\s+)?[^"'\\s,;}\\]]+/gi, "$1[REDACTED]");
+}
+
 function safeStmemFailure(stderr, command, status) {
-  const lines = String(stderr || "").split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  const lines = redactWebSecrets(stderr).split(/\r?\n/).map(line => line.trim()).filter(Boolean);
   const marked = lines.reverse().find(line =>
     /^\[(?:memory-miner|memory-compressor)\]\s+(?:subagent\s+)?error:/i.test(line)
     || /^\[(?:tool-policy|module|init|memory|api-profile)\]\s+error:/i.test(line)
@@ -400,7 +413,7 @@ function refreshMiningBatchJob(job){
   return job;
 }
 
-function publicThreadSettings(threadId) {
+function publicThreadSettings(threadId, { redactLocalPaths = false } = {}) {
   const config = loadConfig();
   let entry = config[threadId];
   let memoryId = entry?.memoryId || threadId;
@@ -419,10 +432,9 @@ function publicThreadSettings(threadId) {
     memoryId, threadId: memoryId, externalThreadId: entry.externalThreadId || (layout !== "memory-v1" ? legacyThreadId : null),
     libraryName: entry.label || memoryId, ai: entry.ai || "", user: entry.user || "",
     scenario: scenarioId(entry), userGender: entry.userGender || "unspecified", runtime: entry.runtime || "claude", purpose: entry.purpose || "accompany",
-    sessionDir: entry.sessionDir || "", minerMode: entry.minerMode || "subagent", apiProvider: entry.apiProvider || "",
+    sessionDir: redactLocalPaths ? "" : (entry.sessionDir || ""), minerMode: entry.minerMode || "subagent", apiProvider: entry.apiProvider || "",
     baseUrl: entry.apiProvider ? (config.apiKeys?.[entry.apiProvider]?.baseUrl || "") : "",
     model: entry.apiProvider ? (config.apiKeys?.[entry.apiProvider]?.model || "") : "",
-    apiKey: entry.apiProvider ? (config.apiKeys?.[entry.apiProvider]?.key || "") : "",
     hasApiKey: !!(entry.apiProvider && config.apiKeys?.[entry.apiProvider]?.key),
     windowDays: entry.windowDays ?? 3, keepToolPairs: entry.keepToolPairs ?? 30,
     mcpRebuildDefaultsEnabled: entry.mcpRebuildDefaultsEnabled === true,
@@ -437,13 +449,19 @@ function publicThreadSettings(threadId) {
   };
 }
 
-function json(res, status, data) {
+function json(res, status, data, headers = {}) {
   const body = JSON.stringify(data);
-  res.writeHead(status, { "content-type": "application/json; charset=utf-8", "content-length": Buffer.byteLength(body) });
+  res.writeHead(status, {
+    "content-type": "application/json; charset=utf-8",
+    "content-length": Buffer.byteLength(body),
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
+    ...headers,
+  });
   res.end(body);
 }
 
-function error(res, status, message) { json(res, status, { error: message }); }
+function error(res, status, message, headers = {}) { json(res, status, { error: redactWebSecrets(message) }, headers); }
 
 function readBody(req, limit = 2 * 1024 * 1024) {
   return new Promise((resolve, reject) => {
@@ -930,7 +948,11 @@ function serveNotebookAsset(req, res, asset) {
   return true;
 }
 
-async function handleApi(req, res, url) {
+async function handleApi(req, res, url, { isRemote = false } = {}) {
+  if (req.method === "GET" && url.pathname === "/api/web-security") return json(res, 200, webSecurityStatus());
+  if (req.method === "POST" && url.pathname === "/api/web-security/token") {
+    return json(res, 200, JSON.parse(runStmem(["web", "auth", "rotate", "--json"])));
+  }
   const memoryExportMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/export$/u);
   if (req.method === "GET" && memoryExportMatch) {
     const requestedId = decodeURIComponent(memoryExportMatch[1]);
@@ -1003,6 +1025,9 @@ async function handleApi(req, res, url) {
     }
     if (req.method === "POST") {
       const body = await readJson(req);
+      if (isRemote && (body.threadFile || body.sessionRoot || body.sessionDir || body.source)) {
+        throw new Error("远程 Web 不能为 Binding 指定服务器本地来源路径；请在本机 CLI / loopback Web 中注册");
+      }
       const args = ["binding", "add", "--thread", threadId, "--provider", String(body.provider || "")];
       if (body.externalThreadId) args.push("--external-thread", String(body.externalThreadId));
       if (body.threadFile) args.push("--thread-file", String(body.threadFile));
@@ -1037,6 +1062,7 @@ async function handleApi(req, res, url) {
     const bindingId = decodeURIComponent(bindingImportMatch[2]);
     publicThreadSettings(threadId);
     const body = await readJson(req);
+    if (isRemote && body.source) throw new Error("远程 Web 不能临时指定服务器本地 Binding 来源；请使用已注册的 Binding");
     const args = ["binding", "import", "--thread", threadId, "--binding", bindingId];
     if (body.source) args.push("--source", String(body.source));
     if (body.apply === true) args.push("--apply");
@@ -1284,6 +1310,7 @@ async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/libraries") return json(res, 200, { libraries: listLibraries() });
 
   if (req.method === "POST" && url.pathname === "/api/session-file/check") {
+    if (isRemote) throw new Error("远程 Web 不能探测服务器本地线程文件目录；请在本机 CLI / loopback Web 中检查");
     const body = await readJson(req);
     const threadId = String(body.threadId || "").trim(), sessionDir = String(body.sessionDir || "").trim();
     if (!threadId || !sessionDir) throw new Error("请先填写真实 Claude/Codex 线程 ID 和线程文件搜索目录");
@@ -1301,10 +1328,13 @@ async function handleApi(req, res, url) {
   const settingsMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/settings$/);
   if (settingsMatch) {
     const threadId = decodeURIComponent(settingsMatch[1]);
-    if (req.method === "GET") return json(res, 200, publicThreadSettings(threadId));
+    if (req.method === "GET") return json(res, 200, publicThreadSettings(threadId, { redactLocalPaths: isRemote }));
     if (req.method === "PATCH") {
       const body = await readJson(req);
       const current = publicThreadSettings(threadId);
+      if (isRemote && ["sessionDir", "threadFile"].some(key => Object.hasOwn(body, key))) {
+        throw new Error("远程 Web 不能修改服务器本地 Binding 来源；请在本机 CLI / loopback Web 中修改");
+      }
       const automationKeys = ["automaticFullMining", "automaticMemoryMaintenance", "automaticCompression", "automaticDream", "watcherEnabled"];
       const regularBody = Object.fromEntries(Object.entries(body).filter(([key]) => !automationKeys.includes(key)));
       const input = { ...current, ...regularBody, threadId, runtime: current.runtime, purpose: current.purpose };
@@ -1354,7 +1384,7 @@ async function handleApi(req, res, url) {
             || resulting.automaticCompression || resulting.automaticDream;
           runStmem(["watcher", anyModule ? "on" : "off", canonical ? "--memory" : "--thread", threadId]);
         }
-        return json(res, 200, { success: true, config: publicThreadSettings(threadId) });
+        return json(res, 200, { success: true, config: publicThreadSettings(threadId, { redactLocalPaths: isRemote }) });
       } finally { fs.rmSync(dir, { recursive: true, force: true }); }
     }
   }
@@ -1919,6 +1949,9 @@ async function handleApi(req, res, url) {
 
   if (req.method === "POST" && url.pathname === "/api/libraries") {
     const body = await readJson(req);
+    if (isRemote && (body.threadId || body.sessionDir || body.threadFile || body.source)) {
+      throw new Error("远程 Web 可以创建和配置记忆体，但不能同时注册服务器本地 Binding；请在本机完成接入");
+    }
     const input = body.scenario || body.purpose ? normalizeScenarioConfig(body) : body;
     let createdNow = false;
     if (!input.memoryId) {
@@ -2022,16 +2055,34 @@ function cleanupPreviews() {
 }
 
 function startWebServer({ host = "127.0.0.1", port = 4173 } = {}) {
+  if (!isLoopbackHost(host) && !configuredAuth(loadConfig())) {
+    throw new Error("非 loopback Web 监听必须先配置 Web API Token");
+  }
+  const webAuth = createWebAuth({ host, configProvider: loadConfig });
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host || `${host}:${port}`}`);
     try {
-      if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/review-lab/api/")) return await handleApi(req, res, url);
+      if (isPublicWebApiRoute(req.method, url.pathname) && url.pathname === "/api/auth/status") return json(res, 200, webAuth.status());
+      if (isPublicWebApiRoute(req.method, url.pathname) && url.pathname === "/api/auth/unlock") {
+        webAuth.assertSameOrigin(req, { kind: "none" });
+        const body = await readJson(req);
+        const cookie = webAuth.unlock(String(body.token || ""), req);
+        return json(res, 200, { unlocked: true }, { "set-cookie": cookie });
+      }
+      if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/review-lab/api/")) {
+        const principal = webAuth.authenticate(req);
+        webAuth.assertSameOrigin(req, principal);
+        return await handleApi(req, res, url, { isRemote: !isLoopbackHost(host) || !isLoopbackAddress(req.socket?.remoteAddress) });
+      }
       if (serveLegacyDreamLab(res, url)) return;
       if (serveCanonicalDeveloperModule(req, res, url.pathname)) return;
       if (serveStatic(req, res, url.pathname)) return;
       if (!path.extname(url.pathname)) return serveStatic(req, res, "/");
       error(res, 404, "页面不存在");
-    } catch (cause) { error(res, 400, cause.message || "请求失败"); }
+    } catch (cause) {
+      if (cause instanceof WebAuthError) return error(res, cause.status, cause.message || "认证失败", cause.headers);
+      error(res, 400, cause.message || "请求失败");
+    }
   });
   const timer = setInterval(cleanupPreviews, 10 * 60 * 1000);
   timer.unref();
