@@ -124,7 +124,12 @@ function main() {
       const { getCfg } = require("../src/config");
       for (const row of claim.rows) {
         if (selectedThread && row.threadId !== selectedThread) continue;
-        if (mcpStartup && getCfg("runtime", row.threadId, "claude") === "codex") {
+        let queuedRuntime = getCfg("runtime", row.threadId, "claude");
+        if (row.bindingId) {
+          try { queuedRuntime = require("../src/services/memory-binding-config").getConfiguredBinding(row.threadId, row.bindingId).provider; }
+          catch { /* runQueuedRequest below reports the actionable Binding error */ }
+        }
+        if (mcpStartup && queuedRuntime === "codex") {
           deferred++;
           console.log(`[stmem] deferred Codex rebuild ${row.threadId}: stop bridge/app-server, run stmem rebuild --run-pending --thread ${row.threadId}, then start bridge`);
           continue;
@@ -146,7 +151,7 @@ function main() {
   const bindingId = valueAfter(args, "--binding");
   const binding = bindingId ? require("../src/services/memory-binding-config").getConfiguredBinding(threadId, bindingId) : null;
   if (args.includes("--queue")) {
-    if (getCfg("runtime", threadId, "claude") === "codex") {
+    if ((binding?.provider || getCfg("runtime", threadId, "claude")) === "codex") {
       console.error("Codex 不支持 rebuild queue：请使用 --apply，并在成功后立即完全重启 Codex/app-server");
       process.exit(1);
     }

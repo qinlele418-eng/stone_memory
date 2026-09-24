@@ -1,5 +1,9 @@
 const { fs, path, os, execFileSync, buildMcpRebuildRequest, buildMcpRebuildPreviewArgs, buildMcpRebuildExecuteArgs, PROJECT_ROOT, rebuildPreviews, loadConfig, resolveThread } = require("./shared");
 
+function previewKey(resolved) {
+  return `${resolved.threadId}\0${resolved.bindingId || ""}`;
+}
+
 function resolveRebuildCommand(args, builder) {
   const cfg = loadConfig();
   if (!cfg) throw new Error("未配置 stmem.json");
@@ -39,7 +43,7 @@ function toolRebuildPreview(args) {
       windowsHide: true,
       cwd: PROJECT_ROOT,
     });
-    rebuildPreviews.set(resolved.threadId, request);
+    rebuildPreviews.set(previewKey(resolved), request);
     const nextStep = resolved.runtime === "codex"
       ? "确认结果无误后，可调用 stmem_memory_rebuild 立即 apply；完成后必须立刻完全重启 Codex/app-server。"
       : "确认结果无误后，可调用 stmem_memory_rebuild 将这组原样参数写入 Claude Code 安全队列。";
@@ -56,7 +60,8 @@ function toolRebuild(args) {
   if (!cfg) throw new Error("未配置 stmem.json");
   const resolved = resolveThread(args, cfg);
   if (!resolved?.threadId) throw new Error("无法确定线程 ID");
-  const request = rebuildPreviews.get(resolved.threadId);
+  const key = previewKey(resolved);
+  const request = rebuildPreviews.get(key);
   if (!request) {
     throw new Error("当前 MCP 会话中没有该线程的已确认预览；请先调用 stmem_memory_rebuild_preview");
   }
@@ -78,7 +83,7 @@ function toolRebuild(args) {
       windowsHide: true,
       cwd: PROJECT_ROOT,
     });
-    rebuildPreviews.delete(resolved.threadId);
+    rebuildPreviews.delete(key);
     return resolved.runtime === "codex"
       ? `线程 ${resolved.threadId} 已完成 rebuild apply。请不要继续发送消息，立即完全重启 Codex/app-server；重启前继续对话可能写入旧文件描述符并丢失。`
       : `已将线程 ${resolved.threadId} 的 rebuild 写入安全队列。不会在当前活动会话中改写线程；下一次 Claude Code 主 MCP 重新载入时将通过 stmem CLI 自动应用。`;

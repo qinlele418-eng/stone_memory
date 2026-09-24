@@ -15,18 +15,28 @@ function resolveMcpThread(args = {}, cfg = {}, configuredThreadIds = [], env = p
     const matches = new Set(legacy.filter(([, value]) => value.externalThreadId === id)
       .map(([key, value]) => value.memoryId || key));
     const readBindings = options.readBindings || (memoryId => require("./memory-binding-config").readBindingConfig(memoryId).bindings);
+    const matchedBindings = [];
     for (const memoryId of Object.keys(cfg.memories || {})) {
       const bindings = readBindings(memoryId);
       // enabled controls automatic watching; stopping it does not unbind a window.
-      if (bindings.some(binding => binding.externalThreadId === id)) matches.add(memoryId);
+      for (const binding of bindings.filter(item => item.externalThreadId === id)) {
+        matches.add(memoryId);
+        matchedBindings.push({ memoryId, bindingId: binding.id, externalThreadId: binding.externalThreadId, provider: binding.provider });
+      }
     }
-    if (matches.size === 1) return [...matches][0];
+    if (matches.size === 1) {
+      if (matchedBindings.length === 1) options.onResolveBinding?.(matchedBindings[0]);
+      return [...matches][0];
+    }
     if (matches.size > 1) throw new Error("线程对应多个记忆体，请显式指定 memoryId");
     throw new Error(`未配置线程：${id}；未找到对应的记忆体或 Binding`);
   }
   const resolveCallingBinding = options.resolveCallingBinding || (config => require("./mcp-calling-binding").resolveCallingBinding(config));
   const callingBinding = resolveCallingBinding(cfg);
-  if (callingBinding?.memoryId) return callingBinding.memoryId;
+  if (callingBinding?.memoryId) {
+    options.onResolveBinding?.(callingBinding);
+    return callingBinding.memoryId;
+  }
   const candidates = memoryIds.length ? memoryIds : [...new Set(configuredThreadIds)];
   if (options.allowSoleMemory !== false && candidates.length === 1) return candidates[0];
   if (candidates.length === 1) {

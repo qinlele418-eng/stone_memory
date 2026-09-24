@@ -42,6 +42,19 @@ test("accepts the detached tool result Claude appends after a Stone Memory rebui
   assert.equal(report.healthy,true);
 });
 
+test("ignores Claude auxiliary system rows outside the retained conversation chain",()=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),"stmem-claude-system-row-")),file=path.join(dir,"thread.jsonl");
+  writeRows(file,[
+    {type:"user",uuid:"a",parentUuid:null,message:{content:[{type:"text",text:"hello"}]}},
+    {type:"assistant",uuid:"b",parentUuid:"a",message:{content:[{type:"text",text:"hi"}]}},
+    {type:"system",subtype:"away_summary",uuid:"system-1",parentUuid:"compacted-message",message:{content:[]}},
+  ]);
+  const report=checkIntegrityFile(file,"claude","claude-system");
+  assert.equal(report.orphanParents,0);
+  assert.equal(report.unexpectedRoots,0);
+  assert.equal(report.healthy,true);
+});
+
 test("repair preserves existing POSIX thread metadata", { skip: process.platform === "win32" }, () => {
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),"stmem-repair-metadata-")),file=path.join(dir,"thread.jsonl");
   writeRows(file,[

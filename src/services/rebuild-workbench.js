@@ -120,9 +120,9 @@ function latestConversationDate(rows, runtime) {
   return conversationDates(rows, runtime).at(-1) || null;
 }
 
-function buildRebuildPreview(threadId, { windowDays = 3, toolPairs = 30 } = {}) {
-  const runtime = getCfg("runtime", threadId, "claude");
-  const file = sessionFile(threadId, runtime);
+function buildRebuildPreview(threadId, { windowDays = 3, toolPairs = 30, binding = null } = {}) {
+  const runtime = binding?.provider || getCfg("runtime", threadId, "claude");
+  const file = binding ? findThreadSessionFile(binding.sessionRoot, binding.externalThreadId) : sessionFile(threadId, runtime);
   if (!file) throw new Error(missingSessionMessage(threadId));
   const { rows, malformed } = readJsonl(file);
   const { cutoff, referenceDate, activeDates } = conversationWindow(rows, runtime, windowDays);
@@ -131,8 +131,13 @@ function buildRebuildPreview(threadId, { windowDays = 3, toolPairs = 30 } = {}) 
 }
 
 function checkClaude(rows, threadId) {
-  const uuids = new Set(rows.map(row => row.uuid).filter(Boolean));
-  const duplicates = rows.map(row => row.uuid).filter(Boolean).filter((id, index, all) => all.indexOf(id) !== index);
+  // Claude also writes auxiliary system rows (for example away_summary). Their
+  // parent may legitimately point outside the retained transcript, so only the
+  // user/assistant conversation chain participates in structural validation.
+  const conversationRows = rows.filter(row => ["user", "assistant"].includes(row.type));
+  const uuids = new Set(conversationRows.map(row => row.uuid).filter(Boolean));
+  const conversationUuids = conversationRows.map(row => row.uuid).filter(Boolean);
+  const duplicates = conversationUuids.filter((id, index, all) => all.indexOf(id) !== index);
   const initRows=rows.filter(row=>row.type==="system"&&row.subtype==="init");
   const toolUses = new Set(), toolResults = new Set();
   for (const row of rows) for (const block of Array.isArray(row.message?.content) ? row.message.content : []) {
@@ -140,18 +145,18 @@ function checkClaude(rows, threadId) {
     if (block.type === "tool_result" && block.tool_use_id) toolResults.add(block.tool_use_id);
   }
   const resultText=block=>typeof block.content==="string"?block.content:Array.isArray(block.content)?block.content.map(item=>typeof item==="string"?item:item?.text||"").join("\n"):"";
-  const acceptedRebuildBoundaries=new Set(rows.filter(row=>{
+  const acceptedRebuildBoundaries=new Set(conversationRows.filter(row=>{
     if(row.type!=="user"||!row.parentUuid||uuids.has(row.parentUuid)||!Array.isArray(row.message?.content))return false;
     const results=row.message.content.filter(block=>block.type==="tool_result"&&block.tool_use_id&&!toolUses.has(block.tool_use_id));
     return results.length>0&&results.every(block=>/^\[stmem\]\s+claude rebuild\b/u.test(resultText(block).trim()));
   }));
-  const orphans = rows.filter(row => row.parentUuid && !uuids.has(row.parentUuid)&&!acceptedRebuildBoundaries.has(row));
+  const orphans = conversationRows.filter(row => row.parentUuid && !uuids.has(row.parentUuid)&&!acceptedRebuildBoundaries.has(row));
   const seen=new Set(),forwardParents=[];
-  for(const row of rows){
+  for(const row of conversationRows){
     if(row.parentUuid&&uuids.has(row.parentUuid)&&!seen.has(row.parentUuid))forwardParents.push(row);
     if(row.uuid)seen.add(row.uuid);
   }
-  const unexpectedRoots=Math.max(0,rows.filter(row=>row.uuid&&!row.parentUuid).length-1);
+  const unexpectedRoots=Math.max(0,conversationRows.filter(row=>row.uuid&&!row.parentUuid).length-1);
   const missingResults = [...toolUses].filter(id => !toolResults.has(id));
   const acceptedToolResults=new Set([...acceptedRebuildBoundaries].flatMap(row=>row.message.content.filter(block=>block.type==="tool_result").map(block=>block.tool_use_id)));
   const missingUses = [...toolResults].filter(id => !toolUses.has(id)&&!acceptedToolResults.has(id));
@@ -217,7 +222,7 @@ function repairIntegrityFile(file,runtime,threadId=path.basename(file)) {
         const content=row.message.content.filter(block=>(block.type!=="tool_use"||toolResults.has(block.id))&&(block.type!=="tool_result"||toolUses.has(block.tool_use_id)));
         clean={...row,message:{...row.message,content}};
       }
-      if (!row.uuid) return row;
+      if (!["user", "assistant"].includes(row.type) || !row.uuid) return clean;
       const next = { ...clean, uuid: crypto.randomUUID(), parentUuid: parent };
       parent = next.uuid;
       return next;

@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { pendingStmemCall, resolveCallingBinding } = require("../src/services/mcp-calling-binding");
+const { resolveMcpThread } = require("../src/services/mcp-thread-resolution");
 
 test("detects an in-flight Claude Stone Memory call before its tool result is appended", () => {
   const now = Date.parse("2026-09-22T13:51:47.000Z");
@@ -25,4 +26,14 @@ test("maps one calling Binding to its memory and rejects concurrent memories", (
   const one = resolveCallingBinding(cfg, { readBindings: bindings, inspect: binding => binding.id === "binding-one" ? { timestamp: 2 } : null });
   assert.equal(one.memoryId, "one");
   assert.throws(() => resolveCallingBinding(cfg, { readBindings: bindings, inspect: () => ({ timestamp: 2 }) }), /多个已绑定窗口/);
+});
+
+test("thread resolution reports the exact calling Binding to mutating tools", () => {
+  let target = null;
+  const memoryId = resolveMcpThread({}, { memories: { one: {} } }, [], {}, {
+    resolveCallingBinding: () => ({ memoryId: "one", bindingId: "binding-cc", externalThreadId: "session-cc", provider: "claude" }),
+    onResolveBinding(binding) { target = binding; },
+  });
+  assert.equal(memoryId, "one");
+  assert.equal(target.bindingId, "binding-cc");
 });

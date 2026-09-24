@@ -9,6 +9,7 @@ function buildMcpRebuildRequest(resolved, args = {}) {
       summary: args.summary,
       context: args.context,
       trim: args.trim,
+      bindingId: args.bindingId ?? resolved.bindingId,
       trigger: "mcp",
     } : {
       summary: {
@@ -22,6 +23,7 @@ function buildMcpRebuildRequest(resolved, args = {}) {
         toolPairs: args.toolPairs ?? resolved.toolPairs,
       },
       trim: { excludedMessages: [], excludedTools: [] },
+      bindingId: args.bindingId ?? resolved.bindingId,
       trigger: "mcp",
     }, { windowDays: resolved.windowDays || 3, toolPairs: resolved.toolPairs ?? 30, trigger: "mcp" }),
   };

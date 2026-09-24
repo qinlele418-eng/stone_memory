@@ -39,11 +39,16 @@ function log(msg) {
 
 function resolveThread(args = {}, cfg) {
   const config = cfg || {};
-  const sessionId = resolveMcpThread(args, config, listThreadIds());
+  let callingBinding = null;
+  const sessionId = resolveMcpThread(args, config, listThreadIds(), process.env, {
+    onResolveBinding(binding) { callingBinding = binding; },
+  });
   const tc = getMemoryRuntimeConfig(sessionId);
   return {
     threadId: sessionId,
-    runtime: tc.runtime || "claude",
+    bindingId: callingBinding?.bindingId || null,
+    externalThreadId: callingBinding?.externalThreadId || null,
+    runtime: callingBinding?.provider || tc.runtime || "claude",
     windowDays: args.context?.windowDays || args.window || tc.windowDays || 3,
     toolPairs: args.context?.toolPairs ?? args.toolPairs ?? tc.keepToolPairs ?? 30,
   };

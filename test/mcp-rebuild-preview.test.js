@@ -72,3 +72,11 @@ test("MCP execution routes Codex to apply and Claude Code to queue", () => {
   assert.equal(claude.at(-1), "--queue");
   assert.equal(claude.includes("--apply"), false);
 });
+
+test("MCP rebuild carries the automatically detected calling Binding", () => {
+  const resolved = { threadId: "memory-1", bindingId: "binding-cc", runtime: "claude", windowDays: 3, toolPairs: 30 };
+  const request = buildMcpRebuildRequest(resolved);
+  assert.equal(request.bindingId, "binding-cc");
+  const args = buildMcpRebuildPreviewArgs("/project/bin/stmem", resolved);
+  assert.deepEqual(args.slice(-2), ["--binding", "binding-cc"]);
+});

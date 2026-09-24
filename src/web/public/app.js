@@ -1020,7 +1020,7 @@ async function renderSettings(library) {
   }
 }
 
-const rebuildState = { windowDays: 3, toolPairs: 30, watermark: false, summaryMode: "default", summaryLimit: 0, minImportance: 0, mcpDefault: false, page: 1, toolPage: 1, tab: "messages", excludedMessages: new Set(), excludedTools: new Set(), preview: null, bindingId: null, bindingMemoryId: null };
+const rebuildState = { windowDays: 3, toolPairs: 30, watermark: false, summaryMode: "default", summaryLimit: 0, minImportance: 0, mcpDefault: false, page: 1, toolPage: 1, tab: "messages", excludedMessages: new Set(), excludedTools: new Set(), preview: null, bindingId: null, bindingMemoryId: null, bindingRuntime: null };
 const miningUi={threadId:null,selected:new Set(),page:1,reportPage:1,reportFilter:"all",monthPage:1,selectedDate:null,mode:null,apiProfile:"optimized",timer:null,targetedSelected:new Set(),targetedLastIndex:null};
 const compressionUi={mode:"subagent",afterDays:90};
 
@@ -1360,6 +1360,7 @@ async function renderRebuild(library) {
     const selectBinding=id=>{
       const selected=bindingRows.find(row=>row.id===id)||bindingRows[0];if(!selected)return;
       rebuildState.bindingId=selected.id;
+      rebuildState.bindingRuntime=selected.provider||null;
       if(picker?.querySelector("select"))picker.querySelector("select").value=selected.id;
       slot.innerHTML=`<div class="context-operation-target"><span>操作目标</span><strong>${escapeHtml(selected.provider||"未知平台")} · ${escapeHtml(String(selected.externalThreadId||"").slice(0,8))}</strong></div>`;
       paintContext(selected,{primary:selected.id===bindingStatus.primaryBindingId});
@@ -1455,7 +1456,7 @@ async function previewIntegratedRebuild(library,options={}) {
 }
 
 async function applyIntegratedRebuild(library,{excludedMessages=[],excludedTools=[]}={}) {
-  const button=document.querySelector("#apply-previewed-rebuild"),previewOverlay=button?.closest(".rebuild-preview-overlay"),isCodex=library.runtime==="codex";button.disabled=true;button.textContent=isCodex?"正在应用线程重建…":"正在排队线程重建…";
+  const button=document.querySelector("#apply-previewed-rebuild"),previewOverlay=button?.closest(".rebuild-preview-overlay"),isCodex=(rebuildState.bindingRuntime||library.runtime)==="codex";button.disabled=true;button.textContent=isCodex?"正在应用线程重建…":"正在排队线程重建…";
   try{
     const summaryLimit=rebuildState.summaryMode==="limited"?rebuildState.summaryLimit:0,minImportance=rebuildState.summaryMode==="limited"?rebuildState.minImportance:0;
     await api(`/api/libraries/${encodeURIComponent(library.threadId)}/settings`,{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({mcpRebuildDefaultsEnabled:rebuildState.mcpDefault,mcpSummaryLimit:summaryLimit,mcpMinImportance:minImportance})});
@@ -1464,7 +1465,7 @@ async function applyIntegratedRebuild(library,{excludedMessages=[],excludedTools
     const trimmed=excludedMessages.length||excludedTools.length;
     previewOverlay?.remove();
     await renderRebuild(library);
-    showRebuildCompletion(library,{trimmed,queued:result.queued===true});
+    showRebuildCompletion({...library,runtime:rebuildState.bindingRuntime||library.runtime},{trimmed,queued:result.queued===true});
   }catch(error){showToast(error.message,"error");button.disabled=false;button.textContent="确认应用线程重建";}
 }
 
@@ -1499,7 +1500,9 @@ async function loadRebuildPreview(library) {
   const target = document.querySelector("#selection-list"); if (!target) return;
   target.innerHTML = `<div class="empty">正在生成预览…</div>`;
   try {
-    rebuildState.preview = await api(`/api/libraries/${encodeURIComponent(library.threadId)}/rebuild/preview?windowDays=${rebuildState.windowDays}&toolPairs=${rebuildState.toolPairs}&page=${rebuildState.page}&toolPage=${rebuildState.toolPage}`);
+    const bindingId = rebuildState.bindingMemoryId === library.threadId ? rebuildState.bindingId : null;
+    const bindingQuery = bindingId ? `&binding=${encodeURIComponent(bindingId)}` : "";
+    rebuildState.preview = await api(`/api/libraries/${encodeURIComponent(library.threadId)}/rebuild/preview?windowDays=${rebuildState.windowDays}&toolPairs=${rebuildState.toolPairs}&page=${rebuildState.page}&toolPage=${rebuildState.toolPage}${bindingQuery}`);
     renderRebuildRows(library);
   } catch (error) { target.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`; }
 }
