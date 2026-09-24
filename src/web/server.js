@@ -2070,14 +2070,15 @@ function webAccessOverview() {
 }
 
 function startWebServer({ host = "127.0.0.1", port = 4173 } = {}) {
-  if (!isLoopbackHost(host) && !configuredAuth(loadConfig())) {
+  const initialConfig = loadConfig();
+  if ((!isLoopbackHost(host) || initialConfig.web?.publicUrl) && !configuredAuth(initialConfig)) {
     throw new Error("非 loopback Web 监听必须先配置 Web API Token");
   }
   const webAuth = createWebAuth({ host, configProvider: loadConfig, sessionStore:createWebSessionStore() });
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host || `${host}:${port}`}`);
     try {
-      if (isPublicWebApiRoute(req.method, url.pathname) && url.pathname === "/api/auth/status") return json(res, 200, { ...webAuth.status(), bootstrapPending:webSecurityStatus().bootstrapPending });
+      if (isPublicWebApiRoute(req.method, url.pathname) && url.pathname === "/api/auth/status") return json(res, 200, { ...webAuth.status(req), bootstrapPending:webSecurityStatus().bootstrapPending });
       if (isPublicWebApiRoute(req.method, url.pathname) && url.pathname === "/api/auth/unlock") {
         webAuth.assertSameOrigin(req, { kind: "none" });
         const body = await readJson(req);

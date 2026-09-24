@@ -41,7 +41,7 @@ function webConfig({ persistFlags = false } = {}) {
   }
   const next = { host: String(host).trim(), port, publicUrl: String(publicUrl).trim() };
   if (persistFlags && (value("--host") != null || rawPort != null || value("--url") != null)) {
-    if (!isLoopbackHost(next.host) && !configuredAuth(config)) {
+    if ((!isLoopbackHost(next.host) || next.publicUrl) && !configuredAuth(config)) {
       throw new Error("非 loopback Web 监听必须先执行 stmem web auth rotate 配置 Web API Token");
     }
     config.web = { ...next, ...(current.auth ? { auth: current.auth } : {}) };
@@ -51,7 +51,7 @@ function webConfig({ persistFlags = false } = {}) {
 }
 
 function assertNetworkAuth(config) {
-  if (!isLoopbackHost(config.host) && !configuredAuth(loadConfig())) {
+  if ((!isLoopbackHost(config.host) || config.publicUrl) && !configuredAuth(loadConfig())) {
     const migration = ensureLegacyWebAuth();
     if (migration.migrated) console.warn("已为旧版远程 Web 配置自动启用访问保护。请执行 stmem web auth claim 领取一次性登录 Token。");
   }

@@ -64,7 +64,11 @@ function parseCookies(header) {
 function requestOrigins(req, webConfig) {
   const origins = new Set();
   const scheme = req.socket?.encrypted ? "https" : "http";
-  if (req.headers.host) origins.add(`${scheme}://${req.headers.host}`);
+  if (req.headers.host) {
+    origins.add(`${scheme}://${req.headers.host}`);
+    origins.add(`http://${req.headers.host}`);
+    origins.add(`https://${req.headers.host}`);
+  }
   const configured = String(webConfig?.publicUrl || "").trim();
   if (configured) {
     try { origins.add(new URL(configured).origin); } catch {}
@@ -90,7 +94,7 @@ function createWebAuth({ host, configProvider, now = () => Date.now(), sessionSt
   const devices = sessionStore || createMemorySessionStore({ now });
   const config = () => configProvider() || {};
   const authConfig = () => configuredAuth(config());
-  const requiresAuth = () => Boolean(authConfig()) || !isLoopbackHost(host);
+  const requiresAuth = req => Boolean(authConfig()) || !isLoopbackHost(host) || (req ? isRemoteRequest(req) : false);
 
   function bearer(req) {
     const match = String(req.headers.authorization || "").match(/^Bearer\s+(.+)$/i);
@@ -98,7 +102,7 @@ function createWebAuth({ host, configProvider, now = () => Date.now(), sessionSt
   }
 
   function authenticate(req) {
-    if (!requiresAuth()) return { kind: "none" };
+    if (!requiresAuth(req)) return { kind: "none" };
     const auth = authConfig();
     if (!auth) throw new WebAuthError(503, "此监听地址需要先配置 Web API Token");
     if (verifyToken(bearer(req), auth.tokenVerifier)) return { kind: "bearer" };
@@ -123,7 +127,8 @@ function createWebAuth({ host, configProvider, now = () => Date.now(), sessionSt
   }
 
   function sessionCookie(credential, req) {
-    const secure = req.socket?.encrypted || /^https:/i.test(String(config().web?.publicUrl || ""));
+    const origin = String(req.headers.origin || "");
+    const secure = req.socket?.encrypted || /^https:/i.test(String(config().web?.publicUrl || "")) || /^https:/i.test(origin);
     return `${SESSION_COOKIE}=${credential}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}${secure ? "; Secure" : ""}`;
   }
 
@@ -141,7 +146,7 @@ function createWebAuth({ host, configProvider, now = () => Date.now(), sessionSt
     authenticate,
     assertSameOrigin,
     unlock,
-    status: () => ({ authenticationRequired: requiresAuth(), enabled: Boolean(authConfig()) }),
+    status: req => ({ authenticationRequired: requiresAuth(req), enabled: Boolean(authConfig()) }),
   };
 }
 

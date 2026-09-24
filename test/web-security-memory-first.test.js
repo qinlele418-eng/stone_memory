@@ -122,6 +122,26 @@ test("Web auth stores only a verifier and token rotation invalidates old session
   assert.equal(isRemoteRequest({ socket:{ remoteAddress:"192.168.1.30" }, headers:{ host:"localhost:4173" } }), true);
 });
 
+test("HTTPS reverse proxies keep same-origin login and Secure device cookies", () => {
+  const { createWebAuth, hashToken } = require("../src/security/web-auth");
+  const verifier = hashToken("stmem_proxy_token");
+  const auth = createWebAuth({
+    host:"127.0.0.1",
+    configProvider:() => ({ web:{ auth:{ tokenVerifier:verifier, tokenVersion:1 } } }),
+  });
+  const request = (method, headers) => ({ method, headers, socket:{ remoteAddress:"127.0.0.1", encrypted:false } });
+  const unlockRequest = request("POST", { host:"stone.example.ts.net", origin:"https://stone.example.ts.net", "user-agent":"Mobile" });
+  const cookie = auth.unlock("stmem_proxy_token", unlockRequest);
+  assert.match(cookie, /; Secure$/);
+  const principal = auth.authenticate(request("POST", { host:"stone.example.ts.net", origin:"https://stone.example.ts.net", cookie:cookie.split(";")[0] }));
+  assert.doesNotThrow(() => auth.assertSameOrigin(unlockRequest, principal));
+
+  const unconfigured = createWebAuth({ host:"127.0.0.1", configProvider:() => ({ web:{} }) });
+  const proxyRequest = request("GET", { host:"stone.example.ts.net" });
+  assert.equal(unconfigured.status(proxyRequest).authenticationRequired, true);
+  assert.throws(() => unconfigured.authenticate(proxyRequest), /需要先配置/);
+});
+
 test("browser device sessions survive Web restarts without storing cookie secrets", t => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-web-device-"));
   t.after(() => fs.rmSync(home, { recursive:true, force:true }));
