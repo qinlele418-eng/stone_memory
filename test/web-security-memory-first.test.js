@@ -55,7 +55,7 @@ test("Memory-first remote Web hides Binding paths and cannot name server files",
       const payload = body === undefined ? "" : JSON.stringify(body);
       const req = http.request({
         host: "127.0.0.1", port, method, path: pathname,
-        headers: { authorization: "Bearer " + token, "content-type": "application/json" },
+        headers: { host: "192.168.1.20:" + port, authorization: "Bearer " + token, "content-type": "application/json" },
       }, res => {
         const chunks = [];
         res.on("data", chunk => chunks.push(chunk));
@@ -101,7 +101,7 @@ test("Memory-first remote Web hides Binding paths and cannot name server files",
 });
 
 test("Web auth stores only a verifier and token rotation invalidates old sessions", () => {
-  const { createWebAuth, hashToken } = require("../src/security/web-auth");
+  const { createWebAuth, hashToken, isRemoteRequest } = require("../src/security/web-auth");
   let verifier = hashToken("stmem_old_token");
   const configProvider = () => ({ web: { auth: { tokenVerifier: verifier, tokenVersion: 1 } } });
   let now = 1_000;
@@ -117,4 +117,31 @@ test("Web auth stores only a verifier and token rotation invalidates old session
   assert.throws(() => auth.authenticate(request({ authorization: "Bearer stmem_old_token" })), /访问令牌/);
   assert.throws(() => auth.authenticate(request({ cookie: session })), /访问令牌/);
   assert.equal(auth.authenticate(request({ authorization: "Bearer stmem_new_token" })).kind, "bearer");
+  assert.equal(isRemoteRequest({ socket:{ remoteAddress:"127.0.0.1" }, headers:{ host:"localhost:4173" } }), false);
+  assert.equal(isRemoteRequest({ socket:{ remoteAddress:"127.0.0.1" }, headers:{ host:"192.168.1.20:4173" } }), true);
+  assert.equal(isRemoteRequest({ socket:{ remoteAddress:"192.168.1.30" }, headers:{ host:"localhost:4173" } }), true);
+});
+
+test("Web frontend contains an authenticated unlock gate and never asks for an existing API key again", () => {
+  const app = fs.readFileSync(path.join(root, "src", "web", "public", "app.js"), "utf8");
+  const cli = fs.readFileSync(path.join(root, "scripts", "stmem-web.js"), "utf8");
+  assert.match(app, /\/api\/auth\/status/);
+  assert.match(app, /\/api\/auth\/unlock/);
+  assert.match(app, /\/api\/web-access/);
+  assert.match(app, /令牌只用于本次登录，不会保存在浏览器存储中/);
+  assert.match(app, /config\.hasApiKey \? `placeholder="已配置；留空保持不变"` : "required"/);
+  assert.match(cli, /subcommand === "enable"/);
+  assert.match(cli, /host:"0\.0\.0\.0"/);
+  assert.match(cli, /subcommand === "disable"/);
+});
+
+test("LAN status is read-only and defaults to loopback", t => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-lan-status-"));
+  t.after(() => fs.rmSync(home, { recursive:true, force:true }));
+  const result = run(home, ["web", "lan", "status", "--json"]);
+  assert.equal(result.status, 0, result.stderr);
+  const status = JSON.parse(result.stdout);
+  assert.equal(status.enabled, false);
+  assert.equal(status.host, "127.0.0.1");
+  assert.deepEqual(status.urls, []);
 });

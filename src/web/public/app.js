@@ -182,8 +182,56 @@ async function api(url, options = {}) {
   if (!request.method || String(request.method).toUpperCase() === "GET") request.cache = "no-store";
   const response = await fetch(url, request);
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || "请求失败");
+  if (!response.ok) {
+    if (response.status === 401 && !url.startsWith("/api/auth/")) renderWebLogin();
+    throw new Error(data.error || "请求失败");
+  }
   return data;
+}
+
+function renderWebLogin(message = "") {
+  document.body.classList.add("web-auth-locked");
+  app.innerHTML = `<section class="web-auth-page"><form class="web-auth-card" id="web-auth-form">
+    <div class="web-auth-mark" aria-hidden="true">石</div>
+    <p class="eyebrow">LOCAL NETWORK ACCESS</p>
+    <h1>连接 Stone Memory</h1>
+    <p>这台设备已开启 Web 访问保护。请输入服务器生成的 Web API Token。</p>
+    <label for="web-auth-token">访问令牌</label>
+    <input id="web-auth-token" name="token" type="password" autocomplete="current-password" placeholder="stmem_…" required autofocus>
+    <small>令牌只用于本次登录，不会保存在浏览器存储中。</small>
+    <div class="notice danger" id="web-auth-error" ${message ? "" : "hidden"}>${escapeHtml(message)}</div>
+    <button class="primary" type="submit">登录</button>
+  </form></section>`;
+  const form = document.querySelector("#web-auth-form");
+  form.onsubmit = async event => {
+    event.preventDefault();
+    const button = form.querySelector("button"), error = form.querySelector("#web-auth-error");
+    button.disabled = true; button.textContent = "正在验证…"; error.hidden = true;
+    try {
+      await api("/api/auth/unlock", { method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({ token:new FormData(form).get("token") }) });
+      form.reset(); document.body.classList.remove("web-auth-locked"); await startStoneMemory();
+    } catch (cause) {
+      error.textContent = cause.message; error.hidden = false;
+      button.disabled = false; button.textContent = "登录";
+      form.querySelector("input").focus();
+    }
+  };
+}
+
+async function startStoneMemory() {
+  await loadLibraries();
+  document.body.classList.remove("web-auth-locked");
+  if (!state.libraries.length) return welcome();
+  const route = new URLSearchParams(window.location.search), threadId = route.get("threadId");
+  if (route.get("view") === "workshop") return renderGlobalWorkshop();
+  if (route.get("view") === "developer" && state.libraries.some(library => library.threadId === threadId)) return openLibrary(threadId, "developer");
+  lobby();
+}
+
+async function bootstrapStoneMemory() {
+  const status = await api("/api/auth/status");
+  if (status.authenticationRequired) return renderWebLogin();
+  return startStoneMemory();
 }
 
 async function loadLibraries() {
@@ -600,12 +648,26 @@ function renderGlobalAbout() {
 function renderMyContent(main) {
   const external=(href,label)=>href?`<a href="${escapeHtml(href)}" target="_blank" rel="noreferrer">${label}</a>`:"";
   main.innerHTML=`<div class="dashboard-head about-hero"><div><p class="eyebrow">MY STONE MEMORY</p><h1>我的</h1><p class="lead">管理外观、安装入口与项目联系。</p></div></div><section class="me-panel"><div id="theme-entry-host"></div><button class="me-menu-row" id="install-stone-memory" type="button"><span class="me-menu-icon" aria-hidden="true">⌂</span><span class="me-menu-copy"><strong>添加到桌面主页</strong></span><span aria-hidden="true">›</span></button><button class="me-menu-row" id="open-privacy-statement" type="button"><span class="me-menu-icon" aria-hidden="true">◇</span><span class="me-menu-copy"><strong>隐私声明</strong><small>了解数据存储、导出与第三方服务边界</small></span><span aria-hidden="true">›</span></button><div class="me-menu-row me-follow-row"><span class="me-menu-icon" aria-hidden="true">◎</span><span class="me-menu-copy"><strong>关注项目</strong></span></div><button class="me-menu-row" id="open-support-code" type="button"><span class="me-menu-icon" aria-hidden="true">✦</span><span class="me-menu-copy"><strong>召唤赞赏码</strong><small>请作者喝杯茶，给小石头添一点口粮</small></span><span aria-hidden="true">›</span></button></section><dialog class="support-dialog" id="support-code-dialog"><button class="dialog-close" type="button" aria-label="关闭">×</button><h2>召唤赞赏码</h2><p>支持完全自愿，不影响任何已有功能。</p><div class="support-code">${projectContact.supportImage?`<img src="${escapeHtml(projectContact.supportImage)}" alt="开发者赞赏码">`:`<div><span>赞赏码</span><small>图片待放置</small></div>`}</div></dialog><dialog class="privacy-dialog" id="privacy-statement-dialog"><button class="dialog-close" type="button" aria-label="关闭">×</button><h2>隐私声明</h2><p>Stone Memory 的记忆、对话、摘要和设置默认保存在你配置的本地服务及其数据目录中。项目不会因为打开页面而把对话内容上传到第三方分析服务，也不内置广告追踪。</p><p>只有你主动启用的功能才会发送数据：例如你配置的摘要模型/API、MCP 或外部项目链接。调用上游服务时，内容会按对应功能的用途发送，请自行确认服务商的隐私政策与保留规则。</p><p>“数据导出”由你主动触发，导出的文件可能包含全量对话和摘要，请像保护原始记忆一样保存。主题、界面偏好和部分安装状态会保存在浏览器本地存储中。</p><p>删除浏览器数据不会自动删除服务器上的记忆；删除记忆体、备份或导出文件也应由你在对应管理入口中明确操作。</p></dialog>`;
+  main.querySelector("#open-privacy-statement")?.insertAdjacentHTML("beforebegin",`<button class="me-menu-row" id="open-lan-access" type="button"><span class="me-menu-icon" aria-hidden="true">⌁</span><span class="me-menu-copy"><strong>局域网访问</strong><small>让同一 Wi-Fi 下的手机安全登录</small></span><span aria-hidden="true">›</span></button>`);
+  main.querySelector("#support-code-dialog")?.insertAdjacentHTML("beforebegin",`<dialog class="privacy-dialog" id="lan-access-dialog"><button class="dialog-close" type="button" aria-label="关闭">×</button><h2>局域网访问</h2><div id="lan-access-content"><p>正在读取访问状态…</p></div></dialog>`);
   const supportDialog=main.querySelector("#support-code-dialog");
   const privacyDialog=main.querySelector("#privacy-statement-dialog");
+  const lanDialog=main.querySelector("#lan-access-dialog");
   main.querySelector("#open-support-code")?.addEventListener("click",()=>supportDialog?.showModal());
   main.querySelector("#open-privacy-statement")?.addEventListener("click",()=>privacyDialog?.showModal());
+  main.querySelector("#open-lan-access")?.addEventListener("click",async()=>{
+    lanDialog?.showModal();
+    const target=lanDialog?.querySelector("#lan-access-content");
+    try{
+      const status=await api("/api/web-access");
+      target.innerHTML=status.enabled
+        ?`<p><strong>局域网访问已开启</strong></p><p>同一 Wi-Fi 下可打开：</p><div class="lan-access-urls">${status.urls.length?status.urls.map(url=>`<code>${escapeHtml(url)}</code>`).join(""):`<small>暂未检测到可用的局域网 IPv4 地址。</small>`}</div><p class="notice warning">当前是局域网 HTTP，请只在可信网络中使用。关闭请在服务器运行 <code>stmem web lan disable</code>。</p>`
+        :`<p>当前仅允许本机访问。在服务器终端运行下面的命令即可开启，并获得手机登录 Token：</p><code class="lan-access-command">stmem web lan enable</code><p>开启后回到这里即可查看手机访问地址。无需域名、VPN 或 Tailscale。</p>`;
+    }catch(error){target.innerHTML=`<p class="notice danger">${escapeHtml(error.message)}</p>`;}
+  });
   supportDialog?.querySelector(".dialog-close")?.addEventListener("click",()=>supportDialog.close());
   privacyDialog?.querySelector(".dialog-close")?.addEventListener("click",()=>privacyDialog.close());
+  lanDialog?.querySelector(".dialog-close")?.addEventListener("click",()=>lanDialog.close());
   void syncPwaIcons().catch(()=>{});
   main.querySelector("#install-stone-memory")?.addEventListener("click",installStoneMemory);
   refreshPwaInstallUi();
@@ -914,7 +976,7 @@ async function renderSettings(library) {
     const card = main;
     const miner = card.querySelector("#setting-miner"), apiFields = card.querySelector("#setting-api-fields");
     const renderApiSettings = () => {
-      apiFields.innerHTML = miner.value === "api" ? `<div class="field-grid"><div class="field"><label for="setting-provider">API 厂商</label><input id="setting-provider" name="apiProvider" value="${escapeHtml(config.apiProvider || "")}" required></div><div class="field"><label for="setting-model">模型名</label><input id="setting-model" name="model" value="${escapeHtml(config.model || "")}" required><small>必须与上游当前提供的模型名完全一致；Stone Memory 不预设。</small></div><div class="field"><label for="setting-key">API Key</label><div class="secret-input"><input id="setting-key" name="apiKey" type="password" value="${escapeHtml(config.apiKey || "")}" required><button type="button" id="toggle-key" aria-label="显示 API Key" title="显示 API Key"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z"/><circle cx="12" cy="12" r="2.7"/></svg></button></div><small>Key 只在本机页面显示和保存。</small></div><div class="field"><label for="setting-base">Base URL</label><input id="setting-base" name="baseUrl" value="${escapeHtml(config.baseUrl || "")}"></div></div>` : "";
+      apiFields.innerHTML = miner.value === "api" ? `<div class="field-grid"><div class="field"><label for="setting-provider">API 厂商</label><input id="setting-provider" name="apiProvider" value="${escapeHtml(config.apiProvider || "")}" required></div><div class="field"><label for="setting-model">模型名</label><input id="setting-model" name="model" value="${escapeHtml(config.model || "")}" required><small>必须与上游当前提供的模型名完全一致；Stone Memory 不预设。</small></div><div class="field"><label for="setting-key">API Key</label><div class="secret-input"><input id="setting-key" name="apiKey" type="password" value="" ${config.hasApiKey ? `placeholder="已配置；留空保持不变"` : "required"}><button type="button" id="toggle-key" aria-label="显示 API Key" title="显示 API Key"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z"/><circle cx="12" cy="12" r="2.7"/></svg></button></div><small>${config.hasApiKey ? "API Key 已配置；留空不会覆盖，输入新值才会替换。" : "API Key 只保存在服务器本机，不会返回浏览器。"}</small></div><div class="field"><label for="setting-base">Base URL</label><input id="setting-base" name="baseUrl" value="${escapeHtml(config.baseUrl || "")}"></div></div>` : "";
       const toggle = apiFields.querySelector("#toggle-key"), keyInput = apiFields.querySelector("#setting-key");
       if (toggle) toggle.onclick = () => { const visible = keyInput.type === "text"; keyInput.type = visible ? "password" : "text"; toggle.setAttribute("aria-label", visible ? "显示 API Key" : "隐藏 API Key"); toggle.title = visible ? "显示 API Key" : "隐藏 API Key"; };
     };
@@ -1484,20 +1546,4 @@ async function checkAndRepair(library) {
 }
 
 preparePwa();
-loadLibraries().then(async () => {
-  if (!state.libraries.length) {
-    welcome();
-    return;
-  }
-  const route = new URLSearchParams(window.location.search);
-  const threadId = route.get("threadId");
-  if (route.get("view") === "workshop") {
-    renderGlobalWorkshop();
-    return;
-  }
-  if (route.get("view") === "developer" && state.libraries.some(library => library.threadId === threadId)) {
-    await openLibrary(threadId, "developer");
-    return;
-  }
-  lobby();
-}).catch(error => { app.innerHTML = `<section class="welcome"><div class="welcome-content"><h1>Stone Memory</h1><p class="lead">本地服务暂时无法读取记忆体。</p><button class="primary" onclick="location.reload()">重新加载</button></div></section>`; showToast(error.message, "error"); });
+bootstrapStoneMemory().catch(error => { app.innerHTML = `<section class="welcome"><div class="welcome-content"><h1>Stone Memory</h1><p class="lead">本地服务暂时无法读取记忆体。</p><button class="primary" onclick="location.reload()">重新加载</button></div></section>`; showToast(error.message, "error"); });

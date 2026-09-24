@@ -46,13 +46,24 @@ function parseCookies(header) {
   return Object.fromEntries(String(header || "").split(";").map(item => item.trim().split(/=(.*)/s)).filter(([key]) => key).map(([key, value]) => [key, value || ""]));
 }
 
-function requestOrigin(req, webConfig) {
+function requestOrigins(req, webConfig) {
+  const origins = new Set();
+  const scheme = req.socket?.encrypted ? "https" : "http";
+  if (req.headers.host) origins.add(`${scheme}://${req.headers.host}`);
   const configured = String(webConfig?.publicUrl || "").trim();
   if (configured) {
-    try { return new URL(configured).origin; } catch {}
+    try { origins.add(new URL(configured).origin); } catch {}
   }
-  const scheme = req.socket?.encrypted ? "https" : "http";
-  return `${scheme}://${req.headers.host || ""}`;
+  return origins;
+}
+
+function isRemoteRequest(req) {
+  if (!isLoopbackAddress(req.socket?.remoteAddress)) return true;
+  try {
+    return !isLoopbackHost(new URL(`http://${req.headers.host || ""}`).hostname);
+  } catch {
+    return true;
+  }
 }
 
 function isPublicWebApiRoute(method, pathname) {
@@ -90,13 +101,13 @@ function createWebAuth({ host, configProvider, now = () => Date.now() }) {
   function assertSameOrigin(req, principal) {
     if (["GET", "HEAD", "OPTIONS"].includes(req.method) || principal.kind === "bearer") return;
     const origin = String(req.headers.origin || "");
-    const expected = requestOrigin(req, config().web);
+    const expected = requestOrigins(req, config().web);
     // When authentication is disabled on a loopback-only listener, keep
     // non-browser local tooling working (it has no Origin) while rejecting a
     // browser request that declares a foreign Origin. Cookie sessions require
     // an explicit same Origin because browsers attach their credential for us.
     const requiresExplicitOrigin = principal.kind === "session";
-    if ((requiresExplicitOrigin && !origin) || (origin && origin !== expected) || req.headers["sec-fetch-site"] === "cross-site") {
+    if ((requiresExplicitOrigin && !origin) || (origin && !expected.has(origin)) || req.headers["sec-fetch-site"] === "cross-site") {
       throw new WebAuthError(403, "浏览器会话只能从同一来源执行写操作");
     }
   }
@@ -122,4 +133,4 @@ function createWebAuth({ host, configProvider, now = () => Date.now() }) {
   };
 }
 
-module.exports = { WebAuthError, SESSION_COOKIE, SESSION_TTL_MS, isLoopbackHost, isLoopbackAddress, hashToken, generateToken, configuredAuth, isPublicWebApiRoute, createWebAuth };
+module.exports = { WebAuthError, SESSION_COOKIE, SESSION_TTL_MS, isLoopbackHost, isLoopbackAddress, isRemoteRequest, hashToken, generateToken, configuredAuth, isPublicWebApiRoute, createWebAuth };

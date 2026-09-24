@@ -135,6 +135,8 @@ td.context { min-width: 320px; max-width: 460px; line-height: 1.5; }
 .new-card span { display: grid; place-items: center; width: 48px; height: 48px; margin: auto auto 14px; border-radius: 50%; background: var(--moss-100); font-size: 28px; }
 
 .workspace { min-height: 100vh; }
+.web-auth-locked .stone-global-nav{display:none}.web-auth-locked .stone-application-frame{margin-left:0}.web-auth-page{display:grid;min-height:100vh;padding:24px;place-items:center;background:radial-gradient(circle at 50% 15%,var(--moss-100),transparent 38%)}.web-auth-card{display:grid;width:min(430px,100%);gap:14px;padding:32px;background:var(--paper);border:1px solid var(--line);border-radius:24px;box-shadow:var(--shadow)}.web-auth-card .web-auth-mark{display:grid;width:52px;height:52px;place-items:center;color:var(--paper);background:var(--pine-700);border-radius:16px;font-family:Georgia,"Noto Serif SC",serif;font-size:24px}.web-auth-card h1{margin:0;font-family:Georgia,"Noto Serif SC",serif;font-size:30px}.web-auth-card p{margin:0;color:var(--muted);line-height:1.7}.web-auth-card label{margin-top:6px;font-weight:700}.web-auth-card input{width:100%;box-sizing:border-box}.web-auth-card small{color:var(--muted);line-height:1.5}.web-auth-card button{margin-top:4px}
+.lan-access-urls{display:grid;gap:8px;margin:12px 0}.lan-access-urls code,.lan-access-command{display:block;padding:12px;color:var(--pine-800);background:var(--leaf-50);border:1px solid var(--line);border-radius:10px;overflow-wrap:anywhere}.lan-access-command{margin:14px 0}
 .workspace-grid { display: grid; grid-template-columns: 220px 1fr; gap: 38px; padding: 28px 0 70px; }
 .workspace-grid > *, #workspace-main { min-width: 0; }
 .sidebar { position: sticky; top: 24px; align-self: start; }

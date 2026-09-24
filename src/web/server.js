@@ -37,7 +37,7 @@ const { memoryExportPayload, sendMemoryExport } = require("./routes/memory");
 const { scenarioId, normalizeScenarioConfig } = require("../services/scenario-registry");
 const { resolveMiningPrompts, promptOverridePath, renderPrompt } = require("../services/prompt-resolver");
 const { listDeveloperAdapters } = require("./static-files");
-const { WebAuthError, isLoopbackHost, isLoopbackAddress, configuredAuth, isPublicWebApiRoute, createWebAuth } = require("../security/web-auth");
+const { WebAuthError, isLoopbackHost, isRemoteRequest, configuredAuth, isPublicWebApiRoute, createWebAuth } = require("../security/web-auth");
 const { webSecurityStatus } = require("../services/web-security");
 
 const PUBLIC_DIR = path.join(__dirname, "public");
@@ -950,6 +950,7 @@ function serveNotebookAsset(req, res, asset) {
 
 async function handleApi(req, res, url, { isRemote = false } = {}) {
   if (req.method === "GET" && url.pathname === "/api/web-security") return json(res, 200, webSecurityStatus());
+  if (req.method === "GET" && url.pathname === "/api/web-access") return json(res, 200, webAccessOverview());
   if (req.method === "POST" && url.pathname === "/api/web-security/token") {
     return json(res, 200, JSON.parse(runStmem(["web", "auth", "rotate", "--json"])));
   }
@@ -2054,6 +2055,20 @@ function cleanupPreviews() {
   }
 }
 
+function webAccessOverview() {
+  const config = loadConfig(), web = config.web || {};
+  const host = String(web.host || "127.0.0.1"), port = Number(web.port) || 4173;
+  const urls = [];
+  if (!isLoopbackHost(host)) {
+    for (const rows of Object.values(os.networkInterfaces())) {
+      for (const row of rows || []) {
+        if (row.family === "IPv4" && !row.internal && row.address) urls.push(`http://${row.address}:${port}`);
+      }
+    }
+  }
+  return { enabled:!isLoopbackHost(host), host, port, urls:[...new Set(urls)].sort(), authenticationEnabled:Boolean(configuredAuth(config)) };
+}
+
 function startWebServer({ host = "127.0.0.1", port = 4173 } = {}) {
   if (!isLoopbackHost(host) && !configuredAuth(loadConfig())) {
     throw new Error("非 loopback Web 监听必须先配置 Web API Token");
@@ -2072,7 +2087,7 @@ function startWebServer({ host = "127.0.0.1", port = 4173 } = {}) {
       if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/review-lab/api/")) {
         const principal = webAuth.authenticate(req);
         webAuth.assertSameOrigin(req, principal);
-        return await handleApi(req, res, url, { isRemote: !isLoopbackHost(host) || !isLoopbackAddress(req.socket?.remoteAddress) });
+        return await handleApi(req, res, url, { isRemote: isRemoteRequest(req) });
       }
       if (serveLegacyDreamLab(res, url)) return;
       if (serveCanonicalDeveloperModule(req, res, url.pathname)) return;
@@ -2098,5 +2113,5 @@ module.exports = {
   listDeveloperModules, developerModuleDetail,
   miningDatesFromStore, miningCommandArgs, miningCheckCommandArgs, targetedMiningCommandArgs,
   timelineCommandArgs, compactTimelineReport, compressionCommandArgs, safeStmemFailure, runStmem,
-  reviewCandidateForWeb, reviewProfileFromInput, reviewBatchPayload, reviewBatchCommandArgs,
+  reviewCandidateForWeb, reviewProfileFromInput, reviewBatchPayload, reviewBatchCommandArgs, webAccessOverview,
 };

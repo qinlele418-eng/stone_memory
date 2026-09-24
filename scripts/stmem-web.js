@@ -19,7 +19,7 @@ const WATCH_SCRIPT = path.join(__dirname, "stmem-web-watch.js");
 const MARKER = ["stmem-web-watch.js", "stmem-web.js", "stmem web"];
 const invokedThroughCli = path.basename(process.argv[1] || "") === "stmem";
 const args = process.argv.slice(invokedThroughCli ? 3 : 2);
-const actions = new Set(["start", "stop", "restart", "status", "config", "dev", "serve", "auth"]);
+const actions = new Set(["start", "stop", "restart", "status", "config", "dev", "serve", "auth", "lan"]);
 const action = actions.has(args[0]) ? args.shift() : "serve";
 const value = name => {
   const index = args.indexOf(name);
@@ -78,6 +78,73 @@ function runAuthCommand() {
     return;
   }
   throw new Error("用法：stmem web auth status | rotate [--json]");
+}
+
+function localNetworkUrls(port) {
+  const addresses = [];
+  for (const rows of Object.values(os.networkInterfaces())) {
+    for (const row of rows || []) {
+      if (row.family !== "IPv4" || row.internal || !row.address) continue;
+      addresses.push(`http://${row.address}:${port}`);
+    }
+  }
+  return [...new Set(addresses)].sort();
+}
+
+function restartAfterAccessChange() {
+  const existing = readManagedPid(PID_FILE, MARKER);
+  if (existing) stopManagedProcess({ pidFile: PID_FILE, marker: MARKER });
+  return startBackground();
+}
+
+function runLanCommand() {
+  const subcommand = args.shift() || "status";
+  const json = args.includes("--json");
+  if (subcommand === "status") {
+    const config = webConfig();
+    const result = {
+      enabled: !isLoopbackHost(config.host),
+      running: Boolean(readManagedPid(PID_FILE, MARKER)),
+      host: config.host,
+      port: config.port,
+      authentication: webSecurityStatus(),
+      urls: !isLoopbackHost(config.host) ? localNetworkUrls(config.port) : [],
+    };
+    console.log(json ? JSON.stringify(result) : JSON.stringify(result, null, 2));
+    return;
+  }
+  if (subcommand === "enable") {
+    const auth = rotateWebApiToken();
+    const config = loadConfig();
+    const port = Number(config.web?.port) || 4173;
+    config.web = { ...(config.web || {}), host:"0.0.0.0", port, publicUrl:"", auth:config.web.auth };
+    saveConfig(config);
+    const processResult = restartAfterAccessChange();
+    const result = { enabled:true, running:true, pid:processResult.pid, host:"0.0.0.0", port, urls:localNetworkUrls(port), token:auth.token };
+    if (json) console.log(JSON.stringify(result));
+    else {
+      console.log("Stone Memory 局域网访问已开启。");
+      for (const url of result.urls) console.log(`访问地址：${url}`);
+      if (!result.urls.length) console.log(`访问地址：请使用这台设备的局域网 IPv4 地址和端口 ${port}`);
+      console.log("登录 Token 只显示这一次，请立即保存：");
+      console.log(result.token);
+      console.warn("安全提示：当前为局域网 HTTP，请只在可信网络中使用。");
+    }
+    return;
+  }
+  if (subcommand === "disable") {
+    const config = loadConfig();
+    const port = Number(config.web?.port) || 4173;
+    const nextWeb = { ...(config.web || {}), host:"127.0.0.1", port, publicUrl:"" };
+    delete nextWeb.auth;
+    config.web = nextWeb;
+    saveConfig(config);
+    const processResult = restartAfterAccessChange();
+    const result = { enabled:false, running:true, pid:processResult.pid, host:"127.0.0.1", port, url:`http://127.0.0.1:${port}` };
+    console.log(json ? JSON.stringify(result) : `Stone Memory 局域网访问已关闭；仅本机可访问：${result.url}`);
+    return;
+  }
+  throw new Error("用法：stmem web lan enable | disable | status [--json]");
 }
 
 function startBackground() {
@@ -154,6 +221,7 @@ function startDevelopmentServer() {
 
 async function main() {
   if (action === "auth") return runAuthCommand();
+  if (action === "lan") return runLanCommand();
   if (action === "serve") return serve();
   if (action === "dev") return startDevelopmentServer();
   if (action === "config") {

@@ -90,7 +90,8 @@ test("developer module GET and POST bridge retains global scope and private batc
   const base = await start(t);
   let batchFile;
   commandResult = (executable, args) => {
-    assert.deepEqual(args.slice(1, 6), ["module", "developer-community", "status", "--thread", ""]);
+    assert.deepEqual(args.slice(1, 4), ["module", "developer-community", "status"]);
+    assert.equal(args.includes("--memory"), false);
     const batchIndex = args.indexOf("--batch-file");
     if (batchIndex !== -1) {
       batchFile = args[batchIndex + 1];
@@ -103,8 +104,9 @@ test("developer module GET and POST bridge retains global scope and private batc
   const url = base + "/api/developer-modules/developer-community/commands/status";
   for (const options of [{}, { method: "POST", body: JSON.stringify({ fixture: true }) }]) {
     const response = await fetch(url, options);
-    assert.equal(response.status, 200);
-    assert.deepEqual(await response.json(), { fixture: "ok" });
+    const body = await response.json();
+    assert.equal(response.status, 200, JSON.stringify(body));
+    assert.deepEqual(body, { fixture: "ok" });
   }
   assert.ok(batchFile);
   assert.equal(fs.existsSync(path.dirname(batchFile)), false);
