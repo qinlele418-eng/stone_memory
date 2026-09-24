@@ -184,7 +184,9 @@ async function api(url, options = {}) {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     if (response.status === 401 && !url.startsWith("/api/auth/")) renderWebLogin();
-    throw new Error(data.error || "请求失败");
+    const error = new Error(data.error || "请求失败");
+    error.status = response.status;
+    throw error;
   }
   return data;
 }
@@ -231,8 +233,12 @@ async function startStoneMemory() {
 
 async function bootstrapStoneMemory() {
   const status = await api("/api/auth/status");
-  if (status.authenticationRequired) return renderWebLogin("", status.bootstrapPending);
-  return startStoneMemory();
+  if (!status.authenticationRequired) return startStoneMemory();
+  try { return await startStoneMemory(); }
+  catch (error) {
+    if (error.status === 401) return renderWebLogin("", status.bootstrapPending);
+    throw error;
+  }
 }
 
 async function loadLibraries() {

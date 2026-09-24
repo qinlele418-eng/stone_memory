@@ -175,6 +175,8 @@ test("Web frontend contains an authenticated unlock gate and never asks for an e
   assert.match(app, /\/api\/auth\/unlock/);
   assert.match(app, /\/api\/web-access/);
   assert.match(app, /成功后会记住这台设备 30 天/);
+  assert.match(app, /if \(!status\.authenticationRequired\) return startStoneMemory\(\)/);
+  assert.match(app, /try \{ return await startStoneMemory\(\); \}/);
   assert.match(app, /config\.hasApiKey \? `placeholder="已配置；留空保持不变"` : "required"/);
   assert.match(cli, /subcommand === "enable"/);
   assert.match(cli, /host:"0\.0\.0\.0"/);
