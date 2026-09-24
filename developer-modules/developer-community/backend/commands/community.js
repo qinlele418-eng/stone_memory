@@ -776,6 +776,7 @@ async function run(context, input) {
       return { dossier, report:report || null, source:report ? (cached ? "api-cache" : "api") : "original" };
     }
     if (input.action === "my-contributions") return github.myContributions(repository, githubToken(settings), payload.page, 6);
+    if (input.action === "release") return { repository, release: github.latestRelease(repository, githubToken(settings)) };
     if (input.action === "refresh") {
       const kind = new Set(["pr", "issue"]).has(payload.kind) ? payload.kind : "all";
       return { repository, ...github.listDossiers(repository, githubToken(settings), payload.page, 10, kind), workbench: workbench(db, repository, { mode: "list" }) };

@@ -35,6 +35,18 @@ test("repository and branch inputs reject traversal and option injection", () =>
   assert.throws(() => branchName("feature/../main"), /分支/);
 });
 
+test("latest release maps GitHub metadata and treats a missing release as empty", () => {
+  const calls = [];
+  const release = github.latestRelease("example/stone-memory", "secret", (args, options) => {
+    calls.push({ args, options });
+    return { tag_name:"v1.2.3", name:"Stone 1.2.3", body:"修复若干问题", published_at:"2026-09-24T00:00:00Z", html_url:"https://github.com/example/stone-memory/releases/tag/v1.2.3", assets:[{ name:"stone.zip", size:2048, download_count:7, browser_download_url:"https://example.test/stone.zip" }] };
+  });
+  assert.equal(calls[0].args[1], "repos/example/stone-memory/releases/latest");
+  assert.equal(calls[0].options.token, "secret");
+  assert.deepEqual(release.assets[0], { name:"stone.zip", size:2048, downloads:7, url:"https://example.test/stone.zip" });
+  assert.equal(github.latestRelease("example/stone-memory", "secret", () => { throw new Error("HTTP 404: Not Found"); }), null);
+});
+
 test("module SQLite migrates in its resolved global data directory and workbench add is idempotent", () => {
   const fixture = temporaryContext();
   const db = openDatabase(fixture.context);
@@ -642,6 +654,9 @@ test("frontend uses the shared shell, theme contract, mobile layout and confirma
   assert.match(app, /value == null \? "" : value/);
   assert.match(html, /三项全部留空＝原文模式/);
   assert.match(app, /command\("refresh", \{ kind, page \}/);
+  assert.match(html, /id="latest-release"/);
+  assert.match(app, /command\("release"\)/);
+  assert.match(css, /\.latest-release\[open\]/);
   assert.match(html, /id="next-pr"/);
   assert.match(html, /id="next-issue"/);
   assert.match(html, /官方领先提交/u);

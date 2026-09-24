@@ -18,6 +18,7 @@
       "logout": "backend/commands/community.js",
       "configure": "backend/commands/community.js",
       "refresh": "backend/commands/community.js",
+      "release": "backend/commands/community.js",
       "detail": "backend/commands/community.js",
       "star": "backend/commands/community.js",
       "comment": "backend/commands/community.js",

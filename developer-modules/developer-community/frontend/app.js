@@ -46,6 +46,10 @@
     $("#repo-link").textContent = repo?.url || ""; $("#repo-link").href = repo?.url || "#";
     $("#star").disabled = !repo || !data.auth.authenticated;
     $("#star").textContent = repo?.starred ? "已点亮 ✦" : "为项目点星";
+    if (!data.auth.authenticated) {
+      $("#release-title").textContent = "登录后查看最新 Release";
+      $("#release-content").innerHTML = '<p class="muted">完成 GitHub 登录后，这里会同步项目最新发布版本。</p>';
+    }
     $("#local-repo").value = data.settings.localRepoPath || "";
     $("#api-endpoint").value = data.settings.api.endpoint || "";
     $("#api-model").value = data.settings.api.model || "";
@@ -83,6 +87,34 @@
     }
     document.querySelectorAll("[data-kind][data-number]").forEach(node => node.addEventListener("click", () => openDossier(node.dataset.kind, Number(node.dataset.number))));
     renderWorkbench(data.workbench || []);
+  }
+
+  function formatBytes(value) {
+    const bytes = Number(value) || 0;
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+  }
+
+  function renderLatestRelease(release) {
+    const title = $("#release-title"), content = $("#release-content");
+    if (!release) {
+      title.textContent = "暂未发布正式 Release";
+      content.innerHTML = '<p class="muted">项目目前没有可展示的正式 Release。</p>';
+      return;
+    }
+    const date = release.publishedAt ? new Date(release.publishedAt).toLocaleDateString("zh-CN") : "发布时间未知";
+    title.textContent = `${release.name || release.tag} · ${date}${release.prerelease ? " · 预发布" : ""}`;
+    const assets = (release.assets || []).map(asset => `<a href="${escapeHtml(asset.url)}" target="_blank" rel="noreferrer"><b>${escapeHtml(asset.name)}</b><small>${formatBytes(asset.size)} · ${Number(asset.downloads) || 0} 次下载</small></a>`).join("");
+    content.innerHTML = `<p class="release-notes">${escapeHtml(release.body || "这个版本没有填写更新说明。")}</p>${assets ? `<div class="release-assets">${assets}</div>` : ""}<a class="release-link" href="${escapeHtml(release.url)}" target="_blank" rel="noreferrer">在 GitHub 查看 ${escapeHtml(release.tag)} →</a>`;
+  }
+
+  async function loadLatestRelease() {
+    try { renderLatestRelease((await command("release")).release); }
+    catch (error) {
+      $("#release-title").textContent = "最新 Release 读取失败";
+      $("#release-content").innerHTML = `<p class="notice danger">${escapeHtml(error.message)}</p>`;
+    }
   }
 
   function reportBlock(title, value) {
@@ -177,7 +209,10 @@
   async function loadProjectDossiers() {
     const button = $("#refresh"), previous = button.textContent;
     button.disabled = true; button.textContent = "同步中…"; $("#load-error").hidden = true;
-    try { renderDossiers(await command("refresh", { page:1 })); }
+    try {
+      const [dossiers] = await Promise.all([command("refresh", { page:1 }), loadLatestRelease()]);
+      renderDossiers(dossiers);
+    }
     catch (error) { $("#load-error").hidden=false; $("#load-error").textContent=error.message; }
     finally { button.disabled = false; button.textContent = previous; }
   }

@@ -107,6 +107,33 @@ function listDossiers(repository, token = "", page = 1, pageSize = 10, kind = "a
   };
 }
 
+function latestRelease(repository, token = "", ghJsonImpl = ghJson) {
+  requireToken(token);
+  const repo = repositorySlug(repository);
+  let item;
+  try {
+    item = ghJsonImpl(["api", `repos/${repo}/releases/latest`], { token });
+  } catch (error) {
+    if (/HTTP\s*404|Not Found/iu.test(String(error?.message || ""))) return null;
+    throw error;
+  }
+  if (!item?.tag_name) return null;
+  return {
+    tag: String(item.tag_name),
+    name: String(item.name || item.tag_name),
+    body: String(item.body || ""),
+    publishedAt: String(item.published_at || item.created_at || ""),
+    url: String(item.html_url || `https://github.com/${repo}/releases/tag/${encodeURIComponent(item.tag_name)}`),
+    prerelease: Boolean(item.prerelease),
+    assets: (item.assets || []).map(asset => ({
+      name: String(asset.name || "下载文件"),
+      size: Number(asset.size) || 0,
+      downloads: Number(asset.download_count) || 0,
+      url: String(asset.browser_download_url || ""),
+    })).filter(asset => asset.url),
+  };
+}
+
 function recentCommits(repository, token = "") {
   requireToken(token);
   const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -216,4 +243,4 @@ function comment(repository, number, body, token = "") {
   return ghJson(["api", "--method", "POST", `repos/${repositorySlug(repository)}/issues/${issueNumber}/comments`, "-f", `body=${value}`], { token });
 }
 
-module.exports = { repositorySlug, branchName, run, ghJson, authStatus, verifyToken, listDossiers, recentCommits, commitDetail, myContributions, detail, star, isStarred, comment };
+module.exports = { repositorySlug, branchName, run, ghJson, authStatus, verifyToken, listDossiers, latestRelease, recentCommits, commitDetail, myContributions, detail, star, isStarred, comment };

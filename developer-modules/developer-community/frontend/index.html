@@ -41,6 +41,10 @@
         <section class="content-section mine">
           <div class="section-head"><div><p class="eyebrow">矿脉总览</p><h2>协作现场</h2></div><button id="refresh" class="secondary" type="button">同步刷新</button></div>
           <div id="load-error" class="notice danger" hidden></div>
+          <details class="latest-release" id="latest-release">
+            <summary><span><small>LATEST RELEASE</small><strong id="release-title">正在读取最新版本…</strong></span><span class="release-toggle" aria-hidden="true">展开</span></summary>
+            <div id="release-content" class="release-content"><p class="muted">正在读取 GitHub Release…</p></div>
+          </details>
           <div class="dossier-columns">
             <div><h3>PR · 精矿 <span id="pr-count" class="count">0 个开放 PR</span></h3><div id="pr-list" class="cards dossier-list empty">尚未刷新</div><div class="pager"><button id="prev-pr" class="secondary" type="button" disabled>上一页</button><span id="page-pr">第 1 页</span><button id="next-pr" class="secondary" type="button" disabled>下一页</button></div></div>
             <div><h3>Issue · 采石场 <span id="issue-count" class="count">0 个开放 Issue</span></h3><div id="issue-list" class="cards dossier-list empty">尚未刷新</div><div class="pager"><button id="prev-issue" class="secondary" type="button" disabled>上一页</button><span id="page-issue">第 1 页</span><button id="next-issue" class="secondary" type="button" disabled>下一页</button></div></div>
