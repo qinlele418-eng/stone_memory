@@ -405,7 +405,7 @@ function applyPullRequest(db, settings, payload) {
   if (removed?.revertCommit) return restoreRemovedPullRequest(db, { repository, number, title:dossier.title, targetBranch:target, headSha:dossier.headSha, localRepo, ...removed });
   const ref = `refs/stmem/developer-community/pr-${number}`;
   const before = github.run("git", ["rev-parse", "HEAD"], { cwd:localRepo });
-  github.run("git", ["fetch", gitRemoteForRepository(localRepo, repository), `pull/${number}/head:${ref}`], { cwd: localRepo });
+  github.run("git", ["fetch", gitRemoteForRepository(localRepo, repository), `+pull/${number}/head:${ref}`], { cwd: localRepo });
   try {
     github.run("git", ["merge", "--no-ff", ref, "-m", `merge: try ${repository} PR #${number}`], { cwd: localRepo });
   } catch (error) {
@@ -715,7 +715,7 @@ function resolvePullRequest(db, settings, payload) {
   const dossier = github.detail(repository, "pr", number, githubToken(settings));
   if (dossier.headSha !== expectedHead) throw new Error("PR 已有新提交，请重新打开后再合并");
   const ref = `refs/stmem/developer-community/pr-${number}`;
-  github.run("git", ["fetch", gitRemoteForRepository(localRepo, repository), `pull/${number}/head:${ref}`], { cwd:localRepo });
+  github.run("git", ["fetch", gitRemoteForRepository(localRepo, repository), `+pull/${number}/head:${ref}`], { cwd:localRepo });
   if (github.run("git", ["rev-parse", ref], { cwd:localRepo }) !== expectedHead) throw new Error("本地 PR 引用与 GitHub 不一致，请重新合并");
   try {
     github.run("git", ["merge", "--no-ff", ref, "-m", `merge: try ${repository} PR #${number}`], { cwd:localRepo });

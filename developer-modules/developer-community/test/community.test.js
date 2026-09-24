@@ -485,6 +485,7 @@ test("PR conflicts return a selectable file plan after aborting the first merge"
     assert.deepEqual(result.conflicts, ["src/a.js", "src/b.js"]);
     assert.equal(result.headSha, "pr-head");
     assert.ok(calls.some(row => row[1] === "merge" && row[2] === "--abort"));
+    assert.ok(calls.some(row => row[1] === "fetch" && row.includes("+pull/7/head:refs/stmem/developer-community/pr-7")));
   } finally { github.run=originalRun; github.detail=originalDetail; db.close(); fs.rmSync(fixture.root,{recursive:true,force:true}); }
 });
 
@@ -510,6 +511,7 @@ test("selected PR conflict resolution takes PR files and preserves unselected lo
     assert.equal(result.applied, true);
     assert.ok(calls.some(row => row[1] === "checkout" && row[2] === "--theirs" && row.at(-1) === "src/a.js"));
     assert.ok(calls.some(row => row[1] === "checkout" && row[2] === "--ours" && row.at(-1) === "src/b.js"));
+    assert.ok(calls.some(row => row[1] === "fetch" && row.includes("+pull/7/head:refs/stmem/developer-community/pr-7")));
   } finally { github.run=originalRun; github.detail=originalDetail; db.close(); fs.rmSync(fixture.root,{recursive:true,force:true}); }
 });
 
