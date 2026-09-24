@@ -782,7 +782,7 @@ async function run(context, input) {
       return { repository, ...github.listDossiers(repository, githubToken(settings), payload.page, 10, kind), workbench: workbench(db, repository, { mode: "list" }) };
     }
     if (input.action === "detail") {
-      const dossier = github.detail(repository, payload.kind, payload.number, githubToken(settings));
+      const dossier = await github.detailAsync(repository, payload.kind, payload.number, githubToken(settings));
       const version = dossier.kind === "pr" ? dossier.headSha : dossier.updatedAt;
       const cached = !payload.refreshAnalysis && version ? db.prepare("SELECT report_json FROM ai_reports WHERE repository=? AND kind=? AND number=? AND version=?").get(repository, dossier.kind, dossier.number, version) : null;
       const report = cached ? JSON.parse(cached.report_json) : await generate(settings, promptText(context), dossier);

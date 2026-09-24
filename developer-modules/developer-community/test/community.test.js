@@ -50,6 +50,27 @@ test("latest release includes prereleases, skips drafts, and treats a missing re
   assert.equal(github.latestRelease("example/stone-memory", "secret", () => { throw new Error("HTTP 404: Not Found"); }), null);
 });
 
+test("detail reader uses native concurrent GitHub requests without waiting on AI", async () => {
+  const urls = []; let active = 0, maxActive = 0;
+  const fetchImpl = async url => {
+    urls.push(url); active++; maxActive = Math.max(maxActive, active);
+    await new Promise(resolve => setImmediate(resolve));
+    active--;
+    const body = url.includes("/pulls/7/files") ? [{ filename:"src/a.js", status:"added", additions:2, deletions:0, changes:2 }]
+      : url.includes("/pulls/7/commits") ? [{ sha:"abc", commit:{ message:"add a", author:{ name:"A", date:"2026-09-24" } } }]
+        : url.includes("/issues/7/comments") ? [{ id:1, user:{ login:"reviewer" }, body:"ok", created_at:"2026-09-24", html_url:"https://example.test/comment" }]
+          : url.includes("/check-runs") ? { check_runs:[{ name:"CI", conclusion:"success", html_url:"https://example.test/ci" }] }
+            : { title:"Fast PR", body:"body", user:{ login:"author" }, html_url:"https://example.test/pr", updated_at:"2026-09-24", head:{ sha:"head", ref:"feature" }, base:{ ref:"main" } };
+    return { ok:true, status:200, json:async () => body };
+  };
+  const result = await github.detailAsync("example/stone-memory", "pr", 7, "secret", fetchImpl);
+  assert.equal(result.title, "Fast PR");
+  assert.equal(result.files[0].path, "src/a.js");
+  assert.equal(result.checks[0].state, "success");
+  assert.equal(urls.length, 5);
+  assert.equal(maxActive, 4);
+});
+
 test("module SQLite migrates in its resolved global data directory and workbench add is idempotent", () => {
   const fixture = temporaryContext();
   const db = openDatabase(fixture.context);

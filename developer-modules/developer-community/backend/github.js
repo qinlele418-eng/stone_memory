@@ -205,6 +205,57 @@ function detail(repository, kind, number, token = "") {
   };
 }
 
+async function githubJson(pathname, token, fetchImpl = global.fetch) {
+  const response = await fetchImpl(`https://api.github.com/${pathname}`, {
+    headers: {
+      accept: "application/vnd.github+json",
+      authorization: `Bearer ${token}`,
+      "x-github-api-version": "2022-11-28",
+      "user-agent": "Stone-Memory-Developer-Community",
+    },
+    signal: AbortSignal.timeout(30_000),
+  });
+  let body = null;
+  try { body = await response.json(); } catch {}
+  if (!response.ok) throw new Error(`GitHub 读取失败（HTTP ${response.status}）：${body?.message || "请求失败"}`);
+  return body;
+}
+
+async function detailAsync(repository, kind, number, token = "", fetchImpl = global.fetch) {
+  requireToken(token);
+  const repo = repositorySlug(repository);
+  const value = Number(number);
+  if (!Number.isInteger(value) || value < 1) throw new Error("编号无效");
+  const commentsPath = `repos/${repo}/issues/${value}/comments?per_page=100`;
+  if (kind === "issue") {
+    const [issue, comments] = await Promise.all([
+      githubJson(`repos/${repo}/issues/${value}`, token, fetchImpl),
+      githubJson(commentsPath, token, fetchImpl),
+    ]);
+    return {
+      kind, number:value, title:issue.title, body:issue.body || "", author:issue.user?.login || "", url:issue.html_url, updatedAt:issue.updated_at || "",
+      labels:(issue.labels || []).map(item => item.name),
+      comments:(comments || []).map(item => ({ id:item.id, author:item.user?.login || "", body:item.body || "", createdAt:item.created_at, url:item.html_url })),
+    };
+  }
+  if (kind !== "pr") throw new Error("类型必须是 pr 或 issue");
+  const pr = await githubJson(`repos/${repo}/pulls/${value}`, token, fetchImpl);
+  const [files, commits, comments, checkRuns] = await Promise.all([
+    githubJson(`repos/${repo}/pulls/${value}/files?per_page=100`, token, fetchImpl),
+    githubJson(`repos/${repo}/pulls/${value}/commits?per_page=100`, token, fetchImpl),
+    githubJson(commentsPath, token, fetchImpl),
+    githubJson(`repos/${repo}/commits/${pr.head?.sha}/check-runs?per_page=100`, token, fetchImpl).catch(() => ({ check_runs:[] })),
+  ]);
+  return {
+    kind, number:value, title:pr.title, body:pr.body || "", author:pr.user?.login || "", url:pr.html_url, updatedAt:pr.updated_at || "",
+    headSha:pr.head?.sha || "", headRef:pr.head?.ref || "", baseRef:pr.base?.ref || "",
+    files:(files || []).map(item => ({ path:item.filename, status:item.status, additions:item.additions, deletions:item.deletions, changes:item.changes })),
+    commits:(commits || []).map(item => ({ sha:item.sha, message:item.commit?.message || "", author:item.author?.login || item.commit?.author?.name || "", date:item.commit?.author?.date || "" })),
+    comments:(comments || []).map(item => ({ id:item.id, author:item.user?.login || "", body:item.body || "", createdAt:item.created_at, url:item.html_url })),
+    checks:(checkRuns?.check_runs || []).map(item => ({ name:item.name, state:item.conclusion || item.status || "unknown", link:item.html_url || "" })),
+  };
+}
+
 async function star(repository, token = "") {
   const repo = repositorySlug(repository);
   if (!token) throw new Error("请先通过琢石坊登录 GitHub");
@@ -244,4 +295,4 @@ function comment(repository, number, body, token = "") {
   return ghJson(["api", "--method", "POST", `repos/${repositorySlug(repository)}/issues/${issueNumber}/comments`, "-f", `body=${value}`], { token });
 }
 
-module.exports = { repositorySlug, branchName, run, ghJson, authStatus, verifyToken, listDossiers, latestRelease, recentCommits, commitDetail, myContributions, detail, star, isStarred, comment };
+module.exports = { repositorySlug, branchName, run, ghJson, authStatus, verifyToken, listDossiers, latestRelease, recentCommits, commitDetail, myContributions, detail, detailAsync, star, isStarred, comment };

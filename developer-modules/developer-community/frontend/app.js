@@ -128,6 +128,12 @@
   }
 
   async function openDossier(kind, number, refreshAnalysis = false) {
+    const dialog = $("#dossier-dialog");
+    $("#dialog-kind").textContent = `${kind === "pr" ? "PR · 精矿" : "ISSUE · 采石场"} #${number}`;
+    $("#dialog-title").textContent = "正在读取…"; $("#dialog-author").textContent = "正在连接 GitHub";
+    $("#report").innerHTML = '<p class="muted">正在读取正文与改动信息…</p>';
+    $("#commits").innerHTML = $("#checks").innerHTML = $("#comments").innerHTML = '<p class="muted">加载中…</p>';
+    if (!dialog.open) dialog.showModal();
     try {
       const result = await command("detail", { kind, number, refreshAnalysis }); state.active = result.dossier;
       const dossier = result.dossier, report = result.report;
@@ -141,8 +147,8 @@
       $("#commits").innerHTML = (dossier.commits || []).length ? dossier.commits.map(item => `<article><b>${escapeHtml(item.message.split("\n")[0])}</b><br><small>@${escapeHtml(item.author)} · ${escapeHtml(item.date)} · ${escapeHtml(item.sha.slice(0,7))}</small></article>`).join("") : "<p class=\"muted\">Issue 没有提交记录</p>";
       $("#checks").innerHTML = (dossier.checks || []).length ? dossier.checks.map(item => `<article><b>${escapeHtml(item.name)}</b><br><small>${escapeHtml(item.state || item.bucket || item.detail)}</small></article>`).join("") : "<p class=\"muted\">没有 CI 报告</p>";
       $("#comments").innerHTML = (dossier.comments || []).length ? dossier.comments.map(item => `<article><b>@${escapeHtml(item.author)}</b><p>${escapeHtml(item.body)}</p><small>${new Date(item.createdAt).toLocaleString("zh-CN")}</small></article>`).join("") : "<p class=\"muted\">还没有讨论</p>";
-      $("#reply").hidden = false; $("#send-reply").hidden = false; $("#add-workbench").hidden = false; $("#apply-pr").hidden = kind !== "pr"; $("#reply").value = ""; $("#dossier-dialog").showModal();
-    } catch (error) { toast(error.message); }
+      $("#reply").hidden = false; $("#send-reply").hidden = false; $("#add-workbench").hidden = false; $("#apply-pr").hidden = kind !== "pr"; $("#reply").value = "";
+    } catch (error) { $("#report").innerHTML = `<p class="notice danger">${escapeHtml(error.message)}</p>`; toast(error.message); }
   }
 
   function renderWorkbench(items) {
