@@ -133,7 +133,7 @@ button.entry:hover { background:color-mix(in srgb, var(--sage-pale) 58%, transpa
 .reader-tools { display:flex; align-items:center; gap:10px; }
 .paper-style-control { position:relative; display:flex; align-items:center; gap:8px; color:var(--reader-ink); font-size:12px; }
 .paper-style-control::after { position:absolute; right:12px; width:7px; height:7px; border-right:1.5px solid var(--reader-control-ink); border-bottom:1.5px solid var(--reader-control-ink); content:""; pointer-events:none; transform:translateY(-2px) rotate(45deg); }
-.paper-style-control select { width:auto; min-width:86px; min-height:44px; padding:0 32px 0 11px; -webkit-appearance:none; appearance:none; border-color:color-mix(in srgb, var(--reader-control-ink) 34%, transparent); color:var(--reader-control-ink); background:var(--reader-control-surface); }
+.reader-tools .paper-style-control select { width:auto; min-width:86px; min-height:44px; padding:0 32px 0 11px; -webkit-appearance:none; appearance:none; border-color:color-mix(in srgb, var(--reader-control-ink) 34%, transparent); color:var(--reader-control-ink); background:var(--reader-control-surface); }
 .paper-style-control option { color:var(--ink); background:var(--paper); }
 #edit-note { min-height:44px; border-color:color-mix(in srgb,var(--reader-control-ink) 35%,transparent); color:var(--reader-control-ink); background:var(--reader-control-surface); }
 #paper { --paper-pattern:linear-gradient(transparent,transparent); position:relative; display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); column-gap:74px; min-height:680px; overflow:hidden; padding:68px clamp(32px,5vw,64px) 48px; border:1px solid var(--paper-edge); border-radius:13px 13px 7px 7px; color:var(--paper-ink); background:var(--paper-pattern), radial-gradient(circle at 76% 73%,color-mix(in srgb,var(--sage) 8%,transparent),transparent 11rem),linear-gradient(90deg,color-mix(in srgb,var(--ink) 4%,transparent),transparent 4%,transparent 96%,color-mix(in srgb,var(--ink) 4%,transparent)),var(--paper); box-shadow:inset 13px 0 20px var(--paper-shadow),inset -13px 0 20px var(--paper-shadow),0 2px 0 var(--paper-edge),0 5px 0 var(--paper-deep); }
@@ -264,7 +264,7 @@ dialog .check input { width:18px; min-height:18px; }
   .reader-tools { flex:1 1 100%; display:grid; grid-template-columns:1fr 1fr auto; align-items:stretch; gap:7px; }
   .paper-style-control { display:block; }
   .paper-style-control span { display:none; }
-  .paper-style-control select { width:100%; min-width:0; }
+  .reader-tools .paper-style-control select { width:100%; min-width:0; }
   #edit-note { padding-inline:14px; white-space:nowrap; }
   #paper { min-height:620px; padding:105px 27px 44px; }
   .date-badge { top:30px; left:26px; }
