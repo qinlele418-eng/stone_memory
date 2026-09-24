@@ -11,7 +11,10 @@ const MAX_STROKES = 240;
 const MAX_POINTS_PER_STROKE = 360;
 const MAX_WAIT_MS = 25_000;
 const WAIT_POLL_MS = 150;
-const AGENT_ONLINE_WINDOW_MS = 45_000;
+// A completed long-poll is only a heartbeat, not room membership. Keep the
+// visual "waiting" hint forgiving enough for a model to process an event and
+// issue its next tool call without making the UI look as if it left the room.
+const AGENT_ONLINE_WINDOW_MS = 180_000;
 
 const DEFAULT_WORDS = [
   ["蜗牛", "动物", "简单"], ["蝴蝶", "动物", "简单"], ["长颈鹿", "动物", "简单"], ["企鹅", "动物", "简单"],
@@ -212,7 +215,7 @@ function agentWait(db, context, payload) {
   const initial = requireRoom(db, payload.roomCode);
   if (!initial.agent_joined_at) throw new Error("AI尚未加入房间，请先调用 agent-join");
   const afterSeq = clampInteger(payload.afterSeq, 0, Number.MAX_SAFE_INTEGER, 0);
-  const timeoutMs = clampInteger(payload.timeoutMs, 50, MAX_WAIT_MS, 20_000);
+  const timeoutMs = clampInteger(payload.timeoutMs, 50, MAX_WAIT_MS, MAX_WAIT_MS);
   const deadline = Date.now() + timeoutMs;
   db.prepare("UPDATE rooms SET agent_last_seen_at=? WHERE id=?").run(new Date().toISOString(), initial.id);
 
@@ -221,11 +224,30 @@ function agentWait(db, context, payload) {
     const cursor = Number(room.event_seq || 0);
     if (cursor > afterSeq || room.status === "ended") {
       const result = readState(db, context, { roomCode: room.code, viewer: "agent", afterSeq });
-      return { ...result, wait: { afterSeq, cursor, timedOut: false } };
+      return {
+        ...result,
+        wait: {
+          afterSeq,
+          cursor,
+          timedOut: false,
+          continueWaiting: room.status !== "ended",
+        },
+      };
     }
     if (Date.now() >= deadline) {
       const result = readState(db, context, { roomCode: room.code, viewer: "agent", afterSeq });
-      return { ...result, wait: { afterSeq, cursor, timedOut: true } };
+      return {
+        ...result,
+        wait: {
+          afterSeq,
+          cursor,
+          timedOut: true,
+          continueWaiting: room.status !== "ended",
+          note: room.status === "ended"
+            ? "房间已经结束。"
+            : "本次等待正常超时，你仍在房间中；请立刻以 cursor 作为 afterSeq 再次调用 stmem_drawing_game_agent_wait。",
+        },
+      };
     }
     sleep(Math.min(WAIT_POLL_MS, Math.max(1, deadline - Date.now())));
   }
@@ -238,7 +260,7 @@ function sleep(milliseconds) {
 function startGame(db, context, payload) {
   const room = requireRoom(db, payload.roomCode);
   if (!new Set(["lobby", "ended"]).has(room.status)) throw new Error("房间已经在游戏中");
-  if (!isAgentOnline(room)) throw new Error("AI尚未进入并等待，请先邀请AI加入房间");
+  if (!room.agent_joined_at) throw new Error("AI尚未进入房间，请先邀请AI加入房间");
   const maxRounds = clampInteger(payload.maxRounds, 1, 20, room.max_rounds || 6);
   const drawer = payload.firstDrawer === "agent" ? "agent" : "human";
   const settings = readSettings(db);
@@ -472,16 +494,16 @@ function readState(db, context, payload = {}) {
 }
 
 function agentGuidance(room, round) {
-  if (room.status === "lobby") return { role: "player", actions: ["agent-wait"], note: "你已进入房间。用 room.eventCursor 作为 afterSeq 调用 agent-wait；处理事件后再次等待，游戏期间不要把房间回复发到外部聊天。" };
+  if (room.status === "lobby") return { role: "player", actionTool: "stmem_drawing_game_agent_action", actions: ["agent-wait"], note: "你已进入房间。用 room.eventCursor 作为 afterSeq 调用 stmem_drawing_game_agent_wait；处理事件或等待超时后立即再次等待。所有AI写动作唯一入口是 stmem_drawing_game_agent_action；不要调用底层 guess、chat、draw 或 next 命令。游戏期间不要把房间回复发到外部聊天。" };
   if (!round || room.status !== "active") return { role: "observer", actions: ["agent-state"] };
-  if (room.phase === "round-complete") return { role: "observer", actions: ["chat", "next", "agent-wait"], note: "本轮已经结算，不要重复提交答案；通过 agent-action kind=next 进入下一轮，完成动作后用最新 eventCursor 继续 agent-wait。" };
+  if (room.phase === "round-complete") return { role: "observer", actionTool: "stmem_drawing_game_agent_action", actions: ["chat", "next", "agent-wait"], note: "本轮已经结算，不要重复提交答案；只能调用 stmem_drawing_game_agent_action 并传 kind=next 进入下一轮，不要调用底层 next 命令。完成动作后用最新 eventCursor 继续 stmem_drawing_game_agent_wait。" };
   if (round.drawer === "agent" && room.phase === "drawing") {
-    return { role: "drawer", actions: ["draw", "chat", "reveal", "agent-wait"], note: "通过 agent-action 明确提交动作；draw 需要 strokes，reveal 表示放弃并揭晓。完成动作后用最新 eventCursor 继续 agent-wait。" };
+    return { role: "drawer", actionTool: "stmem_drawing_game_agent_action", actions: ["draw", "chat", "reveal", "agent-wait"], note: "所有写动作只能调用 stmem_drawing_game_agent_action：作画传 kind=draw 与 strokes，聊天传 kind=chat 与 text，放弃传 kind=reveal。不要调用底层 draw/chat/reveal 命令。完成动作后用最新 eventCursor 继续 stmem_drawing_game_agent_wait。" };
   }
   if (round.drawer === "human" && room.phase === "guessing") {
-    return { role: "guesser", actions: ["guess", "chat", "reveal", "agent-wait"], imageAction: "image-read", roundId: round.id, note: "可多次明确 guess；猜错后仍可 guess 或 chat。聊天不会自动成为答案。完成动作后用最新 eventCursor 继续 agent-wait。" };
+    return { role: "guesser", actionTool: "stmem_drawing_game_agent_action", actions: ["guess", "chat", "reveal", "agent-wait"], imageAction: "stmem_drawing_game_image_read", roundId: round.id, note: `猜词只能调用 stmem_drawing_game_agent_action，参数示例：{\"roomCode\":\"${room.code}\",\"kind\":\"guess\",\"answer\":\"你的答案\"}。不要调用独立 guess 工具或底层 guess 命令。猜错后仍可再次 kind=guess；聊天必须用同一工具传 kind=chat、text=内容，不会自动成为答案。完成动作后用最新 eventCursor 继续 stmem_drawing_game_agent_wait。` };
   }
-  return { role: "observer", actions: ["chat", "reveal", "agent-wait"], note: "等待对方完成当前动作；用最新 eventCursor 调用 agent-wait。" };
+  return { role: "observer", actionTool: "stmem_drawing_game_agent_action", actions: ["chat", "reveal", "agent-wait"], note: "等待对方完成当前动作；如需聊天或放弃，只能调用 stmem_drawing_game_agent_action 并传对应 kind。用最新 eventCursor 调用 stmem_drawing_game_agent_wait。" };
 }
 
 function isAgentOnline(room) {

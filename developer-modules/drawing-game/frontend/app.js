@@ -138,9 +138,13 @@
     $("#play-area").classList.toggle("hidden", room.status !== "active");
     if (room.status === "lobby") {
       $("#turn-title").textContent = "房间准备好了";
-      const joined = Boolean(room.agentOnline);
-      $("#agent-status").textContent = joined ? `${agentName}已经进入并在等待，可以开始了。` : room.agentJoined ? `${agentName}加入过房间，但现在没有在等待；请再叫他进入房间。` : `先把邀请语发给${agentName}，等他通过 MCP 进入房间。`;
-      $("#invite-text").textContent = `来玩你画我猜。请调用 Stone Memory MCP：先执行 drawing-game / agent-join 加入房间 ${room.code}，再用返回的 room.eventCursor 作为 afterSeq 调用 drawing-game / agent-wait 留在房间里。`;
+      const joined = Boolean(room.agentJoined);
+      $("#agent-status").textContent = room.agentOnline
+        ? `${agentName}已经进入并在等待，可以开始了。`
+        : joined
+          ? `${agentName}仍在房间里，当前没有等待心跳；可以继续游戏，也可以提醒他再次等待。`
+          : `先把邀请语发给${agentName}，等他通过 MCP 进入房间。`;
+      $("#invite-text").textContent = `来玩你画我猜。请调用 Stone Memory MCP：先执行 stmem_drawing_game_agent_join，参数为 {\"memoryId\":\"${threadId}\",\"roomCode\":\"${room.code}\"}；再用返回的 room.eventCursor 作为 afterSeq 调用 stmem_drawing_game_agent_wait 留在房间里。`;
       $("#start-game").disabled = !joined;
       $("#start-game").textContent = joined ? "开始游戏" : `等待${agentName}进入……`;
       schedulePoll();

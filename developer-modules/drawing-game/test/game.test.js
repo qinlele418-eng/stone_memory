@@ -4,6 +4,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { Worker } = require("node:worker_threads");
 const test = require("node:test");
+const Database = require("better-sqlite3");
 
 const game = require("../backend/commands/game");
 
@@ -125,6 +126,9 @@ test("agent views never leak an unfinished human answer through round, words, ga
     const wrong = call(item.context, "agent-action", { roomCode: created.room.code, kind: "guess", answer: "肯定不是答案" });
     assert.equal(wrong.room.phase, "guessing");
     assert.equal(wrong.round.word, "");
+    assert.equal(wrong.agent.actionTool, "stmem_drawing_game_agent_action");
+    assert.match(wrong.agent.note, /猜词只能调用 stmem_drawing_game_agent_action/u);
+    assert.match(wrong.agent.note, /不要调用独立 guess/u);
     assert.doesNotMatch(JSON.stringify(wrong), new RegExp(answer, "u"));
   } finally { item.cleanup(); }
 });
@@ -152,11 +156,42 @@ test("agent wait returns a heartbeat timeout and keeps its cursor stable", () =>
   const item = fixture();
   try {
     const created = call(item.context, "room-create");
-    const joined = call(item.context, "agent-join", { roomCode: created.room.code });
-    const waited = call(item.context, "agent-wait", { roomCode: created.room.code, afterSeq: joined.room.eventCursor, timeoutMs: 50 });
+    call(item.context, "agent-join", { roomCode: created.room.code });
+    const started = call(item.context, "game-start", { roomCode: created.room.code, firstDrawer: "human" });
+    const waited = call(item.context, "agent-wait", { roomCode: created.room.code, afterSeq: started.room.eventCursor, timeoutMs: 50 });
     assert.equal(waited.wait.timedOut, true);
-    assert.equal(waited.wait.cursor, joined.room.eventCursor);
+    assert.equal(waited.wait.cursor, started.room.eventCursor);
+    assert.equal(waited.wait.continueWaiting, true);
+    assert.equal(waited.room.agentJoined, true);
+    assert.match(waited.wait.note, /仍在房间中/u);
     assert.deepEqual(waited.events, []);
+
+    call(item.context, "chat", { roomCode: created.room.code, actor: "human", text: "超时以后还能收到我" });
+    const resumed = call(item.context, "agent-wait", {
+      roomCode: created.room.code,
+      afterSeq: waited.wait.cursor,
+      timeoutMs: 50,
+    });
+    assert.equal(resumed.wait.timedOut, false);
+    assert.equal(resumed.events.at(-1).text, "超时以后还能收到我");
+  } finally { item.cleanup(); }
+});
+
+test("a stale wait heartbeat does not remove the agent or block game start", () => {
+  const item = fixture();
+  try {
+    const created = call(item.context, "room-create");
+    call(item.context, "agent-join", { roomCode: created.room.code });
+    const db = new Database(path.join(item.root, "module.sqlite"));
+    db.prepare("UPDATE rooms SET agent_last_seen_at=? WHERE code=?")
+      .run("2000-01-01T00:00:00.000Z", created.room.code);
+    db.close();
+
+    const stale = call(item.context, "state", { roomCode: created.room.code });
+    assert.equal(stale.room.agentJoined, true);
+    assert.equal(stale.room.agentOnline, false);
+    const started = call(item.context, "game-start", { roomCode: created.room.code, firstDrawer: "human" });
+    assert.equal(started.room.status, "active");
   } finally { item.cleanup(); }
 });
 
