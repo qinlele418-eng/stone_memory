@@ -4,7 +4,8 @@ const Database = require("better-sqlite3");
 const { resolveDatabasePath } = require("./database-location");
 const { messageIdentity } = require("../lib/message-identity");
 
-const SCHEMA_VERSION = 15;
+// Version 16 applies the sentence-book columns to existing version 15 databases.
+const SCHEMA_VERSION = 16;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -174,6 +175,8 @@ CREATE TABLE IF NOT EXISTS notebook_topics (
   slug TEXT NOT NULL,
   description TEXT NOT NULL DEFAULT '',
   cover_path TEXT,
+  kind TEXT NOT NULL DEFAULT 'standard',
+  presentation_json TEXT NOT NULL DEFAULT '{}',
   visibility TEXT NOT NULL DEFAULT 'visible' CHECK(visibility IN ('visible','sealed')),
   is_archived INTEGER NOT NULL DEFAULT 0 CHECK(is_archived IN (0,1)),
   is_default INTEGER NOT NULL DEFAULT 0 CHECK(is_default IN (0,1)),
@@ -189,6 +192,7 @@ CREATE TABLE IF NOT EXISTS notebook_entries (
   relative_path TEXT NOT NULL,
   visibility TEXT NOT NULL DEFAULT 'visible' CHECK(visibility IN ('visible','sealed')),
   tags_json TEXT NOT NULL DEFAULT '[]',
+  metadata_json TEXT NOT NULL DEFAULT '{}',
   body_text TEXT NOT NULL,
   revision INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL,
@@ -328,7 +332,11 @@ function migrateColumns(db) {
   if (!miningColumns.has("chunk_report")) db.exec("ALTER TABLE mining_day_state ADD COLUMN chunk_report TEXT");
   const notebookTopicColumns = new Set(db.pragma("table_info(notebook_topics)").map(column => column.name));
   if (!notebookTopicColumns.has("is_default")) db.exec("ALTER TABLE notebook_topics ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0 CHECK(is_default IN (0,1))");
+  if (!notebookTopicColumns.has("kind")) db.exec("ALTER TABLE notebook_topics ADD COLUMN kind TEXT NOT NULL DEFAULT 'standard'");
+  if (!notebookTopicColumns.has("presentation_json")) db.exec("ALTER TABLE notebook_topics ADD COLUMN presentation_json TEXT NOT NULL DEFAULT '{}'");
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_notebook_topics_one_default ON notebook_topics(thread_id) WHERE is_default=1");
+  const notebookEntryColumns = new Set(db.pragma("table_info(notebook_entries)").map(column => column.name));
+  if (!notebookEntryColumns.has("metadata_json")) db.exec("ALTER TABLE notebook_entries ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'");
   db.exec("CREATE INDEX IF NOT EXISTS idx_messages_binding ON messages(thread_id,binding_id,timestamp)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_messages_import_batch ON messages(thread_id,import_batch_id)");
 }

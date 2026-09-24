@@ -6,6 +6,7 @@
   <title>Stone Memory · 主题小笔记</title>
   <script src="../developer-kit/runtime.js?v=8"></script>
   <link rel="stylesheet" href="./styles.css?v=15">
+  <link rel="stylesheet" href="./sentence-original.css?v=1">
 </head>
 <body class="stone-theme-enabled">
   <stone-module-page eyebrow="THEMED NOTEBOOKS · MARKDOWN ARCHIVE" title="主题小笔记" description="封存是一份温柔的君子协议：页面不展示正文，但小机、Markdown 与数据库始终保留完整记忆。">
@@ -31,6 +32,7 @@
     <dialog id="note-dialog"><form id="note-form" method="dialog"><h2>写一页</h2><input name="topicId" type="hidden"><input name="noteId" type="hidden"><input name="expectedRevision" type="hidden"><label>标题<input name="title" required maxlength="120"></label><label>标签<input name="tags" placeholder="用逗号分隔"></label><label>正文<textarea name="body" required rows="12"></textarea></label><fieldset class="image-attachment"><legend>插入图片（可选）</legend><div class="image-fields"><label>选择图片<input id="note-image" type="file" accept=".png,.jpg,.jpeg,.webp,.gif,.avif,image/png,image/jpeg,image/webp,image/gif,image/avif"></label><label>图片说明<input id="note-image-alt" maxlength="180" placeholder="例如：雨夜窗边的灯"></label></div><button id="upload-note-image" type="button">上传并插入正文</button><p class="image-help">支持 PNG、JPG、WebP、GIF、AVIF，最大 20 MB。图片会先放入当前主题；取消编辑不会自动删除已上传图片。</p><p id="image-upload-status" class="image-upload-status" role="status" aria-live="polite"></p></fieldset><label class="check"><input name="sealed" type="checkbox">由小机封存，前端不展示正文</label><p class="form-error" role="alert" hidden></p><div class="actions"><button type="button" data-close-dialog>取消</button><button class="primary" name="save" value="default">保存 Markdown</button></div></form></dialog>
   </stone-module-page>
   <script src="./reader-tools.js?v=1"></script>
-  <script src="./app.js?v=11"></script>
+  <script src="./sentence-import.js?v=1"></script>
+  <script src="./app.js?v=12"></script>
 </body>
 </html>

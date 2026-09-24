@@ -118,6 +118,25 @@ test("notebook stores readable Markdown, searches sealed notes, and protects rev
   assert.equal(status.entryCount, 1);
 });
 
+test("notebook entry updates preserve omitted metadata and clear explicit metadata", t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-notebook-entry-metadata-"));
+  const previous = process.env.STMEM_DB_PATH;
+  process.env.STMEM_DB_PATH = path.join(root, "stone-memory.db");
+  const store = new NotebookStore({ threadId: "thread-metadata", root: path.join(root, "notebook"), memoryDir: path.join(root, "memory") });
+  t.after(() => {
+    store.close();
+    fs.rmSync(root, { recursive: true, force: true });
+    if (previous === undefined) delete process.env.STMEM_DB_PATH;
+    else process.env.STMEM_DB_PATH = previous;
+  });
+  const topic = store.createTopic({ name: "句子册", kind: "sentence-book" });
+  const note = store.writeEntry({ topicId: topic.id, title: "原句", body: "原文", metadata: { speaker: "测试说话者", collector: "测试收藏者", note: "涟漪", note_author: "测试收藏者" } });
+  const preserved = store.writeEntry({ noteId: note.id, topicId: topic.id, title: "改句", body: "改文", expectedRevision: 1 });
+  assert.deepEqual(preserved.metadata, note.metadata);
+  const cleared = store.writeEntry({ noteId: note.id, topicId: topic.id, title: "清空", body: "清空文", metadata: {}, expectedRevision: 2 });
+  assert.deepEqual(cleared.metadata, {});
+});
+
 test("notebook topic sealing is metadata only", t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-notebook-sealed-"));
   const previous = process.env.STMEM_DB_PATH;
@@ -225,4 +244,58 @@ test("notebook imports safe topic-local images with hashing and deduplication", 
   fs.writeFileSync(fake, Buffer.from("not really a png"));
   assert.throws(() => store.importAsset({ topicId: topic.id, sourcePath: fake, filename: "fake.png" }), /does not match/);
   assert.throws(() => store.importAsset({ topicId: topic.id, sourcePath: source, filename: "unsafe.svg" }), /must be png/);
+});
+
+test("sentence metadata is searchable and removal state is visible to MCP readers", t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-sentence-query-"));
+  const previous = process.env.STMEM_DB_PATH;
+  process.env.STMEM_DB_PATH = path.join(root, "test.db");
+  const store = new NotebookStore({threadId:"sentence-query",root:path.join(root,"notebook"),memoryDir:path.join(root,"memory")});
+  t.after(()=>{store.close();if(previous===undefined)delete process.env.STMEM_DB_PATH;else process.env.STMEM_DB_PATH=previous;fs.rmSync(root,{recursive:true,force:true});});
+  const topic=store.createTopic({name:"Synthetic quotes",kind:"sentence-book"});
+  const metadata={speaker:"unique-speaker",collector:"unique-collector",note:"unique-ripple",note_author:"unique-author",conversation_title:"unique-source",source_id:"unique-id",sentenceRemoved:true};
+  const note=store.writeEntry({topicId:topic.id,title:"Quote",body:"Ordinary body",metadata});
+  for(const query of Object.values(metadata).filter(v=>typeof v==="string")){
+    const found=store.query({topicId:topic.id,query});assert.equal(found.matches[0].id,note.id);assert.equal(found.matches[0].metadata.sentenceRemoved,true);
+  }
+  assert.equal(store.query({topicId:topic.id,query:"not-present"}).matchCount,0);
+});
+
+test("version 15 notebooks upgrade before creating standard and sentence books without losing existing notes", t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-notebook-upgrade-"));
+  const previous = process.env.STMEM_DB_PATH;
+  process.env.STMEM_DB_PATH = path.join(root, "memory.sqlite");
+  let store;
+  t.after(() => {
+    store?.close();
+    if (previous === undefined) delete process.env.STMEM_DB_PATH;
+    else process.env.STMEM_DB_PATH = previous;
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+  const options = { threadId: "upgrade-test", root: path.join(root, "notebook") };
+  store = new NotebookStore(options);
+  const originalTopic = store.createTopic({ name: "Existing notebook", isDefault: true });
+  const originalNote = store.writeEntry({ topicId: originalTopic.id, title: "Existing note", body: "Original body", tags: ["preserve"] });
+  // Reproduce the exact pre-sentence-book schema: version 15 without these columns.
+  store.db.exec("ALTER TABLE notebook_topics DROP COLUMN kind; ALTER TABLE notebook_topics DROP COLUMN presentation_json; ALTER TABLE notebook_entries DROP COLUMN metadata_json; DELETE FROM schema_migrations WHERE version > 15;");
+  const markdown = fs.readFileSync(path.join(options.root, originalNote.relativePath || originalNote.path), "utf8");
+  store.close(); store = null;
+  assert.throws(() => new NotebookStore({ ...options, readonly: true }), /STORAGE_UPGRADE_REQUIRED/);
+  store = new NotebookStore(options);
+  assert.equal(store.readEntry(originalNote.id).body, "Original body");
+  assert.equal(store.readEntry(originalNote.id).revision, originalNote.revision);
+  assert.equal(store.getTopic(originalTopic.id).isDefault, true);
+  assert.equal(store.getTopic(originalTopic.id).kind, "standard");
+  assert.deepEqual(store.readEntry(originalNote.id).metadata, {});
+  assert.equal(fs.readFileSync(path.join(options.root, originalNote.relativePath || originalNote.path), "utf8"), markdown);
+  for (const kind of ["standard", "sentence-book"]) {
+    const topic = store.createTopic({ name: kind, kind });
+    assert.equal(topic.kind, kind);
+    const note = store.writeEntry({ topicId: topic.id, title: "New note", body: "New body", metadata: { speaker: "Synthetic speaker" } });
+    assert.equal(store.readEntry(note.id).metadata.speaker, "Synthetic speaker");
+  }
+  store.close(); store = null;
+  store = new NotebookStore(options);
+  assert.equal(store.status().topicCount, 3);
+  assert.equal(store.status().entryCount, 3);
 });

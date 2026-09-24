@@ -24,7 +24,11 @@
     "database": "module.sqlite",
     "documents": "documents",
     "browser": [
-      "paper-style"
+      "paper-style",
+      "sentence-view",
+      "sentence-draft",
+      "sentence-pending",
+      "sentence-import-journal"
     ]
   },
   "legacy": {

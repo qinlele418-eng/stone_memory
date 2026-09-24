@@ -29,7 +29,7 @@ class NotebookStore {
 
   status() {
     if (!this.db) return { threadId: this.threadId, topicCount: 0, entryCount: 0, defaultTopicId: null, topics: [] };
-    const topics = this.db.prepare(`SELECT t.id,t.name,t.slug,t.description,t.cover_path AS coverPath,
+    const topics = this.db.prepare(`SELECT t.id,t.name,t.slug,t.description,t.cover_path AS coverPath,t.kind,t.presentation_json AS presentationJson,
       t.visibility,t.is_archived AS isArchived,t.is_default AS isDefault,t.created_at AS createdAt,t.updated_at AS updatedAt,
       COUNT(e.id) AS entryCount,MAX(e.updated_at) AS latestEntryAt
       FROM notebook_topics t LEFT JOIN notebook_entries e ON e.topic_id=t.id AND e.thread_id=t.thread_id
@@ -48,9 +48,11 @@ class NotebookStore {
     };
   }
 
-  createTopic({ name, description = "", visibility = "visible", coverPath = "", isDefault = false }) {
+  createTopic({ name, description = "", visibility = "visible", coverPath = "", kind = "standard", presentation = {}, isDefault = false }) {
     const normalizedName = requiredText(name, "topic name");
     const normalizedVisibility = assertVisibility(visibility);
+    const normalizedKind = normalizeTopicKind(kind);
+    const normalizedPresentation = normalizePresentation(presentation);
     const id = `topic_${crypto.randomUUID()}`;
     const slugBase = slugify(normalizedName) || "notebook";
     const slug = `${slugBase}--${id.slice(-6)}`;
@@ -62,9 +64,9 @@ class NotebookStore {
     this.db.transaction(() => {
       if (isDefault) this.db.prepare("UPDATE notebook_topics SET is_default=0 WHERE thread_id=?").run(this.threadId);
       this.db.prepare(`INSERT INTO notebook_topics
-        (id,thread_id,name,slug,description,cover_path,visibility,is_archived,is_default,created_at,updated_at)
-        VALUES (?,?,?,?,?,?,?,0,?,?,?)`).run(
-        id, this.threadId, normalizedName, slug, singleLine(description), normalizeCoverPath(coverPath), normalizedVisibility,
+        (id,thread_id,name,slug,description,cover_path,kind,presentation_json,visibility,is_archived,is_default,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,0,?,?,?)`).run(
+        id, this.threadId, normalizedName, slug, singleLine(description), normalizeCoverPath(coverPath), normalizedKind, JSON.stringify(normalizedPresentation), normalizedVisibility,
         isDefault ? 1 : 0, now, now,
       );
     })();
@@ -73,13 +75,15 @@ class NotebookStore {
     return this.getTopic(id);
   }
 
-  updateTopic({ topicId, name, description, visibility, archived, coverPath, isDefault }) {
+  updateTopic({ topicId, name, description, visibility, archived, coverPath, kind, presentation, isDefault }) {
     const current = this.getTopic(topicId);
     if (!current) throw new Error(`notebook topic not found: ${topicId}`);
     const next = {
       name: name === undefined ? current.name : requiredText(name, "topic name"),
       description: description === undefined ? current.description : singleLine(description),
       coverPath: coverPath === undefined ? current.coverPath : normalizeCoverPath(coverPath),
+      kind: kind === undefined ? current.kind : normalizeTopicKind(kind),
+      presentation: presentation === undefined ? current.presentation : normalizePresentation(presentation),
       visibility: visibility === undefined ? current.visibility : assertVisibility(visibility),
       archived: archived === undefined ? current.isArchived : Boolean(archived),
       isDefault: isDefault === undefined ? current.isDefault : Boolean(isDefault),
@@ -89,9 +93,9 @@ class NotebookStore {
     if (next.archived && next.isDefault) throw new Error("default notebook topic cannot be archived; clear the default or choose another topic first");
     this.db.transaction(() => {
       if (next.isDefault) this.db.prepare("UPDATE notebook_topics SET is_default=0 WHERE thread_id=?").run(this.threadId);
-      this.db.prepare(`UPDATE notebook_topics SET name=?,description=?,cover_path=?,visibility=?,is_archived=?,is_default=?,updated_at=?
+      this.db.prepare(`UPDATE notebook_topics SET name=?,description=?,cover_path=?,kind=?,presentation_json=?,visibility=?,is_archived=?,is_default=?,updated_at=?
         WHERE id=? AND thread_id=?`).run(
-        next.name, next.description, next.coverPath || null, next.visibility, next.archived ? 1 : 0,
+        next.name, next.description, next.coverPath || null, next.kind, JSON.stringify(next.presentation), next.visibility, next.archived ? 1 : 0,
         next.isDefault ? 1 : 0, next.updatedAt, current.id, this.threadId,
       );
     })();
@@ -101,19 +105,22 @@ class NotebookStore {
   }
 
   getTopic(topicId) {
-    const row = this.db.prepare(`SELECT id,name,slug,description,cover_path AS coverPath,
+    const row = this.db.prepare(`SELECT id,name,slug,description,cover_path AS coverPath,kind,presentation_json AS presentationJson,
       visibility,is_archived AS isArchived,is_default AS isDefault,created_at AS createdAt,updated_at AS updatedAt
       FROM notebook_topics WHERE id=? AND thread_id=?`).get(requiredSegment(topicId, "topicId"), this.threadId);
     return row ? normalizeTopicRow(row) : null;
   }
 
-  writeEntry({ noteId, topicId, title, body, tags = [], visibility = "visible", expectedRevision }) {
+  writeEntry({ noteId, topicId, title, body, tags = [], metadata, visibility = "visible", expectedRevision }) {
     const normalizedBody = requiredText(body, "note body");
     const normalizedTitle = requiredText(title, "note title");
     const normalizedVisibility = assertVisibility(visibility);
     const normalizedTags = normalizeTags(tags);
     const current = noteId ? this.getEntryRecord(noteId) : null;
     if (noteId && !current) throw new Error(`notebook entry not found: ${noteId}`);
+    // An omitted metadata field means "leave the existing structured entry data alone"
+    // during an update. An explicit {} remains the supported way to clear it.
+    const normalizedMetadata = normalizeMetadata(metadata === undefined && current ? current.metadata : (metadata === undefined ? {} : metadata));
     const topic = topicId ? this.getTopic(topicId) : current ? this.getTopic(current.topicId) : this.getDefaultTopic();
     if (!topicId && !current && !topic) throw new Error("topicId is required when no default notebook topic is configured");
     if (!topic) throw new Error(`notebook topic not found: ${topicId}`);
@@ -140,9 +147,9 @@ class NotebookStore {
       }));
       if (targetRelativePath !== current.relativePath) this.safeRemove(current.relativePath);
       const changed = this.db.prepare(`UPDATE notebook_entries SET topic_id=?,title=?,relative_path=?,visibility=?,
-        tags_json=?,body_text=?,revision=?,updated_at=? WHERE id=? AND thread_id=? AND revision=?`).run(
+        tags_json=?,metadata_json=?,body_text=?,revision=?,updated_at=? WHERE id=? AND thread_id=? AND revision=?`).run(
         targetTopic.id, normalizedTitle, targetRelativePath, normalizedVisibility,
-        JSON.stringify(normalizedTags), normalizedBody, nextRevision, now,
+        JSON.stringify(normalizedTags), JSON.stringify(normalizedMetadata), normalizedBody, nextRevision, now,
         current.id, this.threadId, current.revision,
       );
       if (!changed.changes) throw new Error("notebook entry changed during update");
@@ -157,16 +164,16 @@ class NotebookStore {
       body: normalizedBody,
     }));
     this.db.prepare(`INSERT INTO notebook_entries
-      (id,thread_id,topic_id,title,relative_path,visibility,tags_json,body_text,revision,created_at,updated_at)
-      VALUES (?,?,?,?,?,?,?,?,1,?,?)`).run(
+      (id,thread_id,topic_id,title,relative_path,visibility,tags_json,metadata_json,body_text,revision,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,1,?,?)`).run(
       id, this.threadId, topic.id, normalizedTitle, relativePath, normalizedVisibility,
-      JSON.stringify(normalizedTags), normalizedBody, now, now,
+      JSON.stringify(normalizedTags), JSON.stringify(normalizedMetadata), normalizedBody, now, now,
     );
     return this.readEntry(id);
   }
 
   getDefaultTopic() {
-    const row = this.db.prepare(`SELECT id,name,slug,description,cover_path AS coverPath,
+    const row = this.db.prepare(`SELECT id,name,slug,description,cover_path AS coverPath,kind,presentation_json AS presentationJson,
       visibility,is_archived AS isArchived,is_default AS isDefault,created_at AS createdAt,updated_at AS updatedAt
       FROM notebook_topics WHERE thread_id=? AND is_default=1`).get(this.threadId);
     return row ? normalizeTopicRow(row) : null;
@@ -189,7 +196,9 @@ class NotebookStore {
       const tags = parseTags(row.tags_json);
       const loweredTags = tags.map(tag => tag.toLocaleLowerCase());
       if (normalizedTags.some(tag => !loweredTags.includes(tag))) continue;
-      const haystack = `${row.title}\n${tags.join(" ")}\n${row.body_text}`.toLocaleLowerCase();
+      const metadata = parseMetadata(row.metadata_json);
+      const sentenceText = ["speaker", "collector", "note", "note_author", "conversation_title", "source_id"].map(key => typeof metadata[key] === "string" ? metadata[key] : "").join("\n");
+      const haystack = `${row.title}\n${tags.join(" ")}\n${row.body_text}\n${sentenceText}`.toLocaleLowerCase();
       const index = needle ? haystack.indexOf(needle) : 0;
       if (needle && index < 0) continue;
       matches.push({
@@ -202,6 +211,7 @@ class NotebookStore {
         tags,
         revision: row.revision,
         updatedAt: row.updated_at,
+        metadata,
         snippet: snippetAround(row.body_text, normalizedQuery),
       });
       if (matches.length >= boundedLimit) break;
@@ -222,6 +232,7 @@ class NotebookStore {
       relativePath: row.relativePath,
       visibility: row.visibility,
       tags: row.tags,
+      metadata: row.metadata,
       revision: row.revision,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
@@ -237,7 +248,7 @@ class NotebookStore {
     return rows.map(row => ({
       id: row.id, topicId: row.topic_id, topicName: row.topic_name, title: row.title,
       relativePath: row.relative_path, visibility: row.visibility, tags: parseTags(row.tags_json),
-      revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at,
+      revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at, metadata: parseMetadata(row.metadata_json),
       ...(includeBody ? { body: row.body_text } : {}),
     }));
   }
@@ -309,7 +320,7 @@ class NotebookStore {
     return {
       id: row.id, topicId: row.topic_id, topicName: row.topic_name, title: row.title,
       relativePath: row.relative_path, visibility: row.visibility, tags: parseTags(row.tags_json),
-      revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at, body: row.body_text,
+      revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at, body: row.body_text, metadata: parseMetadata(row.metadata_json),
     };
   }
 
@@ -326,7 +337,7 @@ class NotebookStore {
       id: topic.id,
       name: topic.name,
       description: topic.description,
-      coverPath: topic.coverPath,
+      coverPath: topic.coverPath, kind: topic.kind, presentation: topic.presentation,
       visibility: topic.visibility,
       archived: topic.isArchived,
       isDefault: topic.isDefault,
@@ -391,6 +402,8 @@ function normalizeTopicRow(row) {
     slug: row.slug,
     description: row.description || "",
     coverPath: row.coverPath || null,
+    kind: normalizeTopicKind(row.kind),
+    presentation: parsePresentation(row.presentationJson),
     visibility: row.visibility,
     isArchived: Boolean(row.isArchived),
     isDefault: Boolean(row.isDefault),
@@ -399,6 +412,33 @@ function normalizeTopicRow(row) {
     entryCount: Number(row.entryCount || 0),
     latestEntryAt: row.latestEntryAt || null,
   };
+}
+
+function normalizeTopicKind(value) {
+  const kind = singleLine(value || "standard");
+  if (!["standard", "sentence-book"].includes(kind)) throw new Error("unsupported notebook kind");
+  return kind;
+}
+
+function normalizePresentation(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("presentation must be an object");
+  const allowed = ["coverPath", "headerPath", "footerPath", "palette", "offsets"];
+  const result = {};
+  for (const key of allowed) if (Object.hasOwn(value, key)) result[key] = value[key];
+  return result;
+}
+
+function parsePresentation(value) {
+  try { return normalizePresentation(JSON.parse(value || "{}")); } catch { return {}; }
+}
+
+function normalizeMetadata(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("metadata must be an object");
+  return value;
+}
+
+function parseMetadata(value) {
+  try { return normalizeMetadata(JSON.parse(value || "{}")); } catch { return {}; }
 }
 
 function normalizeLatestEntry(row) {
