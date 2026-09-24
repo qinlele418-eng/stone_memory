@@ -73,7 +73,7 @@ if (!cmd || cmd === "--help" || cmd === "-h") {
   stmem web start|stop|restart|status            管理后台前端进程；后台自动监听 Web 后端源码
   stmem web dev [--host 地址] [--port 4173]      前台开发模式；后端源码变化自动重启
   stmem web config --host <地址> --port <端口> [--url <访问地址>]  保存启动配置
-  stmem web auth status|rotate [--json]           管理 Web API 访问令牌（rotate 只显示一次）
+  stmem web auth status|rotate|devices|revoke|clear [--json]  管理 Web 令牌与登录设备
   stmem web lan enable|disable|status [--json]    开关有登录保护的局域网访问
   stmem supervisor start|stop|restart|status     管理唯一 watcher supervisor
   stmem db [status|migrate|migrate-all|export] [--memory <id>]  数据库管理

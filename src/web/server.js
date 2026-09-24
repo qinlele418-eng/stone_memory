@@ -38,7 +38,7 @@ const { scenarioId, normalizeScenarioConfig } = require("../services/scenario-re
 const { resolveMiningPrompts, promptOverridePath, renderPrompt } = require("../services/prompt-resolver");
 const { listDeveloperAdapters } = require("./static-files");
 const { WebAuthError, isLoopbackHost, isRemoteRequest, configuredAuth, isPublicWebApiRoute, createWebAuth } = require("../security/web-auth");
-const { webSecurityStatus } = require("../services/web-security");
+const { webSecurityStatus, createWebSessionStore } = require("../services/web-security");
 
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MAX_UPLOAD = 512 * 1024 * 1024;
@@ -2073,7 +2073,7 @@ function startWebServer({ host = "127.0.0.1", port = 4173 } = {}) {
   if (!isLoopbackHost(host) && !configuredAuth(loadConfig())) {
     throw new Error("非 loopback Web 监听必须先配置 Web API Token");
   }
-  const webAuth = createWebAuth({ host, configProvider: loadConfig });
+  const webAuth = createWebAuth({ host, configProvider: loadConfig, sessionStore:createWebSessionStore() });
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host || `${host}:${port}`}`);
     try {
@@ -2087,6 +2087,7 @@ function startWebServer({ host = "127.0.0.1", port = 4173 } = {}) {
       if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/review-lab/api/")) {
         const principal = webAuth.authenticate(req);
         webAuth.assertSameOrigin(req, principal);
+        if (principal.refreshCookie) res.setHeader("set-cookie", principal.refreshCookie);
         return await handleApi(req, res, url, { isRemote: isRemoteRequest(req) });
       }
       if (serveLegacyDreamLab(res, url)) return;

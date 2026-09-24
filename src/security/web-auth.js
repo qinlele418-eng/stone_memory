@@ -3,7 +3,7 @@
 const crypto = require("crypto");
 
 const SESSION_COOKIE = "stmem_web_session";
-const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 class WebAuthError extends Error {
   constructor(status, message, headers = {}) {
@@ -35,6 +35,21 @@ function verifyToken(token, verifier) {
   const actual = Buffer.from(hashToken(token));
   const expected = Buffer.from(verifier);
   return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+}
+
+function createMemorySessionStore({ now }) {
+  const sessions = new Map();
+  return {
+    create({ tokenVerifier }) {
+      const credential = crypto.randomBytes(32).toString("base64url");
+      sessions.set(credential, { tokenVerifier, expiresAt:now() + SESSION_TTL_MS });
+      return { credential, expiresAt:now() + SESSION_TTL_MS };
+    },
+    find(credential, { tokenVerifier }) {
+      const session = sessions.get(credential);
+      return session && session.tokenVerifier === tokenVerifier && session.expiresAt > now() ? session : null;
+    },
+  };
 }
 
 function configuredAuth(config) {
@@ -71,16 +86,11 @@ function isPublicWebApiRoute(method, pathname) {
     || (method === "POST" && pathname === "/api/auth/unlock");
 }
 
-function createWebAuth({ host, configProvider, now = () => Date.now() }) {
-  const sessions = new Map();
+function createWebAuth({ host, configProvider, now = () => Date.now(), sessionStore = null }) {
+  const devices = sessionStore || createMemorySessionStore({ now });
   const config = () => configProvider() || {};
   const authConfig = () => configuredAuth(config());
   const requiresAuth = () => Boolean(authConfig()) || !isLoopbackHost(host);
-
-  function prune() {
-    const current = now();
-    for (const [id, session] of sessions) if (session.expiresAt <= current) sessions.delete(id);
-  }
 
   function bearer(req) {
     const match = String(req.headers.authorization || "").match(/^Bearer\s+(.+)$/i);
@@ -88,13 +98,13 @@ function createWebAuth({ host, configProvider, now = () => Date.now() }) {
   }
 
   function authenticate(req) {
-    prune();
     if (!requiresAuth()) return { kind: "none" };
     const auth = authConfig();
     if (!auth) throw new WebAuthError(503, "此监听地址需要先配置 Web API Token");
     if (verifyToken(bearer(req), auth.tokenVerifier)) return { kind: "bearer" };
-    const session = sessions.get(parseCookies(req.headers.cookie)[SESSION_COOKIE]);
-    if (session && session.tokenVerifier === auth.tokenVerifier && session.expiresAt > now()) return { kind: "session" };
+    const credential = parseCookies(req.headers.cookie)[SESSION_COOKIE];
+    const session = devices.find(credential, { tokenVerifier:auth.tokenVerifier });
+    if (session) return { kind:"session", deviceId:session.deviceId || "", refreshCookie:session.refreshed ? sessionCookie(credential, req) : "" };
     throw new WebAuthError(401, "需要 Web API 访问令牌", { "www-authenticate": "Bearer" });
   }
 
@@ -112,16 +122,18 @@ function createWebAuth({ host, configProvider, now = () => Date.now() }) {
     }
   }
 
+  function sessionCookie(credential, req) {
+    const secure = req.socket?.encrypted || /^https:/i.test(String(config().web?.publicUrl || ""));
+    return `${SESSION_COOKIE}=${credential}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}${secure ? "; Secure" : ""}`;
+  }
+
   function unlock(token, req) {
     const auth = authConfig();
     if (!auth || !verifyToken(token, auth.tokenVerifier)) {
       throw new WebAuthError(401, "Web API 访问令牌无效", { "www-authenticate": "Bearer" });
     }
-    prune();
-    const id = crypto.randomBytes(32).toString("base64url");
-    sessions.set(id, { tokenVerifier: auth.tokenVerifier, expiresAt: now() + SESSION_TTL_MS });
-    const secure = req.socket?.encrypted || /^https:/i.test(String(config().web?.publicUrl || ""));
-    return `${SESSION_COOKIE}=${id}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}${secure ? "; Secure" : ""}`;
+    const session = devices.create({ tokenVerifier:auth.tokenVerifier, request:req });
+    return sessionCookie(session.credential, req);
   }
 
   return {
@@ -133,4 +145,4 @@ function createWebAuth({ host, configProvider, now = () => Date.now() }) {
   };
 }
 
-module.exports = { WebAuthError, SESSION_COOKIE, SESSION_TTL_MS, isLoopbackHost, isLoopbackAddress, isRemoteRequest, hashToken, generateToken, configuredAuth, isPublicWebApiRoute, createWebAuth };
+module.exports = { WebAuthError, SESSION_COOKIE, SESSION_TTL_MS, isLoopbackHost, isLoopbackAddress, isRemoteRequest, hashToken, verifyToken, generateToken, configuredAuth, isPublicWebApiRoute, createWebAuth };

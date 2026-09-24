@@ -10,7 +10,7 @@ const { loadConfig } = require("../src/config");
 const { saveConfig } = require("../src/services/thread-setup");
 const { readManagedPid, startManagedProcess, stopManagedProcess } = require("../src/services/managed-local-process");
 const { isLoopbackHost, configuredAuth } = require("../src/security/web-auth");
-const { webSecurityStatus, rotateWebApiToken } = require("../src/services/web-security");
+const { webSecurityStatus, rotateWebApiToken, listWebDevices, revokeWebDevice, clearWebDevices } = require("../src/services/web-security");
 
 const STONE = path.join(os.homedir(), ".stone_memory");
 const PID_FILE = path.join(STONE, "web.pid");
@@ -77,7 +77,24 @@ function runAuthCommand() {
     }
     return;
   }
-  throw new Error("用法：stmem web auth status | rotate [--json]");
+  if (subcommand === "devices") {
+    const devices = listWebDevices();
+    console.log(args.includes("--json") ? JSON.stringify({ devices }) : JSON.stringify({ devices }, null, 2));
+    return;
+  }
+  if (subcommand === "revoke") {
+    const deviceId = value("--device");
+    if (!deviceId) throw new Error("请指定 --device <设备ID>");
+    const revoked = revokeWebDevice(deviceId);
+    console.log(args.includes("--json") ? JSON.stringify({ revoked, deviceId }) : (revoked ? `已撤销设备 ${deviceId}` : "没有找到这个设备"));
+    return;
+  }
+  if (subcommand === "clear") {
+    clearWebDevices();
+    console.log(args.includes("--json") ? JSON.stringify({ cleared:true }) : "已撤销全部 Web 登录设备");
+    return;
+  }
+  throw new Error("用法：stmem web auth status | rotate | devices | revoke --device <ID> | clear [--json]");
 }
 
 function localNetworkUrls(port) {
@@ -139,6 +156,7 @@ function runLanCommand() {
     delete nextWeb.auth;
     config.web = nextWeb;
     saveConfig(config);
+    clearWebDevices();
     const processResult = restartAfterAccessChange();
     const result = { enabled:false, running:true, pid:processResult.pid, host:"127.0.0.1", port, url:`http://127.0.0.1:${port}` };
     console.log(json ? JSON.stringify(result) : `Stone Memory 局域网访问已关闭；仅本机可访问：${result.url}`);

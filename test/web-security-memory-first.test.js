@@ -122,13 +122,39 @@ test("Web auth stores only a verifier and token rotation invalidates old session
   assert.equal(isRemoteRequest({ socket:{ remoteAddress:"192.168.1.30" }, headers:{ host:"localhost:4173" } }), true);
 });
 
+test("browser device sessions survive Web restarts without storing cookie secrets", t => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-web-device-"));
+  t.after(() => fs.rmSync(home, { recursive:true, force:true }));
+  const file = path.join(home, ".stone_memory", "web-sessions.json");
+  const { createWebSessionStore, DEVICE_TTL_MS } = require("../src/services/web-security");
+  const { createWebAuth, hashToken } = require("../src/security/web-auth");
+  let now = 10_000;
+  const verifier = hashToken("stmem_device_token");
+  const configProvider = () => ({ web:{ auth:{ tokenVerifier:verifier, tokenVersion:1 } } });
+  const request = headers => ({ method:"GET", headers, socket:{ remoteAddress:"192.168.1.30", encrypted:false } });
+  const firstStore = createWebSessionStore({ file, trustedRoot:home, now:() => now });
+  const firstAuth = createWebAuth({ host:"0.0.0.0", configProvider, now:() => now, sessionStore:firstStore });
+  const cookie = firstAuth.unlock("stmem_device_token", request({ "user-agent":"Mobile Browser" })).split(";")[0];
+  const credential = cookie.split("=")[1];
+  assert.equal(fs.readFileSync(file, "utf8").includes(credential), false);
+  if (process.platform !== "win32") assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+
+  const restartedAuth = createWebAuth({
+    host:"0.0.0.0", configProvider, now:() => now,
+    sessionStore:createWebSessionStore({ file, trustedRoot:home, now:() => now }),
+  });
+  assert.equal(restartedAuth.authenticate(request({ cookie })).kind, "session");
+  now += DEVICE_TTL_MS + 1;
+  assert.throws(() => restartedAuth.authenticate(request({ cookie })), /访问令牌/);
+});
+
 test("Web frontend contains an authenticated unlock gate and never asks for an existing API key again", () => {
   const app = fs.readFileSync(path.join(root, "src", "web", "public", "app.js"), "utf8");
   const cli = fs.readFileSync(path.join(root, "scripts", "stmem-web.js"), "utf8");
   assert.match(app, /\/api\/auth\/status/);
   assert.match(app, /\/api\/auth\/unlock/);
   assert.match(app, /\/api\/web-access/);
-  assert.match(app, /令牌只用于本次登录，不会保存在浏览器存储中/);
+  assert.match(app, /成功后会记住这台设备 30 天/);
   assert.match(app, /config\.hasApiKey \? `placeholder="已配置；留空保持不变"` : "required"/);
   assert.match(cli, /subcommand === "enable"/);
   assert.match(cli, /host:"0\.0\.0\.0"/);

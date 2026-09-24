@@ -198,7 +198,7 @@ function renderWebLogin(message = "") {
     <p>这台设备已开启 Web 访问保护。请输入服务器生成的 Web API Token。</p>
     <label for="web-auth-token">访问令牌</label>
     <input id="web-auth-token" name="token" type="password" autocomplete="current-password" placeholder="stmem_…" required autofocus>
-    <small>令牌只用于本次登录，不会保存在浏览器存储中。</small>
+    <small>令牌只用于首次验证，不会保存在浏览器存储中；成功后会记住这台设备 30 天。</small>
     <div class="notice danger" id="web-auth-error" ${message ? "" : "hidden"}>${escapeHtml(message)}</div>
     <button class="primary" type="submit">登录</button>
   </form></section>`;
@@ -661,7 +661,7 @@ function renderMyContent(main) {
     try{
       const status=await api("/api/web-access");
       target.innerHTML=status.enabled
-        ?`<p><strong>局域网访问已开启</strong></p><p>同一 Wi-Fi 下可打开：</p><div class="lan-access-urls">${status.urls.length?status.urls.map(url=>`<code>${escapeHtml(url)}</code>`).join(""):`<small>暂未检测到可用的局域网 IPv4 地址。</small>`}</div><p class="notice warning">当前是局域网 HTTP，请只在可信网络中使用。关闭请在服务器运行 <code>stmem web lan disable</code>。</p>`
+        ?`<p><strong>局域网访问已开启</strong></p><p>同一 Wi-Fi 下可打开；首次登录后会记住该设备 30 天，Web 重启无需重填：</p><div class="lan-access-urls">${status.urls.length?status.urls.map(url=>`<code>${escapeHtml(url)}</code>`).join(""):`<small>暂未检测到可用的局域网 IPv4 地址。</small>`}</div><p class="notice warning">当前是局域网 HTTP，请只在可信网络中使用。关闭请在服务器运行 <code>stmem web lan disable</code>。</p>`
         :`<p>当前仅允许本机访问。在服务器终端运行下面的命令即可开启，并获得手机登录 Token：</p><code class="lan-access-command">stmem web lan enable</code><p>开启后回到这里即可查看手机访问地址。无需域名、VPN 或 Tailscale。</p>`;
     }catch(error){target.innerHTML=`<p class="notice danger">${escapeHtml(error.message)}</p>`;}
   });
