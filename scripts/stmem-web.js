@@ -63,6 +63,12 @@ function warnInsecureNetworkHttp(config) {
   }
 }
 
+function remindBootstrapToken() {
+  if (webSecurityStatus().bootstrapPending) {
+    console.warn("旧版远程 Web 的一次性登录 Token 正在等待领取。请执行 stmem web auth claim。");
+  }
+}
+
 function runAuthCommand() {
   const subcommand = args.shift() || "status";
   if (subcommand === "status") {
@@ -264,6 +270,7 @@ async function main() {
     const config = webConfig();
     console.log(`Stone Memory 前端：${pid ? `运行中 (pid ${pid})` : "未运行"}`);
     console.log(`监听 ${config.host}:${config.port}${config.publicUrl ? ` · 访问 ${config.publicUrl}` : ""}`);
+    remindBootstrapToken();
     return;
   }
   if (action === "stop" || action === "restart") {
@@ -273,6 +280,7 @@ async function main() {
   if (action === "start" || action === "restart") {
     const result = startBackground();
     console.log(result.started ? `Stone Memory 前端已启动 (pid ${result.pid})` : `Stone Memory 前端已在运行 (pid ${result.pid})`);
+    remindBootstrapToken();
   }
 }
 

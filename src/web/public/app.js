@@ -236,7 +236,7 @@ async function bootstrapStoneMemory() {
   if (!status.authenticationRequired) return startStoneMemory();
   try { return await startStoneMemory(); }
   catch (error) {
-    if (error.status === 401) return renderWebLogin("", status.bootstrapPending);
+    if (error.status === 401 || error.status === 503) return renderWebLogin("", status.bootstrapPending);
     throw error;
   }
 }

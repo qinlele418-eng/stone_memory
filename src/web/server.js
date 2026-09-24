@@ -38,7 +38,7 @@ const { scenarioId, normalizeScenarioConfig } = require("../services/scenario-re
 const { resolveMiningPrompts, promptOverridePath, renderPrompt } = require("../services/prompt-resolver");
 const { listDeveloperAdapters } = require("./static-files");
 const { WebAuthError, isLoopbackHost, isRemoteRequest, configuredAuth, isPublicWebApiRoute, createWebAuth } = require("../security/web-auth");
-const { webSecurityStatus, createWebSessionStore } = require("../services/web-security");
+const { webSecurityStatus, ensureLegacyWebAuth, createWebSessionStore } = require("../services/web-security");
 
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MAX_UPLOAD = 512 * 1024 * 1024;
@@ -2078,7 +2078,18 @@ function startWebServer({ host = "127.0.0.1", port = 4173 } = {}) {
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host || `${host}:${port}`}`);
     try {
-      if (isPublicWebApiRoute(req.method, url.pathname) && url.pathname === "/api/auth/status") return json(res, 200, { ...webAuth.status(req), bootstrapPending:webSecurityStatus().bootstrapPending });
+      if (isPublicWebApiRoute(req.method, url.pathname) && url.pathname === "/api/auth/status") {
+        let status = webAuth.status(req);
+        // Legacy reverse-proxy installs can listen on loopback while browsers
+        // arrive through a public/Tailscale hostname. The listener alone cannot
+        // reveal that topology during startup, so migrate on the first remote
+        // status request instead of leaving the browser in a 503 dead end.
+        if (status.authenticationRequired && !status.enabled) {
+          ensureLegacyWebAuth();
+          status = webAuth.status(req);
+        }
+        return json(res, 200, { ...status, bootstrapPending:webSecurityStatus().bootstrapPending });
+      }
       if (isPublicWebApiRoute(req.method, url.pathname) && url.pathname === "/api/auth/unlock") {
         webAuth.assertSameOrigin(req, { kind: "none" });
         const body = await readJson(req);

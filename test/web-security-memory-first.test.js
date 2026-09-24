@@ -142,6 +142,28 @@ test("HTTPS reverse proxies keep same-origin login and Secure device cookies", (
   assert.throws(() => unconfigured.authenticate(proxyRequest), /需要先配置/);
 });
 
+test("first remote proxy visit migrates a legacy loopback Web install into the login flow", t => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-web-proxy-upgrade-"));
+  t.after(() => fs.rmSync(home, { recursive:true, force:true }));
+  const stone = path.join(home, ".stone_memory");
+  fs.mkdirSync(stone, { recursive:true });
+  fs.writeFileSync(path.join(stone, "stmem.json"), JSON.stringify({ web:{ host:"127.0.0.1", port:4173 } }), { mode:0o600 });
+  const serverPath = path.join(root, "src", "web", "server.js");
+  const script = `
+    const http=require("http");
+    const {startWebServer}=require(${JSON.stringify(serverPath)});
+    (async()=>{const server=await startWebServer({host:"127.0.0.1",port:0});const port=server.address().port;
+      const body=await new Promise((resolve,reject)=>{const req=http.request({host:"127.0.0.1",port,path:"/api/auth/status",headers:{host:"memory.example.ts.net"}},res=>{const chunks=[];res.on("data",c=>chunks.push(c));res.on("end",()=>resolve(Buffer.concat(chunks).toString("utf8")));});req.on("error",reject);req.end();});
+      await new Promise(resolve=>server.close(resolve));console.log(body);
+    })().catch(error=>{console.error(error.stack);process.exit(1)});`;
+  const child = spawnSync(process.execPath, ["-e", script], { cwd:root, env:{ ...process.env, HOME:home, USERPROFILE:home }, encoding:"utf8", timeout:20_000 });
+  assert.equal(child.status, 0, child.stderr);
+  const status = JSON.parse(child.stdout);
+  assert.deepEqual(status, { authenticationRequired:true, enabled:true, bootstrapPending:true });
+  assert.match(JSON.parse(fs.readFileSync(path.join(stone, "stmem.json"), "utf8")).web.auth.tokenVerifier, /^sha256:/u);
+  assert.equal(fs.existsSync(path.join(stone, "web-auth-bootstrap")), true);
+});
+
 test("browser device sessions survive Web restarts without storing cookie secrets", t => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-web-device-"));
   t.after(() => fs.rmSync(home, { recursive:true, force:true }));
@@ -177,10 +199,12 @@ test("Web frontend contains an authenticated unlock gate and never asks for an e
   assert.match(app, /成功后会记住这台设备 30 天/);
   assert.match(app, /if \(!status\.authenticationRequired\) return startStoneMemory\(\)/);
   assert.match(app, /try \{ return await startStoneMemory\(\); \}/);
+  assert.match(app, /error\.status === 401 \|\| error\.status === 503/);
   assert.match(app, /config\.hasApiKey \? `placeholder="已配置；留空保持不变"` : "required"/);
   assert.match(cli, /subcommand === "enable"/);
   assert.match(cli, /host:"0\.0\.0\.0"/);
   assert.match(cli, /subcommand === "disable"/);
+  assert.match(cli, /stmem web auth claim/);
 });
 
 test("LAN status is read-only and defaults to loopback", t => {
