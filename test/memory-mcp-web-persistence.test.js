@@ -73,5 +73,5 @@ test("memory MCP switch persists a disabled module across fresh status requests"
 
 test("access-page MCP switch sends an applied memory-level change", () => {
   const app = fs.readFileSync(path.join(__dirname, "../src/web/public/app.js"), "utf8");
-  assert.match(app, /data-mcp-module[^\\n]*input\\.onchange[\\s\\S]*?body:JSON\\.stringify\\(\\{moduleId:input\\.dataset\\.mcpModule,enabled:input\\.checked,apply:true\\}\\)/u);
+  assert.match(app, /input\\.onchange=async[\\s\\S]*?body:JSON\\.stringify\\(\\{moduleId:input\\.dataset\\.mcpModule,enabled:input\\.checked,apply:true\\}\\)/u);
 });
