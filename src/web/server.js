@@ -31,7 +31,7 @@ const { normalizeRebuildRequest, rebuildRequestCliArgs } = require("../services/
 const { loadModules, resolveInside } = require("../services/developer-module-contract");
 const { compactTermTimelineReport } = require("../services/term-timeline-report");
 const { listMemories, getMemory } = require("../services/memory-setup");
-const { readBindingConfig } = require("../services/memory-binding-config");
+const { readBindingConfig, getConfiguredBinding } = require("../services/memory-binding-config");
 const { memoryExportPayload, sendMemoryExport } = require("./routes/memory");
 
 const { scenarioId, normalizeScenarioConfig } = require("../services/scenario-registry");
@@ -1846,7 +1846,9 @@ async function handleApi(req, res, url, { isRemote = false } = {}) {
       const windowDays = Math.max(1, Number(url.searchParams.get("windowDays")) || 3);
       const toolValue = url.searchParams.get("toolPairs");
       const toolPairs = Math.max(0, toolValue === null ? 30 : Number(toolValue));
-      const preview = buildRebuildPreview(threadId, { windowDays, toolPairs });
+      const bindingValue = String(url.searchParams.get("binding") || "").trim();
+      const binding = bindingValue ? getConfiguredBinding(threadId, bindingValue) : null;
+      const preview = buildRebuildPreview(threadId, { windowDays, toolPairs, binding });
       return json(res, 200, { ...preview, items: paginate(preview.items, url.searchParams.get("page")), tools: paginate(preview.tools, url.searchParams.get("toolPage")) });
     }
     if(req.method==="GET"&&action==="dry-run"){
@@ -1880,8 +1882,10 @@ async function handleApi(req, res, url, { isRemote = false } = {}) {
       return json(res, 200, JSON.parse(runStmem(repairArgs)));
     }
     if (req.method === "POST" && action === "queue") {
-      if (threadSettings.runtime === "codex") return json(res, 409, { error: "Codex 不支持延时重建队列，请使用 apply 并在成功后立即重启 Codex/app-server" });
       const body = await readJson(req);
+      const bindingValue = String(body.bindingId || "").trim();
+      const binding = bindingValue ? getConfiguredBinding(threadId, bindingValue) : null;
+      if ((binding?.provider || threadSettings.runtime) === "codex") return json(res, 409, { error: "Codex 不支持延时重建队列，请使用 apply 并在成功后立即重启 Codex/app-server" });
       const request = normalizeRebuildRequest({ ...body, trigger: "web" }, { windowDays: 3, toolPairs: 30, trigger: "web" });
       const planDir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-rebuild-queue-plan-"));
       const planFile = path.join(planDir, "plan.json");
@@ -1893,8 +1897,10 @@ async function handleApi(req, res, url, { isRemote = false } = {}) {
       } finally { fs.rmSync(planDir, { recursive: true, force: true }); }
     }
     if (req.method === "POST" && action === "apply") {
-      if (threadSettings.runtime !== "codex") return json(res, 409, { error: "Claude Code 必须使用重建队列，以避免 UUID 链断裂" });
       const body = await readJson(req);
+      const bindingValue = String(body.bindingId || "").trim();
+      const binding = bindingValue ? getConfiguredBinding(threadId, bindingValue) : null;
+      if ((binding?.provider || threadSettings.runtime) !== "codex") return json(res, 409, { error: "Claude Code 必须使用重建队列，以避免 UUID 链断裂" });
       const request = normalizeRebuildRequest({ ...body, trigger: "web" }, { windowDays: 3, toolPairs: 30, trigger: "web" });
       const planFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "stmem-rebuild-plan-")), "plan.json");
       fs.writeFileSync(planFile, JSON.stringify(request.trim), "utf8");

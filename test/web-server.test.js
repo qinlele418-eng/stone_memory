@@ -28,6 +28,15 @@ test("context management keeps usage and rebuild provenance per binding", () => 
   assert.match(claude, /bindingId:process\.env\.STMEM_REBUILD_BINDING_ID\|\|null/);
 });
 
+test("active Web rebuild routes classify the selected binding runtime", () => {
+  const server = fs.readFileSync(path.join(__dirname, "..", "src", "web", "server.js"), "utf8");
+  const rebuildRoutes = server.slice(server.indexOf("const rebuildMatch ="), server.indexOf("const importPreviewMatch", server.indexOf("const rebuildMatch =")));
+  assert.match(rebuildRoutes, /getConfiguredBinding\(threadId, bindingValue\)/);
+  assert.match(rebuildRoutes, /buildRebuildPreview\(threadId, \{ windowDays, toolPairs, binding \}\)/);
+  assert.match(rebuildRoutes, /\(binding\?\.provider \|\| threadSettings\.runtime\) === "codex"/);
+  assert.match(rebuildRoutes, /\(binding\?\.provider \|\| threadSettings\.runtime\) !== "codex"/);
+});
+
 test("restoring official mining prompts never clears the relationship timeline", () => {
   const app = fs.readFileSync(path.join(__dirname, "..", "src", "web", "public", "app.js"), "utf8");
   assert.match(app, /恢复官方提示词/);

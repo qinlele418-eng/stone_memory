@@ -135,10 +135,15 @@ function checkClaude(rows, threadId) {
   // parent may legitimately point outside the retained transcript, so only the
   // user/assistant conversation chain participates in structural validation.
   const conversationRows = rows.filter(row => ["user", "assistant"].includes(row.type));
-  const uuids = new Set(conversationRows.map(row => row.uuid).filter(Boolean));
+  // Recent Claude versions insert UUID-bearing attachment rows into the main
+  // parent chain. A conversation row may legitimately point at one of them,
+  // even though attachments are not themselves conversation messages.
+  const conversationSet = new Set(conversationRows);
+  const uuids = new Set(rows.map(row => row.uuid).filter(Boolean));
   const conversationUuids = conversationRows.map(row => row.uuid).filter(Boolean);
   const duplicates = conversationUuids.filter((id, index, all) => all.indexOf(id) !== index);
   const initRows=rows.filter(row=>row.type==="system"&&row.subtype==="init");
+  const sessionBoundaries=new Set(initRows.map(row=>row.session_id).filter(Boolean));
   const toolUses = new Set(), toolResults = new Set();
   for (const row of rows) for (const block of Array.isArray(row.message?.content) ? row.message.content : []) {
     if (block.type === "tool_use" && block.id) toolUses.add(block.id);
@@ -152,15 +157,16 @@ function checkClaude(rows, threadId) {
   }));
   const orphans = conversationRows.filter(row => row.parentUuid && !uuids.has(row.parentUuid)&&!acceptedRebuildBoundaries.has(row));
   const seen=new Set(),forwardParents=[];
-  for(const row of conversationRows){
-    if(row.parentUuid&&uuids.has(row.parentUuid)&&!seen.has(row.parentUuid))forwardParents.push(row);
+  for(const row of rows){
+    if(conversationSet.has(row)&&row.parentUuid&&uuids.has(row.parentUuid)&&!seen.has(row.parentUuid))forwardParents.push(row);
     if(row.uuid)seen.add(row.uuid);
   }
   const unexpectedRoots=Math.max(0,conversationRows.filter(row=>row.uuid&&!row.parentUuid).length-1);
   const missingResults = [...toolUses].filter(id => !toolResults.has(id));
   const acceptedToolResults=new Set([...acceptedRebuildBoundaries].flatMap(row=>row.message.content.filter(block=>block.type==="tool_result").map(block=>block.tool_use_id)));
   const missingUses = [...toolResults].filter(id => !toolUses.has(id)&&!acceptedToolResults.has(id));
-  return { threadId, runtime: "claude", syntheticSessionInit:initRows.filter(row=>!row.uuid).length,duplicates: duplicates.length, orphanParents: orphans.length,forwardParents:forwardParents.length,unexpectedRoots,missingToolResults: missingResults.length, missingToolUses: missingUses.length,acceptedRebuildBoundaries:acceptedRebuildBoundaries.size };
+  const orphanParents=orphans.filter(row=>!sessionBoundaries.has(row.parentUuid));
+  return { threadId, runtime: "claude", missingSessionInit:initRows.length?0:1,duplicateSessionInit:Math.max(0,initRows.length-1),duplicates: duplicates.length, orphanParents: orphanParents.length,forwardParents:forwardParents.length,unexpectedRoots,missingToolResults: missingResults.length, missingToolUses: missingUses.length,acceptedRebuildBoundaries:acceptedRebuildBoundaries.size };
 }
 
 function checkCodex(rows, threadId) {
@@ -214,17 +220,37 @@ function repairIntegrityFile(file,runtime,threadId=path.basename(file)) {
       if(block.type==="tool_use"&&block.id)toolUses.add(block.id);
       if(block.type==="tool_result"&&block.tool_use_id)toolResults.add(block.tool_use_id);
     }
-    let parent = null;
-    const source=rows.filter(row=>!(row.type==="system"&&row.subtype==="init"&&!row.uuid));
+    const initRows=rows.filter(row=>row.type==="system"&&row.subtype==="init");
+    const sessionBoundaries=new Set(initRows.map(row=>row.session_id).filter(Boolean));
+    if(!sessionBoundaries.size)sessionBoundaries.add(threadId);
+    const allUuids=new Set(rows.map(row=>row.uuid).filter(Boolean));
+    const firstRow=rows[0]||{};
+    const generatedInit={type:"system",subtype:"init",session_id:threadId,timestamp:firstRow.timestamp||new Date().toISOString(),cwd:firstRow.cwd,version:firstRow.version};
+    for(const key of Object.keys(generatedInit))if(generatedInit[key]===undefined)delete generatedInit[key];
+    const source=rows.filter((row,index)=>row.type!=="system"||row.subtype!=="init"||row===initRows[0]);
+    if(!initRows.length)source.unshift(generatedInit);
+    const seen=new Set(),seenConversationUuids=new Set();
+    let parent=null,rootSeen=false;
     output = source.map(row => {
       let clean=row;
       if(Array.isArray(row.message?.content)){
         const content=row.message.content.filter(block=>(block.type!=="tool_use"||toolResults.has(block.id))&&(block.type!=="tool_result"||toolUses.has(block.tool_use_id)));
         clean={...row,message:{...row.message,content}};
       }
-      if (!["user", "assistant"].includes(row.type) || !row.uuid) return clean;
-      const next = { ...clean, uuid: crypto.randomUUID(), parentUuid: parent };
-      parent = next.uuid;
+      if (!["user", "assistant"].includes(row.type) || !row.uuid){
+        if(row.uuid){seen.add(row.uuid);parent=row.uuid;}
+        return clean;
+      }
+      const duplicate=seenConversationUuids.has(row.uuid);
+      const validBoundary=sessionBoundaries.has(row.parentUuid);
+      const validParent=row.parentUuid&&allUuids.has(row.parentUuid)&&seen.has(row.parentUuid);
+      const validRoot=!row.parentUuid&&!rootSeen;
+      const uuid=duplicate?crypto.randomUUID():row.uuid;
+      const next = duplicate||(!validBoundary&&!validParent&&!validRoot) ? { ...clean, uuid, parentUuid: parent } : clean;
+      if(validBoundary||validRoot)rootSeen=true;
+      seenConversationUuids.add(uuid);
+      seen.add(uuid);
+      parent = uuid;
       return next;
     });
   } else {
