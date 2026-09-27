@@ -33,6 +33,14 @@ test("canonical memories inherit old Binding MCP permissions until memory-level 
   assert.deepEqual(saved.mcpModules, ["notebook-lab"]);
 });
 
+test("saving MCP permissions keeps declared providers and removes missing module ids", () => {
+  const { reconcileMcpModules } = require("../src/services/developer-module-mcp-config");
+  assert.deepEqual(
+    reconcileMcpModules(["notebook-lab", "missing-community-module", "dream-lab", "notebook-lab"]),
+    ["notebook-lab", "dream-lab"],
+  );
+});
+
 test("legacy Claude sessions resolve by their config key and keep Notebook and Dream available", t => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-legacy-mcp-"));
   t.after(() => fs.rmSync(home, { recursive: true, force: true }));

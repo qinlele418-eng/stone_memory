@@ -1,4 +1,4 @@
-const { findModule } = require("./developer-module-contract");
+const { MODULE_ROOT, findModule, listModuleDirectories } = require("./developer-module-contract");
 const fs = require("node:fs");
 const path = require("node:path");
 const { getMemoryContext } = require("../config");
@@ -56,29 +56,47 @@ function readConfig({ memoryId } = {}) {
   return { schemaVersion: 2, revision: stat ? Math.floor(stat.mtimeMs) : 0, memoryId, modules: moduleIdsForMemory(memoryId) };
 }
 
+function declaredMcpModuleIds(root = MODULE_ROOT) {
+  const ids = new Set();
+  for (const directory of listModuleDirectories(root)) {
+    const id = path.basename(directory);
+    try {
+      const loaded = findModule(id, root);
+      if (loaded.manifest.entry?.mcp) ids.add(id);
+    } catch { /* Invalid or incomplete modules are not valid MCP registrations. */ }
+  }
+  return ids;
+}
+
+function reconcileMcpModules(moduleIds, root = MODULE_ROOT) {
+  const declared = declaredMcpModuleIds(root);
+  return [...new Set(moduleIds)].filter(id => declared.has(id));
+}
+
 function planChange({ moduleId, memoryId, enabled, root, memoryIds = require("../config").listMemoryIds() }) {
   safeMemoryId(memoryId, memoryIds);
   const loaded = findModule(moduleId, root);
   if (!loaded.manifest.entry.mcp) throw new Error("MCP_PROVIDER_NOT_DECLARED");
   const before = moduleIdsForMemory(memoryId);
   const after = enabled ? [...new Set([...before, moduleId])] : before.filter(id => id !== moduleId);
-  return { moduleId, memoryId, enabled: Boolean(enabled), before, after, revision: readConfig({ memoryId }).revision, reconnect };
+  return { moduleId, memoryId, enabled: Boolean(enabled), before, after, root: root || MODULE_ROOT, revision: readConfig({ memoryId }).revision, reconnect };
 }
 
 function applyChange(plan) {
+  const after = reconcileMcpModules(plan.after, plan.root);
   const context = getMemoryContext(plan.memoryId);
   if (context.layout !== "memory-v1") {
     const config = loadConfig(); const key = context.legacyKey || plan.memoryId;
-    const entry = { ...(config[key] || {}), mcpModules: plan.after, mcpModuleConfigVersion: MCP_MODULE_CONFIG_VERSION };
+    const entry = { ...(config[key] || {}), mcpModules: after, mcpModuleConfigVersion: MCP_MODULE_CONFIG_VERSION };
     saveConfig({ ...config, [key]: entry });
-    return { applied: true, changed: true, memoryId: plan.memoryId, modules: plan.after, config: entry };
+    return { applied: true, changed: true, memoryId: plan.memoryId, modules: after, config: entry };
   }
   const file = memoryFile(plan.memoryId); const value = JSON.parse(fs.readFileSync(file, "utf8"));
   const current = moduleIdsForMemory(plan.memoryId);
   if (JSON.stringify(current) !== JSON.stringify(plan.before)) throw new Error("MCP_CONFIG_REVISION_CONFLICT");
-  const next = { ...value, mcpModules: plan.after, mcpModuleConfigVersion: MCP_MODULE_CONFIG_VERSION, updatedAt: new Date().toISOString() };
+  const next = { ...value, mcpModules: after, mcpModuleConfigVersion: MCP_MODULE_CONFIG_VERSION, updatedAt: new Date().toISOString() };
   fs.writeFileSync(file, JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
-  return { applied: true, changed: true, memoryId: plan.memoryId, modules: plan.after, config: next };
+  return { applied: true, changed: true, memoryId: plan.memoryId, modules: after, config: next };
 }
 
-module.exports = { DEFAULT_MCP_MODULES, MCP_MODULE_CONFIG_VERSION, reconnect, safeMemoryId, moduleIdsForMemory, resolveCurrentBinding, readConfig, planChange, applyChange };
+module.exports = { DEFAULT_MCP_MODULES, MCP_MODULE_CONFIG_VERSION, reconnect, safeMemoryId, moduleIdsForMemory, resolveCurrentBinding, readConfig, declaredMcpModuleIds, reconcileMcpModules, planChange, applyChange };
