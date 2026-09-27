@@ -70,10 +70,10 @@ const TOOLS = [
   },
   {
     name: "stmem_memory_bind",
-    description: "把指定的当前 Codex/Claude Code 窗口绑定到记忆体。调用方应随请求传入当前 thread 和 provider；环境变量仅作为兼容兜底。只支持首次绑定，不提供改绑。",
-    inputSchema: { type: "object", required: ["memory"], properties: {
+    description: "把指定的当前 Codex/Claude Code 窗口绑定到记忆体。必须随本次请求显式传入当前 thread 和 provider；Codex 调用方应先读取当前 active task 的线程 ID。环境变量仅作为旧客户端兼容兜底。只支持首次绑定，不提供改绑。",
+    inputSchema: { type: "object", required: ["memory", "thread", "provider"], properties: {
       memory: { type: "string", description: "目标记忆体的显示名称或 memoryId" },
-      thread: { type: "string", description: "发起本次调用的当前 Codex/Claude Code 线程 ID" },
+      thread: { type: "string", description: "必填。发起本次调用的当前 Codex/Claude Code 线程 ID；Codex 中使用当前 active task 的 ID" },
       provider: { type: "string", enum: ["codex", "claude"], description: "当前窗口所属客户端" },
     }, additionalProperties: false },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
