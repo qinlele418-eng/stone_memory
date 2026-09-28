@@ -4,6 +4,7 @@
  * stmem.json 配置示例:
  *   "runtimes": {
  *     "claude": {
+ *       "type": "claude",
  *       "command": "claude -p",
  *       "flags": {
  *         "systemPrompt": "--system-prompt-file",
@@ -11,7 +12,7 @@
  *         "model": "--model"
  *       }
  *     },
- *     "codex": { "command": "codex exec" }
+ *     "codex": { "type": "codex", "command": "codex exec" }
  *   }
  *
  * 用法:
@@ -36,6 +37,7 @@ const CODEX_AUTO_APPROVED_MCP_TOOLS = Object.freeze({
 
 const BUILTIN_RUNTIMES = {
   claude: {
+    type: "claude",
     command: "claude -p",
     flags: {
       systemPrompt: "--system-prompt-file",
@@ -44,6 +46,7 @@ const BUILTIN_RUNTIMES = {
     },
   },
   codex: {
+    type: "codex",
     command: "codex exec --ephemeral --sandbox read-only --ignore-user-config --ignore-rules --color never",
     flags: {
       model: "-m",
@@ -56,6 +59,28 @@ function getRuntimeConfig(runtimeName) {
   const cfg = loadConfig();
   const runtimes = cfg.runtimes || {};
   return runtimes[runtimeName] || BUILTIN_RUNTIMES[runtimeName] || null;
+}
+
+function runtimeType(runtimeName, runtimeConfig = getRuntimeConfig(runtimeName)) {
+  if (!runtimeConfig) return null;
+  const explicit = String(runtimeConfig.type || runtimeConfig.adapter || "").trim().toLowerCase();
+  if (explicit) {
+    if (!["claude", "codex"].includes(explicit)) {
+      throw new Error(`Unsupported subagent runtime type: ${explicit}`);
+    }
+    return explicit;
+  }
+  if (["claude", "codex"].includes(runtimeName)) return runtimeName;
+
+  const invocation = commandInvocation(runtimeConfig.command);
+  const commandParts = [invocation.file, ...invocation.args];
+  for (const part of commandParts) {
+    const executable = path.basename(String(part)).replace(/\.(?:cmd|exe)$/iu, "").toLowerCase();
+    if (executable === "claude" || executable === "codex") return executable;
+  }
+  throw new Error(
+    `Unsupported subagent runtime: ${runtimeName}. Set runtimes.${runtimeName}.type to "claude" or "codex".`,
+  );
 }
 
 /** 为指定线程解析占位符 → 实际路径 */
@@ -105,6 +130,7 @@ function buildCommand(runtimeName, prompt, opts = {}) {
 function buildStdinCmd(runtimeName, opts = {}) {
   const rt = getRuntimeConfig(runtimeName);
   if (!rt) throw new Error(`Unknown runtime: ${runtimeName}. Add it to stmem.json → runtimes.`);
+  const type = runtimeType(runtimeName, rt);
   const flags = rt.flags || {};
   let cmd = rt.command.replace(/\s*-p/, "");
   if (opts.opsFile && flags.systemPrompt && fs.existsSync(opts.opsFile)) {
@@ -117,13 +143,13 @@ function buildStdinCmd(runtimeName, opts = {}) {
     cmd += ` ${flags.model} ${normalizeModelName(opts.model, { required: true })}`;
   }
   if (opts.reasoning) {
-    if (runtimeName !== "codex") throw new Error("reasoning effort is only supported by the Codex subagent");
+    if (type !== "codex") throw new Error("reasoning effort is only supported by the Codex subagent");
     if (!["minimal", "low", "medium", "high", "xhigh"].includes(opts.reasoning)) {
       throw new Error("unsupported Codex reasoning effort");
     }
     cmd += ` -c model_reasoning_effort=${JSON.stringify(opts.reasoning)}`;
   }
-  if (runtimeName === "claude" && !hasExplicitClaudeApiCredentials(process.env)) {
+  if (type === "claude" && !hasExplicitClaudeApiCredentials(process.env)) {
     cmd = cmd.replace(/(^|\s)--bare(?=\s|$)/g, "$1").replace(/\s+/g, " ").trim();
     if (!/(?:^|\s)(?:-p|--print)(?:\s|$)/.test(cmd)) cmd += " -p";
   }
@@ -160,9 +186,10 @@ function normalizeClaudeInvocation(invocation, env = process.env) {
 function buildStdinInvocation(runtimeName, opts = {}) {
   const rt = getRuntimeConfig(runtimeName);
   if (!rt) throw new Error(`Unknown runtime: ${runtimeName}. Add it to stmem.json → runtimes.`);
+  const type = runtimeType(runtimeName, rt);
   const flags = rt.flags || {};
   let invocation = commandInvocation(rt.command);
-  if (runtimeName === "claude") {
+  if (type === "claude") {
     invocation = normalizeClaudeInvocation(invocation, {
       ...process.env,
       ...(invocation.env || {}),
@@ -174,26 +201,26 @@ function buildStdinInvocation(runtimeName, opts = {}) {
   }
   if (opts.mcpConfig && flags.mcpConfig) {
     appendOption(invocation.args, flags.mcpConfig, opts.mcpConfig);
-  } else if (opts.mcpConfig && runtimeName === "codex") {
-    appendCodexMcpConfig(invocation.args, opts.mcpConfig);
+  } else if (opts.mcpConfig && type === "codex") {
+    appendCodexMcpConfig(invocation.args, opts.mcpConfig, { allowedTools: opts.allowedTools });
   }
-  if (runtimeName === "codex" && opts.codexProvider) {
+  if (type === "codex" && opts.codexProvider) {
     appendCodexProviderConfig(invocation.args, opts.codexProvider);
   }
-  if (runtimeName === "claude" && opts.strictMcpConfig) {
+  if (type === "claude" && opts.strictMcpConfig) {
     invocation.args.push("--strict-mcp-config");
   }
-  if (runtimeName === "claude" && opts.permissionMode) {
+  if (type === "claude" && opts.permissionMode) {
     appendOption(invocation.args, "--permission-mode", opts.permissionMode);
   }
-  if (runtimeName === "claude" && Array.isArray(opts.allowedTools) && opts.allowedTools.length) {
+  if (type === "claude" && Array.isArray(opts.allowedTools) && opts.allowedTools.length) {
     invocation.args.push(`--allowedTools=${opts.allowedTools.join(",")}`);
   }
   if (opts.model && flags.model) {
     appendOption(invocation.args, flags.model, normalizeModelName(opts.model, { required: true }));
   }
   if (opts.reasoning) {
-    if (runtimeName !== "codex") throw new Error("reasoning effort is only supported by the Codex subagent");
+    if (type !== "codex") throw new Error("reasoning effort is only supported by the Codex subagent");
     if (!["minimal", "low", "medium", "high", "xhigh"].includes(opts.reasoning)) {
       throw new Error("unsupported Codex reasoning effort");
     }
@@ -211,7 +238,7 @@ function resolveWorkingDirectory(cwd) {
   return resolved;
 }
 
-function appendCodexMcpConfig(args, configPath) {
+function appendCodexMcpConfig(args, configPath, { allowedTools = [] } = {}) {
   const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
   const servers = config.mcpServers || config.mcp_servers || {};
   for (const [rawName, server] of Object.entries(servers)) {
@@ -228,7 +255,17 @@ function appendCodexMcpConfig(args, configPath) {
     }
     appendOption(args, "-c", `mcp_servers.${name}.required=true`);
     appendOption(args, "-c", `mcp_servers.${name}.default_tools_approval_mode="auto"`);
-    for (const toolName of CODEX_AUTO_APPROVED_MCP_TOOLS[name] || []) {
+    const prefix = `mcp__${name}__`;
+    const requestedTools = Array.isArray(allowedTools)
+      ? allowedTools.map(String)
+        .filter(tool => tool.startsWith(prefix))
+        .map(tool => tool.slice(prefix.length))
+      : [];
+    const approvedTools = new Set([
+      ...(CODEX_AUTO_APPROVED_MCP_TOOLS[name] || []),
+      ...requestedTools,
+    ]);
+    for (const toolName of approvedTools) {
       if (!/^[A-Za-z0-9_-]+$/.test(toolName)) continue;
       appendOption(args, "-c", `mcp_servers.${name}.tools.${toolName}.approval_mode="approve"`);
     }
@@ -283,7 +320,9 @@ function runSubagent(prompt, opts = {}) {
   const { threadId, mcpConfig, model, reasoning, timeout = 600_000 } = opts;
   let { opsFile } = opts;
   const runtimeName = opts.runtime || getCfg("runtime", threadId, "claude");
-  if (!["claude", "codex"].includes(runtimeName)) throw new Error(`Unsupported subagent runtime: ${runtimeName}`);
+  const rt = getRuntimeConfig(runtimeName);
+  if (!rt) throw new Error(`Unsupported subagent runtime: ${runtimeName}`);
+  const type = runtimeType(runtimeName, rt);
 
   // 替换 ops 文件中的 {{placeholders}} → 线程实际路径
   if (opsFile && threadId && fs.existsSync(opsFile)) {
@@ -300,7 +339,6 @@ function runSubagent(prompt, opts = {}) {
     opsFile = tmpFile;
   }
 
-  const rt = getRuntimeConfig(runtimeName);
   const flags = rt?.flags || {};
 
   // 运行时没有 systemPrompt flag（如 Codex）→ ops 内容内联到 prompt
@@ -310,7 +348,7 @@ function runSubagent(prompt, opts = {}) {
     finalPrompt = `${opsContent}\n\n---\n\n${prompt}`;
   }
 
-  const codexProvider = runtimeName === "codex" && threadId
+  const codexProvider = type === "codex" && threadId
     ? codexProviderFromConfig(loadConfig(), threadId)
     : null;
   const baseInvocation = buildStdinInvocation(runtimeName, {
@@ -383,4 +421,5 @@ module.exports = {
   extractSubagentFailure,
   hasExplicitClaudeApiCredentials,
   normalizeClaudeInvocation,
+  runtimeType,
 };

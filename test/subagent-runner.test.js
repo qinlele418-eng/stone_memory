@@ -12,7 +12,18 @@ const {
   extractSubagentFailure,
   normalizeClaudeInvocation,
   resolveWorkingDirectory,
+  runtimeType,
 } = require("../src/services/subagent-runner");
+
+test("custom runtime aliases resolve their CLI adapter independently from their config name", () => {
+  assert.equal(runtimeType("claude-fast", { command: "claude -p --model fast" }), "claude");
+  assert.equal(runtimeType("codex-low", { command: "/usr/bin/codex exec -m gpt-test" }), "codex");
+  assert.equal(runtimeType("wrapped", { type: "codex", command: "custom-launcher" }), "codex");
+  assert.throws(
+    () => runtimeType("unknown", { command: "custom-launcher" }),
+    /Set runtimes\.unknown\.type/,
+  );
+});
 
 test("Claude subagents keep print mode and restore OAuth compatibility for legacy bare config", () => {
   const invocation = normalizeClaudeInvocation({
@@ -117,6 +128,34 @@ test("Codex receives a temporary MCP config without changing user config", t => 
     'mcp_servers.stone_memory_search.tools.memory_archive_context.approval_mode="approve"',
   ]);
   assert.doesNotMatch(joined, /mcp_servers\.other_server\.tools\..*\.approval_mode="approve"/);
+});
+
+test("Codex approves caller tools only for servers declared by the temporary MCP config", t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-mcp-allowed-tools-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const configPath = path.join(dir, "mcp.json");
+  fs.writeFileSync(configPath, JSON.stringify({
+    mcpServers: {
+      stone_notebook_steward: { command: "/usr/bin/node", args: ["/tmp/mcp-server.js"] },
+    },
+  }));
+  const args = [];
+  appendCodexMcpConfig(args, configPath, {
+    allowedTools: [
+      "mcp__stone_notebook_steward__notebook_catalog",
+      "mcp__stone_notebook_steward__notebook_search",
+      "mcp__stone_notebook_steward__notebook_read",
+      "mcp__stone_notebook_steward__notebook_read",
+      "mcp__another_server__unrelated_tool",
+      "mcp__stone_notebook_steward__invalid.tool",
+    ],
+  });
+  const joined = args.join(" ");
+  for (const tool of ["notebook_catalog", "notebook_search", "notebook_read"]) {
+    assert.match(joined, new RegExp(`tools\\.${tool}\\.approval_mode="approve"`));
+  }
+  assert.doesNotMatch(joined, /unrelated_tool|invalid\.tool|approval_policy/);
+  assert.equal(args.filter(arg => arg.includes("tools.notebook_read.approval_mode")).length, 1);
 });
 
 test("Codex reuses an existing OpenAI API provider without exposing its key in argv", () => {

@@ -138,7 +138,7 @@ function createThread(input, { allowExisting = false, requireSession = true } = 
     };
   }
   config.runtimes = config.runtimes || {
-    claude: { command: "claude -p", flags: { systemPrompt: "--system-prompt-file", mcpConfig: "--mcp-config", model: "--model" } },
+    claude: { type: "claude", command: "claude -p", flags: { systemPrompt: "--system-prompt-file", mcpConfig: "--mcp-config", model: "--model" } },
   };
   config[threadId] = entry;
   if (input.memoryId) {
