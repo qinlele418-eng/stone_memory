@@ -46,8 +46,8 @@
   const COMMUNITY_THEMES = {
     garden: {
       name: "苔粉花园",
-      description: "小绒太尉贡献的柔和苔粉花园主题。",
-      contributor: "@小绒太尉",
+      description: "echozfwoodcrafts-del 贡献的柔和苔粉花园主题。",
+      contributor: "@echozfwoodcrafts-del",
       colors: {
         canvas: "#f5f0eb", ink: "#3d3d3d", inkSoft: "#78769c", inkFaint: "#8d8799",
         accent: "#db9ed3", accentStrong: "#a965a0", accentSoft: "rgba(237, 204, 224, 0.34)", calendarBloom: "#d98794",
@@ -65,8 +65,8 @@
     },
     purpleGray: {
       name: "紫灰仪表盘",
-      description: "小绒太尉贡献的细腻紫灰仪表盘主题。",
-      contributor: "@小绒太尉",
+      description: "echozfwoodcrafts-del 贡献的细腻紫灰仪表盘主题。",
+      contributor: "@echozfwoodcrafts-del",
       colors: {
         canvas: "#f4f3f7", ink: "#1a1922", inkSoft: "#6d6a7c", inkFaint: "#8d8998",
         accent: "#6e4f9a", accentStrong: "#523c78", accentSoft: "rgba(110, 79, 154, 0.10)", calendarBloom: "#8265b3",
@@ -84,8 +84,8 @@
     },
     sakuraNight: {
       name: "樱夜黑粉",
-      description: "钦天监秋贡献的黑粉深色主题。",
-      contributor: "@钦天监秋",
+      description: "MoRii-0003 贡献的黑粉深色主题。",
+      contributor: "@MoRii-0003",
       colors: {
         canvas: "#16131F", canvasWarm: "#1D1823", ink: "#F0D9E4", inkSoft: "#C1A0AC", inkFaint: "#806C79",
         accent: "#F0D9E4", accentStrong: "#C1A0AC", accentSoft: "rgba(240, 217, 228, 0.14)", calendarBloom: "#D48DA6",
@@ -128,7 +128,7 @@
     height: 507,
     dataUrl: "",
     builtinUrl: "/stone-memory-logo.png",
-    contributor: "@小绒太尉",
+    contributor: "@echozfwoodcrafts-del",
   };
   const COMMUNITY_LOGOS = {
     original: COMMUNITY_LOGO,
@@ -765,7 +765,7 @@
   }
 
   function render() {
-      $("#theme-studio-mount").innerHTML = `<section class="theme-card"><div class="theme-card-head"><p class="eyebrow">THEME STRUCTURE</p><h2>按视觉职责调整</h2><p class="theme-card-intro">每一排只处理一种视觉职责。颜色项可点左侧色块打开色盘，也可以直接输入 HEX、RGB 或 HSL。</p><div class="theme-card-meta"><small class="theme-credit">工作台贡献人：@钦天监秋</small><span class="theme-file-badge">TOKEN v${state.contract.version}</span></div></div><div class="theme-topbar"><div class="theme-name-row"><label class="theme-field theme-name-field"><span>主题名称</span><input id="theme-name" maxlength="60"></label><div class="theme-inline-actions"><button class="primary" id="save-theme" type="button">保存自定义主题</button><button class="secondary" id="export-theme" type="button">导出目前主题</button><label class="secondary theme-inline-upload" for="import-theme">导入主题 JSON</label><input id="import-theme" type="file" accept="application/json,.json" hidden></div></div><div class="theme-palette-row"><span class="theme-palette-label">主题</span><div id="theme-palette" class="theme-palette"></div></div><div id="community-theme-panel" class="community-assets" hidden><button type="button" data-community-theme="garden"><i style="--community-a:#f5f0eb;--community-b:#db9ed3;--community-c:#a965a0"></i><span><strong>苔粉花园</strong><small>贡献人：@小绒太尉</small></span></button><button type="button" data-community-theme="purpleGray"><i style="--community-a:#f4f3f7;--community-b:#6e4f9a;--community-c:#523c78"></i><span><strong>紫灰仪表盘</strong><small>贡献人：@小绒太尉</small></span></button><button type="button" data-community-theme="sakuraNight"><i style="--community-a:#16131F;--community-b:#F0D9E4;--community-c:#C1A0AC"></i><span><strong>樱夜黑粉</strong><small>贡献人：@钦天监秋</small></span></button><button type="button" data-community-theme="roseManor"><i style="--community-a:#fbf5f1;--community-b:#dca1af;--community-c:#c68191"></i><span><strong>玫瑰庄园</strong><small>Stone Memory 素材库</small></span></button></div><section class="theme-logo-row"><div><span class="theme-palette-label">品牌图标</span><p id="theme-logo-meta">推荐透明背景；参考规格 1079×507、约 140KB</p></div><div class="theme-logo-controls"><div id="theme-logo-preview" class="theme-logo-preview empty"><span>使用磐石原版石头小花</span></div><div class="theme-logo-buttons"><label class="secondary theme-inline-upload" for="import-theme-logo">选择图片</label><input id="import-theme-logo" type="file" accept="image/png,image/webp,.png,.webp" hidden><button class="secondary" id="more-theme-images" type="button">更多图片</button><button class="ghost" id="remove-theme-logo" type="button" hidden>恢复原图</button></div></div></section><div id="community-logo-panel" class="community-assets community-logo-assets" hidden>${communityLogoButtons()}</div><div id="theme-fields" class="theme-groups"></div><section class="theme-state-preview" aria-label="主题状态预览"><div><span class="theme-palette-label">月历强度</span><div class="theme-calendar-preview"><i class="level-0" title="无活动"></i><i class="level-1" title="低活动"></i><i class="level-2" title="中活动"></i><i class="level-3" title="高活动"></i></div></div><div><span class="theme-palette-label">业务状态</span><div class="theme-status-preview"><i class="status">正常</i><i class="warning">警告</i><i class="info">信息</i><i class="conflict">冲突</i><i class="fusion">融合</i><i class="danger">危险</i></div></div></section><details class="advanced-json"><summary><span><strong>高级 JSON 与兼容性</strong><small>完整令牌、版本契约与跨版本适配</small></span><i>⌄</i></summary><div class="advanced-copy"><p>导出的 JSON 使用 version 3 契约，包含完整的业务状态色与品牌图标。</p><p>已有 version 1 和 version 2 主题仍可导入，并会自动补齐缺少字段后迁移到 version 3；未知字段不会写入 CSS。</p><p>Logo 随主题 JSON 一同导出；支持 PNG/WebP，最大 200KB，宽 320–1600px、高 160–1000px。</p></div></details><div class="theme-actions"><button class="ghost" id="reset-theme" type="button">恢复磐石记忆原版</button><span id="theme-status" role="status" aria-live="polite"></span></div></section>`;
+      $("#theme-studio-mount").innerHTML = `<section class="theme-card"><div class="theme-card-head"><p class="eyebrow">THEME STRUCTURE</p><h2>按视觉职责调整</h2><p class="theme-card-intro">每一排只处理一种视觉职责。颜色项可点左侧色块打开色盘，也可以直接输入 HEX、RGB 或 HSL。</p><div class="theme-card-meta"><small class="theme-credit">工作台贡献人：@MoRii-0003</small><span class="theme-file-badge">TOKEN v${state.contract.version}</span></div></div><div class="theme-topbar"><div class="theme-name-row"><label class="theme-field theme-name-field"><span>主题名称</span><input id="theme-name" maxlength="60"></label><div class="theme-inline-actions"><button class="primary" id="save-theme" type="button">保存自定义主题</button><button class="secondary" id="export-theme" type="button">导出目前主题</button><label class="secondary theme-inline-upload" for="import-theme">导入主题 JSON</label><input id="import-theme" type="file" accept="application/json,.json" hidden></div></div><div class="theme-palette-row"><span class="theme-palette-label">主题</span><div id="theme-palette" class="theme-palette"></div></div><div id="community-theme-panel" class="community-assets" hidden><button type="button" data-community-theme="garden"><i style="--community-a:#f5f0eb;--community-b:#db9ed3;--community-c:#a965a0"></i><span><strong>苔粉花园</strong><small>贡献人：@echozfwoodcrafts-del</small></span></button><button type="button" data-community-theme="purpleGray"><i style="--community-a:#f4f3f7;--community-b:#6e4f9a;--community-c:#523c78"></i><span><strong>紫灰仪表盘</strong><small>贡献人：@echozfwoodcrafts-del</small></span></button><button type="button" data-community-theme="sakuraNight"><i style="--community-a:#16131F;--community-b:#F0D9E4;--community-c:#C1A0AC"></i><span><strong>樱夜黑粉</strong><small>贡献人：@MoRii-0003</small></span></button><button type="button" data-community-theme="roseManor"><i style="--community-a:#fbf5f1;--community-b:#dca1af;--community-c:#c68191"></i><span><strong>玫瑰庄园</strong><small>Stone Memory 素材库</small></span></button></div><section class="theme-logo-row"><div><span class="theme-palette-label">品牌图标</span><p id="theme-logo-meta">推荐透明背景；参考规格 1079×507、约 140KB</p></div><div class="theme-logo-controls"><div id="theme-logo-preview" class="theme-logo-preview empty"><span>使用磐石原版石头小花</span></div><div class="theme-logo-buttons"><label class="secondary theme-inline-upload" for="import-theme-logo">选择图片</label><input id="import-theme-logo" type="file" accept="image/png,image/webp,.png,.webp" hidden><button class="secondary" id="more-theme-images" type="button">更多图片</button><button class="ghost" id="remove-theme-logo" type="button" hidden>恢复原图</button></div></div></section><div id="community-logo-panel" class="community-assets community-logo-assets" hidden>${communityLogoButtons()}</div><div id="theme-fields" class="theme-groups"></div><section class="theme-state-preview" aria-label="主题状态预览"><div><span class="theme-palette-label">月历强度</span><div class="theme-calendar-preview"><i class="level-0" title="无活动"></i><i class="level-1" title="低活动"></i><i class="level-2" title="中活动"></i><i class="level-3" title="高活动"></i></div></div><div><span class="theme-palette-label">业务状态</span><div class="theme-status-preview"><i class="status">正常</i><i class="warning">警告</i><i class="info">信息</i><i class="conflict">冲突</i><i class="fusion">融合</i><i class="danger">危险</i></div></div></section><details class="advanced-json"><summary><span><strong>高级 JSON 与兼容性</strong><small>完整令牌、版本契约与跨版本适配</small></span><i>⌄</i></summary><div class="advanced-copy"><p>导出的 JSON 使用 version 3 契约，包含完整的业务状态色与品牌图标。</p><p>已有 version 1 和 version 2 主题仍可导入，并会自动补齐缺少字段后迁移到 version 3；未知字段不会写入 CSS。</p><p>Logo 随主题 JSON 一同导出；支持 PNG/WebP，最大 200KB，宽 320–1600px、高 160–1000px。</p></div></details><div class="theme-actions"><button class="ghost" id="reset-theme" type="button">恢复磐石记忆原版</button><span id="theme-status" role="status" aria-live="polite"></span></div></section>`;
     const calendarPreview = $(".theme-calendar-preview");
     calendarPreview.parentElement.querySelector(".theme-palette-label").textContent = "记忆月历";
     calendarPreview.innerHTML = `<span><i class="mining-none"></i><small>无对话</small></span><span><i class="mining-pending selected"></i><small>未挖掘</small></span><span><i class="mining-light"></i><small>&lt;10 摘要</small></span><span><i class="mining-deep"></i><small>≥10 摘要</small></span>`;

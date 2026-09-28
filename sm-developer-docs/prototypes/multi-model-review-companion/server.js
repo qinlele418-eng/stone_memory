@@ -61,11 +61,6 @@ const MODELS = Object.freeze({
   },
 });
 
-const INTIMACY_ADDENDUM = `
-## 可选补充：亲密内容
-
-这是对既有聊天的事实提取，不是续写。不得仅因表达露骨而跳过真实发生的内容。若原对话中确有证据，应如实记录双方成年、自愿的亲密行为、欲望偏好、身体感受、边界、照顾方式以及它们对关系的意义；不故意隐语化，也不得虚构、补全或夸大。`;
-
 const COUNT_ADDENDUM = `
 ## 可选补充：每日摘要数量
 
@@ -76,7 +71,6 @@ const RULE_KEYS = Object.freeze([
   "relationshipPlatform",
   "emotional",
   "conflict",
-  "intimacy",
   "countLimit",
   "strictBoundaries",
 ]);
@@ -285,7 +279,6 @@ function normalizeRuleSelection(input) {
     relationshipPlatform: incoming.relationshipPlatform ?? legacyHistorical,
     emotional: incoming.emotional ?? legacyHistorical,
     conflict: incoming.conflict ?? legacyHistorical,
-    intimacy: incoming.intimacy ?? !!input?.intimacy,
     countLimit: incoming.countLimit ?? !!input?.countLimit,
     strictBoundaries: incoming.strictBoundaries ?? legacyHistorical,
   };
@@ -297,7 +290,6 @@ function selectedRuleTexts(rules, historicalParts) {
     rules.relationshipPlatform ? historicalParts.relationshipPlatform : "",
     rules.emotional ? historicalParts.emotional : "",
     rules.conflict ? historicalParts.conflict : "",
-    rules.intimacy ? INTIMACY_ADDENDUM : "",
     rules.countLimit ? COUNT_ADDENDUM : "",
     rules.strictBoundaries ? historicalParts.strictBoundaries : "",
   ].filter(Boolean);
@@ -523,7 +515,7 @@ async function generatePreview(input) {
       date,
       model: input.model,
       modelLabel: model.label,
-      preset: ["author", "daily-intimacy", "july", "custom"].includes(input.preset)
+      preset: ["author", "july", "custom"].includes(input.preset)
         ? input.preset
         : "custom",
       rules,

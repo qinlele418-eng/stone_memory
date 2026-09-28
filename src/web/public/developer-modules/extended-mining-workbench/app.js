@@ -15,6 +15,8 @@ const state = {
   activeBatch: null,
   pollTimer: null,
   candidates: [],
+  customRules: [],
+  selectedCustomRuleIds: new Set(),
   activeCandidateId: null,
   activeFormalDate: null,
   tab: "formal",
@@ -227,13 +229,23 @@ function selectedRules() {
   return Object.fromEntries([...document.querySelectorAll("[data-rule]")].map(input => [input.dataset.rule, input.checked]));
 }
 
+function selectedCustomRules() {
+  return state.customRules.filter(rule => state.selectedCustomRuleIds.has(rule.id));
+}
+
+function updateRuleSummary() {
+  const count = Object.values(selectedRules()).filter(Boolean).length + state.selectedCustomRuleIds.size;
+  $("#rule-summary").textContent = count ? `${count} 项附加规则` : "作者原版";
+}
+
 function saveRules() {
   localStorage.setItem(RULES_KEY, JSON.stringify({
     rules: selectedRules(),
+    customRuleIds: [...state.selectedCustomRuleIds],
     additionalInstruction: $("#additional-instruction").value,
   }));
-  const count = Object.values(selectedRules()).filter(Boolean).length;
-  $("#rule-summary").textContent = count ? `${count} 项附加规则` : "作者原版";
+  updateRuleSummary();
+  renderPlan();
 }
 
 function restoreRules() {
@@ -241,8 +253,77 @@ function restoreRules() {
   document.querySelectorAll("[data-rule]").forEach(input => {
     input.checked = saved.rules?.[input.dataset.rule] === true;
   });
+  state.selectedCustomRuleIds = new Set(Array.isArray(saved.customRuleIds) ? saved.customRuleIds.map(String) : []);
   $("#additional-instruction").value = String(saved.additionalInstruction || "").slice(0, 4000);
-  saveRules();
+  updateRuleSummary();
+}
+
+function renderCustomRules() {
+  state.selectedCustomRuleIds = new Set([...state.selectedCustomRuleIds].filter(id => state.customRules.some(rule => rule.id === id)));
+  $("#custom-rule-list").innerHTML = state.customRules.length
+    ? state.customRules.map(rule => `<label title="${escapeHtml(rule.prompt)}"><input type="checkbox" data-custom-rule="${escapeHtml(rule.id)}" ${state.selectedCustomRuleIds.has(rule.id) ? "checked" : ""}><span>${escapeHtml(rule.name)}</span></label>`).join("")
+    : '<p class="empty">尚未添加自定义细则。</p>';
+  document.querySelectorAll("[data-custom-rule]").forEach(input => {
+    input.onchange = () => {
+      input.checked ? state.selectedCustomRuleIds.add(input.dataset.customRule) : state.selectedCustomRuleIds.delete(input.dataset.customRule);
+      saveRules();
+    };
+  });
+  updateRuleSummary();
+}
+
+async function loadCustomRules() {
+  const result = await api(`/api/developer-modules/extended-mining-workbench/commands/rules?memoryId=${encodeURIComponent(state.threadId)}`);
+  state.customRules = Array.isArray(result.rules) ? result.rules : [];
+  renderCustomRules();
+}
+
+function combinedAdditionalInstruction() {
+  const sections = selectedCustomRules().map(rule => `【${rule.name}】\n${rule.prompt}`);
+  const extra = $("#additional-instruction").value.trim();
+  if (extra) sections.push(extra);
+  const text = sections.join("\n\n");
+  if (text.length > 4000) throw new Error("已选择的自定义细则与额外要求合计不能超过 4000 个字符");
+  return text;
+}
+
+function openCustomRuleDialog() {
+  $("#custom-rule-form").reset();
+  $("#custom-rule-status").textContent = "";
+  $("#custom-rule-dialog").showModal();
+  $("#custom-rule-name").focus();
+}
+
+function closeCustomRuleDialog() {
+  $("#custom-rule-dialog").close();
+}
+
+async function createCustomRule(event) {
+  event.preventDefault();
+  const button = $("#save-custom-rule");
+  const status = $("#custom-rule-status");
+  button.disabled = true;
+  status.textContent = "正在保存……";
+  try {
+    const result = await api(`/api/developer-modules/extended-mining-workbench/commands/rules?memoryId=${encodeURIComponent(state.threadId)}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        operation: "create",
+        name: $("#custom-rule-name").value,
+        prompt: $("#custom-rule-prompt").value,
+        apply: true,
+      }),
+    });
+    if (result.rule?.id) state.selectedCustomRuleIds.add(result.rule.id);
+    await loadCustomRules();
+    saveRules();
+    closeCustomRuleDialog();
+  } catch (error) {
+    status.textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function renderPlan() {
@@ -250,8 +331,11 @@ function renderPlan() {
   const profile = currentProfile();
   const groups = dateGroups(dates, Number($("#group-days").value));
   const node = $("#plan");
-  if (!dates.length || !profile) {
-    node.textContent = "请选择至少一个日期和一个 API 或本机 CLI 模型。";
+  let instructionError = null;
+  try { combinedAdditionalInstruction(); } catch (error) { instructionError = error; }
+  if (!dates.length || !profile || instructionError) {
+    if (instructionError) node.textContent = instructionError.message;
+    else node.textContent = "请选择至少一个日期和一个 API 或本机 CLI 模型。";
     $("#start-batch").disabled = true;
     return;
   }
@@ -278,7 +362,7 @@ async function startBatch() {
         chunkKb: $("#chunk-kb").value === "auto" ? "auto" : Number($("#chunk-kb").value),
         parallel: Number($("#parallel").value),
         rules: selectedRules(),
-        additionalInstruction: $("#additional-instruction").value.trim(),
+        additionalInstruction: combinedAdditionalInstruction(),
       }),
     });
     renderBatch(result.batch);
@@ -474,9 +558,15 @@ function wireUi() {
   $("#additional-instruction").oninput = saveRules;
   $("#reset-rules").onclick = () => {
     document.querySelectorAll("[data-rule]").forEach(input => { input.checked = false; });
+    state.selectedCustomRuleIds.clear();
+    document.querySelectorAll("[data-custom-rule]").forEach(input => { input.checked = false; });
     $("#additional-instruction").value = "";
     saveRules();
   };
+  $("#add-custom-rule").onclick = openCustomRuleDialog;
+  $("#close-custom-rule").onclick = closeCustomRuleDialog;
+  $("#cancel-custom-rule").onclick = closeCustomRuleDialog;
+  $("#custom-rule-form").onsubmit = createCustomRule;
   $("#start-batch").onclick = startBatch;
   document.querySelectorAll("[data-tab]").forEach(button => button.onclick = () => switchTab(button.dataset.tab));
 }
@@ -498,7 +588,7 @@ async function init() {
   if (firstProvider?.defaultModel) $("#api-model").value = firstProvider.defaultModel;
   restoreRules();
   restoreLastProfile();
-  await Promise.all([loadDates(), loadCandidates()]);
+  await Promise.all([loadDates(), loadCandidates(), loadCustomRules()]);
   const batches = await api(`/review-lab/api/batches?threadId=${encodeURIComponent(state.threadId)}`);
   if (batches.batches?.[0]) renderBatch(batches.batches[0]);
   switchTab("formal");

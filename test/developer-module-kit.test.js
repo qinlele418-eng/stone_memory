@@ -120,6 +120,13 @@ test("extended mining workbench stays detachable and uses the shared module cont
   assert.ok(html.indexOf('class="prompt-panel') < html.indexOf('id="start-batch"'));
   assert.match(html, /正式设置的“挖掘方式 → API”/);
   assert.match(html, /本次挖掘 Prompt/);
+  assert.match(html, /id="add-custom-rule">添加自定义细则/);
+  assert.match(html, /id="custom-rule-dialog"/);
+  assert.match(html, /id="custom-rule-name"/);
+  assert.match(html, /id="custom-rule-prompt"/);
+  assert.match(app, /commands\/rules\?memoryId=/);
+  assert.match(app, /combinedAdditionalInstruction/);
+  assert.match(app, /operation:\s*"create"/);
   assert.match(html, /data-closed-label="展开编辑"/);
   assert.match(app, /label\.dataset\.openLabel/);
   assert.doesNotMatch(app, /threadId\s*:\s*["'](?:[0-9a-f]{8}-){2}/i);

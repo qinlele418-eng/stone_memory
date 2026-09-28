@@ -179,7 +179,6 @@ const REVIEW_RULE_IDS = {
   relationshipPlatform: "platform-neutral",
   emotional: "personal-emotion",
   conflict: "conflict-context",
-  intimacy: "intimate-facts",
   countLimit: "count-limit",
   strictBoundaries: "strict-importance",
 };
@@ -1084,9 +1083,14 @@ async function handleApi(req, res, url, { isRemote = false } = {}) {
     const args = ["module", moduleId, action];
     if (threadId) args.push("--memory", threadId);
     if (bindingId) args.push("--binding", bindingId);
-    const output = req.method === "POST"
-      ? runStmemBatch(args, await readJson(req))
-      : JSON.parse(runStmem(args));
+    let output;
+    if (req.method === "POST") {
+      const body = await readJson(req);
+      if (body.apply === true) args.push("--apply");
+      output = runStmemBatch(args, body);
+    } else {
+      output = JSON.parse(runStmem(args));
+    }
     return json(res, 200, output);
   }
 

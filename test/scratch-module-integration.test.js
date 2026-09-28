@@ -14,7 +14,7 @@ test("scratch module is discoverable through the generic developer module manife
   const scratch = modules.find(row => row.id === "memory-scratch");
 
   assert.equal(scratch.title, "刮刮乐");
-  assert.equal(scratch.contributor, "SM帝国左丞相可");
+  assert.equal(scratch.contributor, "@kekekeke4337");
   assert.equal(scratch.entry, "/developer-modules/my-module/");
   assert.deepEqual(scratch.features, ["真实刮擦", "五色记忆奖励", "跟随挖掘通道"]);
 });

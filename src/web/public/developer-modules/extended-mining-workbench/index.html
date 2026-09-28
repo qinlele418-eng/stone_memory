@@ -79,10 +79,14 @@
           <label><input type="checkbox" data-rule="relationshipPlatform">弱化平台</label>
           <label><input type="checkbox" data-rule="emotional">具体情绪</label>
           <label><input type="checkbox" data-rule="conflict">冲突上下文</label>
-          <label><input type="checkbox" data-rule="intimacy">亲密事实</label>
           <label><input type="checkbox" data-rule="countLimit">8–20 条</label>
           <label><input type="checkbox" data-rule="strictBoundaries">严格重要度</label>
         </div>
+        <div class="custom-rule-head">
+          <p class="fine-rule-title">自定义细则</p>
+          <button type="button" class="quiet-action" id="add-custom-rule">添加自定义细则</button>
+        </div>
+        <div class="rule-grid custom-rule-grid" id="custom-rule-list"><p class="empty">尚未添加自定义细则。</p></div>
         <label class="instruction-field">额外要求<textarea id="additional-instruction" maxlength="4000" placeholder="可留空；只作为本次附加要求，不替换作者原始 Prompt。"></textarea></label>
         <button type="button" class="quiet-action" id="reset-rules">恢复作者原版</button>
       </div>
@@ -111,6 +115,15 @@
       </div>
     </section>
   </stone-module-page>
+  <dialog class="custom-rule-dialog" id="custom-rule-dialog" aria-labelledby="custom-rule-dialog-title">
+    <form method="dialog" id="custom-rule-form">
+      <div class="dialog-head"><div><p class="eyebrow">CUSTOM RULE</p><h2 id="custom-rule-dialog-title">添加自定义细则</h2></div><button type="button" class="icon-button" id="close-custom-rule" aria-label="关闭">×</button></div>
+      <label>细则名称<input id="custom-rule-name" maxlength="60" autocomplete="off" placeholder="例如：保留疾病恢复过程"></label>
+      <label>Prompt<textarea id="custom-rule-prompt" maxlength="4000" rows="10" placeholder="说明本次挖掘需要额外遵守的具体规则。"></textarea></label>
+      <p class="dialog-status" id="custom-rule-status" role="status"></p>
+      <div class="dialog-actions"><button type="button" class="quiet-action" id="cancel-custom-rule">取消</button><button type="submit" class="primary-action" id="save-custom-rule">添加细则</button></div>
+    </form>
+  </dialog>
   <script src="./app.js"></script>
 </body>
 </html>

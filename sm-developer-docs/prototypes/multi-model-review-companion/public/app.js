@@ -5,7 +5,6 @@ const RULE_KEYS = [
   "relationshipPlatform",
   "emotional",
   "conflict",
-  "intimacy",
   "countLimit",
   "strictBoundaries",
 ];
@@ -15,20 +14,17 @@ const RULE_LABELS = {
   relationshipPlatform: "关系归一与平台降噪",
   emotional: "情感优先",
   conflict: "冲突与吃醋归因",
-  intimacy: "亲密抽取",
   countLimit: "每日 8–20 条",
   strictBoundaries: "严格 importance/features",
 };
 
 const PRESETS = {
   author: Object.fromEntries(RULE_KEYS.map(key => [key, false])),
-  "daily-intimacy": Object.fromEntries(RULE_KEYS.map(key => [key, key === "intimacy"])),
   history: Object.fromEntries(RULE_KEYS.map(key => [key, true])),
 };
 
 const PRESET_LABELS = {
   author: "作者原版",
-  "daily-intimacy": "日常亲密",
   history: "历史增强组合",
   custom: "自定义组合",
 };
@@ -182,7 +178,6 @@ function normalizedCandidateRules(candidate) {
     relationshipPlatform: historical,
     emotional: historical,
     conflict: historical,
-    intimacy: !!options.intimacy,
     countLimit: !!options.countLimit,
     strictBoundaries: historical,
   };

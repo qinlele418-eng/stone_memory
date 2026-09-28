@@ -240,7 +240,7 @@ test("review workbench maps canonical CLI candidates to the contributed frontend
   const candidate = reviewCandidateForWeb({
     id: "candidate-1",
     profile: { id: "api:provider:model", label: "模型甲" },
-    ruleIds: ["source-aware", "intimate-facts"],
+    ruleIds: ["source-aware"],
     feelings: [],
     features: [],
   });
@@ -248,7 +248,7 @@ test("review workbench maps canonical CLI candidates to the contributed frontend
   assert.equal(candidate.modelLabel, "模型甲");
   assert.equal(candidate.preset, "custom");
   assert.equal(candidate.rules.sourceAware, true);
-  assert.equal(candidate.rules.intimacy, true);
+  assert.equal(Object.keys(candidate.rules).length, 6);
   assert.equal(candidate.rules.countLimit, false);
 });
 

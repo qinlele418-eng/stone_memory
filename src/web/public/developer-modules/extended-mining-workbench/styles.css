@@ -134,6 +134,9 @@ input, select, textarea {
 .mining-action-panel { margin: calc(var(--stone-theme-space-2, .6rem) * -1) 0 var(--stone-theme-space-4, 1.25rem); }
 .mining-action-panel .plan { margin-top: 0; }
 .fine-rule-title { margin: var(--stone-theme-space-3, .9rem) 0 0; font-weight: 700; }
+.custom-rule-head { display: flex; align-items: center; justify-content: space-between; gap: var(--stone-theme-space-2, .6rem); margin-top: var(--stone-theme-space-3, .9rem); }
+.custom-rule-head .fine-rule-title { margin: 0; }
+.custom-rule-grid .empty { width: 100%; margin-top: 0; }
 .rule-grid { display: flex; flex-wrap: wrap; gap: var(--stone-theme-space-2, .6rem); margin-top: var(--stone-theme-space-2, .6rem); }
 .rule-grid label {
   display: flex;
@@ -148,6 +151,22 @@ input, select, textarea {
 .rule-grid input { width: auto; }
 .instruction-field { margin: var(--stone-theme-space-3, .9rem) 0; }
 textarea { min-height: 6rem; resize: vertical; }
+.custom-rule-dialog {
+  width: min(42rem, calc(100% - 2rem));
+  max-height: calc(100dvh - 2rem);
+  border: 1px solid var(--stone-theme-line);
+  border-radius: var(--stone-theme-radius-lg);
+  color: var(--stone-theme-ink);
+  background: var(--stone-theme-surface);
+  box-shadow: var(--stone-theme-shadow-floating);
+}
+.custom-rule-dialog::backdrop { background: color-mix(in srgb, var(--stone-theme-ink) 42%, transparent); }
+.custom-rule-dialog form { display: grid; gap: var(--stone-theme-space-3, .9rem); }
+.dialog-head, .dialog-actions { display: flex; align-items: center; justify-content: space-between; gap: var(--stone-theme-space-2, .6rem); }
+.dialog-head h2, .dialog-head p { margin: 0; }
+.dialog-actions { justify-content: flex-end; }
+.dialog-actions .primary-action { width: auto; margin-top: 0; }
+.dialog-status { min-height: 1.5em; margin: 0; color: var(--stone-theme-danger); }
 .primary-action {
   width: 100%;
   margin-top: var(--stone-theme-space-3, .9rem);

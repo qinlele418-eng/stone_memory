@@ -1,6 +1,6 @@
 # 自动织梦开发者模块
 
-贡献人：大司空歪（GitHub：`@fengyincheng`）
+贡献人：`@fengyincheng`
 
 首页提供当前状态概览（含「立即织梦」轻量生成区），以及三个二级入口：**织梦秘典**
 （管理当前记忆体的织梦 Prompt override，可恢复 Stone Memory 内置默认）、**织梦调律**

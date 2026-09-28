@@ -68,9 +68,14 @@ async function handleDeveloperModules(req, res, url) {
     if (threadId) publicThreadSettings(threadId);
     const args = ["module", moduleId, action, "--thread", threadId];
     if (bindingId) args.push("--binding", bindingId);
-    const output = req.method === "POST"
-      ? runStmemBatch(args, await readJson(req))
-      : JSON.parse(runStmem(args));
+    let output;
+    if (req.method === "POST") {
+      const body = await readJson(req);
+      if (body.apply === true) args.push("--apply");
+      output = runStmemBatch(args, body);
+    } else {
+      output = JSON.parse(runStmem(args));
+    }
     return json(res, 200, output);
   }
 

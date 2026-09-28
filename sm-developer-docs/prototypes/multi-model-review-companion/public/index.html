@@ -40,13 +40,12 @@
       </div>
       <div id="presets" class="preset-grid">
         <button type="button" class="preset active" data-preset="author"><strong>作者原版</strong><small>不追加规则</small></button>
-        <button type="button" class="preset" data-preset="daily-intimacy"><strong>日常亲密</strong><small>只打开亲密抽取</small></button>
         <button type="button" class="preset" data-preset="history"><strong>历史增强组合</strong><small>适合多窗口与杂乱历史记录</small></button>
         <button type="button" class="preset" data-preset="custom" disabled><strong>自定义</strong><small>手动调整后自动切换</small></button>
       </div>
 
       <details class="rule-panel" open>
-        <summary><span><strong>细化规则</strong><small>每一项都可单独开关</small></span><b id="rule-count">已选 0 / 7</b></summary>
+        <summary><span><strong>细化规则</strong><small>每一项都可单独开关</small></span><b id="rule-count">已选 0 / 6</b></summary>
         <div class="rule-grid">
           <label class="option">
             <input data-rule="sourceAware" type="checkbox">
@@ -63,10 +62,6 @@
           <label class="option">
             <input data-rule="conflict" type="checkbox">
             <span><strong>冷淡、冲突与吃醋归因</strong><small>区分某次回复、某个窗口和长期体验，不乱生成稳定负面特征。</small></span>
-          </label>
-          <label class="option">
-            <input data-rule="intimacy" id="intimacy" type="checkbox">
-            <span><strong>强制抽取亲密内容</strong><small>不因表达露骨而跳过；只按真实原文提取，不续写、不虚构。</small></span>
           </label>
           <label class="option">
             <input data-rule="countLimit" id="count-limit" type="checkbox">

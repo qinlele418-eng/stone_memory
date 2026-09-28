@@ -9,7 +9,6 @@ const REVIEW_RULE_IDS = {
   relationshipPlatform: "platform-neutral",
   emotional: "personal-emotion",
   conflict: "conflict-context",
-  intimacy: "intimate-facts",
   countLimit: "count-limit",
   strictBoundaries: "strict-importance",
 };

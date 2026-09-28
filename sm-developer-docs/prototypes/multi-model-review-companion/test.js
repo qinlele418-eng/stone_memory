@@ -3,7 +3,7 @@
 const assert = require("node:assert/strict");
 const companion = require("./server");
 
-assert.equal(companion.RULE_KEYS.length, 7);
+assert.equal(companion.RULE_KEYS.length, 6);
 assert.match(companion.friendlyPreviewError(new Error("<!DOCTYPE html><title>524: A timeout occurred</title>")), /524/);
 assert.equal(
   companion.parseModelJson('```json\n{"feelings":[],"features":[]}\n```').feelings.length,
@@ -30,32 +30,29 @@ const granular = companion.normalizeRuleSelection({
     relationshipPlatform: false,
     emotional: true,
     conflict: false,
-    intimacy: true,
     countLimit: true,
     strictBoundaries: true,
   },
 });
-assert.equal(Object.keys(granular).length, 7);
+assert.equal(Object.keys(granular).length, 6);
 assert.equal(granular.sourceAware, true);
 assert.equal(granular.relationshipPlatform, false);
-assert.equal(granular.intimacy, true);
 
-const legacy = companion.normalizeRuleSelection({ historical: true, intimacy: true, countLimit: true });
+const legacy = companion.normalizeRuleSelection({ historical: true, countLimit: true });
 assert.ok(Object.values(legacy).every(Boolean));
 
 const parts = companion.loadHistoricalRuleParts();
 assert.equal(Object.keys(parts.parts).length, 5);
 const texts = companion.selectedRuleTexts(granular, parts.parts);
-assert.equal(texts.length, 5);
+assert.equal(texts.length, 4);
 const prompt = companion.buildPrompt({
   operations: "作者原版",
-  ruleTexts: [...texts, "亲密内容", "8 至 20 条"],
+  ruleTexts: [...texts, "8 至 20 条"],
   date: "2026-07-01",
   chunkIndex: 0,
   chunkCount: 1,
   previousFeelings: [],
 });
-assert.match(prompt, /亲密内容/);
 assert.match(prompt, /8 至 20 条/);
 assert.match(prompt, /作者原版/);
 
