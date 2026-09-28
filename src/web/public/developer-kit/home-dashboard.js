@@ -42,10 +42,12 @@
       growth.append(chip);
     }
     copy.append(growth);
-    const healthy = data.automationRunning && !data.pendingMiningDays;
+    const pendingMiningDays = Number(data.pendingMiningDays || 0);
+    const maintenanceOverdue = pendingMiningDays > 1;
+    const healthy = data.automationRunning && !maintenanceOverdue;
     const service = element("div", `today-grain-service ${healthy ? "is-ok" : "is-warning"}`);
-    service.append(element("i", "today-grain-dot"), element("span", "", data.pendingMiningDays
-      ? `本地服务运行正常 · ${data.pendingMiningDays} 天记忆待维护`
+    service.append(element("i", "today-grain-dot"), element("span", "", maintenanceOverdue
+      ? `本地服务运行正常 · ${pendingMiningDays} 天记忆待维护`
       : data.automationRunning ? "本地服务运行正常" : "本地服务运行正常 · 自动化未启用"));
     copy.append(service);
     section.append(copy);

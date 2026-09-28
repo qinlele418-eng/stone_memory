@@ -14,12 +14,13 @@ test("home dashboard maps overview data onto the stable memory lobby", () => {
   const transitionStyles = fs.readFileSync(path.join(root, "public", "developer-kit", "page-transition.css"), "utf8");
   const developerStyles = fs.readFileSync(path.join(root, "public", "theme-studio", "developer-common.css"), "utf8");
 
-  assert.ok(html.indexOf("/app.js?v=49") < html.indexOf("/developer-kit/home-dashboard.js?v=7"));
-  assert.ok(html.indexOf("/developer-kit/page-transition.js?v=1") < html.indexOf("/app.js?v=49"));
+  assert.ok(html.indexOf("/app.js?v=") < html.indexOf("/developer-kit/home-dashboard.js?v=8"));
+  assert.ok(html.indexOf("/developer-kit/page-transition.js?v=1") < html.indexOf("/app.js?v="));
   assert.match(adapter, /fetch\("\/api\/home"/);
   assert.match(adapter, /lastSync\(memory\.lastArchivedAt\)/);
   assert.doesNotMatch(adapter, /最近对话同步[^\n]*lastMinedAt/);
   assert.match(adapter, /今日纹路 · TODAY'S GRAIN/);
+  assert.match(adapter, /const maintenanceOverdue = pendingMiningDays > 1/);
   assert.match(adapter, /library-card--mapped/);
   assert.match(adapter, /const dashboards = new WeakMap\(\)/);
   assert.doesNotMatch(adapter, /new WeakSet\(\)/);
