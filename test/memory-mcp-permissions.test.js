@@ -46,3 +46,28 @@ test("legacy Claude sessions resolve by their config key and keep Notebook and D
   assert.equal(session.memoryId, sessionId);
   assert.deepEqual(session.modules, ["notebook-lab", "dream-lab"]);
 });
+
+test("legacy settings save preserves declared MCP module switches", t => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-legacy-settings-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const threadId = "55555555-5555-4555-8555-555555555555";
+  fs.mkdirSync(path.join(home, ".stone_memory"), { recursive: true });
+  fs.writeFileSync(path.join(home, ".stone_memory", "stmem.json"), JSON.stringify({
+    [threadId]: { memoryId: threadId, label: "旧记忆体", runtime: "claude", purpose: "accompany",
+      ai: "A", user: "U", userGender: "unspecified", sessionDir: home, minerMode: "subagent", scenario: "accompany",
+      mcpModules: ["notebook-lab", "dream-lab", "drawing-game"], mcpModuleConfigVersion: 1 },
+  }));
+  const setupPath = path.join(root, "src", "services", "thread-setup");
+  const code = `const { createThread } = require(${JSON.stringify(setupPath)});
+const input = { threadId: process.argv[1], libraryName: "旧记忆体", runtime: "claude", purpose: "accompany",
+  ai: "A", user: "U", userGender: "unspecified", sessionDir: process.argv[2], minerMode: "subagent", scenario: "accompany" };
+createThread(input, { allowExisting: true, requireSession: false });
+const saved = require("fs").readFileSync(require("path").join(require("os").homedir(), ".stone_memory", "stmem.json"), "utf8");
+const entry = JSON.parse(saved)[process.argv[1]];
+console.log(JSON.stringify({ mcpModules: entry.mcpModules, mcpModuleConfigVersion: entry.mcpModuleConfigVersion }));`;
+  const result = run(home, code, [threadId, home]);
+  assert.equal(result.status, 0, result.stderr || result.error?.message);
+  const out = JSON.parse(result.stdout);
+  assert.deepEqual(out.mcpModules, ["notebook-lab", "dream-lab", "drawing-game"]);
+  assert.equal(out.mcpModuleConfigVersion, 1);
+});
