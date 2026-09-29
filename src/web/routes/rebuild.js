@@ -23,15 +23,15 @@ async function handleRebuild(req, res, url) {
     // may only operate on threads explicitly registered in stmem config.
     const threadSettings = publicThreadSettings(threadId);
     if (req.method === "GET" && action === "preview") {
-      const windowDays = Math.max(1, Number(url.searchParams.get("windowDays")) || 3);
+      const windowDays = Math.max(1, Number(url.searchParams.get("windowDays")) || 1);
       const toolValue = url.searchParams.get("toolPairs");
-      const toolPairs = Math.max(0, toolValue === null ? 30 : Number(toolValue));
+      const toolPairs = Math.max(0, toolValue === null ? 15 : Number(toolValue));
       const binding = configuredBinding(threadId, url.searchParams.get("binding"));
       const preview = buildRebuildPreview(threadId, { windowDays, toolPairs, binding });
       return json(res, 200, { ...preview, items: paginate(preview.items, url.searchParams.get("page")), tools: paginate(preview.tools, url.searchParams.get("toolPage")) });
     }
     if(req.method==="GET"&&action==="dry-run"){
-      const windowDays=Math.max(1,Number(url.searchParams.get("windowDays"))||3),toolValue=url.searchParams.get("toolPairs"),toolPairs=Math.max(0,toolValue===null?30:Number(toolValue)),watermark=url.searchParams.get("watermark")==="true",summaryLimit=Math.max(0,Number(url.searchParams.get("summaryLimit"))||0),minImportance=Math.max(0,Math.min(5,Number(url.searchParams.get("minImportance"))||0));
+      const windowDays=Math.max(1,Number(url.searchParams.get("windowDays"))||1),toolValue=url.searchParams.get("toolPairs"),toolPairs=Math.max(0,toolValue===null?15:Number(toolValue)),watermark=url.searchParams.get("watermark")==="true",summaryLimit=Math.max(0,Number(url.searchParams.get("summaryLimit"))||0),minImportance=Math.max(0,Math.min(5,Number(url.searchParams.get("minImportance"))||0));
       const rebuildArgs=["rebuild","--thread",threadId,"--window",String(windowDays),"--tool-pairs",String(toolPairs)];
       const bindingValue=(url.searchParams.get("binding")||"").trim();
       if(bindingValue)rebuildArgs.push("--binding",bindingValue);
@@ -40,7 +40,7 @@ async function handleRebuild(req, res, url) {
       return json(res,200,parseRebuildDryRun(runStmem(rebuildArgs)));
     }
     if(req.method==="POST"&&action==="dry-run"){
-      const body=await readJson(req),request=normalizeRebuildRequest({...body,trigger:"web"},{windowDays:3,toolPairs:30,trigger:"web"});
+      const body=await readJson(req),request=normalizeRebuildRequest({...body,trigger:"web"},{windowDays:1,toolPairs:15,trigger:"web"});
       const dir=fs.mkdtempSync(path.join(os.tmpdir(),"stmem-rebuild-preview-")),planFile=path.join(dir,"plan.json");
       fs.writeFileSync(planFile,JSON.stringify(request.trim),{encoding:"utf8",mode:0o600});
       const rebuildArgs=["rebuild","--thread",threadId,...rebuildRequestCliArgs(request),"--plan",planFile];
@@ -63,7 +63,7 @@ async function handleRebuild(req, res, url) {
       const body = await readJson(req);
       const binding = configuredBinding(threadId, body.bindingId);
       if ((binding?.provider || threadSettings.runtime) === "codex") return json(res, 409, { error: "Codex 不支持延时重建队列，请使用 apply 并在成功后立即重启 Codex/app-server" });
-      const request = normalizeRebuildRequest({ ...body, trigger: "web" }, { windowDays: 3, toolPairs: 30, trigger: "web" });
+      const request = normalizeRebuildRequest({ ...body, trigger: "web" }, { windowDays: 1, toolPairs: 15, trigger: "web" });
       const planDir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-rebuild-queue-plan-"));
       const planFile = path.join(planDir, "plan.json");
       fs.writeFileSync(planFile, JSON.stringify(request.trim), { encoding: "utf8", mode: 0o600 });
@@ -77,7 +77,7 @@ async function handleRebuild(req, res, url) {
       const body = await readJson(req);
       const binding = configuredBinding(threadId, body.bindingId);
       if ((binding?.provider || threadSettings.runtime) !== "codex") return json(res, 409, { error: "Claude Code 必须使用重建队列，以避免 UUID 链断裂" });
-      const request = normalizeRebuildRequest({ ...body, trigger: "web" }, { windowDays: 3, toolPairs: 30, trigger: "web" });
+      const request = normalizeRebuildRequest({ ...body, trigger: "web" }, { windowDays: 1, toolPairs: 15, trigger: "web" });
       const planFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "stmem-rebuild-plan-")), "plan.json");
       fs.writeFileSync(planFile, JSON.stringify(request.trim), "utf8");
       try {

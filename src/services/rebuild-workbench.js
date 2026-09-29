@@ -120,7 +120,7 @@ function latestConversationDate(rows, runtime) {
   return conversationDates(rows, runtime).at(-1) || null;
 }
 
-function buildRebuildPreview(threadId, { windowDays = 3, toolPairs = 30, binding = null } = {}) {
+function buildRebuildPreview(threadId, { windowDays = 1, toolPairs = 15, binding = null } = {}) {
   const runtime = binding?.provider || getCfg("runtime", threadId, "claude");
   const file = binding ? findThreadSessionFile(binding.sessionRoot, binding.externalThreadId) : sessionFile(threadId, runtime);
   if (!file) throw new Error(missingSessionMessage(threadId));

@@ -33,7 +33,7 @@ function publicThreadSettings(threadId) {
     model: entry.apiProvider ? (config.apiKeys?.[entry.apiProvider]?.model || "") : "",
     apiKey: entry.apiProvider ? (config.apiKeys?.[entry.apiProvider]?.key || "") : "",
     hasApiKey: !!(entry.apiProvider && config.apiKeys?.[entry.apiProvider]?.key),
-    windowDays: entry.windowDays ?? 3, keepToolPairs: entry.keepToolPairs ?? 30,
+    windowDays: entry.windowDays ?? 1, keepToolPairs: entry.keepToolPairs ?? 15,
     mcpRebuildDefaultsEnabled: entry.mcpRebuildDefaultsEnabled === true,
     mcpSummaryLimit: entry.mcpSummaryLimit ?? 0,
     mcpMinImportance: entry.mcpMinImportance ?? 0,

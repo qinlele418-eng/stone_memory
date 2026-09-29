@@ -49,8 +49,8 @@ function resolveThread(args = {}, cfg) {
     bindingId: callingBinding?.bindingId || null,
     externalThreadId: callingBinding?.externalThreadId || null,
     runtime: callingBinding?.provider || tc.runtime || "claude",
-    windowDays: args.context?.windowDays || args.window || tc.windowDays || 3,
-    toolPairs: args.context?.toolPairs ?? args.toolPairs ?? tc.keepToolPairs ?? 30,
+    windowDays: args.context?.windowDays || args.window || tc.windowDays || 1,
+    toolPairs: args.context?.toolPairs ?? args.toolPairs ?? tc.keepToolPairs ?? 15,
   };
 }
 

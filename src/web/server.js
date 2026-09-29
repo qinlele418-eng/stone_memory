@@ -435,7 +435,7 @@ function publicThreadSettings(threadId, { redactLocalPaths = false } = {}) {
     baseUrl: entry.apiProvider ? (config.apiKeys?.[entry.apiProvider]?.baseUrl || "") : "",
     model: entry.apiProvider ? (config.apiKeys?.[entry.apiProvider]?.model || "") : "",
     hasApiKey: !!(entry.apiProvider && config.apiKeys?.[entry.apiProvider]?.key),
-    windowDays: entry.windowDays ?? 3, keepToolPairs: entry.keepToolPairs ?? 30,
+    windowDays: entry.windowDays ?? 1, keepToolPairs: entry.keepToolPairs ?? 15,
     mcpRebuildDefaultsEnabled: entry.mcpRebuildDefaultsEnabled === true,
     mcpSummaryLimit: entry.mcpSummaryLimit ?? 0,
     mcpMinImportance: entry.mcpMinImportance ?? 0,
@@ -1847,16 +1847,16 @@ async function handleApi(req, res, url, { isRemote = false } = {}) {
     // may only operate on threads explicitly registered in stmem config.
     const threadSettings = publicThreadSettings(threadId);
     if (req.method === "GET" && action === "preview") {
-      const windowDays = Math.max(1, Number(url.searchParams.get("windowDays")) || 3);
+      const windowDays = Math.max(1, Number(url.searchParams.get("windowDays")) || 1);
       const toolValue = url.searchParams.get("toolPairs");
-      const toolPairs = Math.max(0, toolValue === null ? 30 : Number(toolValue));
+      const toolPairs = Math.max(0, toolValue === null ? 15 : Number(toolValue));
       const bindingValue = String(url.searchParams.get("binding") || "").trim();
       const binding = bindingValue ? getConfiguredBinding(threadId, bindingValue) : null;
       const preview = buildRebuildPreview(threadId, { windowDays, toolPairs, binding });
       return json(res, 200, { ...preview, items: paginate(preview.items, url.searchParams.get("page")), tools: paginate(preview.tools, url.searchParams.get("toolPage")) });
     }
     if(req.method==="GET"&&action==="dry-run"){
-      const windowDays=Math.max(1,Number(url.searchParams.get("windowDays"))||3),toolValue=url.searchParams.get("toolPairs"),toolPairs=Math.max(0,toolValue===null?30:Number(toolValue)),watermark=url.searchParams.get("watermark")==="true",summaryLimit=Math.max(0,Number(url.searchParams.get("summaryLimit"))||0),minImportance=Math.max(0,Math.min(5,Number(url.searchParams.get("minImportance"))||0));
+      const windowDays=Math.max(1,Number(url.searchParams.get("windowDays"))||1),toolValue=url.searchParams.get("toolPairs"),toolPairs=Math.max(0,toolValue===null?15:Number(toolValue)),watermark=url.searchParams.get("watermark")==="true",summaryLimit=Math.max(0,Number(url.searchParams.get("summaryLimit"))||0),minImportance=Math.max(0,Math.min(5,Number(url.searchParams.get("minImportance"))||0));
       const rebuildArgs=["rebuild","--thread",threadId,"--window",String(windowDays),"--tool-pairs",String(toolPairs)];
       const bindingValue=(url.searchParams.get("binding")||"").trim();
       if(bindingValue)rebuildArgs.push("--binding",bindingValue);
@@ -1865,7 +1865,7 @@ async function handleApi(req, res, url, { isRemote = false } = {}) {
       return json(res,200,parseRebuildDryRun(runStmem(rebuildArgs)));
     }
     if(req.method==="POST"&&action==="dry-run"){
-      const body=await readJson(req),request=normalizeRebuildRequest({...body,trigger:"web"},{windowDays:3,toolPairs:30,trigger:"web"});
+      const body=await readJson(req),request=normalizeRebuildRequest({...body,trigger:"web"},{windowDays:1,toolPairs:15,trigger:"web"});
       const dir=fs.mkdtempSync(path.join(os.tmpdir(),"stmem-rebuild-preview-")),planFile=path.join(dir,"plan.json");
       fs.writeFileSync(planFile,JSON.stringify(request.trim),{encoding:"utf8",mode:0o600});
       const rebuildArgs=["rebuild","--thread",threadId,...rebuildRequestCliArgs(request),"--plan",planFile];
@@ -1890,7 +1890,7 @@ async function handleApi(req, res, url, { isRemote = false } = {}) {
       const bindingValue = String(body.bindingId || "").trim();
       const binding = bindingValue ? getConfiguredBinding(threadId, bindingValue) : null;
       if ((binding?.provider || threadSettings.runtime) === "codex") return json(res, 409, { error: "Codex 不支持延时重建队列，请使用 apply 并在成功后立即重启 Codex/app-server" });
-      const request = normalizeRebuildRequest({ ...body, trigger: "web" }, { windowDays: 3, toolPairs: 30, trigger: "web" });
+      const request = normalizeRebuildRequest({ ...body, trigger: "web" }, { windowDays: 1, toolPairs: 15, trigger: "web" });
       const planDir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-rebuild-queue-plan-"));
       const planFile = path.join(planDir, "plan.json");
       fs.writeFileSync(planFile, JSON.stringify(request.trim), { encoding: "utf8", mode: 0o600 });
@@ -1905,7 +1905,7 @@ async function handleApi(req, res, url, { isRemote = false } = {}) {
       const bindingValue = String(body.bindingId || "").trim();
       const binding = bindingValue ? getConfiguredBinding(threadId, bindingValue) : null;
       if ((binding?.provider || threadSettings.runtime) !== "codex") return json(res, 409, { error: "Claude Code 必须使用重建队列，以避免 UUID 链断裂" });
-      const request = normalizeRebuildRequest({ ...body, trigger: "web" }, { windowDays: 3, toolPairs: 30, trigger: "web" });
+      const request = normalizeRebuildRequest({ ...body, trigger: "web" }, { windowDays: 1, toolPairs: 15, trigger: "web" });
       const planFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "stmem-rebuild-plan-")), "plan.json");
       fs.writeFileSync(planFile, JSON.stringify(request.trim), "utf8");
       try {
@@ -2006,7 +2006,7 @@ async function handleApi(req, res, url, { isRemote = false } = {}) {
         label: input.libraryName, purpose: input.purpose, scenario: input.scenario, ai: input.ai, user: input.user,
         userGender: input.userGender || "unspecified",
         miner: { mode: input.minerMode, apiProfile: input.minerMode === "api" ? input.apiProvider : null },
-        rebuild: { windowDays: Number(input.windowDays) || 3, keepToolPairs: Number(input.keepToolPairs) || 0 },
+        rebuild: { windowDays: Number(input.windowDays) || 1, keepToolPairs: input.keepToolPairs === undefined || input.keepToolPairs === "" ? 15 : Math.max(0, Number(input.keepToolPairs) || 0) },
       }), { encoding: "utf8", mode: 0o600 });
       runStmem(["memory", "settings", "--memory", input.memoryId, "--batch-file", settingsFile, "--validate"]);
       runStmem(["memory", "settings", "--memory", input.memoryId, "--batch-file", settingsFile, "--apply"]);

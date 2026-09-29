@@ -3,7 +3,7 @@ const toast = document.querySelector("#toast");
 
 const state = {
   libraries: [], step: 1, imports: [], memoryId: null,
-  form: { libraryName: "", threadId: "", ai: "", user: "", userGender: "unspecified", runtime: "codex", scenario: "life-supervision", sessionDir: "", minerMode: "subagent", apiProvider: "", apiKey: "", baseUrl: "", model: "", windowDays: 3, keepToolPairs: 30, automaticFullMining: true, automaticMemoryMaintenance: true, automaticCompression: false },
+  form: { libraryName: "", threadId: "", ai: "", user: "", userGender: "unspecified", runtime: "codex", scenario: "life-supervision", sessionDir: "", minerMode: "subagent", apiProvider: "", apiKey: "", baseUrl: "", model: "", windowDays: 1, keepToolPairs: 15, automaticFullMining: true, automaticMemoryMaintenance: true, automaticCompression: false },
 };
 
 // 正式发布前在这里补齐公共账号；空值会显示为“待配置”，不会跳往错误地址。
@@ -131,7 +131,7 @@ async function preparePwa() {
 function resetCreateForm(memory = null) {
   state.step = 1; state.imports = [];
   state.memoryId = memory?.memoryId || null;
-  state.form = { libraryName: memory?.libraryName || memory?.label || "", threadId: "", ai: "", user: "", userGender: "unspecified", runtime: "codex", scenario: "life-supervision", sessionDir: "", minerMode: "subagent", apiProvider: "", apiKey: "", baseUrl: "", model: "", windowDays: 3, keepToolPairs: 30, automaticFullMining: true, automaticMemoryMaintenance: true, automaticCompression: false };
+  state.form = { libraryName: memory?.libraryName || memory?.label || "", threadId: "", ai: "", user: "", userGender: "unspecified", runtime: "codex", scenario: "life-supervision", sessionDir: "", minerMode: "subagent", apiProvider: "", apiKey: "", baseUrl: "", model: "", windowDays: 1, keepToolPairs: 15, automaticFullMining: true, automaticMemoryMaintenance: true, automaticCompression: false };
 }
 
 function stoneSvg(className = "hero-stone") {
@@ -1020,7 +1020,7 @@ async function renderSettings(library) {
   }
 }
 
-const rebuildState = { windowDays: 3, toolPairs: 30, watermark: false, summaryMode: "default", summaryLimit: 0, minImportance: 0, mcpDefault: false, page: 1, toolPage: 1, tab: "messages", excludedMessages: new Set(), excludedTools: new Set(), preview: null, bindingId: null, bindingMemoryId: null, bindingRuntime: null };
+const rebuildState = { windowDays: 1, toolPairs: 15, watermark: false, summaryMode: "default", summaryLimit: 0, minImportance: 0, mcpDefault: false, page: 1, toolPage: 1, tab: "messages", excludedMessages: new Set(), excludedTools: new Set(), preview: null, bindingId: null, bindingMemoryId: null, bindingRuntime: null };
 const miningUi={threadId:null,selected:new Set(),page:1,reportPage:1,reportFilter:"all",monthPage:1,selectedDate:null,mode:null,apiProfile:"optimized",timer:null,targetedSelected:new Set(),targetedLastIndex:null};
 const compressionUi={mode:"subagent",afterDays:90};
 
@@ -1384,7 +1384,7 @@ async function renderRebuild(library) {
   };
   document.querySelectorAll('input[name="summary-mode"]').forEach(input=>input.onchange=event=>{rebuildState.summaryMode=event.target.value;if(rebuildState.summaryMode==="limited"&&!rebuildState.summaryLimit)rebuildState.summaryLimit=200;if(rebuildState.summaryMode==="default"){rebuildState.mcpDefault=false;document.querySelector("#mcp-summary-default").checked=false;}syncInjectionControls();});
   document.querySelectorAll('input[name="context-mode"]').forEach(input=>input.onchange=event=>{rebuildState.watermark=event.target.value==="watermark";syncInjectionControls();});
-  document.querySelector("#window-days").onchange=event=>{rebuildState.windowDays=Math.max(1,Number(event.target.value)||3);};
+  document.querySelector("#window-days").onchange=event=>{rebuildState.windowDays=Math.max(1,Number(event.target.value)||1);};
   const syncTools=value=>{rebuildState.toolPairs=Math.max(0,Number(value)||0);document.querySelector("#tool-pairs").value=rebuildState.toolPairs;};
   document.querySelector("#tool-pairs").onchange=event=>syncTools(event.target.value);
   document.querySelector("#summary-limit").onchange=event=>{rebuildState.summaryLimit=Math.max(1,Number(event.target.value)||200);};
@@ -1424,7 +1424,7 @@ async function renderTrimWorkbench(library) {
 
 async function previewIntegratedRebuild(library,options={}) {
   const windowInput=document.querySelector("#window-days"),toolInput=document.querySelector("#tool-pairs"),summaryLimitInput=document.querySelector("#summary-limit"),minImportanceInput=document.querySelector("#min-importance");
-  if(windowInput)rebuildState.windowDays=Math.max(1,Number(windowInput.value)||3);
+  if(windowInput)rebuildState.windowDays=Math.max(1,Number(windowInput.value)||1);
   if(toolInput)rebuildState.toolPairs=Math.max(0,Number(toolInput.value)||0);
   if(summaryLimitInput)rebuildState.summaryLimit=Math.max(1,Number(summaryLimitInput.value)||200);
   if(minImportanceInput)rebuildState.minImportance=Math.max(0,Math.min(5,Number(minImportanceInput.value)||0));

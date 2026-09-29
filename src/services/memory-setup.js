@@ -86,7 +86,7 @@ function createMemory({ label = "新建记忆体" } = {}) {
       relationshipTimeline: [],
       mcpModules: ["notebook-lab", "dream-lab"], mcpModuleConfigVersion: 1,
       miner: { mode: null, apiProfile: null },
-      rebuild: { windowDays: 3, keepToolPairs: 30, contextWindowTokens: null, mcpRebuildDefaultsEnabled: false, mcpSummaryLimit: 0, mcpMinImportance: 0 },
+      rebuild: { windowDays: 1, keepToolPairs: 15, contextWindowTokens: null, mcpRebuildDefaultsEnabled: false, mcpSummaryLimit: 0, mcpMinImportance: 0 },
       createdAt: record.createdAt, updatedAt: record.updatedAt,
     });
     writeJson(path.join(root, "bindings.json"), {
@@ -147,7 +147,7 @@ function publicMemorySettings(memoryId) {
     relationshipTimeline: Array.isArray(entry.relationshipTimeline) ? entry.relationshipTimeline : [],
     miner: { mode: entry.minerMode || null, apiProfile: entry.apiProvider || null },
     rebuild: {
-      windowDays: entry.windowDays ?? 3, keepToolPairs: entry.keepToolPairs ?? 30,
+      windowDays: entry.windowDays ?? 1, keepToolPairs: entry.keepToolPairs ?? 15,
       contextWindowTokens: entry.contextWindowTokens ?? null,
     },
     createdAt: entry.createdAt || null, updatedAt: entry.updatedAt || null,

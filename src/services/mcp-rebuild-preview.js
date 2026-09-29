@@ -25,7 +25,7 @@ function buildMcpRebuildRequest(resolved, args = {}) {
       trim: { excludedMessages: [], excludedTools: [] },
       bindingId: args.bindingId ?? resolved.bindingId,
       trigger: "mcp",
-    }, { windowDays: resolved.windowDays || 3, toolPairs: resolved.toolPairs ?? 30, trigger: "mcp" }),
+    }, { windowDays: resolved.windowDays || 1, toolPairs: resolved.toolPairs ?? 15, trigger: "mcp" }),
   };
 }
 

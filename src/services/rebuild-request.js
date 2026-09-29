@@ -27,8 +27,8 @@ function normalizeRebuildRequest(input = {}, defaults = {}) {
     },
     context: {
       mode: contextMode,
-      windowDays: Math.max(1, Number(contextInput.windowDays ?? input.window ?? input.windowDays ?? defaults.windowDays) || 3),
-      toolPairs: Math.max(0, Number(contextInput.toolPairs ?? input.toolPairs ?? defaults.toolPairs) || 0),
+      windowDays: Math.max(1, Number(contextInput.windowDays ?? input.window ?? input.windowDays ?? defaults.windowDays) || 1),
+      toolPairs: Math.max(0, Number(contextInput.toolPairs ?? input.toolPairs ?? defaults.toolPairs ?? 15) || 0),
     },
     trim: {
       excludedMessages: normalizeIds(trimInput.excludedMessages ?? input.excludedMessages),

@@ -34,7 +34,7 @@ let SESSION_DIR = null;
 let RETAIN_CONFIG_FILE = null;
 let ARCHIVE_DIR = null;
 let RULES_DIR = null;
-let DEFAULT_WINDOW_DAYS = 3;
+let DEFAULT_WINDOW_DAYS = 1;
 let currentThreadId = null;
 let currentExternalThreadId = null;
 
@@ -49,7 +49,7 @@ function initThreadPaths(threadId) {
   RETAIN_CONFIG_FILE = path.join(THREAD_BASE, "memory", "retain-config.json");
   ARCHIVE_DIR = path.join(THREAD_BASE, "memory", "archive");
   RULES_DIR = path.join(THREAD_BASE, "rules");
-  DEFAULT_WINDOW_DAYS = getCfg("windowDays", threadId, 3);
+  DEFAULT_WINDOW_DAYS = getCfg("windowDays", threadId, 1);
 }
 const { automaticRetainWindow, buildMemoryBlocks, resolveLatestFeelingWatermark, selectRebuildFeelings } = require("../src/services/thread-rebuilder");
 
@@ -332,7 +332,7 @@ function rebuildThread(inputPath, outputPath, dryRun, windowDays, toolPairsOverr
 
   // === 保留工具调用对 (tool_use + tool_result)，遇到窗口外上下文截断 ===
   const preservedToolIds = new Set();
-  const keepPairs = toolPairsOverride ?? getCfg("keepToolPairs", currentThreadId, 30);
+  const keepPairs = toolPairsOverride ?? getCfg("keepToolPairs", currentThreadId, 15);
   let pairCount = 0;
   for (let i = messages.length - 1; i >= 0 && pairCount < keepPairs; i--) {
     const msg = messages[i];

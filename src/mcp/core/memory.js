@@ -23,7 +23,7 @@ function toolTriggersCheck(args) {
       }
     } finally { store.close(); }
     // 待重建
-    const windowDays = getCfg("windowDays", tid, 3);
+    const windowDays = getCfg("windowDays", tid, 1);
     let lastArchiveDate = null;
     try {
       const files = new MemoryStore({ memoryDir, threadId: tid });

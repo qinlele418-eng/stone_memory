@@ -93,8 +93,8 @@ async function interactiveInit(threadId) {
     baseUrl = await askOptional(rl, `  ${apiProvider} Base URL (回车默认)`, existingBaseUrl || defaultBaseUrl);
     model = await askRequired(rl, `  ${apiProvider} 模型名（必须与上游实际名称一致）`, cfg.apiKeys?.[apiProvider]?.model || "");
   }
-  const windowDays = await askOptionalNumber(rl, "rebuild 窗口天数", existing.windowDays, 3);
-  const keepToolPairs = await askOptionalNumber(rl, "保留工具对数", existing.keepToolPairs, 30);
+  const windowDays = await askOptionalNumber(rl, "rebuild 窗口天数", existing.windowDays, 1);
+  const keepToolPairs = await askOptionalNumber(rl, "保留工具对数", existing.keepToolPairs, 15);
 
   rl.close();
 

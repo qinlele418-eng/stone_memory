@@ -27,7 +27,7 @@ const { serializeJsonl } = require("../src/lib/jsonl");
 const { previewRebuildArchiveCatchup, applyRebuildArchiveCatchup } = require("../src/services/rebuild-archive-catchup");
 const { replaceThreadFile } = require("../src/lib/thread-file-replacement");
 
-const DEFAULT_WINDOW_DAYS = 3;
+const DEFAULT_WINDOW_DAYS = 1;
 
 function getFeelingsPaths(threadId) {
   const dir = getThreadDir(threadId);
@@ -74,7 +74,7 @@ function main() {
   const watermarkMode = args.includes("--watermark");
   const threadId = threadIdx >= 0 ? args[threadIdx + 1] : null;
   const windowDays = windowIdx >= 0 ? parseInt(args[windowIdx + 1]) || DEFAULT_WINDOW_DAYS : DEFAULT_WINDOW_DAYS;
-  const keepPairs = toolPairsIdx >= 0 ? Math.max(0, parseInt(args[toolPairsIdx + 1]) || 0) : 40;
+  const keepPairs = toolPairsIdx >= 0 ? Math.max(0, parseInt(args[toolPairsIdx + 1]) || 0) : 15;
   const plan = loadRebuildPlan(planIdx >= 0 ? args[planIdx + 1] : null);
   const trigger = triggerIdx >= 0 ? args[triggerIdx + 1] : "cli";
   const summaryFilter = {

@@ -24,8 +24,8 @@ function requestFromArgs(args, threadId, getCfg) {
   return { threadId, ...normalizeRebuildRequest({
     threadId,
     bindingId: valueAfter(args, "--binding") || "",
-    window: valueAfter(args, "--window") ?? getCfg("windowDays", threadId, 3),
-    toolPairs: valueAfter(args, "--tool-pairs") ?? getCfg("keepToolPairs", threadId, 30),
+    window: valueAfter(args, "--window") ?? getCfg("windowDays", threadId, 1),
+    toolPairs: valueAfter(args, "--tool-pairs") ?? getCfg("keepToolPairs", threadId, 15),
     summaryLimit: valueAfter(args, "--summary-limit") ?? 0,
     minImportance: valueAfter(args, "--min-importance") ?? 0,
     watermark: args.includes("--watermark"),
