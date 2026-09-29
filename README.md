@@ -1,22 +1,158 @@
 # Stone Memory（磐石记忆）
 
+<p align="center">
+  <img src="./assets/readme/hero.svg" width="100%" alt="Stone Memory 磐石记忆：不必重新认识。本地优先、可解释的 AI 记忆，经历在线程里不断延续。原文、摘要与特征组成可追溯的记忆层。">
+</p>
+
+<p align="center">
+  <strong>本地优先的 AI 记忆与线程生命周期管理系统</strong><br>
+  Claude Code / Codex
+</p>
+
+<p align="center">
+  <a href="./package.json"><img src="./assets/readme/badges/version.svg" alt="Version: 1.2.0-beta.1" height="20"></a>
+  <a href="#安装"><img src="./assets/readme/badges/node.svg" alt="Node.js: 22+" height="20"></a>
+  <a href="#当前架构"><img src="./assets/readme/badges/storage.svg" alt="Storage: SQLite" height="20"></a>
+  <a href="./LICENSE"><img src="./assets/readme/badges/license.svg" alt="License: AGPL-3.0-only" height="20"></a>
+</p>
+
+<p align="center">
+  <a href="#安装">安装</a> ·
+  <a href="#快速开始">快速开始</a> ·
+  <a href="#cli-工作流">CLI 工作流</a> ·
+  <a href="#mcp-server">MCP 接入</a> ·
+  <a href="./sm-developer-docs/README.md">开发者文档</a>
+</p>
+
+> **新线程可以开始，但过去不应该归零。**
+>
 > 蒲苇韧如丝，磐石无转移。
 
-Stone Memory 是一个本地优先、可解释的 AI 记忆与线程生命周期管理系统。它从 Claude Code、Codex 等聊天线程中归档纯对话，挖掘 feelings（事件摘要）和 features（长期特征），再按关系阶段、项目证据、主副核心与 importance 对旧摘要精简或隐藏，并把人设、摘要、原文锚点、近期上下文和工具调用安全地重建回线程。
+Stone Memory 从 Claude Code、Codex 等聊天线程中归档纯对话，提炼事件摘要（feelings）与长期特征（features），再把规则、记忆、原文锚点和近期上下文重建回线程。
 
-它不依赖 embedding 黑箱召回：用户可以查看系统保存了什么、为什么保留、对应哪段原文、位于怎样的时间曲线，以及下一次 rebuild 会实际注入哪些内容。
+**记住了什么、为什么保留、来自哪段原文、下次会注入什么，都可以查看。** 系统不依赖 embedding 黑箱召回，而是通过关系阶段、项目证据、主副核心与 importance 管理记忆的保留与精简。
 
-主要能力：
+## 记忆如何延续
 
-- Claude Code / Codex 双运行时线程归档、导入、检查与重建
-- 全局 SQLite、多记忆体与 Binding 接入；兼容现有 fork 动态记忆继承
-- API / Subagent 双通道记忆挖掘与压缩
-- feelings、features、原文锚点、事件锚点和规则文档管理
-- memory_search/deepsearch，轻量搜索返回摘要对应原文，深度搜索通过摘要与原文交叉验证返回AI第一人称深度报告
-- relation 生命周期、work 项目证据和多词共同签名时间轴
-- 周级 `daily → coarse` 精简与长期 `coarse → hidden`（仍在测试阶段）
-- watcher supervisor + 每线程 worker 自动维护
-- 内置本地 Web 管理界面
+**对话归档 → 记忆挖掘 → 精简保留 → 线程重建**
+
+- 🗂️ **归档与连接**：Claude Code / Codex 双运行时；通过 Binding 归档、导入、检查和重建线程，兼容现有 fork 动态记忆继承。
+- 🌱 **摘要与特征**：API / Subagent 双通道挖掘与压缩；管理 feelings、features、原文锚点、事件锚点和规则文档。
+- 🔎 **搜索与证据**：memory_search 轻量搜索返回摘要对应原文；deepsearch 交叉验证摘要与原文，生成 AI 第一人称深度报告。
+- 🕰️ **生命周期**：结合 relation 关系阶段、work 项目证据与多词共同签名时间轴，决定旧摘要如何精简或保留。
+- 🧵 **线程重建**：把人设与规则、可见摘要、锚点原文、近期上下文和保留的工具调用组合回目标线程。
+- 🏡 **本地管理**：全局 SQLite、多记忆体、本地 Web 工作台，以及 supervisor + 每线程 worker 自动维护。
+
+> [!NOTE]
+> 周级 `daily → coarse` 精简与长期 `coarse → hidden` 仍在测试阶段。`hidden` 只停止 rebuild 注入，不删除完整 feeling；原文锚点与事件锚点会保护对应内容。
+
+## 安装
+
+**环境要求：Node.js 22 或更高版本。** 在本地仓库目录安装依赖：
+
+```bash
+node --version
+cd /path/to/stone_memory
+npm ci --omit=dev
+```
+
+<details>
+<summary><strong>Linux / macOS</strong> · 配置命令行入口</summary>
+
+### Linux / macOS
+
+```bash
+mkdir -p ~/.local/bin
+ln -sf "$PWD/bin/stmem" ~/.local/bin/stmem
+stmem --help
+```
+
+如果 `~/.local/bin` 不在 `PATH`，将 `export PATH="$HOME/.local/bin:$PATH"` 加入 shell 配置。
+
+</details>
+
+<details>
+<summary><strong>Windows</strong> · 配置命令行入口</summary>
+
+### Windows
+
+安装 Node.js 22+ 后，可将项目的 `bin` 目录加入 `PATH`，或在项目目录运行：
+
+```cmd
+npm ci --omit=dev
+npm link
+stmem --help
+```
+
+</details>
+
+Subagent 模式还要求对应的 `codex` 或 `claude` CLI 可从 `PATH` 调用；API 模式不需要运行时 CLI。
+
+## 快速开始
+
+### Web 工作台
+
+```bash
+stmem web dev
+```
+
+默认地址为 `http://127.0.0.1:4173`。在首页创建空记忆体，然后分别完成基本设置、API/挖掘方式、Binding、导入和 watcher 配置。创建动作会先生成稳定 `memoryId`。
+
+```bash
+stmem web status
+stmem web dev                    # 后端源码变化时自动重启
+```
+
+<details>
+<summary><strong>使用 CLI 创建和绑定记忆体</strong></summary>
+
+### CLI 创建和绑定
+
+正式写法统一使用 `--memory <memoryId>`。`--thread` 只为旧脚本保留，其值在兼容期解释为记忆体 ID，不是外部 Claude/Codex 线程 ID。
+
+```bash
+# 1. 创建空记忆体；输出中包含 memoryId
+stmem memory create --name "我的记忆体"
+
+# 2. 读取、校验和应用设置
+stmem memory settings --memory <memoryId>
+stmem memory settings --memory <memoryId> --batch-file settings.json --validate
+stmem memory settings --memory <memoryId> --batch-file settings.json --apply
+
+# 3. 添加 Binding；默认预览，确认后应用
+stmem binding add --memory <memoryId> --batch-file binding.json
+stmem binding add --memory <memoryId> --batch-file binding.json --apply
+
+# 4. 只读诊断
+stmem doctor --memory <memoryId> --json
+```
+
+用 `stmem memory --help` 和 `stmem binding --help` 查看当前参数。自动化或外部 Agent 在操作前还应运行：
+
+```bash
+stmem ai-help
+stmem capabilities --json
+```
+
+旧版一次性 `stmem init` 流程仍受支持，但新流程优先使用 `memory create/settings` 与 `binding add`，不要再把线程 ID 当作记忆体身份。
+
+</details>
+
+<details>
+<summary><strong>配置 API profile</strong></summary>
+
+### API profile
+
+API profile 是全局凭据，由记忆体设置引用。凭据从 JSON 文件读取，不出现在进程参数中：
+
+```bash
+stmem api-profile set --batch-file api-profile.json --validate
+stmem api-profile set --batch-file api-profile.json --apply
+```
+
+字段为 `id`、`key`、`model`，非 DeepSeek profile 还需 `baseUrl`。
+
+</details>
 
 ## 当前架构
 
@@ -36,6 +172,9 @@ developer-module-data/   按 memoryId 隔离的开发者模块数据
 ```
 
 正式状态变更统一经过 `stmem` CLI。Web 和 MCP 是参数适配与交互层，不各自维护另一套写入逻辑。SQLite 是 messages、feelings、features 和挖掘状态的正式数据源；JSON/JSONL 只承担配置、原文 archive、导入或导出等职责。
+
+<details>
+<summary><strong>展开项目目录与用户数据布局</strong></summary>
 
 ### 项目目录
 
@@ -97,97 +236,14 @@ stone_memory/
 
 `stmem.json` 中的 API Key 属于敏感信息。不要提交 `~/.stone_memory`，也不要把 Key 放进命令行、日志、记忆体目录或 issue。
 
-## 安装
-
-需要 Node.js 22 或更高版本。
-
-```bash
-node --version
-cd /path/to/stone_memory
-npm ci --omit=dev
-```
-
-### Linux / macOS
-
-```bash
-mkdir -p ~/.local/bin
-ln -sf "$PWD/bin/stmem" ~/.local/bin/stmem
-stmem --help
-```
-
-如果 `~/.local/bin` 不在 `PATH`，将 `export PATH="$HOME/.local/bin:$PATH"` 加入 shell 配置。
-
-### Windows
-
-安装 Node.js 22+ 后，可将项目的 `bin` 目录加入 `PATH`，或在项目目录运行：
-
-```cmd
-npm ci --omit=dev
-npm link
-stmem --help
-```
-
-Subagent 模式还要求对应的 `codex` 或 `claude` CLI 可从 `PATH` 调用；API 模式不需要运行时 CLI。
-
-## 快速开始
-
-### Web 工作台
-
-```bash
-stmem web dev
-```
-
-默认地址为 `http://127.0.0.1:4173`。在首页创建空记忆体，然后分别完成基本设置、API/挖掘方式、Binding、导入和 watcher 配置。创建动作会先生成稳定 `memoryId`。
-
-```bash
-stmem web status
-stmem web dev                    # 后端源码变化时自动重启
-```
-
-### CLI 创建和绑定
-
-正式写法统一使用 `--memory <memoryId>`。`--thread` 只为旧脚本保留，其值在兼容期解释为记忆体 ID，不是外部 Claude/Codex 线程 ID。
-
-```bash
-# 1. 创建空记忆体；输出中包含 memoryId
-stmem memory create --name "我的记忆体"
-
-# 2. 读取、校验和应用设置
-stmem memory settings --memory <memoryId>
-stmem memory settings --memory <memoryId> --batch-file settings.json --validate
-stmem memory settings --memory <memoryId> --batch-file settings.json --apply
-
-# 3. 添加 Binding；默认预览，确认后应用
-stmem binding add --memory <memoryId> --batch-file binding.json
-stmem binding add --memory <memoryId> --batch-file binding.json --apply
-
-# 4. 只读诊断
-stmem doctor --memory <memoryId> --json
-```
-
-用 `stmem memory --help` 和 `stmem binding --help` 查看当前参数。自动化或外部 Agent 在操作前还应运行：
-
-```bash
-stmem ai-help
-stmem capabilities --json
-```
-
-旧版一次性 `stmem init` 流程仍受支持，但新流程优先使用 `memory create/settings` 与 `binding add`，不要再把线程 ID 当作记忆体身份。
-
-### API profile
-
-API profile 是全局凭据，由记忆体设置引用。凭据从 JSON 文件读取，不出现在进程参数中：
-
-```bash
-stmem api-profile set --batch-file api-profile.json --validate
-stmem api-profile set --batch-file api-profile.json --apply
-```
-
-字段为 `id`、`key`、`model`，非 DeepSeek profile 还需 `baseUrl`。
+</details>
 
 ## CLI 工作流
 
-以下 `<id>` 均指 `memoryId`。
+以下 `<id>` 均指 `memoryId`。按任务展开命令；每项保留对应的预览、应用与操作说明。
+
+<details>
+<summary>🩺 <strong>状态与诊断</strong></summary>
 
 ### 状态与诊断
 
@@ -197,6 +253,11 @@ stmem list
 stmem doctor --memory <id> --json
 stmem db status --memory <id>
 ```
+
+</details>
+
+<details>
+<summary>🗂️ <strong>导入、同步和 Binding</strong></summary>
 
 ### 导入、同步和 Binding
 
@@ -218,6 +279,11 @@ stmem binding revert --memory <id> --batch <batchId> --apply
 
 切换主 Binding 使用 `stmem binding switch`。它会先验证目标窗口、备份并生成确认计划；实际切换必须复用该计划返回的 token，不要跳过预览。
 
+</details>
+
+<details>
+<summary>🌱 <strong>挖掘与审阅</strong></summary>
+
 ### 挖掘与审阅
 
 ```bash
@@ -232,6 +298,11 @@ stmem prompt show --memory <id>
 ```
 
 `mine` 先生成 feelings，再从本轮 feelings 生成 features。可审阅模式使用 `stmem mine-review preview|list|mix|apply|discard`；`--check` 只展示实际 prompt、输入、上游响应和解析结果。
+
+</details>
+
+<details>
+<summary>🕰️ <strong>压缩、隐藏与证据</strong></summary>
 
 ### 压缩、隐藏与证据
 
@@ -250,6 +321,11 @@ stmem term-timeline --memory <id> --terms "论文,答辩"
 
 压缩和隐藏均先给出计划。`daily → coarse` 保存精简摘要；`hidden` 只停止 rebuild 注入，不删除完整 feeling。原文锚点 `retain` 和事件锚点 `event` 会保护对应内容。
 
+</details>
+
+<details>
+<summary>📝 <strong>规则与记忆编辑</strong></summary>
+
 ### 规则与记忆编辑
 
 ```bash
@@ -262,6 +338,11 @@ stmem memory anchor --memory <id> --batch-file anchors.json
 
 规则在 rebuild 时注入目标线程。不要绕过 CLI 直接修改 SQLite，也不要让 Web route 直接写正式数据。
 
+</details>
+
+<details>
+<summary>🧵 <strong>线程检查与重建</strong></summary>
+
 ### 线程检查与重建
 
 ```bash
@@ -273,6 +354,11 @@ stmem rebuild --memory <id> --queue     # Claude Code 安全排队
 ```
 
 重建会组合规则、可见 feelings、锚点原文、近期窗口和保留的工具调用。执行前先检查 dry-run；不要对宿主正在写入的 JSONL 另写替换脚本。
+
+</details>
+
+<details>
+<summary>👀 <strong>Watcher</strong></summary>
 
 ### Watcher
 
@@ -291,6 +377,11 @@ stmem watcher set --memory <id> --dream off
 
 系统只有一个 supervisor；它按 `watcher.json` 为各记忆体维护至多一个 worker。`watcher on/off/set` 只修改期望状态，不直接另起进程。Windows 可用 `stmem watcher service install|status|repair|remove` 管理 Task Scheduler 服务。
 
+</details>
+
+<details>
+<summary>🧩 <strong>开发者模块</strong></summary>
+
 ### 开发者模块
 
 ```bash
@@ -302,6 +393,8 @@ stmem module mcp status
 ```
 
 模块源码位于 `developer-modules/`，持久数据位于 `~/.stone_memory/developer-module-data/<memoryId>/<moduleId>/`。模块命令由 manifest 登记并经 `stmem module` 执行，不要把运行数据写回源码目录。
+
+</details>
 
 ## 局域网与手机连接
 
@@ -367,7 +460,9 @@ npm run dev
 npm run audit:developer-modules
 ```
 
-测试使用 Node 内置 test runner。修改 watcher、Binding、rebuild、数据路径或 Web 写接口时，应先运行相关测试，再运行完整 `npm test`。参与开发前请先阅读 `AGENTS.md` 与 `docs/MEMORY_FIRST_REFACTOR.md`。
+测试使用 Node 内置 test runner。修改 watcher、Binding、rebuild、数据路径或 Web 写接口时，应先运行相关测试，再运行完整 `npm test`。参与开发前请先阅读[开发约束](./sm-developer-docs/AGENTS.md)、[架构说明](./sm-developer-docs/architecture.md)与[贡献指南](./sm-developer-docs/contributing.md)。
+
+[开发者文档](./sm-developer-docs/README.md) · [模块接入规范](./developer-modules/DEVELOPMENT.md) · [问题反馈](https://github.com/stone-memory-empire/stmem_core/issues)
 
 ## 许可证
 
