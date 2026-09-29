@@ -92,11 +92,22 @@ Subagent 模式还要求对应的 `codex` 或 `claude` CLI 可从 `PATH` 调用�
 
 ### Web 工作台
 
+如果升级后提示有待领取的 Web API Token，先领取并立即保存；Token 只显示一次：
+
 ```bash
+stmem web auth claim
 stmem web dev
 ```
 
 默认地址为 `http://127.0.0.1:4173`。在首页创建空记忆体，然后分别完成基本设置、API/挖掘方式、Binding、导入和 watcher 配置。创建动作会先生成稳定 `memoryId`。
+
+`claim` 只领取升级迁移时已经生成的 Token。如果提示没有待领取 Token，但你需要为 Web API 创建或更换访问令牌，请执行：
+
+```bash
+stmem web auth rotate
+```
+
+随后使用输出的 Token 登录 Web；不要把它放进仓库、命令行参数、日志或截图。
 
 ```bash
 stmem web status
