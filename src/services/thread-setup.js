@@ -123,6 +123,8 @@ function createThread(input, { allowExisting = false, requireSession = true } = 
     automaticDream,
     watcherEnabled,
     watcherModules,
+    ...(Array.isArray(existing.mcpModules) ? { mcpModules: existing.mcpModules } : {}),
+    ...(Number.isInteger(existing.mcpModuleConfigVersion) ? { mcpModuleConfigVersion: existing.mcpModuleConfigVersion } : {}),
   };
   if (input.minerMode === "api") {
     const existingKey = config.apiKeys?.[input.apiProvider]?.key;
