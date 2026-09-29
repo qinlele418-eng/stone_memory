@@ -133,6 +133,16 @@ Subagent 模式还要求对应的 `codex` 或 `claude` CLI 可从 `PATH` 调用�
 
 ### Web 工作台
 
+旧版远程 Web 升级后如果提示有一次性登录 Token 待领取，请先执行：
+
+```bash
+stmem web auth claim
+```
+
+Token 只显示一次，请立即保存。没有待领取 Token、但需要重新生成 Web API Token 时，使用 `stmem web auth rotate`。
+
+然后启动开发模式：
+
 ```bash
 stmem web dev
 ```
@@ -329,6 +339,20 @@ stmem web lan firewall remove
 规则只开放当前 Web TCP 端口、Private/LocalSubnet 范围。
 
 ## MCP Server
+
+MCP 是 Stone Memory 面向 Agent 的交互入口。接入后，Claude Code、Codex 等支持 MCP 的客户端可以在对话中直接查询和维护记忆，而不需要用户手动切到 Web 工作台或拼接 CLI 命令。Stone Memory 会根据当前宿主 session 的 Binding 找到对应 `memoryId`，因此同一个 MCP Server 可以服务多个窗口和多套记忆体。
+
+内置核心工具覆盖以下场景：
+
+- `stmem_memory_search`：按关键词检索 feelings，并回溯相关原文
+- `stmem_memory_deep_search`：由子 Agent 进行多级检索和原文交叉验证，生成深度报告
+- `stmem_memory_status` / `stmem_memory_triggers_check`：查看记忆状态与待处理事项
+- `stmem_memory_mine`：手动触发单日 feelings 与 features 挖掘
+- `stmem_memory_rebuild_preview` / `stmem_memory_rebuild`：先只读预览，再按 Codex 或 Claude Code 的安全路径确认重建
+- `stmem_memory_audit_*`：审阅 feelings，查询并标记原文锚点或关键事件锚点
+- `stmem_memory_bind`：把当前客户端窗口首次绑定到指定记忆体
+
+除核心工具外，Notebook、Dream 等开发者模块也可以注册自己的 MCP 工具。模块授权按记忆体保存在 `memory.json` 的 `mcpModules` 中；修改 Binding 或模块开关后，需要启动新的 MCP 进程并重新获取工具列表才会生效。
 
 MCP 入口是仓库根目录的 `mcp-server.js`，使用 stdio JSON-RPC：
 
