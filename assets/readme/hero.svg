@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="620" viewBox="0 0 1200 620" role="img" aria-labelledby="title desc">
+  <title id="title">Stone Memory · 磐石记忆 — 不必重新认识</title>
+  <desc id="desc">参考官网的深绿、衬线字标和记忆纸卡，为 README 重新设计。原版小石头陪伴着原文、摘要与特征三层记忆；归档、挖掘、保留，再重建回线程。</desc>
+  <rect width="1200" height="620" rx="24" fill="#10251e"/>
+  <g id="memory-orbit" fill="none" stroke="#b5bd90">
+    <ellipse cx="598" cy="243" rx="510" ry="132" transform="rotate(-10 598 243)" opacity=".22"/>
+    <ellipse cx="598" cy="243" rx="524" ry="141" transform="rotate(-10 598 243)" opacity=".1"/>
+  </g>
+  <g id="memory-specimens" font-family="'Segoe UI', 'Microsoft YaHei', 'PingFang SC', sans-serif">
+    <g transform="translate(74 230) rotate(-11 72 84)">
+      <rect width="150" height="168" rx="3" fill="#283d30" stroke="#637257"/>
+      <rect x="8" y="8" width="134" height="152" rx="1" fill="none" stroke="#b5bd90" opacity=".24"/>
+      <text x="22" y="43" fill="#d2ddb5" font-size="22">原文</text>
+      <path d="M22 60H128M22 94H116M22 109H97M22 124H111" stroke="#b5bd90" opacity=".4"/>
+      <text x="22" y="147" fill="#b5bd90" font-size="18">messages</text>
+    </g>
+    <g transform="translate(891 97) rotate(8 81 90)">
+      <rect width="162" height="180" rx="3" fill="#e6e7d9"/>
+      <rect x="8" y="8" width="146" height="164" fill="none" stroke="#71816a" opacity=".5"/>
+      <text x="22" y="44" fill="#354c3d" font-size="24">摘要</text>
+      <path d="M22 62H140" stroke="#71816a" opacity=".5"/>
+      <g fill="none" stroke="#71816a" opacity=".7"><ellipse cx="78" cy="99" rx="49" ry="17" transform="rotate(-16 78 99)"/><ellipse cx="78" cy="99" rx="32" ry="10" transform="rotate(-16 78 99)"/></g>
+      <text x="22" y="151" fill="#526e60" font-size="20">feelings</text>
+    </g>
+    <g transform="translate(985 282) rotate(-6 67 67)">
+      <rect width="138" height="136" rx="3" fill="#d2ddb5"/>
+      <rect x="8" y="8" width="122" height="120" fill="none" stroke="#71816a" opacity=".45"/>
+      <text x="20" y="40" fill="#354c3d" font-size="23">特征</text>
+      <path d="M20 57H117M20 76H89" stroke="#71816a" opacity=".6"/>
+      <text x="20" y="108" fill="#526e60" font-size="20">features</text>
+    </g>
+  </g>
+  <g id="wordmark" font-family="Georgia, 'Times New Roman', serif" font-weight="400">
+    <text x="113" y="206" font-size="144" letter-spacing="-7" fill="#f0eedf">Stone</text>
+    <text x="294" y="351" font-size="150" letter-spacing="-9" font-style="italic" fill="#d2ddb5" stroke="#10251e" stroke-width="5" paint-order="stroke fill">Memory</text>
+  </g>
+  <g id="original-stone" transform="translate(668 83) scale(.49)">
+    <defs><linearGradient id="rock" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#aab7a1"/><stop offset="1" stop-color="#718173"/></linearGradient><linearGradient id="moss" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#91b078"/><stop offset="1" stop-color="#5f8055"/></linearGradient></defs>
+    <path d="M72 213c-3-31 7-79 27-108 15-22 37-34 67-31 35 3 61 25 73 55 13 32 14 62 7 84z" fill="url(#rock)" stroke="#667666" stroke-width="4"/>
+    <path d="M89 151c12-5 19-21 34-24 18-4 24 14 41 8 18-6 26-28 44-24 13 3 19 15 25 27-7-36-31-62-66-65-31-3-53 10-69 33-10 15-17 30-21 47z" fill="url(#moss)"/>
+    <circle cx="127" cy="112" r="8" fill="#b8ce98"/><circle cx="210" cy="137" r="7" fill="#9fbe83"/><circle cx="105" cy="177" r="5" fill="#617764" opacity=".45"/>
+    <path d="M163 76c0-22 3-37 13-51" fill="none" stroke="#5d8056" stroke-width="5" stroke-linecap="round"/>
+    <path d="M175 38c-17-4-24-14-19-26 15 1 24 10 19 26z" fill="#7da46d"/>
+    <g transform="translate(178 21)"><ellipse rx="13" ry="8" transform="rotate(0) translate(13 0)" fill="#f4d5c4"/><ellipse rx="13" ry="8" transform="rotate(72) translate(13 0)" fill="#f0c7b4"/><ellipse rx="13" ry="8" transform="rotate(144) translate(13 0)" fill="#f4d5c4"/><ellipse rx="13" ry="8" transform="rotate(216) translate(13 0)" fill="#f0c7b4"/><ellipse rx="13" ry="8" transform="rotate(288) translate(13 0)" fill="#f4d5c4"/><circle r="7" fill="#d6a84e"/></g>
+    <path d="M41 214c18-10 38-7 57-5 38 4 76-1 114 0 25 1 45 4 68 13-35 17-79 20-119 19-47-1-87-7-120-27z" fill="#a4b78e" opacity=".5"/>
+  </g>
+  <g id="readme-introduction" font-family="'Segoe UI', 'Microsoft YaHei', 'PingFang SC', sans-serif">
+    <text x="65" y="488" fill="#f0eedf" font-family="Georgia, 'Songti SC', 'SimSun', serif" font-size="51" letter-spacing="3">不必重新认识</text>
+    <text x="65" y="531" fill="#b9c6b0" font-size="24">本地优先、可解释的 AI 记忆，经历在线程里不断延续。</text>
+    <path d="M65 559H1135" stroke="#b5bd90" opacity=".25"/>
+    <text x="65" y="594" fill="#d2ddb5" font-size="21">归档 → 挖掘 → 保留 → 重建</text>
+    <text x="1135" y="594" text-anchor="end" fill="#b9c6b0" font-size="21">Claude Code / Codex</text>
+  </g>
+</svg>
