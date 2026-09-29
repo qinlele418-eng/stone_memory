@@ -108,3 +108,46 @@ test("SQLite requires --table when multiple business tables exist", () => {
   db.close();
   assert.throws(() => readImportSource({ filePath: dbPath }), /--table/);
 });
+
+test("ChatGPT official mapping imports only the current conversation branch", () => {
+  const root = tempDir();
+  const sourceFile = path.join(root, "conversations.json");
+  const node = (id, parent, role, content, createTime) => ({
+    id, parent, children: [],
+    message: { id: `message-${id}`, author: { role }, create_time: createTime, content: { content_type: "text", parts: [content] } },
+  });
+  const conversation = {
+    id: "conversation-1", title: "Current branch", current_node: "assistant-new",
+    mapping: {
+      root: { id: "root", parent: null, children: ["user-1"], message: null },
+      "user-1": node("user-1", "root", "user", "hello", 1_700_000_000),
+      "assistant-old": node("assistant-old", "user-1", "assistant", "old branch", 1_700_000_001),
+      "assistant-new": node("assistant-new", "user-1", "assistant", "chosen branch", 1_700_000_002),
+    },
+  };
+  fs.writeFileSync(sourceFile, JSON.stringify([conversation]));
+  const source = readImportSource({ filePath: sourceFile });
+  assert.equal(source.preview.format, "chatgpt");
+  assert.equal(source.preview.valid, 2);
+  assert.deepEqual(source.records.map(record => record.message.text), ["hello", "chosen branch"]);
+  assert.equal(source.records[0].raw._source.conversation_id, "conversation-1");
+});
+
+test("Claude.ai official export flattens chat_messages across conversations", () => {
+  const root = tempDir();
+  const sourceFile = path.join(root, "claude-conversations.json");
+  fs.writeFileSync(sourceFile, JSON.stringify([
+    { uuid: "conv-a", name: "A", chat_messages: [
+      { uuid: "a1", sender: "human", created_at: "2026-05-12T10:00:00Z", text: "question" },
+      { uuid: "a2", sender: "assistant", created_at: "2026-05-12T10:00:01Z", text: "answer" },
+    ] },
+    { uuid: "conv-b", name: "B", chat_messages: [
+      { uuid: "b1", sender: "human", created_at: "2026-05-13T10:00:00Z", content: [{ type: "text", text: "another question" }] },
+    ] },
+  ]));
+  const source = readImportSource({ filePath: sourceFile });
+  assert.equal(source.preview.format, "claude_ai");
+  assert.equal(source.preview.valid, 3);
+  assert.deepEqual(source.records.map(record => record.message.type), ["user", "assistant", "user"]);
+  assert.deepEqual(source.records.map(record => record.message.text), ["question", "answer", "another question"]);
+});

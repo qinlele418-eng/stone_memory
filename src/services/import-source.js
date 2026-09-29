@@ -43,15 +43,103 @@ function mapGenericRow(raw, mapping = {}) {
   };
 }
 
+function unixSecondsToIso(value) {
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds)) return value == null ? "" : String(value);
+  return new Date(seconds * 1000).toISOString();
+}
+
+function chatGptBranch(mapping, currentNode) {
+  const nodes = [];
+  const seen = new Set();
+  let nodeId = currentNode;
+  while (nodeId && !seen.has(nodeId)) {
+    seen.add(nodeId);
+    const node = mapping?.[nodeId];
+    if (!node || typeof node !== "object") break;
+    nodes.push(node);
+    nodeId = node.parent;
+  }
+  return nodes.reverse();
+}
+
+function parseChatGptConversations(data) {
+  const conversations = Array.isArray(data) ? data : [data];
+  const rows = [];
+  for (const conversation of conversations) {
+    const mapping = conversation?.mapping;
+    if (!mapping || typeof mapping !== "object") continue;
+    let nodes = conversation.current_node
+      ? chatGptBranch(mapping, conversation.current_node)
+      : Object.values(mapping).filter(node => node && typeof node === "object");
+    if (!conversation.current_node) {
+      nodes = nodes.sort((left, right) => Number(left?.message?.create_time || 0) - Number(right?.message?.create_time || 0));
+    }
+    for (const node of nodes) {
+      const message = node?.message;
+      if (!message || typeof message !== "object") continue;
+      const role = message.author?.role || message.role;
+      if (["system", "developer", "tool"].includes(String(role || "").toLowerCase())) continue;
+      const content = textValue(message.content?.parts ?? message.content);
+      if (!content) continue;
+      rows.push({
+        ...message,
+        timestamp: unixSecondsToIso(message.create_time),
+        role,
+        content,
+        _source: {
+          provider: "chatgpt",
+          conversation_id: conversation.id || conversation.conversation_id || null,
+          conversation_title: conversation.title || null,
+          node_id: node.id || null,
+        },
+      });
+    }
+  }
+  return rows;
+}
+
+function parseClaudeConversations(data) {
+  const conversations = Array.isArray(data) ? data : [data];
+  const rows = [];
+  for (const conversation of conversations) {
+    if (!Array.isArray(conversation?.chat_messages)) continue;
+    for (const message of conversation.chat_messages) {
+      if (!message || typeof message !== "object") continue;
+      const role = message.sender || message.role;
+      if (["system", "developer", "tool"].includes(String(role || "").toLowerCase())) continue;
+      const content = textValue(message.text ?? message.content);
+      if (!content) continue;
+      rows.push({
+        ...message,
+        timestamp: message.created_at || message.timestamp,
+        role,
+        content,
+        _source: {
+          provider: "claude_ai",
+          conversation_id: conversation.uuid || conversation.id || null,
+          conversation_title: conversation.name || conversation.title || null,
+        },
+      });
+    }
+  }
+  return rows;
+}
+
 function parseJsonRows(filePath) {
   const raw = fs.readFileSync(filePath, "utf8");
   try {
     const data = JSON.parse(raw);
-    if (Array.isArray(data)) return data;
-    for (const key of ["messages", "data", "entries", "memories"]) if (Array.isArray(data?.[key])) return data[key];
-    return data && typeof data === "object" ? [data] : [];
+    const sample = Array.isArray(data) ? data.find(item => item && typeof item === "object") : data;
+    if (sample?.mapping) return { rows: parseChatGptConversations(data), format: "chatgpt" };
+    if (sample?.chat_messages) return { rows: parseClaudeConversations(data), format: "claude_ai" };
+    if (Array.isArray(data)) return { rows: data, format: "json" };
+    for (const key of ["messages", "data", "entries", "memories"]) {
+      if (Array.isArray(data?.[key])) return { rows: data[key], format: "json" };
+    }
+    return { rows: data && typeof data === "object" ? [data] : [], format: "json" };
   } catch {
-    return parseThreadMessages(raw);
+    return { rows: parseThreadMessages(raw), format: "jsonl" };
   }
 }
 
@@ -75,7 +163,7 @@ function readSqlite(filePath, table) {
 function readImportSource({ filePath, table, timeField, roleField, contentField }) {
   const ext = path.extname(filePath).toLowerCase();
   const sqlite = [".db", ".sqlite", ".sqlite3"].includes(ext);
-  const source = sqlite ? readSqlite(filePath, table) : { rows: parseJsonRows(filePath), table: null };
+  const source = sqlite ? { ...readSqlite(filePath, table), format: "sqlite" } : { ...parseJsonRows(filePath), table: null };
   const mapping = { time: timeField, role: roleField, content: contentField };
   const records = [];
   const detected = new Set();
@@ -105,7 +193,7 @@ function readImportSource({ filePath, table, timeField, roleField, contentField 
   return {
     records,
     preview: {
-      format: sqlite ? "sqlite" : "json",
+      format: source.format,
       table: source.table,
       totalRows: source.rows.length,
       valid,
@@ -120,4 +208,10 @@ function readImportSource({ filePath, table, timeField, roleField, contentField 
   };
 }
 
-module.exports = { readImportSource, mapGenericRow, normalizeRole };
+module.exports = {
+  readImportSource,
+  mapGenericRow,
+  normalizeRole,
+  parseChatGptConversations,
+  parseClaudeConversations,
+};
