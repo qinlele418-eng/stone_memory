@@ -134,17 +134,14 @@ Subagent 模式还要求对应的 `codex` 或 `claude` CLI 可从 `PATH` 调用�
 ### Web 工作台
 
 ```bash
-stmem web
+stmem web dev
 ```
 
-默认地址为 `http://127.0.0.1:4173`。在首页创建空记忆体，然后分别完成基本设置、API/挖掘方式、Binding、导入和 watcher 配置。创建动作会先生成稳定 `memoryId`；绑定外部窗口不是创建记忆体的前置条件。
+默认地址为 `http://127.0.0.1:4173`。在首页创建空记忆体，然后分别完成基本设置、API/挖掘方式、Binding、导入和 watcher 配置。创建动作会先生成稳定 `memoryId`。
 
 ```bash
-stmem web start
 stmem web status
-stmem web restart
-stmem web stop
-stmem web dev                    # 前台开发，后端源码变化时自动重启
+stmem web dev                    # 后端源码变化时自动重启
 ```
 
 ### CLI 创建和绑定
