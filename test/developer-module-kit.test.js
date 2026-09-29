@@ -37,6 +37,8 @@ test("developer kit consumes an optional semantic snapshot without reading theme
   assert.equal(contract.moduleRoot, "developer-modules/<module-id>");
   assert.equal(contract.developerContract, "developer-modules/DEVELOPMENT.md");
   assert.ok(contract.rules.some(rule => rule.includes("audit:developer-modules")));
+  assert.ok(contract.rules.some(rule => rule.includes("memoryId") && rule.includes("--thread")));
+  assert.ok(contract.rules.some(rule => rule.includes("generation:use") && rule.includes("启停开关")));
   assert.match(index, /<stone-module-page/);
   assert.doesNotMatch(index, /stone-module-context/);
   assert.doesNotMatch(index, /data-stone-library/);
@@ -53,6 +55,15 @@ test("developer kit consumes an optional semantic snapshot without reading theme
   assert.match(app, /作者昵称（或 GitHub 账号）：/);
   assert.match(index, /CLI · 正式写入/);
   assert.match(index, /MCP · Agent 能力/);
+  assert.match(index, /value="api">可选外部生成 API/);
+  assert.match(index, /watcher set --memory/);
+  assert.doesNotMatch(index, /watcher set --thread/);
+  assert.match(app, /StoneDeveloperModule\.memoryId/);
+  assert.match(app, /context\.memoryId/);
+  assert.match(app, /moduleDataDir\/settings\.json（0600）/);
+  assert.match(app, /configured\/enabled/);
+  assert.match(app, /关闭、留空或未配置时不得联网/);
+  assert.doesNotMatch(app, /真实对话、threadId/);
   assert.match(index, /Watcher · 后台自动化/);
   assert.match(index, /SQLite · 独立数据/);
   assert.match(index, /默认仅作独立模块分发/);

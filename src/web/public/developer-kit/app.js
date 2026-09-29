@@ -12,7 +12,7 @@
   }
 
   function selectedCapabilities() {
-    const labels = { cli: "CLI 正式写入通道", mcp: "MCP / Agent 工具", watcher: "统一 Watcher 插件", sqlite: "模块独立 SQLite" };
+    const labels = { cli: "CLI 正式写入通道", mcp: "MCP / Agent 工具", api: "可选外部生成 API", watcher: "统一 Watcher 插件", sqlite: "模块独立 SQLite" };
     return [...document.querySelectorAll('.capability-picker input:checked')].map(input => labels[input.value]);
   }
 
@@ -26,6 +26,7 @@
     const rules = [];
     if (capabilities.includes("CLI 正式写入通道")) rules.push("写操作登记到 module.json 的 entry.commands，通过 stmem module <id> <action> 执行；已有 Core 写能力直接调用对应 stmem CLI，不复制业务逻辑。");
     if (capabilities.includes("MCP / Agent 工具")) rules.push("列出要复用的现有 MCP 工具及读写属性；只读能力可直接调用，任何正式写入必须回到 CLI，不复制 MCP 业务实现。");
+    if (capabilities.includes("可选外部生成 API")) rules.push("可以按功能需要自行实现外部生成 API，参考琢石坊的可选 AI 读矿：manifest 声明 generation:use；页面提供明确的设置按钮和设置弹窗，先解释 API 的用途、会发送什么数据、不会执行什么操作，以及关闭后的降级行为；提供独立启停开关、接口地址、模型名称和密码型 API Key。接口、模型与 Key 配置完整且开关开启时才能请求；关闭、留空或未配置时不得联网，模块的非 AI 主功能仍应可用。配置通过模块 command 保存到 moduleDataDir/settings.json（0600）；API Key 不得返回前端，公开状态只返回 configured/enabled，留空保存应保留已有 Key，并提供明确的清除或替换方式。Key 不得进入 argv、SQLite、浏览器存储、日志、错误、fixture 或 PR。后端只接受预期的 HTTP/HTTPS 地址，设置超时，限制发送数据，校验响应并净化上游错误；不得另起 companion server，也不得把某一家 Provider、模型或地址硬编码成唯一选择。");
     if (capabilities.includes("统一 Watcher 插件")) rules.push("在 manifest 声明 watcher，插件名使用 dev- 前缀，开关走 stmem watcher set；由唯一 supervisor 托管，禁止自行 spawn 常驻 watcher/supervisor。");
     if (capabilities.includes("模块独立 SQLite")) rules.push("在 storage.database 声明 module.sqlite，建表与升级放 migrations/；通过 context.resolveDataPath 取得路径，不直接打开 Core memory.sqlite，不向 Core 随手加表。");
     return rules;
@@ -66,11 +67,12 @@ ${specificRules.length ? specificRules.map((rule, index) => `${index + 1}. ${rul
 【通用合规要求】
 1. 新代码默认只能位于 developer-modules/${id}/；不得修改核心 app.js，不得把模块专属代码放进 scripts/、src/services/ 或 src/storage/。
 2. module.json 必须声明 id、version、sdkVersion、scope、最小 permissions、entry、storage 和 watcher（如使用）。Core 会从 /api/developer-modules 自动发现合法 manifest，并按 entry.frontend 注册工坊入口，不需要在 app.js 追加 bootstrap。
-3. 模块数据只能写入 Core 提供的 moduleDataDir；禁止硬编码 HOME、.stone_memory、端口、threadId、用户名、AI 名、模型或 Provider。
-4. 前端使用 /developer-kit/runtime.js 与 <stone-module-page>；主题、记忆体上下文、返回入口和移动端外壳全部复用正式契约。
-5. API Key、真实对话、threadId、用户路径、服务器地址及其他隐私不得进入源码、截图、fixture 或 PR 描述。
-6. 涉及旧数据迁移时，必须先只读探测、备份、验证数量/关联、保留兼容期和回滚路径；不得为了消除 CI 提醒直接移动或删除用户数据。
-7. 模块停用或移除后，Core 必须继续正常运行；说明代码卸载、数据保留和数据清理分别会发生什么。
+3. memory 作用域只使用宿主提供的 memoryId：CLI 传 --memory <id>，命令读取 context.memoryId，前端读取 StoneDeveloperModule.memoryId；不要把线程 ID 当记忆体标识，也不要继续使用兼容字段 threadId 或 --thread。
+4. 模块数据只能写入 Core 提供的 moduleDataDir；禁止硬编码 HOME、.stone_memory、端口、memoryId、用户名、AI 名、模型或 Provider。global 作用域不得臆造 memoryId。
+5. 前端使用 /developer-kit/runtime.js 与 <stone-module-page>；主题、记忆体上下文、返回入口和移动端外壳全部复用正式契约。
+6. API Key、真实对话、真实 memoryId、Binding/会话标识、用户路径、服务器地址及其他隐私不得进入源码、截图、fixture 或 PR 描述。
+7. 涉及旧数据迁移时，必须先只读探测、备份、验证数量/关联、保留兼容期和回滚路径；不得为了消除 CI 提醒直接移动或删除用户数据。
+8. 模块停用或移除后，Core 必须继续正常运行；说明代码卸载、数据保留和数据清理分别会发生什么。
 
 【测试与 PR】
 1. 为正常流程、无记忆体、接口失败、重复执行和跨平台路径增加测试；前端同时检查桌面、移动端和自定义主题。

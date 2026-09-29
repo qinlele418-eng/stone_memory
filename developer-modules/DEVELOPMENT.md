@@ -151,7 +151,7 @@ CI 会检查新模块 ID 是否出现在 `bin/`、`scripts/` 或 `src/`。出现
 `scope: "memory"` 表示每个记忆体拥有独立数据：
 
 ```text
-~/.stone_memory/developer-module-data/<thread-id>/<module-id>/
+~/.stone_memory/developer-module-data/<memory-id>/<module-id>/
 ```
 
 ### 全局模块
@@ -167,7 +167,7 @@ CI 会检查新模块 ID 是否出现在 `bin/`、`scripts/` 或 `src/`。出现
 禁止直接：
 
 ```js
-path.join(getThreadDir(threadId), "memory", "my-module");
+path.join(getThreadDir(memoryId), "memory", "my-module");
 path.join(os.homedir(), ".stone_memory", "somewhere");
 openDatabase(memoryDir);
 ```
@@ -227,11 +227,11 @@ developer-modules/<module-id>/prompts/
 如果该文件用于记忆体的规则注入，应由用户选择后通过正式 CLI 导入并启用（在仓库根目录执行，替换模块 ID 和真实记忆体 ID）：
 
 ```bash
-stmem rules import --thread <thread-id> --source developer-modules/<module-id>/prompts/default.md --name <module-id>.md
-stmem rules enable --thread <thread-id> --name <module-id>.md
+stmem rules import --memory <memory-id> --source developer-modules/<module-id>/prompts/default.md --name <module-id>.md
+stmem rules enable --memory <memory-id> --name <module-id>.md
 ```
 
-导入会写入同名规则；更新前应检查用户已有内容，不得覆盖用户修改。模块删除不会自动删除已导入规则，README 应说明如何使用 `stmem rules disable` 或 `stmem rules delete`（均传入 `--thread` 和 `--name`）停用或清理。
+导入会写入同名规则；更新前应检查用户已有内容，不得覆盖用户修改。模块删除不会自动删除已导入规则，README 应说明如何使用 `stmem rules disable` 或 `stmem rules delete`（均传入 `--memory` 和 `--name`）停用或清理。
 
 ## 8. 浏览器存储
 
@@ -257,7 +257,7 @@ stmem rules enable --thread <thread-id> --name <module-id>.md
 Stone Memory CLI 是正式写入的唯一入口。目标形式为：
 
 ```bash
-stmem module <module-id> <action> --thread <thread-id> --batch-file <json>
+stmem module <module-id> <action> --memory <memory-id> --batch-file <json>
 ```
 
 前端和 MCP 可以读取只读接口，但所有确认写入必须落到统一 CLI，不得：
@@ -273,7 +273,7 @@ stmem module <module-id> <action> --thread <thread-id> --batch-file <json>
 ```js
 async function run(context, input) {
   // context.moduleId
-  // context.threadId
+  // context.memoryId
   // context.moduleDataDir
   // context.resolveDataPath(relativePath)
 }
@@ -296,7 +296,7 @@ module.exports = { run };
 示例：
 
 ```bash
-stmem watcher set --thread <id> --dev-example on
+stmem watcher set --memory <id> --dev-example on
 ```
 
 ## 11. 前端规范
@@ -308,7 +308,7 @@ stmem watcher set --thread <id> --dev-example on
 - 使用 Stone Memory 主题变量，不硬编码品牌色、字体、圆角和阴影；
 - 支持移动端；
 - 不修改核心 `app.js` 注册业务细节；
-- 不硬编码 HOME、端口、threadId、Provider 和模型名；
+- 不硬编码 HOME、端口、memoryId、Provider 和模型名；
 - 返回入口、当前记忆体上下文和主题首帧由共享运行时处理。
 
 模块可以拥有自己的视觉个性，但不能另造一套无法跟随主题、移动端和导航规则的页面框架。
@@ -343,6 +343,21 @@ manifest 只能声明实际需要的权限。典型能力包括：
 - `theme:write`：修改全局主题；
 - `watcher:plugin`：注册开发者 Watcher；
 - `process:spawn`：确有必要时启动受控子进程。
+
+模块也可以在确有产品需求时自行实现可选的外部生成 API，但仍须声明
+`generation:use`。这不是把 Key 写进页面或源码的许可。实现应参考琢石坊：
+
+1. 页面提供明显的设置按钮和设置弹窗，先说明 API 用途、会发送的数据、不会代替
+   用户执行的操作，以及关闭或未配置时的降级行为；
+2. 提供独立启停开关，以及接口地址、模型名称和密码型 API Key；只有三项配置完整
+   且开关开启时才能发起请求，未配置时模块的非 AI 主功能仍应可用；
+3. 配置必须通过模块 command 写入 `moduleDataDir/settings.json`，文件权限为 `0600`；
+   API Key 不进入 argv、SQLite、浏览器存储、日志、错误、fixture 或 PR；
+4. 返回前端的公开设置只能包含接口、模型、`configured` 和 `enabled`，不得回传 Key；
+   Key 输入框留空保存时应保留已有值，并提供明确的替换或清除方式；
+5. 后端只接受预期的 HTTP/HTTPS 地址，设置请求超时，限制发送内容，验证响应结构并
+   净化上游错误；不得为此另起 companion server；
+6. Provider、模型和接口地址由用户配置，不得把某一家服务硬编码成唯一选择。
 - `mcp:tools`：向统一 Stone MCP 注册工具，用户显式启用后才加载；
 - `mcp:write`：允许非只读 MCP 工具通过 `context.runCommand` 调用本模块已登记命令。
 
@@ -413,7 +428,7 @@ node --test test/developer-module-contract.test.js
 - [ ] 已完整阅读本规范；
 - [ ] 只修改自己的模块目录，或对 Core 改动给出独立理由；
 - [ ] `module.json` 与实际行为一致；
-- [ ] 没有硬编码用户名、模型、Provider、端口、HOME、threadId；
+- [ ] 没有硬编码用户名、模型、Provider、端口、HOME、memoryId；
 - [ ] 所有写入都在模块数据目录或经过 Core 正式 CLI；
 - [ ] 没有向 Core SQLite 私自加表；
 - [ ] 默认 Prompt 与用户覆盖分离；
@@ -445,7 +460,7 @@ PR 描述至少包含：
 5. 停用、卸载、升级和数据迁移的行为；
 6. 是否建议进入官方主线。
 
-模块不得提交真实对话、threadId、用户名、AI 名、API Key、本机路径、服务器地址或未经脱敏的截图与 fixture。
+模块不得提交真实对话、memoryId、Binding/会话标识、用户名、AI 名、API Key、本机路径、服务器地址或未经脱敏的截图与 fixture。
 
 ## 17. MCP Provider（SDK v2）
 
@@ -533,7 +548,7 @@ memory 工具禁止顶层 `const/enum`（否则追加宿主 `memoryId` 后约束
 不得自行定义该保留参数），每次调用都验证该 ID 已配置且在本模块启用。
 迁移的旧工具可由宿主兼容表保留原名和原记忆体参数名；模块不能自行声明任意
 别名。Notebook 和 Dream 的九个迁移工具沿用 `thread`，同样必填且经过两级授权检查。
-Provider 收到绑定后的 `context.memoryId/threadId`，`args` 不再含宿主参数。
+Provider 收到绑定后的 `context.memoryId`，`args` 不再含宿主参数。`threadId` 仅是旧版兼容字段，新模块不得依赖。
 即便只有一个记忆体也不会自动选择；`scope: global` 工具不绑定记忆体。
 
 ```bash
