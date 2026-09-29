@@ -4,6 +4,7 @@ const toast = document.querySelector("#toast");
 const state = {
   libraries: [], step: 1, imports: [], memoryId: null,
   form: { libraryName: "", threadId: "", ai: "", user: "", userGender: "unspecified", runtime: "codex", scenario: "life-supervision", sessionDir: "", minerMode: "subagent", apiProvider: "", apiKey: "", baseUrl: "", model: "", windowDays: 1, keepToolPairs: 15, automaticFullMining: true, automaticMemoryMaintenance: true, automaticCompression: false },
+  feelingBatch: { active:false, memoryId:null, pending:new Map() },
 };
 
 // 正式发布前在这里补齐公共账号；空值会显示为“待配置”，不会跳往错误地址。
@@ -844,10 +845,12 @@ async function renderConversations(library,{search="",date="",focus="",page=1,ca
 }
 
 async function renderMemorySection(library, section, page=1, search="", category="", mode="", importance="", sort="desc", retainAnchor=false, eventAnchor=false, date="") {
+  const batch=state.feelingBatch;
+  if(section==="feelings"&&batch.memoryId&&batch.memoryId!==library.threadId){batch.active=false;batch.memoryId=null;batch.pending.clear();}
   const main=document.querySelector("#workspace-main"), titles={rules:"人设 / 规则",feelings:"摘要",features:"素材库"};
   main.innerHTML=`${managementNav("memories")}<div class="dashboard-head"><div><p class="eyebrow">记忆</p><h1>${titles[section]}</h1>${section==="feelings"?'<p class="lead memory-anchor-guide">选择【原文锚点】，将在线程中注入该摘要对应原文；选择【事件锚点】，则该摘要不受衰减模型影响；选择【隐藏摘要】，线程重建时该摘要将不注入线程。</p>':""}</div><button class="ghost" id="back-memory">返回记忆</button></div><section class="section-card" id="memory-content"><div class="empty">正在读取…</div></section>`;
   bindManagementNav(library);
-  main.querySelector("#back-memory").onclick=()=>renderManagement(library);
+  main.querySelector("#back-memory").onclick=()=>{if(section==="feelings"&&batch.active){showToast("请先结束多选，再离开摘要页面");return;}renderManagement(library);};
   const card=main.querySelector("#memory-content");
   if(section==="rules") {
     const data=await api(`/api/libraries/${encodeURIComponent(library.threadId)}/rules`);
@@ -861,38 +864,55 @@ async function renderMemorySection(library, section, page=1, search="", category
   const params=new URLSearchParams({page:String(page),search,category,mode,importance,sort,date});if(retainAnchor)params.set("retainAnchor","1");if(eventAnchor)params.set("eventAnchor","1");
   const data=await api(`/api/libraries/${encodeURIComponent(library.threadId)}/${section}?${params}`), rows=data.rows;
   const filters=section==="features"?`<select id="category-filter"><option value="">全部类别</option>${data.categories.map(c=>`<option ${c===category?"selected":""}>${escapeHtml(c)}</option>`).join("")}</select>`:`<select id="mode-filter"><option value="">全部状态</option>${["daily","coarse","hidden"].map(v=>`<option ${v===mode?"selected":""}>${v}</option>`).join("")}</select><select id="importance-filter"><option value="">全部 importance</option>${[1,2,3,4,5].map(v=>`<option ${String(v)===importance?"selected":""}>${v}</option>`).join("")}</select>`;
-  const feelingControls=section==="feelings"?`<div class="memory-subtoolbar"><div class="filter-chips" aria-label="锚点筛选"><button class="filter-chip ${retainAnchor?"active":""}" id="retain-filter" aria-pressed="${retainAnchor}">原文锚点</button><button class="filter-chip ${eventAnchor?"active":""}" id="event-filter" aria-pressed="${eventAnchor}">事件锚点</button></div><div class="summary-date-tools"><input id="summary-date" type="date" value="${escapeHtml(date)}"><button class="ghost" id="clear-summary-date" ${date?"":"disabled"}>清除日期</button><label class="sort-control">日期顺序<select id="sort-filter"><option value="desc" ${sort==="desc"?"selected":""}>最新优先</option><option value="asc" ${sort==="asc"?"selected":""}>最早优先</option></select></label></div></div>`:"";
-  card.innerHTML=`<div class="memory-toolbar"><input id="memory-search" placeholder="搜索摘要内容" value="${escapeHtml(search)}">${filters}<button class="secondary" id="memory-filter">筛选</button></div>${feelingControls}${rows.rows.length?rows.rows.map((row,index)=>section==="feelings"?feelingCard(row,index,"seq"):`<article class="memory-row"><div class="memory-time">${escapeHtml(row.source_date||"")}</div><p>${escapeHtml(row.content)}</p><span class="badge">importance ${row.importance}</span><span class="badge">${escapeHtml(row.category||"misc")}</span></article>`).join(""):`<div class="empty">没有匹配内容。</div>`}${pagination(rows)}<div id="feeling-editor"></div>`;
+  const feelingControls=section==="feelings"?`<div class="memory-subtoolbar"><div class="filter-chips" aria-label="锚点筛选"><button class="filter-chip ${retainAnchor?"active":""}" id="retain-filter" aria-pressed="${retainAnchor}">原文锚点</button><button class="filter-chip ${eventAnchor?"active":""}" id="event-filter" aria-pressed="${eventAnchor}">事件锚点</button></div><div class="summary-date-tools"><span class="batch-pending" ${batch.active?"":"hidden"}>待保存 ${batch.pending.size} 条 · 新增原文锚点需结束多选</span><button class="secondary ${batch.active?"active":""}" id="toggle-feeling-batch">${batch.active?"结束多选":"开启多选模式"}</button><input id="summary-date" type="date" value="${escapeHtml(date)}"><button class="ghost" id="clear-summary-date" ${date?"":"disabled"}>清除日期</button><label class="sort-control">日期顺序<select id="sort-filter"><option value="desc" ${sort==="desc"?"selected":""}>最新优先</option><option value="asc" ${sort==="asc"?"selected":""}>最早优先</option></select></label></div></div>`:"";
+  const displayRows=section==="feelings"?rows.rows.map(row=>{const pending=batch.active?batch.pending.get(row.id):null;return pending?{...row,eventAnchor:pending.eventAnchor??row.eventAnchor,retainAnchor:pending.retainAnchor??row.retainAnchor,summary_mode:pending.summaryMode??row.summary_mode}:row;}):rows.rows;
+  card.innerHTML=`<div class="memory-toolbar"><input id="memory-search" placeholder="搜索摘要内容" value="${escapeHtml(search)}">${filters}<button class="secondary" id="memory-filter">筛选</button></div>${feelingControls}${displayRows.length?displayRows.map((row,index)=>section==="feelings"?feelingCard(row,index,"seq",batch.active):`<article class="memory-row"><div class="memory-time">${escapeHtml(row.source_date||"")}</div><p>${escapeHtml(row.content)}</p><span class="badge">importance ${row.importance}</span><span class="badge">${escapeHtml(row.category||"misc")}</span></article>`).join(""):`<div class="empty">没有匹配内容。</div>`}${pagination(rows)}<div id="feeling-editor"></div>`;
   const applyFilters=(nextRetain=retainAnchor,nextEvent=eventAnchor,nextDate=card.querySelector("#summary-date")?.value||"")=>renderMemorySection(library,section,1,card.querySelector("#memory-search").value,card.querySelector("#category-filter")?.value||"",card.querySelector("#mode-filter")?.value||"",card.querySelector("#importance-filter")?.value||"",card.querySelector("#sort-filter")?.value||sort,nextRetain,nextEvent,nextDate);
-  card.querySelector("#memory-filter").onclick=()=>applyFilters();
-  card.querySelector("#memory-search").onkeydown=event=>{if(event.key==="Enter"){event.preventDefault();applyFilters();}};
-  if(section==="feelings"){card.querySelector("#retain-filter").onclick=()=>applyFilters(!retainAnchor,eventAnchor);card.querySelector("#event-filter").onclick=()=>applyFilters(retainAnchor,!eventAnchor);card.querySelector("#sort-filter").onchange=()=>applyFilters();card.querySelector("#summary-date").onchange=()=>applyFilters();card.querySelector("#clear-summary-date").onclick=()=>applyFilters(retainAnchor,eventAnchor,"");}
-  bindPagination(card,rows.page,rows.totalPages,nextPage=>renderMemorySection(library,section,nextPage,search,category,mode,importance,sort,retainAnchor,eventAnchor,date));
-  if(section==="feelings")bindFeelingCards(card,library,rows.rows,card.querySelector("#feeling-editor"),()=>renderMemorySection(library,section,page,search,category,mode,importance,sort,retainAnchor,eventAnchor,date));
+  card.querySelector("#memory-filter").onclick=()=>batch.active?showToast("请先结束多选，再更改筛选条件"):applyFilters();
+  card.querySelector("#memory-search").onkeydown=event=>{if(event.key==="Enter"){event.preventDefault();batch.active?showToast("请先结束多选，再更改筛选条件"):applyFilters();}};
+  if(section==="feelings"){
+    const blockedFilter=action=>()=>batch.active?showToast("请先结束多选，再更改筛选条件"):action();
+    card.querySelector("#retain-filter").onclick=blockedFilter(()=>applyFilters(!retainAnchor,eventAnchor));card.querySelector("#event-filter").onclick=blockedFilter(()=>applyFilters(retainAnchor,!eventAnchor));card.querySelector("#sort-filter").onchange=blockedFilter(()=>applyFilters());card.querySelector("#summary-date").onchange=blockedFilter(()=>applyFilters());card.querySelector("#clear-summary-date").onclick=blockedFilter(()=>applyFilters(retainAnchor,eventAnchor,""));
+    card.querySelector("#toggle-feeling-batch").onclick=async()=>{if(!batch.active){batch.active=true;batch.memoryId=library.threadId;batch.pending.clear();await renderMemorySection(library,section,page,search,category,mode,importance,sort,retainAnchor,eventAnchor,date);return;}if(!await flushFeelingBatch(library))return;batch.active=false;batch.memoryId=null;showToast("多选修改已保存");await renderMemorySection(library,section,page,search,category,mode,importance,sort,retainAnchor,eventAnchor,date);};
+  }
+  bindPagination(card,rows.page,rows.totalPages,async nextPage=>{if(section==="feelings"&&batch.active&&!await flushFeelingBatch(library))return;await renderMemorySection(library,section,nextPage,search,category,mode,importance,sort,retainAnchor,eventAnchor,date);});
+  if(section==="feelings")bindFeelingCards(card,library,rows.rows,card.querySelector("#feeling-editor"),()=>renderMemorySection(library,section,page,search,category,mode,importance,sort,retainAnchor,eventAnchor,date),batch.active);
 }
 
-function feelingCard(row,index,sequence="seq") {
+function feelingCard(row,index,sequence="seq",batchMode=false) {
   const number=sequence==="daySeq"?(row.daySeq||index+1):(row.seq||index+1),content=row.summary_mode==="coarse"&&row.coarse_summary?row.coarse_summary:row.content;
-  return `<article class="memory-row feeling-card ${(row.eventAnchor||row.retainAnchor)?"anchored":""} ${row.summary_mode==="hidden"?"is-hidden":""}"><div class="memory-time">第 ${number} 条 · importance ${row.importance}</div><p>${escapeHtml(content)}</p><div class="feeling-quick-actions"><button class="ghost edit-feeling" data-index="${index}">查看 / 编辑</button><label><input class="quick-retain" type="checkbox" data-index="${index}" ${row.retainAnchor?"checked":""}>原文锚点</label><label><input class="quick-event" type="checkbox" data-index="${index}" ${row.eventAnchor?"checked":""}>事件锚点</label><label><input class="quick-hidden" type="checkbox" data-index="${index}" ${row.summary_mode==="hidden"?"checked":""}>隐藏摘要</label></div></article>`;
+  const retainDisabled=batchMode&&!row.retainAnchor;
+  return `<article class="memory-row feeling-card ${(row.eventAnchor||row.retainAnchor)?"anchored":""} ${row.summary_mode==="hidden"?"is-hidden":""} ${batchMode?"batch-mode":""}"><div class="memory-time">第 ${number} 条 · importance ${row.importance}</div><p>${escapeHtml(content)}</p><div class="feeling-quick-actions"><button class="ghost edit-feeling" data-index="${index}" ${batchMode?"disabled":""}>查看 / 编辑</button><label class="${retainDisabled?"is-disabled":""}" title="${retainDisabled?"原文锚点需要逐条确认对话范围，请结束多选后设置。":""}"><input class="quick-retain" type="checkbox" data-index="${index}" ${row.retainAnchor?"checked":""} ${retainDisabled?"disabled":""}>原文锚点</label><label><input class="quick-event" type="checkbox" data-index="${index}" ${row.eventAnchor?"checked":""}>事件锚点</label><label><input class="quick-hidden" type="checkbox" data-index="${index}" ${row.summary_mode==="hidden"?"checked":""}>隐藏摘要</label></div></article>`;
 }
 
-function bindFeelingCards(container,library,rows,editorTarget,refresh) {
+async function flushFeelingBatch(library) {
+  const batch=state.feelingBatch;
+  if(!batch.pending.size)return true;
+  try{await api(`/api/libraries/${encodeURIComponent(library.threadId)}/feelings/batch-update`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({items:[...batch.pending.entries()].map(([id,changes])=>({id,...changes}))})});batch.pending.clear();return true;}
+  catch(error){showToast(`批量保存失败：${error.message}`,"error");return false;}
+}
+
+function bindFeelingCards(container,library,rows,editorTarget,refresh,batchMode=false) {
+  const stage=(row,changes)=>{const current={...(state.feelingBatch.pending.get(row.id)||{}),...changes};if(current.summaryMode===row.summary_mode)delete current.summaryMode;if(current.eventAnchor===Boolean(row.eventAnchor))delete current.eventAnchor;if(current.retainAnchor===Boolean(row.retainAnchor))delete current.retainAnchor;Object.keys(current).length?state.feelingBatch.pending.set(row.id,current):state.feelingBatch.pending.delete(row.id);const count=container.querySelector(".batch-pending");if(count)count.textContent=`待保存 ${state.feelingBatch.pending.size} 条 · 新增原文锚点需结束多选`;};
   const refreshWithoutJump=async()=>{const scrollY=window.scrollY;await refresh();requestAnimationFrame(()=>window.scrollTo({top:scrollY,left:0,behavior:"auto"}));};
   container.querySelectorAll(".edit-feeling").forEach(button=>button.onclick=()=>renderFeelingEditor(library,rows[Number(button.dataset.index)],editorTarget,refreshWithoutJump));
   container.querySelectorAll(".quick-event").forEach(input=>input.onchange=async()=>{
     const row=rows[Number(input.dataset.index)],enabled=input.checked;input.disabled=true;
+    if(batchMode){stage(row,{eventAnchor:enabled});input.disabled=false;return;}
     try{await setFeelingAnchor(library,row,"event",enabled);showToast(enabled?"已设置事件锚点":"已移除事件锚点");await refreshWithoutJump();}
     catch(error){input.checked=!enabled;input.disabled=false;showToast(error.message,"error");}
   });
   container.querySelectorAll(".quick-hidden").forEach(input=>input.onchange=async()=>{
     const row=rows[Number(input.dataset.index)],hidden=input.checked;
     if(hidden&&(row.eventAnchor||row.retainAnchor)&&!confirm("这条摘要已有锚点。隐藏后摘要本身不注入，但锚点保护仍可能生效，确认继续吗？")){input.checked=false;return;}
+    if(batchMode){stage(row,{summaryMode:hidden?"hidden":(row.coarse_summary?"coarse":"daily")});return;}
     input.disabled=true;
     try{await api(`/api/libraries/${encodeURIComponent(library.threadId)}/feelings/update`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({id:row.id,summaryMode:hidden?"hidden":(row.coarse_summary?"coarse":"daily")})});showToast(hidden?"摘要已隐藏":"摘要已恢复");await refreshWithoutJump();}
     catch(error){input.checked=!hidden;input.disabled=false;showToast(error.message,"error");}
   });
   container.querySelectorAll(".quick-retain").forEach(input=>input.onchange=async()=>{
     const row=rows[Number(input.dataset.index)],enabled=input.checked;
+    if(batchMode){if(enabled&&!row.retainAnchor){input.checked=false;showToast("原文锚点需要逐条确认对话范围，请结束多选后设置");return;}stage(row,{retainAnchor:enabled});return;}
     if(!enabled){
       input.disabled=true;
       try{

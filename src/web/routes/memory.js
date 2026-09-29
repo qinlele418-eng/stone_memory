@@ -114,7 +114,7 @@ async function handleMemory(req, res, url) {
 }
 
 async function handleMemoryActions(req, res, url) {
-  const feelingActionMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/feelings\/(update|anchor)$/);
+  const feelingActionMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/feelings\/(update|batch-update|anchor)$/);
   if (req.method === "POST" && feelingActionMatch) {
     const threadId=decodeURIComponent(feelingActionMatch[1]);
     publicThreadSettings(threadId);

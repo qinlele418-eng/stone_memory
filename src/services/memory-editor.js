@@ -49,6 +49,61 @@ function editFeeling(threadId, input) {
   } finally { store.close(); }
 }
 
+function batchEditFeelings(threadId, items) {
+  if (!Array.isArray(items) || !items.length) throw new Error("摘要批量修改列表不能为空");
+  const memoryDir = path.join(getThreadDir(threadId), "memory"), store = new MemoryStore({ memoryDir, threadId });
+  const normalized = [], ids = new Set();
+  try {
+    const find = store.db.prepare("SELECT * FROM feelings WHERE thread_id=? AND id=?");
+    for (const source of items) {
+      const id = String(source?.id || "");
+      if (!id || ids.has(id)) throw new Error(id ? `摘要重复：${id}` : "摘要 ID 不能为空");
+      ids.add(id);
+      const row = find.get(threadId, id);
+      if (!row) throw new Error(`摘要不存在：${id}`);
+      const item = { id };
+      if (source.summaryMode !== undefined) {
+        const mode = String(source.summaryMode);
+        if (!["daily", "coarse", "hidden"].includes(mode)) throw new Error(`摘要状态无效：${id}`);
+        if (mode === "coarse" && !row.coarse_summary) throw new Error(`摘要没有可恢复的精简文本：${id}`);
+        item.summaryMode = mode;
+      }
+      if (source.eventAnchor !== undefined) item.eventAnchor = source.eventAnchor === true;
+      if (source.retainAnchor !== undefined) {
+        if (source.retainAnchor !== false) throw new Error("批量模式不能新建原文锚点");
+        item.retainAnchor = false;
+      }
+      if (item.summaryMode === undefined && item.eventAnchor === undefined && item.retainAnchor === undefined) throw new Error(`摘要没有待修改状态：${id}`);
+      normalized.push(item);
+    }
+
+    const anchorItems = normalized.flatMap(item => [
+      ...(item.eventAnchor === undefined ? [] : [{ id:item.id, type:"event", enabled:item.eventAnchor }]),
+      ...(item.retainAnchor === undefined ? [] : [{ id:item.id, type:"retain", enabled:false }]),
+    ]);
+    const anchorFile = path.join(memoryDir, "retain-config.json");
+    let anchorConfig = { retain:{}, eventAnchors:{} };
+    try { anchorConfig = { ...anchorConfig, ...JSON.parse(fs.readFileSync(anchorFile, "utf8")) }; } catch {}
+    let nextAnchorConfig = anchorConfig;
+    if (anchorItems.length) {
+      const feelings = new Map(normalized.map(item => [item.id, find.get(threadId, item.id)]));
+      nextAnchorConfig = applyAnchorItems(anchorConfig, feelings, anchorItems);
+    }
+
+    const update = store.db.prepare("UPDATE feelings SET summary_mode=?,updated_at=? WHERE thread_id=? AND id=?");
+    const anchorTemp = anchorItems.length ? `${anchorFile}.tmp-${process.pid}` : null;
+    if (anchorTemp) fs.writeFileSync(anchorTemp, JSON.stringify(nextAnchorConfig, null, 2));
+    const applyModes = store.db.transaction(() => {
+      const now = new Date().toISOString();
+      for (const item of normalized) if (item.summaryMode !== undefined) update.run(item.summaryMode, now, threadId, item.id);
+      if (anchorTemp) fs.renameSync(anchorTemp, anchorFile);
+    });
+    try { applyModes(); }
+    finally { if (anchorTemp) try { fs.unlinkSync(anchorTemp); } catch {} }
+    return { updated: normalized.length, items: normalized };
+  } finally { store.close(); }
+}
+
 function setAnchors(threadId, items) {
   if (!Array.isArray(items) || !items.length) throw new Error("锚点列表不能为空");
   const normalized = items.map(item => {
@@ -79,4 +134,4 @@ function setAnchors(threadId, items) {
 function setAnchor(threadId, feelingId, type, enabled, options = {}) {
   return setAnchors(threadId, [{ ...options, id: feelingId, type, enabled }])[0];
 }
-module.exports={editFeeling,setAnchor,setAnchors,buildAnchorEntry,applyAnchorItems};
+module.exports={editFeeling,batchEditFeelings,setAnchor,setAnchors,buildAnchorEntry,applyAnchorItems};

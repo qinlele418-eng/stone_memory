@@ -63,6 +63,7 @@ test("every library route rejects an unknown thread id instead of touching the f
 
   const writeRoutes = [
     `/api/libraries/${traversal}/feelings/update`,
+    `/api/libraries/${traversal}/feelings/batch-update`,
     `/api/libraries/${traversal}/feelings/anchor`,
     `/api/libraries/${traversal}/compression/apply`,
     `/api/libraries/${traversal}/dreams/policy-preview`,

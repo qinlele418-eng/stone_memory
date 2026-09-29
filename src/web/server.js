@@ -1798,7 +1798,7 @@ async function handleApi(req, res, url, { isRemote = false } = {}) {
     }
   }
 
-  const feelingActionMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/feelings\/(update|anchor)$/);
+  const feelingActionMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/feelings\/(update|batch-update|anchor)$/);
   if (req.method === "POST" && feelingActionMatch) {
     const threadId=decodeURIComponent(feelingActionMatch[1]);
     publicThreadSettings(threadId);

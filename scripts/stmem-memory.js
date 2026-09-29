@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 const fs = require("fs");
 const { resolveMemoryArg } = require("../src/lib/memory-cli");
-const { editFeeling, setAnchor, setAnchors } = require("../src/services/memory-editor");
+const { editFeeling, batchEditFeelings, setAnchor, setAnchors } = require("../src/services/memory-editor");
 const { createMemory, publicMemorySettings, updateMemorySettings, deleteDraftMemory, repairMemoryScaffold } = require("../src/services/memory-setup");
 
 function value(args, key) {
@@ -16,7 +16,7 @@ function usage() {
   stmem memory settings --memory <id> --batch-file <json> --validate|--apply
   stmem memory repair --memory <id> [--apply]
   stmem memory delete --memory <id> [--apply]
-  stmem memory update|anchor --thread <兼容记忆体ID> --batch-file <json>`;
+  stmem memory update|batch-update|anchor --thread <兼容记忆体ID> --batch-file <json>`;
 }
 
 function runMemoryCommand(args = process.argv.slice(3)) {
@@ -62,6 +62,7 @@ function runMemoryCommand(args = process.argv.slice(3)) {
   const input = JSON.parse(fs.readFileSync(batch, "utf8"));
   let result;
   if (action === "update") result = editFeeling(threadId, input);
+  else if (action === "batch-update") result = batchEditFeelings(threadId, input.items);
   else if (action === "anchor" && Array.isArray(input.items)) result = setAnchors(threadId, input.items);
   else if (action === "anchor") result = setAnchor(threadId, input.id, input.type, input.enabled, input);
   else throw new Error(usage());
