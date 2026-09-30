@@ -9,7 +9,7 @@ const state = {
 
 // 正式发布前在这里补齐公共账号；空值会显示为“待配置”，不会跳往错误地址。
 const projectContact = {
-  github: "https://github.com/stone-memory-empire",
+  github: "https://github.com/wanyu445/stone_memory",
   website: "",
   xiaohongshu: "",
   qqGroup: "",

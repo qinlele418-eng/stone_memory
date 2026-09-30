@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./package.json"><img src="./assets/readme/badges/version.svg" alt="Version: 1.2.0-beta.1" height="20"></a>
+  <a href="./package.json"><img src="./assets/readme/badges/version.svg" alt="Version: 1.2.0" height="20"></a>
   <a href="#安装"><img src="./assets/readme/badges/node.svg" alt="Node.js: 22+" height="20"></a>
   <a href="#当前架构"><img src="./assets/readme/badges/storage.svg" alt="Storage: SQLite" height="20"></a>
   <a href="./LICENSE"><img src="./assets/readme/badges/license.svg" alt="License: AGPL-3.0-only" height="20"></a>
@@ -473,7 +473,7 @@ npm run audit:developer-modules
 
 测试使用 Node 内置 test runner。修改 watcher、Binding、rebuild、数据路径或 Web 写接口时，应先运行相关测试，再运行完整 `npm test`。参与开发前请先阅读[开发约束](./sm-developer-docs/AGENTS.md)、[架构说明](./sm-developer-docs/architecture.md)与[贡献指南](./sm-developer-docs/contributing.md)。
 
-[开发者文档](./sm-developer-docs/README.md) · [模块接入规范](./developer-modules/DEVELOPMENT.md) · [问题反馈](https://github.com/stone-memory-empire/stmem_core/issues)
+[开发者文档](./sm-developer-docs/README.md) · [模块接入规范](./developer-modules/DEVELOPMENT.md) · [问题反馈](https://github.com/wanyu445/stone_memory/issues)
 
 ## 许可证
 

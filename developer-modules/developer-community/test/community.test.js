@@ -152,6 +152,15 @@ test("new collaborators get the official Core repository and built-in review pro
   } finally { fs.rmSync(fixture.root, { recursive:true, force:true }); }
 });
 
+test("saved legacy repository is replaced by the current official repository", () => {
+  const fixture = temporaryContext();
+  try {
+    fs.writeFileSync(path.join(fixture.root, "settings.json"), JSON.stringify({ repository:"stone-memory-empire/stmem_core" }));
+    assert.equal(loadSettings(fixture.context).repository, DEFAULT_REPOSITORY);
+    assert.equal(DEFAULT_REPOSITORY, "wanyu445/stone_memory");
+  } finally { fs.rmSync(fixture.root, { recursive:true, force:true }); }
+});
+
 test("AI reading configuration is either complete or explicitly disabled", () => {
   const fixture = temporaryContext();
   try {
@@ -275,14 +284,14 @@ test("star uses GitHub REST with the module token and explains inaccessible repo
   let request;
   try {
     global.fetch = async (url, options) => { request = { url, options }; return { ok:true, status:204 }; };
-    assert.deepEqual(await github.star("stone-memory-empire/stmem_core", "secret-token"), {
-      starred:true, repository:"stone-memory-empire/stmem_core",
+    assert.deepEqual(await github.star("wanyu445/stone_memory", "secret-token"), {
+      starred:true, repository:"wanyu445/stone_memory",
     });
-    assert.equal(request.url, "https://api.github.com/user/starred/stone-memory-empire/stmem_core");
+    assert.equal(request.url, "https://api.github.com/user/starred/wanyu445/stone_memory");
     assert.equal(request.options.method, "PUT");
     assert.equal(request.options.headers.authorization, "Bearer secret-token");
     global.fetch = async () => ({ ok:false, status:404, async json() { return { message:"Not Found" }; } });
-    await assert.rejects(github.star("stone-memory-empire/stmem_core", "secret-token"), /OAuth App 无权访问/u);
+    await assert.rejects(github.star("wanyu445/stone_memory", "secret-token"), /OAuth App 无权访问/u);
   } finally { global.fetch = originalFetch; }
 });
 

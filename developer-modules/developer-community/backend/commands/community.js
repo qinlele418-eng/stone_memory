@@ -8,7 +8,7 @@ const { openDatabase } = require("../db");
 const github = require("../github");
 
 const DEFAULT_PROMPT = path.resolve(__dirname, "..", "..", "prompts", "default-pr-review.md");
-const DEFAULT_REPOSITORY = "stone-memory-empire/stmem_core";
+const DEFAULT_REPOSITORY = "wanyu445/stone_memory";
 const DEFAULT_LOCAL_REPOSITORY = path.resolve(__dirname, "..", "..", "..", "..");
 const GITHUB_CLIENT_ID = "Ov23liGbwfGo2V7ZdsoT";
 const STMEM_CLI = path.resolve(__dirname, "..", "..", "..", "..", "bin", "stmem");
@@ -23,7 +23,7 @@ function loadSettings(context) {
     return {
       ...defaults,
       ...saved,
-      repository: saved.repository || DEFAULT_REPOSITORY,
+      repository: DEFAULT_REPOSITORY,
       localRepoPath: saved.localRepoPath || DEFAULT_LOCAL_REPOSITORY,
       api: { ...defaults.api, ...(saved.api || {}), enabled: saved.api?.enabled !== false },
     };
