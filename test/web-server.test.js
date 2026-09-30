@@ -42,6 +42,8 @@ test("the mining prompt editor is hidden and its Web write route is disabled", (
   const routes = fs.readFileSync(path.join(__dirname, "..", "src", "web", "routes", "memory.js"), "utf8");
   assert.doesNotMatch(app, /mining-prompts-save|调提示词 & 时间轴|loadMiningPrompts/u);
   assert.match(routes, /挖掘提示词编辑功能暂时关闭/u);
+  assert.match(routes, /\["prompt", "show", "--memory", memoryId\]/u);
+  assert.doesNotMatch(routes, /\["prompt", "show", "--thread"/u);
 });
 
 test("import preview paginates only cleaned archive conversations", () => {

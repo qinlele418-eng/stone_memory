@@ -12,13 +12,13 @@ const { NOT_HANDLED } = require("../route-result");
 const { parseFeelingTime, feelingToUtc, automaticRetainWindow } = require("../../services/thread-rebuilder");
 
 function memoryExportPayload(store, settings) {
-  const messages = store.db.prepare("SELECT * FROM messages WHERE thread_id=? ORDER BY timestamp,message_seq").all(settings.threadId);
-  const feelings = store.db.prepare("SELECT * FROM feelings WHERE thread_id=? ORDER BY source_date,COALESCE(event_time,''),order_key,id").all(settings.threadId);
+  const messages = store.db.prepare("SELECT * FROM messages WHERE thread_id=? ORDER BY timestamp,message_seq").all(settings.memoryId);
+  const feelings = store.db.prepare("SELECT * FROM feelings WHERE thread_id=? ORDER BY source_date,COALESCE(event_time,''),order_key,id").all(settings.memoryId);
   return {
     schema: "stone-memory-export",
     schemaVersion: 1,
     exportedAt: new Date().toISOString(),
-    memory: { id: settings.threadId, name: settings.libraryName },
+    memory: { id: settings.memoryId, name: settings.libraryName },
     tables: { messages, feelings },
   };
 }
@@ -40,9 +40,9 @@ function sendMemoryExport(res, payload) {
 async function handleMemory(req, res, url) {
   const exportMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/export$/);
   if (req.method === "GET" && exportMatch) {
-    const threadId = decodeURIComponent(exportMatch[1]);
-    publicThreadSettings(threadId);
-    const store = new MemoryStore({ memoryDir: path.join(getThreadDir(settings.threadId), "memory"), threadId: settings.threadId });
+    const memoryId = decodeURIComponent(exportMatch[1]);
+    const settings = publicThreadSettings(memoryId);
+    const store = new MemoryStore({ memoryDir: path.join(getThreadDir(memoryId), "memory"), threadId: memoryId });
     try { sendMemoryExport(res, memoryExportPayload(store, settings)); }
     finally { store.close(); }
     return;
@@ -50,9 +50,9 @@ async function handleMemory(req, res, url) {
 
   const promptsMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/mining\/prompts$/);
   if (promptsMatch) {
-    const threadId = decodeURIComponent(promptsMatch[1]);
-    publicThreadSettings(threadId);
-    if (req.method === "GET") return json(res, 200, JSON.parse(runStmem(["prompt", "show", "--thread", threadId])));
+    const memoryId = decodeURIComponent(promptsMatch[1]);
+    publicThreadSettings(memoryId);
+    if (req.method === "GET") return json(res, 200, JSON.parse(runStmem(["prompt", "show", "--memory", memoryId])));
     if (req.method === "PUT") {
       return json(res, 403, { error: "挖掘提示词编辑功能暂时关闭" });
     }

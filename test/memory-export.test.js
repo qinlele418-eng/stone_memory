@@ -15,7 +15,7 @@ test("memory export contains full message and feeling tables without runtime set
   store.insertMessages([{ timestamp:"2026-09-21T08:00:00.000Z", sourceDate:"2026-09-21", role:"user", text:"hello" }]);
   store.appendTargeted("2026-09-21", { feelings:[{ content:"今天完成了导出。", importance:4 }] });
 
-  const payload = memoryExportPayload(store, { threadId:"memory-export", libraryName:"二号御史大夫", apiKey:"must-not-export" });
+  const payload = memoryExportPayload(store, { memoryId:"memory-export", libraryName:"二号御史大夫", apiKey:"must-not-export" });
   assert.equal(payload.schema, "stone-memory-export");
   assert.equal(payload.tables.messages.length, 1);
   assert.equal(payload.tables.messages[0].text, "hello");

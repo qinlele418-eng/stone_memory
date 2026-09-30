@@ -1644,11 +1644,11 @@ async function handleApi(req, res, url, { isRemote = false } = {}) {
 
   const promptsMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/mining\/prompts$/);
   if (promptsMatch) {
-    const threadId = decodeURIComponent(promptsMatch[1]);
-    const config = loadConfig(); const context = getMemoryContext(threadId);
-    const entry = context.layout === "memory-v1" ? getMemoryRuntimeConfig(threadId) : (config[threadId] || {});
+    const memoryId = decodeURIComponent(promptsMatch[1]);
+    const config = loadConfig(); const context = getMemoryContext(memoryId);
+    const entry = context.layout === "memory-v1" ? getMemoryRuntimeConfig(memoryId) : (config[memoryId] || {});
     const timeline = Array.isArray(entry.relationshipTimeline) ? entry.relationshipTimeline : [];
-    const memoryDir = path.join(getThreadDir(threadId), "memory");
+    const memoryDir = path.join(getThreadDir(memoryId), "memory");
     const scenario = scenarioId(entry);
     const defaults = resolveMiningPrompts(entry, { defaultsOnly: true });
     const resolved = resolveMiningPrompts(entry, { memoryDir });
