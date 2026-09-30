@@ -65,6 +65,7 @@ function usage() {
   stmem binding discover-successors --memory <记忆体ID> [--apply]
   stmem binding list --thread <记忆体ID>
   stmem binding add --thread <记忆体ID> --provider codex --external-thread <id> --thread-file <jsonl>
+  stmem binding add --memory <记忆体ID> --batch-file <json>   # batch: {"provider":"pando","externalThreadId":"<会话ID>"}（pando 无需会话文件）
   stmem binding add ... --apply
   stmem binding enable|disable --thread <记忆体ID> --id <binding-id> --apply
   stmem binding import --thread <记忆体ID> --binding <id> [--source <文件>]

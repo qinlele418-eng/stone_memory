@@ -10,8 +10,13 @@ const { writeJson } = require("./memory-setup");
 const { saveConfig } = require("./thread-setup");
 const { rebalanceWatcherBindings } = require("./watcher-bindings");
 
-const PROVIDERS = new Set(["claude", "codex"]);
+const PROVIDERS = new Set(["claude", "codex", "pando"]);
 const MODES = new Set(["primary", "parallel", "child", "import_only"]);
+// Pando 会话由宿主工作区持有，不存在可校验的开发客户端会话文件；因此
+// provider=pando 跳过 sessionRoot/thread-session-file 校验，且没有实时
+// watcher 语义，默认以 import_only 模式接入。
+const FILE_BACKED_PROVIDERS = new Set(["claude", "codex"]);
+const PANDO_DEFAULT_MODE = "import_only";
 
 function bindingId(memoryId, provider, externalThreadId) {
   return `binding_${crypto.createHash("sha256").update(`${memoryId}\0${provider}\0${externalThreadId}`).digest("hex").slice(0, 20)}`;
@@ -34,15 +39,19 @@ function validateBindingInput(memoryId, input = {}) {
   const unknown = Object.keys(input).filter(key => !["provider", "externalThreadId", "sessionRoot", "mode", "enabled"].includes(key));
   if (unknown.length) throw new Error(`不支持的 Binding 字段：${unknown.join("、")}`);
   const provider = String(input.provider || "").trim().toLowerCase();
-  if (!PROVIDERS.has(provider)) throw new Error("Binding provider 必须是 claude 或 codex");
+  if (!PROVIDERS.has(provider)) throw new Error("Binding provider 必须是 claude、codex 或 pando");
   const externalThreadId = String(input.externalThreadId || "").trim();
   if (!externalThreadId || !/^[A-Za-z0-9._:-]+$/u.test(externalThreadId)) throw new Error("需要填写合法的外部线程 ID");
-  const rawRoot = String(input.sessionRoot || "").trim();
-  const sessionRoot = path.resolve(rawRoot || ".");
-  if (!rawRoot || !fs.existsSync(sessionRoot) || !fs.statSync(sessionRoot).isDirectory()) throw new Error(`线程搜索目录不存在：${sessionRoot}`);
-  const resolvedThreadFile = findThreadSessionFile(sessionRoot, externalThreadId);
-  if (!resolvedThreadFile) throw new Error(`在指定目录中找不到线程 ${externalThreadId} 的 JSONL 文件`);
-  const mode = String(input.mode || "parallel").trim();
+  let sessionRoot = null;
+  let resolvedThreadFile = null;
+  if (FILE_BACKED_PROVIDERS.has(provider)) {
+    const rawRoot = String(input.sessionRoot || "").trim();
+    sessionRoot = path.resolve(rawRoot || ".");
+    if (!rawRoot || !fs.existsSync(sessionRoot) || !fs.statSync(sessionRoot).isDirectory()) throw new Error(`线程搜索目录不存在：${sessionRoot}`);
+    resolvedThreadFile = findThreadSessionFile(sessionRoot, externalThreadId);
+    if (!resolvedThreadFile) throw new Error(`在指定目录中找不到线程 ${externalThreadId} 的 JSONL 文件`);
+  }
+  const mode = String(input.mode || (provider === "pando" ? PANDO_DEFAULT_MODE : "parallel")).trim();
   if (!MODES.has(mode)) throw new Error(`不支持的 Binding 模式：${mode}`);
   return { id: bindingId(memoryId, provider, externalThreadId), memoryId, provider, externalThreadId, sessionRoot, resolvedThreadFile, mode, enabled: input.enabled !== false };
 }
@@ -222,8 +231,9 @@ function resolvePrimaryBinding(memoryId, { requireFile = true } = {}) {
   if (!config.primaryBindingId) throw new Error("记忆体尚未设置主窗口 Binding");
   const binding = config.bindings.find(item => item.id === config.primaryBindingId);
   if (!binding) throw new Error("主窗口 Binding 不存在");
-  const resolvedThreadFile = findThreadSessionFile(binding.sessionRoot, binding.externalThreadId);
-  if (requireFile && !resolvedThreadFile) throw new Error(`主窗口文件已失效：找不到线程 ${binding.externalThreadId}`);
+  // pando Binding 本身没有会话文件，不因文件缺失而视为失效。
+  const resolvedThreadFile = binding.provider === "pando" ? null : findThreadSessionFile(binding.sessionRoot, binding.externalThreadId);
+  if (requireFile && binding.provider !== "pando" && !resolvedThreadFile) throw new Error(`主窗口文件已失效：找不到线程 ${binding.externalThreadId}`);
   return { ...binding, resolvedThreadFile: resolvedThreadFile || null, bindingRevision: config.revision };
 }
 
@@ -239,6 +249,7 @@ function planBindingSwitch(memoryId, id) {
   const config = readBindingConfig(memoryId);
   const binding = getConfiguredBinding(memoryId, id);
   if (binding.enabled === false) throw new Error("不能切换到已停用的 Binding");
+  if (binding.provider === "pando") throw new Error("pando Binding 没有会话文件，不支持 rebuild 式切换；请改用 binding primary 命令设置主 Binding");
   const resolvedThreadFile = findThreadSessionFile(binding.sessionRoot, binding.externalThreadId);
   if (!resolvedThreadFile) throw new Error(`目标窗口已失效：找不到线程 ${binding.externalThreadId}`);
   return {

@@ -106,3 +106,98 @@ test("MCP bind reports the host-specific setup when the current window id is una
   assert.equal(responses[0].result.isError, true);
   assert.match(responses[0].result.content[0].text, /本次 Bind 请求中传入 thread 与 provider/u);
 });
+
+// TASK-0376: provider=pando。fixture 直接以 fs 组装 memoryId=finn 的 memory-v1
+// 骨架（与 memory-setup.createMemory 同构），HOME 内没有任何会话文件。
+function createFinnMemoryHome(home) {
+  const root = path.join(home, ".stone_memory", "memories", "finn");
+  fs.mkdirSync(root, { recursive: true });
+  const now = new Date().toISOString();
+  const write = (name, value) => fs.writeFileSync(path.join(root, name), JSON.stringify(value, null, 2));
+  write("memory.json", {
+    schemaVersion: 1, memoryId: "finn", label: "Finn", status: "draft",
+    purpose: null, ai: "", user: "", userGender: "unspecified", relationshipTimeline: [],
+    mcpModules: ["notebook-lab", "dream-lab"], mcpModuleConfigVersion: 1,
+    miner: { mode: null, apiProfile: null },
+    rebuild: { windowDays: 1, keepToolPairs: 15, contextWindowTokens: null, mcpRebuildDefaultsEnabled: false, mcpSummaryLimit: 0, mcpMinImportance: 0 },
+    createdAt: now, updatedAt: now,
+  });
+  write("bindings.json", { schemaVersion: 1, revision: 0, primaryBindingId: null, bindings: [] });
+  write("watcher.json", { schemaVersion: 1, enabled: false, modules: { archive: false, miner: false, compression: false, dream: false } });
+  write(".layout-v1.json", { schemaVersion: 1, status: "complete", memoryId: "finn", origin: "created", completedAt: now });
+  const configFile = path.join(home, ".stone_memory", "stmem.json");
+  const config = fs.existsSync(configFile) ? JSON.parse(fs.readFileSync(configFile, "utf8")) : {};
+  config.memories = config.memories || {};
+  config.memories.finn = { memoryId: "finn", label: "Finn", status: "draft", createdAt: now, updatedAt: now, bindings: [] };
+  fs.writeFileSync(configFile, JSON.stringify(config, null, 2));
+}
+
+const neutralWindowEnv = {
+  CODEX_THREAD_ID: "", CLAUDE_CODE_SESSION_ID: "", STMEM_CURRENT_THREAD_ID: "",
+  STMEM_CURRENT_PROVIDER: "", PANDO_THREAD_ID: "",
+};
+
+test("MCP bind accepts provider=pando with no session files and binds memoryId=finn idempotently", t => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-mcp-bind-pando-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  createFinnMemoryHome(home);
+
+  const bind = { name: "stmem_memory_bind", arguments: { memory: "finn", thread: "pando-conv-001", provider: "pando" } };
+  const responses = callMcp(home, [
+    { jsonrpc: "2.0", id: 1, method: "tools/call", params: bind },
+    { jsonrpc: "2.0", id: 2, method: "tools/call", params: bind },
+  ], neutralWindowEnv);
+
+  assert.equal(responses[0].result.isError, false);
+  assert.match(responses[0].result.content[0].text, /已绑定到记忆体“Finn”（finn）/u);
+  assert.equal(responses[1].result.isError, false);
+  assert.match(responses[1].result.content[0].text, /此前已经绑定到记忆体“Finn”/u);
+
+  const bindings = JSON.parse(run(home, ["binding", "list", "--memory", "finn"]).stdout);
+  assert.equal(bindings.bindings.length, 1);
+  assert.equal(bindings.bindings[0].provider, "pando");
+  assert.equal(bindings.bindings[0].externalThreadId, "pando-conv-001");
+  assert.equal(bindings.bindings[0].mode, "import_only");
+  assert.equal(bindings.bindings[0].sessionRoot, null);
+  assert.equal(bindings.bindings[0].resolvedThreadFile, null);
+  assert.equal(bindings.primaryBindingId, bindings.bindings[0].id);
+});
+
+test("MCP pando bind falls back to PANDO_THREAD_ID env when the request carries only the memory", t => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-mcp-bind-pando-env-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  createFinnMemoryHome(home);
+
+  const responses = callMcp(home, [
+    { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "stmem_memory_bind", arguments: { memory: "finn" } } },
+  ], { ...neutralWindowEnv, PANDO_THREAD_ID: "pando-conv-env" });
+
+  assert.equal(responses[0].result.isError, false);
+  assert.match(responses[0].result.content[0].text, /已绑定到记忆体“Finn”/u);
+  const bindings = JSON.parse(run(home, ["binding", "list", "--memory", "finn"]).stdout);
+  assert.equal(bindings.bindings[0].externalThreadId, "pando-conv-env");
+});
+
+test("MCP pando bind fails explicitly on wrong provider, illegal thread and cross-memory rebinding", t => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-mcp-bind-pando-err-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  createFinnMemoryHome(home);
+  const second = createMemory(home, "第二记忆体");
+
+  const responses = callMcp(home, [
+    { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "stmem_memory_bind", arguments: { memory: "finn", thread: "pando-conv-001", provider: "pando" } } },
+    { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "stmem_memory_bind", arguments: { memory: second.label, thread: "pando-conv-001", provider: "pando" } } },
+    { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "stmem_memory_bind", arguments: { memory: "finn", thread: "pando-conv-err", provider: "pandoc" } } },
+    { jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "stmem_memory_bind", arguments: { memory: "finn", thread: "bad thread", provider: "pando" } } },
+  ], neutralWindowEnv);
+
+  assert.equal(responses[0].result.isError, false);
+  assert.equal(responses[1].result.isError, true);
+  assert.match(responses[1].result.content[0].text, /已绑定到其他记忆体.*不支持改绑/u);
+  assert.equal(responses[2].result.isError, true);
+  assert.match(responses[2].result.content[0].text, /无法识别当前窗口属于 Codex 还是 Claude Code/u);
+  assert.equal(responses[3].result.isError, true);
+  assert.match(responses[3].result.content[0].text, /不是合法线程 ID/u);
+  const secondBindings = JSON.parse(run(home, ["binding", "list", "--memory", second.memoryId]).stdout);
+  assert.equal(secondBindings.bindings.length, 0);
+});

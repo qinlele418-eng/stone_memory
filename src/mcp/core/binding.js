@@ -18,12 +18,18 @@ function currentBindingSession(input = {}, env = process.env) {
   const explicitThread = String(env.STMEM_CURRENT_THREAD_ID || "").trim();
   const codexThread = String(env.CODEX_THREAD_ID || "").trim();
   const claudeThread = String(env.CLAUDE_CODE_SESSION_ID || "").trim();
-  const externalThreadId = requestThread || explicitThread || codexThread || claudeThread;
+  const pandoThread = String(env.PANDO_THREAD_ID || "").trim();
+  const externalThreadId = requestThread || explicitThread || codexThread || claudeThread || pandoThread;
   if (!externalThreadId) throw new Error("无法识别当前窗口 ID。请在本次 Bind 请求中传入 thread 与 provider，或确认 MCP 已透传会话 ID");
   if (!/^[A-Za-z0-9._:-]+$/u.test(externalThreadId)) throw new Error("Bind 请求中的 thread 不是合法线程 ID");
   const requestProvider = String(input.provider || "").trim().toLowerCase();
   const explicitProvider = requestProvider || String(env.STMEM_CURRENT_PROVIDER || "").trim().toLowerCase();
-  const provider = explicitProvider || (codexThread ? "codex" : claudeThread ? "claude" : "");
+  const provider = explicitProvider || (codexThread ? "codex" : claudeThread ? "claude" : pandoThread ? "pando" : "");
+  if (provider === "pando") {
+    // Pando 会话由宿主工作区持有，不存在开发客户端会话文件；bind 不做文件校验，
+    // 默认 import_only 模式（无实时 watcher 语义）。
+    return { provider, externalThreadId, sessionRoot: null, mode: "import_only" };
+  }
   if (!new Set(["codex", "claude"]).has(provider)) throw new Error("无法识别当前窗口属于 Codex 还是 Claude Code；请在 Bind 请求中传入 provider");
   const explicitRoot = String(env.STMEM_CURRENT_SESSION_ROOT || "").trim();
   const sessionRoot = explicitRoot || (provider === "codex"
@@ -38,7 +44,7 @@ function toolMemoryBind(args) {
   const binding = currentBindingSession(args);
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-mcp-bind-"));
   const batchFile = path.join(directory, "binding.json");
-  fs.writeFileSync(batchFile, JSON.stringify({ ...binding, mode: "parallel" }), { encoding: "utf8", mode: 0o600 });
+  fs.writeFileSync(batchFile, JSON.stringify({ ...binding, mode: binding.mode || "parallel" }), { encoding: "utf8", mode: 0o600 });
   try {
     const output = execFileSync(process.execPath, [path.join(PROJECT_ROOT, "bin", "stmem"), "binding", "add", "--memory", memory.memoryId, "--batch-file", batchFile, "--apply"], { encoding: "utf8", timeout: 30_000, maxBuffer: 5 * 1024 * 1024, cwd: PROJECT_ROOT, windowsHide: true });
     const result = JSON.parse(output);
