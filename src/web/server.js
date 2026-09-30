@@ -35,7 +35,7 @@ const { readBindingConfig, getConfiguredBinding } = require("../services/memory-
 const { memoryExportPayload, sendMemoryExport } = require("./routes/memory");
 
 const { scenarioId, normalizeScenarioConfig } = require("../services/scenario-registry");
-const { resolveMiningPrompts, promptOverridePath, renderPrompt } = require("../services/prompt-resolver");
+const { resolveMiningPrompts } = require("../services/prompt-resolver");
 const { listDeveloperAdapters } = require("./static-files");
 const { WebAuthError, isLoopbackHost, isRemoteRequest, configuredAuth, isPublicWebApiRoute, createWebAuth } = require("../security/web-auth");
 const { webSecurityStatus, ensureLegacyWebAuth, createWebSessionStore } = require("../services/web-security");
@@ -1652,8 +1652,6 @@ async function handleApi(req, res, url, { isRemote = false } = {}) {
     const scenario = scenarioId(entry);
     const defaults = resolveMiningPrompts(entry, { defaultsOnly: true });
     const resolved = resolveMiningPrompts(entry, { memoryDir });
-    const summaryPath = promptOverridePath(memoryDir, scenario, "feelings");
-    const featurePath = promptOverridePath(memoryDir, scenario, "features");
     if (req.method === "GET") {
       return json(res, 200, {
         scenario,
@@ -1664,35 +1662,7 @@ async function handleApi(req, res, url, { isRemote = false } = {}) {
         timeline,
       });
     }
-    if (req.method === "PUT") {
-      const body = await readJson(req);
-      if (String(body.summaryPrompt || "").length > 100000 || String(body.featurePrompt || "").length > 100000) {
-        throw new Error("单份挖掘提示词不能超过 100000 个字符");
-      }
-      const summaryPrompt = String(body.summaryPrompt || defaults.tasks.feelings.template);
-      const featurePrompt = String(body.featurePrompt || defaults.tasks.features.template);
-      if (body.summaryPrompt !== undefined) renderPrompt(summaryPrompt, entry);
-      if (body.featurePrompt !== undefined) renderPrompt(featurePrompt, entry);
-      fs.mkdirSync(path.dirname(summaryPath), { recursive: true });
-      if (body.summaryPrompt !== undefined) fs.writeFileSync(summaryPath, summaryPrompt, "utf8");
-      if (body.featurePrompt !== undefined) fs.writeFileSync(featurePath, featurePrompt, "utf8");
-      if (Array.isArray(body.timeline)) {
-        const strings = body.timeline.map(String).filter(s => s.trim());
-        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-web-timeline-"));
-        const batchFile = path.join(tmpDir, "config.json");
-        try {
-          if (context.layout === "memory-v1") {
-            fs.writeFileSync(batchFile, JSON.stringify({ relationshipTimeline: strings }), { encoding: "utf8", mode: 0o600 });
-            runStmem(["memory", "settings", "--memory", threadId, "--batch-file", batchFile, "--apply"]);
-          } else {
-            const cur = publicThreadSettings(threadId);
-            fs.writeFileSync(batchFile, JSON.stringify({ ...cur, relationshipTimeline: strings, threadId, runtime: cur.runtime, purpose: cur.purpose }), { encoding: "utf8", mode: 0o600 });
-            runStmem(["init", "--thread", threadId, "--batch-file", batchFile]);
-          }
-        } finally { fs.rmSync(tmpDir, { recursive: true, force: true }); }
-      }
-      return json(res, 200, { success: true });
-    }
+    if (req.method === "PUT") return json(res, 403, { error: "挖掘提示词编辑功能暂时关闭" });
   }
 
   const memorySectionMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/(rules|feelings|features)$/);

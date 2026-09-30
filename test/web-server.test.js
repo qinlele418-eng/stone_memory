@@ -37,16 +37,11 @@ test("active Web rebuild routes classify the selected binding runtime", () => {
   assert.match(rebuildRoutes, /\(binding\?\.provider \|\| threadSettings\.runtime\) !== "codex"/);
 });
 
-test("restoring official mining prompts never clears the relationship timeline", () => {
+test("the mining prompt editor is hidden and its Web write route is disabled", () => {
   const app = fs.readFileSync(path.join(__dirname, "..", "src", "web", "public", "app.js"), "utf8");
-  assert.match(app, /恢复官方提示词/);
-  assert.doesNotMatch(app, /timelineTa\.value=timelineTa\.dataset\.default/);
-});
-
-test("the prompt editor is available to all registered scenarios", () => {
-  const app = fs.readFileSync(path.join(__dirname, "..", "src", "web", "public", "app.js"), "utf8");
-  assert.ok(app.includes("loadMiningPrompts(content,library);"));
-  assert.ok(!app.includes('library.purpose==="accompany")loadMiningPrompts'));
+  const routes = fs.readFileSync(path.join(__dirname, "..", "src", "web", "routes", "memory.js"), "utf8");
+  assert.doesNotMatch(app, /mining-prompts-save|调提示词 & 时间轴|loadMiningPrompts/u);
+  assert.match(routes, /挖掘提示词编辑功能暂时关闭/u);
 });
 
 test("import preview paginates only cleaned archive conversations", () => {

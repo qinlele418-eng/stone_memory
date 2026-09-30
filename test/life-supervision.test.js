@@ -74,7 +74,7 @@ test("both runtime/channel plans use the supervision summary and companion featu
   }
 });
 
-test("Web creates a supervision memory, reports its scenario and isolates editable prompts", async t => {
+test("Web creates a supervision memory and rejects mining prompt edits", async t => {
   const server = await startWebServer({ host: "127.0.0.1", port: 0 });
   t.after(() => new Promise(resolve => server.close(resolve)));
   const base = `http://127.0.0.1:${server.address().port}`;
@@ -96,11 +96,17 @@ test("Web creates a supervision memory, reports its scenario and isolates editab
   assert.equal(overview.companionCount, 0);
   const promptsUrl = `/api/libraries/${id}/mining/prompts`;
   assert.match((await request(promptsUrl)).summaryPrompt, /生活监督 Agent/);
-  await request(promptsUrl, { summaryPrompt: "监督 {userName}", timeline: ["2026-09-20 开始监督"] }, "PUT");
-  assert.equal(resolveMiningPrompts(getMemoryRuntimeConfig(id), { memoryDir: path.join(home, ".stone_memory", "memories", id, "memory") }).tasks.feelings.text, "监督 小林");
+  const rejected = await fetch(base + promptsUrl, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ summaryPrompt: "监督 {userName}", timeline: ["2026-09-20 开始监督"] }),
+  });
+  assert.equal(rejected.status, 403);
+  assert.match((await rejected.json()).error, /暂时关闭/u);
+  assert.match(resolveMiningPrompts(getMemoryRuntimeConfig(id), { memoryDir: path.join(home, ".stone_memory", "memories", id, "memory") }).tasks.feelings.text, /生活监督 Agent/u);
   const legacy = JSON.parse(cli("prompt", "show", "--thread", "supervision-thread", "--task", "feelings"));
   assert.match(legacy.text, /生活监督 Agent/);
-  assert.equal(JSON.parse(cli("prompt", "show", "--memory", id, "--task", "feelings")).text, "监督 小林");
+  assert.match(JSON.parse(cli("prompt", "show", "--memory", id, "--task", "feelings")).text, /生活监督 Agent/u);
   await request(`/api/libraries/${id}/settings`, { scenario: "coding" }, "PATCH");
   assert.equal(getMemoryRuntimeConfig(id).scenario, "coding");
   assert.equal(getMemoryRuntimeConfig(id).purpose, "accompany");

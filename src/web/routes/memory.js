@@ -41,7 +41,7 @@ async function handleMemory(req, res, url) {
   const exportMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/export$/);
   if (req.method === "GET" && exportMatch) {
     const threadId = decodeURIComponent(exportMatch[1]);
-    const settings = publicThreadSettings(threadId);
+    publicThreadSettings(threadId);
     const store = new MemoryStore({ memoryDir: path.join(getThreadDir(settings.threadId), "memory"), threadId: settings.threadId });
     try { sendMemoryExport(res, memoryExportPayload(store, settings)); }
     finally { store.close(); }
@@ -51,28 +51,10 @@ async function handleMemory(req, res, url) {
   const promptsMatch = url.pathname.match(/^\/api\/libraries\/([^/]+)\/mining\/prompts$/);
   if (promptsMatch) {
     const threadId = decodeURIComponent(promptsMatch[1]);
-    const settings = publicThreadSettings(threadId);
+    publicThreadSettings(threadId);
     if (req.method === "GET") return json(res, 200, JSON.parse(runStmem(["prompt", "show", "--thread", threadId])));
     if (req.method === "PUT") {
-      const body = await readJson(req);
-      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-web-prompts-"));
-      try {
-        const updates = {};
-        if (body.summaryPrompt !== undefined) updates.feelings = body.summaryPrompt;
-        if (body.featurePrompt !== undefined) updates.features = body.featurePrompt;
-        const file = path.join(dir, "prompts.json");
-        if (Object.keys(updates).length) {
-          fs.writeFileSync(file, JSON.stringify(updates), { mode: 0o600 });
-          runStmem(["prompt", "set", "--thread", threadId, "--batch-file", file, "--validate"]);
-        }
-        if (Array.isArray(body.timeline)) {
-          const batch = path.join(dir, "config.json");
-          fs.writeFileSync(batch, JSON.stringify({ ...settings, relationshipTimeline: body.timeline.map(String).filter(row => row.trim()) }), { mode: 0o600 });
-          runStmem(["init", "--thread", threadId, "--batch-file", batch]);
-        }
-        if (Object.keys(updates).length) runStmem(["prompt", "set", "--thread", threadId, "--batch-file", file, "--apply"]);
-        return json(res, 200, { success: true });
-      } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+      return json(res, 403, { error: "挖掘提示词编辑功能暂时关闭" });
     }
   }
 
