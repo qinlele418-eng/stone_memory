@@ -59,6 +59,7 @@ test("MCP exposes one current-window bind tool and refuses cross-memory rebindin
   const bindTool = responses[0].result.tools.find(tool => tool.name === "stmem_memory_bind");
   assert.deepEqual(bindTool.inputSchema.required, ["memory", "thread", "provider"]);
   assert.deepEqual(Object.keys(bindTool.inputSchema.properties), ["memory", "thread", "provider"]);
+  assert.deepEqual(bindTool.inputSchema.properties.provider.enum, ["codex", "claude", "pando"]);
   assert.match(responses[1].result.content[0].text, /已绑定到记忆体“第一记忆体”.*已自动开启对话录入和自动生成摘要/);
   assert.equal(responses[1].result.isError, false);
   assert.equal(responses[2].result.isError, true);
