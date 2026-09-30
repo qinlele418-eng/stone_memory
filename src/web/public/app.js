@@ -14,7 +14,7 @@ const projectContact = {
   xiaohongshu: "",
   qqGroup: "",
   email: "",
-  supportImage: "",
+  supportImage: "/assets/support-code.jpg",
 };
 
 let deferredPwaInstall = null;

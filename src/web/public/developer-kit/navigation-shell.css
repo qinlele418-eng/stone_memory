@@ -104,7 +104,17 @@
 .support-dialog .dialog-close, .privacy-dialog .dialog-close { float: right; border: 0; background: transparent; font-size: 24px; }
 .privacy-dialog h2 { margin: 0 0 14px; }
 .privacy-dialog p { margin: 12px 0 0; color: var(--stone-theme-ink-soft); font-size: 13px; line-height: 1.75; }
-.support-dialog .support-code { margin: 18px auto 0; }
+.support-dialog .support-code {
+  width: min(360px, 100%);
+  height: auto !important;
+  aspect-ratio: 1;
+  margin: 18px auto 0;
+}
+.support-dialog .support-code img {
+  width: calc(100% - 18px);
+  height: auto;
+  max-height: calc(100% - 18px);
+}
 
 .stone-global-brand {
   display: flex;
