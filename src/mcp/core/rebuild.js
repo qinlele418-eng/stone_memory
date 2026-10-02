@@ -44,9 +44,11 @@ function toolRebuildPreview(args) {
       cwd: PROJECT_ROOT,
     });
     rebuildPreviews.set(previewKey(resolved), request);
-    const nextStep = resolved.runtime === "codex"
-      ? "确认结果无误后，可调用 stmem_memory_rebuild 立即 apply；完成后必须立刻完全重启 Codex/app-server。"
-      : "确认结果无误后，可调用 stmem_memory_rebuild 将这组原样参数写入 Claude Code 安全队列。";
+    const nextStep = resolved.runtime === "pando"
+      ? "pando import_only 无会话原件：rebuild --apply 被拒绝；此预览仅供审计已导入记忆体的 DB 口径内容。"
+      : resolved.runtime === "codex"
+        ? "确认结果无误后，可调用 stmem_memory_rebuild 立即 apply；完成后必须立刻完全重启 Codex/app-server。"
+        : "确认结果无误后，可调用 stmem_memory_rebuild 将这组原样参数写入 Claude Code 安全队列。";
     return `${output.trim()}\n\n这是只读 dry-run。${nextStep}`;
   } catch (err) {
     throw new Error(`重建预览失败: ${String(err.stderr || err.message).trim()}`);

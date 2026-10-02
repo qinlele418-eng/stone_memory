@@ -30,10 +30,11 @@ test("MCP cancellation aborts module context and permits subsequent requests", a
   let started;
   const ready = new Promise(resolve => started = resolve);
   let signal;
+  // registerModule 现以 session（非 state）为注册门；scope=global 只要求 session 在场。
   registry.registerModule({ id: "cancel", version: "1", scope: "global", entry: {}, permissions: ["mcp:tools"] }, {
     tools: () => [{ name: "wait", description: "wait", inputSchema: { type: "object", properties: {}, additionalProperties: false }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } }],
     call(context) { signal = context.signal; started(); return new Promise(() => {}); },
-  }, { state: { globalEnabled: true }, memoryIds: [] });
+  }, { session: { memoryId: null }, memoryIds: [] });
   const handle = createHandler(registry), responses = [];
   const pending = handle({ id: 1, method: "tools/call", params: { name: "stmem_cancel_wait" } }, (id, result) => responses.push({ id, result }));
   await ready;

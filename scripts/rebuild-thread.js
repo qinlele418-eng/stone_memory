@@ -44,8 +44,8 @@ function initThreadPaths(threadId) {
   currentExternalThreadId = process.env.STMEM_REBUILD_EXTERNAL_THREAD_ID || getCfg("externalThreadId", threadId, threadId);
   THREAD_BASE = getThreadDir(threadId);
   FULL_ARCHIVE = new FullArchive(path.join(THREAD_BASE, "memory"));
-  SESSION_DIR = process.env.STMEM_REBUILD_SESSION_ROOT || getCfg("sessionDir", threadId);
-  if (!SESSION_DIR) throw new Error("请在 stmem.json 中配置 sessionDir");
+  // R2：sessionDir 缺失不再在此抛错——main() 按 runtime/dry-run 分流（pando 走 DB 口径预览）。
+  SESSION_DIR = process.env.STMEM_REBUILD_SESSION_ROOT || getCfg("sessionDir", threadId) || null;
   RETAIN_CONFIG_FILE = path.join(THREAD_BASE, "memory", "retain-config.json");
   ARCHIVE_DIR = path.join(THREAD_BASE, "memory", "archive");
   RULES_DIR = path.join(THREAD_BASE, "rules");
@@ -645,6 +645,18 @@ function main() {
 
   initThreadPaths(threadId);
   const OUTPUT_SUFFIX = ".rebuilt";
+
+  // R2：pando import_only 无会话原件 → dry-run 用 DB 口径降级预览；apply 仍拒绝（语义不放松）。
+  if (!SESSION_DIR) {
+    const runtimeProvider = String(getCfg("runtime", threadId, "claude") || "claude").toLowerCase();
+    if (!apply && runtimeProvider === "pando") {
+      const { renderDbRebuildPreview } = require("../src/services/rebuild-db-preview");
+      console.log(renderDbRebuildPreview(threadId, { windowDays }));
+      console.log("\n[rebuild] rebuild --apply 对 pando import_only 仍被拒绝（无会话原件，语义不放松）。");
+      return;
+    }
+    throw new Error("请在 stmem.json 中配置 sessionDir");
+  }
 
   function searchSessionFile(dir) {
     if (!fs.existsSync(dir)) return null;

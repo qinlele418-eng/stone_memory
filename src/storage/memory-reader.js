@@ -79,6 +79,17 @@ function readMessageDates(memoryDir, { threadId } = {}) {
   ).all(threadId).map(row => row.date));
 }
 
+/** 廉价戳记（条数+最新时间戳），用于本地 feelings 索引缓存失效判断与降级预览。 */
+function readMessagesStamp(memoryDir, { threadId } = {}) {
+  if (!hasDatabase(memoryDir) || !threadId) return null;
+  return withReadDatabase(memoryDir, db => {
+    const row = db.prepare(
+      "SELECT COUNT(*) AS count, MAX(timestamp) AS lastTimestamp FROM messages WHERE thread_id=?"
+    ).get(threadId);
+    return { count: Number(row?.count) || 0, lastTimestamp: row?.lastTimestamp || null };
+  });
+}
+
 function injectionContent(row) {
   if (row.summary_mode !== "coarse" || !row.coarse_summary) return row.content;
   if (/^\d{1,2}月\d{1,2}日/u.test(row.coarse_summary)) return row.coarse_summary;
@@ -87,4 +98,4 @@ function injectionContent(row) {
   return month ? `${Number(month)}月${Number(day)}日，${row.coarse_summary}` : row.coarse_summary;
 }
 
-module.exports = { hasDatabase, readFeelings, readFeatures, readMessages, readMessageDates };
+module.exports = { hasDatabase, readFeelings, readFeatures, readMessages, readMessageDates, readMessagesStamp };

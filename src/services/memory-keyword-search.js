@@ -6,6 +6,7 @@ const {
   readFeelings: readDatabaseFeelings,
   readMessages,
   readMessageDates,
+  readMessagesStamp,
 } = require("../storage/memory-reader");
 const { automaticRetainWindow } = require("./thread-rebuilder");
 
@@ -93,6 +94,70 @@ function extractKeywords(query) {
     .filter(w => w.length >= 2);
 }
 
+// ---- 本地 feelings 索引（pando import_only 无 miner 产出时的确定性回退）----
+
+/** 仅 provider=pando 且 miner 索引为空时启用；claude/codex 生产路径零变化。 */
+function localFeelingsIndexEnabled(threadId) {
+  try {
+    return String(getCfg("runtime", threadId, "") || "").trim().toLowerCase() === "pando";
+  } catch {
+    return false;
+  }
+}
+
+const LOCAL_INDEX_CACHE_FILE = "local-feelings-index.json";
+const LOCAL_INDEX_CACHE_VERSION = 1;
+
+/**
+ * 从已导入 DB 的 messages 抽取式生成 feelings 形状索引条目（不生成、不调用任何模型）。
+ * 确定性：条目按 DB 时间序排列，内容=日期+角色+原文拼接；缓存按 (count,lastTimestamp) 戳记失效。
+ */
+function buildLocalFeelingsIndex(memoryDir, threadId) {
+  const stamp = readMessagesStamp(memoryDir, { threadId });
+  const cacheFile = path.join(memoryDir, LOCAL_INDEX_CACHE_FILE);
+  if (stamp) {
+    try {
+      const cached = JSON.parse(fs.readFileSync(cacheFile, "utf8"));
+      if (cached?.version === LOCAL_INDEX_CACHE_VERSION
+        && cached.stamp?.count === stamp.count
+        && cached.stamp?.lastTimestamp === stamp.lastTimestamp
+        && Array.isArray(cached.entries)) {
+        return cached.entries;
+      }
+    } catch { /* 缓存缺失/损坏则重建 */ }
+  }
+  const aiName = getCfg("ai", threadId) || "AI";
+  const userName = getCfg("user", threadId) || "User";
+  const perDateSeq = new Map();
+  const entries = [];
+  for (const row of readMessages(memoryDir, { threadId })) {
+    const text = String(row.text || "").trim();
+    if (!text || text.startsWith("{\"action\"")) continue;
+    const date = row.sourceDate && /^\d{4}-\d{2}-\d{2}$/.test(row.sourceDate)
+      ? row.sourceDate
+      : String(row.timestamp || "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+    const seq = (perDateSeq.get(date) || 0) + 1;
+    perDateSeq.set(date, seq);
+    const monthDay = `${Number(date.slice(5, 7))}月${Number(date.slice(8, 10))}日`;
+    const role = row.type === "user" ? userName : aiName;
+    entries.push({
+      id: `local:${date}:${String(seq).padStart(4, "0")}`,
+      type: "feeling",
+      sourceDate: date,
+      eventTime: row.timestamp || null,
+      importance: 0,
+      content: `${monthDay}，${role}说过：${text}`,
+    });
+  }
+  if (stamp && fs.existsSync(memoryDir)) {
+    try {
+      fs.writeFileSync(cacheFile, JSON.stringify({ version: LOCAL_INDEX_CACHE_VERSION, stamp, entries }), "utf8");
+    } catch { /* 缓存写入失败不影响检索 */ }
+  }
+  return entries;
+}
+
 // ---- 加载 ----
 
 let _feelingsCache = null;
@@ -102,14 +167,20 @@ let _feelingsCacheKey = null;
 function loadFeelings(_feelingsFile, memoryDir, threadId) {
   const cacheKey = `${memoryDir}:${threadId}`;
   if (_feelingsCache && _feelingsCacheKey === cacheKey && Date.now() - _feelingsCacheTime < 60000) return _feelingsCache;
-  const databaseRows = readDatabaseFeelings(memoryDir, { threadId });
+  let databaseRows = readDatabaseFeelings(memoryDir, { threadId });
+  // R0 回退：pando import_only 且 miner 索引为空时，用本地确定性索引补检索面。
+  let usedLocalIndex = false;
+  if (databaseRows.length === 0 && localFeelingsIndexEnabled(threadId)) {
+    databaseRows = buildLocalFeelingsIndex(memoryDir, threadId);
+    usedLocalIndex = databaseRows.length > 0;
+  }
   const results = databaseRows;
 
   // Parse times for all feelings
   const feelings = [];
   for (const r of results) {
     if (r.type !== "feeling") continue;
-    const time = parseFeelingTime(r.content);
+    const time = usedLocalIndex ? null : parseFeelingTime(r.content);
     const date = r.sourceDate || time?.date;
     feelings.push({
       id: r.id,
@@ -339,4 +410,4 @@ function searchArchiveContext(feelingDate, keywords, {
   };
 }
 
-module.exports = { searchByKeyword, searchArchiveContext };
+module.exports = { searchByKeyword, searchArchiveContext, extractKeywords };
