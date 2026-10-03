@@ -12,6 +12,7 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const { readFeelings } = require("../storage/memory-reader");
+const { DEFAULT_TIMEZONE, resolveMemoryTimezone, zonedWallTime, wallTimeToUtc } = require("./timezone");
 
 // 文件路径由调用方传入，不再硬编码
 
@@ -70,9 +71,9 @@ function parseFeelingTime(content) {
   return { date, timeDesc, hour, minute };
 }
 
-function feelingToUtc(f) {
+function feelingToUtc(f, timeZone = DEFAULT_TIMEZONE) {
   if (f.hour === null || f.hour === undefined) return null;
-  return new Date(`${f.date}T${String(f.hour).padStart(2,"0")}:${String(f.minute||0).padStart(2,"0")}:00.000+08:00`).toISOString();
+  return wallTimeToUtc(f.date, f.hour, f.minute || 0, timeZone);
 }
 
 // ---- 分层加载 ----
@@ -83,14 +84,15 @@ function loadRetainConfig(retainConfigPath) {
 }
 
 function loadInjectableFeelings(memoryDir, threadId) {
+  const timeZone = resolveMemoryTimezone(threadId);
   const feelings = readFeelings(memoryDir, { threadId, forInjection: true }).map(r => {
     const parsed = parseFeelingTime(r.content) || {};
     const event = r.eventTime ? new Date(r.eventTime) : null;
-    const localEvent = event && !isNaN(event.getTime()) ? new Date(event.getTime() + 8 * 3600 * 1000) : null;
-    const hour = localEvent ? localEvent.getUTCHours() : parsed.hour;
-    const minute = localEvent ? localEvent.getUTCMinutes() : parsed.minute;
+    const localEvent = event && !isNaN(event.getTime()) ? zonedWallTime(event, timeZone) : null;
+    const hour = localEvent ? localEvent.hour : parsed.hour;
+    const minute = localEvent ? localEvent.minute : parsed.minute;
     const time = { date: r.sourceDate || parsed.date, hour, minute };
-    return { id: r.id, content: r.content, importance: Number(r.importance) || 0, date: time.date, hour, minute, utcTime: feelingToUtc(time), retainOriginal: false };
+    return { id: r.id, content: r.content, importance: Number(r.importance) || 0, date: time.date, hour, minute, utcTime: feelingToUtc(time, timeZone), retainOriginal: false };
   });
   console.log(`[rebuilder] sqlite: ${feelings.length} memories (daily/coarse; hidden excluded)`);
   return feelings;
@@ -122,12 +124,13 @@ function selectRebuildFeelings(feelings, {
 }
 
 function resolveLatestFeelingWatermark(memoryDir, threadId, messages) {
+  const timeZone = resolveMemoryTimezone(threadId);
   const events = readFeelings(memoryDir, { threadId, forInjection: false }).map(row => {
     const parsed = parseFeelingTime(row.fullContent || row.content || "") || {};
     const eventMs = new Date(row.eventTime || "").getTime();
     const utcTime = Number.isFinite(eventMs)
       ? new Date(eventMs).toISOString()
-      : feelingToUtc({ date: row.sourceDate || parsed.date, hour: parsed.hour, minute: parsed.minute });
+      : feelingToUtc({ date: row.sourceDate || parsed.date, hour: parsed.hour, minute: parsed.minute }, timeZone);
     return { id: row.id, utcTime };
   }).filter(event => event.utcTime);
   if (events.length === 0) return null;

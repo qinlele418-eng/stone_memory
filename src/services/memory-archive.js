@@ -2,12 +2,11 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const { ensureDateFile, resolveDateFile, listDateFiles, migrateFlatFiles } = require("../lib/archive-paths");
+const { DEFAULT_TIMEZONE, resolveMemoryTimezone, zonedDateKey } = require("./timezone");
 const { MemoryStore } = require("../storage/memory-store");
 
-function dateKeyFromTs(timestamp) {
-  const ms = new Date(timestamp || "").getTime();
-  if (!Number.isFinite(ms)) return null;
-  return new Date(ms + 8 * 3600 * 1000).toISOString().slice(0, 10);
+function dateKeyFromTs(timestamp, timeZone = DEFAULT_TIMEZONE) {
+  return zonedDateKey(timestamp, timeZone);
 }
 
 function rawRecordKey(row) {
@@ -20,13 +19,14 @@ class MemoryArchive {
     if (!threadId) throw new Error("MemoryArchive requires threadId");
     this.memoryDir = memoryDir;
     this.threadId = threadId;
+    this.timezone = resolveMemoryTimezone(threadId);
     this.store = new MemoryStore({ memoryDir, threadId });
   }
 
   close() { this.store.close(); }
 
   archiveMessage(message, { source = "archive" } = {}) {
-    const sourceDate = dateKeyFromTs(message?.timestamp);
+    const sourceDate = dateKeyFromTs(message?.timestamp, this.timezone);
     if (!sourceDate || !message?.text) return 0;
     return this.store.insertMessages([{
       timestamp: message.timestamp, sourceDate, role: message.type || message.role || "unknown",
@@ -36,7 +36,7 @@ class MemoryArchive {
 
   archiveMessages(messages, options = {}) {
     const rows = (Array.isArray(messages) ? messages : [messages]).flatMap(message => {
-      const sourceDate = dateKeyFromTs(message?.timestamp);
+      const sourceDate = dateKeyFromTs(message?.timestamp, this.timezone);
       if (!sourceDate || !message?.text) return [];
       return [{ timestamp: message.timestamp, sourceDate, role: message.type || message.role || "unknown", text: message.text, source: options.source || "archive" }];
     });
@@ -58,8 +58,10 @@ class MemoryArchive {
 
 /** 未经规范化的原始记录备份：继续使用递归 JSONL。 */
 class FullArchive {
-  constructor(memoryDir) {
+  constructor(memoryDir, { timeZone } = {}) {
     this.fullDir = path.join(memoryDir, "archive", "full");
+    // 调用方未显式给定时区时，按 memoryDir 对应的记忆体解析；解析不出则回默认。
+    this.timezone = timeZone || resolveMemoryTimezone(path.basename(path.dirname(memoryDir)));
     fs.mkdirSync(this.fullDir, { recursive: true });
     migrateFlatFiles(this.fullDir);
   }
@@ -76,7 +78,7 @@ class FullArchive {
   archiveFullBatch(messages) {
     const grouped = new Map();
     for (const message of Array.isArray(messages) ? messages : [messages]) {
-      const date = dateKeyFromTs(message?.timestamp);
+      const date = dateKeyFromTs(message?.timestamp, this.timezone);
       if (!date) continue;
       if (!grouped.has(date)) grouped.set(date, []);
       grouped.get(date).push(message);
@@ -94,7 +96,7 @@ class FullArchive {
   pendingNewFullBatch(messages) {
     const grouped = new Map();
     for (const message of Array.isArray(messages) ? messages : [messages]) {
-      const date = dateKeyFromTs(message?.timestamp);
+      const date = dateKeyFromTs(message?.timestamp, this.timezone);
       if (!date) continue;
       if (!grouped.has(date)) grouped.set(date, []);
       grouped.get(date).push(message);

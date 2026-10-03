@@ -4,6 +4,7 @@ const crypto = require("crypto");
 const { ensureDateFile } = require("../lib/archive-paths");
 const { normalizeThreadMessage } = require("../lib/thread-message");
 const { isInjectedMemoryBlock } = require("../lib/system-injection");
+const { DEFAULT_TIMEZONE, resolveMemoryTimezone, zonedDateKey } = require("./timezone");
 const { loadToolEventPolicy, extractToolEvents, extractThinkingEvents } = require("./tool-event-policy");
 const { applyConversationCleaning } = require("./conversation-cleaning");
 
@@ -29,10 +30,9 @@ function parseThreadMessages(raw) {
   return messages;
 }
 
-function beijingDateKey(timestamp) {
-  const ms = new Date(timestamp || "").getTime();
-  if (!Number.isFinite(ms)) return null;
-  return new Date(ms + 8 * 3600 * 1000).toISOString().slice(0, 10);
+/** 日键 = 时间戳在记忆体时区下的日期；名字保留兼容旧调用方（scripts/ 等），缺省即缺省时区。 */
+function beijingDateKey(timestamp, timeZone = DEFAULT_TIMEZONE) {
+  return zonedDateKey(timestamp, timeZone);
 }
 
 function isSystemTemplate(text) {
@@ -158,7 +158,8 @@ function previewIngestRecords(records, { format = "generic" } = {}) {
   return { candidates, invalid, filtered, filteredReasons, dates: sourceDates.size, sourceDates: [...sourceDates].sort(), format };
 }
 
-function ingestRecords(records, { fullDir = null, memoryStore = null, format = "generic", messageOptions = {}, toolPolicy = null } = {}) {
+function ingestRecords(records, { fullDir = null, memoryStore = null, format = "generic", messageOptions = {}, toolPolicy = null, timeZone = null } = {}) {
+  const activeTimeZone = timeZone || resolveMemoryTimezone(memoryStore?.threadId || null);
   const archiveByDate = new Map(), fullByDate = new Map();
   const activePolicy = toolPolicy || (memoryStore ? loadToolEventPolicy(memoryStore.memoryDir) : null);
   let toolEventsImported = 0;
@@ -174,7 +175,7 @@ function ingestRecords(records, { fullDir = null, memoryStore = null, format = "
     const raw = record.raw;
     const row = record.message;
     const reason = record.excludedReason || internalRecordReason(raw);
-    const date = beijingDateKey(row?.timestamp || raw?.timestamp);
+    const date = beijingDateKey(row?.timestamp || raw?.timestamp, activeTimeZone);
     if (date && fullDir) {
       if (!fullByDate.has(date)) fullByDate.set(date, []);
       fullByDate.get(date).push(raw);
@@ -231,7 +232,7 @@ function ingestRecords(records, { fullDir = null, memoryStore = null, format = "
     const toolEvents = extractToolEvents(records, policy).rows;
     const supplementalEvents = [...toolEvents, ...extractThinkingEvents(records, policy)];
     for (const row of supplementalEvents) {
-      const date = beijingDateKey(row.timestamp);
+      const date = beijingDateKey(row.timestamp, activeTimeZone);
       if (date) rows.push({ timestamp: row.timestamp, sourceDate: date, role: row.type, text: row.text, source: row.source });
     }
     const result = memoryStore.insertMessagesDetailed(rows, { source: format, ...messageOptions });

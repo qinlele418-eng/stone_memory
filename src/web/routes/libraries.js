@@ -6,10 +6,11 @@ const { listLibraries, overview, publicThreadSettings } = require("../library-qu
 const { listScenarios } = require("../../services/scenario-registry");
 const { findThreadSessionFile } = require("../../lib/thread-session-file");
 const { runStmem } = require("../cli-client");
+const { DEFAULT_TIMEZONE } = require("../../services/timezone");
 const { NOT_HANDLED } = require("../route-result");
 
 async function handleLibraries(req, res, url) {
-  if (req.method === "GET" && url.pathname === "/api/libraries") return json(res, 200, { libraries: listLibraries(), scenarios: listScenarios().map(({ directory, ...row }) => row) });
+  if (req.method === "GET" && url.pathname === "/api/libraries") return json(res, 200, { libraries: listLibraries(), scenarios: listScenarios().map(({ directory, ...row }) => row), defaultTimezone: DEFAULT_TIMEZONE });
 
   if (req.method === "POST" && url.pathname === "/api/session-file/check") {
     const body = await readJson(req);
@@ -33,14 +34,17 @@ async function handleLibraries(req, res, url) {
     if (req.method === "PATCH") {
       const body = await readJson(req);
       const current = publicThreadSettings(threadId);
-      const automationKeys = ["automaticFullMining", "automaticMemoryMaintenance", "automaticCompression", "automaticDream", "watcherEnabled"];
+      const automationKeys = ["automaticFullMining", "automaticMemoryMaintenance", "automaticCompression", "automaticDream", "watcherEnabled", "timezone"];
       const regularBody = Object.fromEntries(Object.entries(body).filter(([key]) => !automationKeys.includes(key)));
+      const { updateMemorySettings } = require("../../services/memory-setup");
+      if (Object.hasOwn(body, "timezone")) updateMemorySettings(threadId, { timezone: body.timezone }, { apply: false });
       const input = { ...current, ...regularBody, threadId, runtime: current.runtime, purpose: current.purpose };
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-web-config-"));
       const file = path.join(dir, "config.json");
       fs.writeFileSync(file, JSON.stringify(input), { encoding: "utf8", mode: 0o600 });
       try {
         runStmem(["init", "--thread", threadId, "--batch-file", file]);
+        if (Object.hasOwn(body, "timezone")) updateMemorySettings(threadId, { timezone: body.timezone }, { apply: true });
         const moduleArgs = ["watcher", "set", "--thread", threadId];
         const moduleMap = {
           automaticFullMining: "--archive",

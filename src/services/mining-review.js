@@ -9,6 +9,7 @@ const {
   feelingEventTime,
 } = require("./memory-miner");
 const { archiveFingerprint } = require("./mining-state");
+const { DEFAULT_TIMEZONE, resolveMemoryTimezone } = require("./timezone");
 const { isInjectedMemoryBlock } = require("../lib/system-injection");
 
 const REVIEW_RULES = Object.freeze({
@@ -31,7 +32,7 @@ function buildReviewOverlay({ ruleIds = [], additionalInstruction = "" } = {}) {
   return { ruleIds: ids, text: lines.length ? `本次候选审阅附加规则：\n${lines.join("\n")}` : "" };
 }
 
-function normalizeCandidateResults({ date, feelings = [], features = [], enforceCountLimit = false }) {
+function normalizeCandidateResults({ date, feelings = [], features = [], enforceCountLimit = false, timeZone = DEFAULT_TIMEZONE }) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ""))) throw new Error("date must be YYYY-MM-DD");
   if (!Array.isArray(feelings) || !Array.isArray(features)) throw new Error("feelings and features must be arrays");
 
@@ -45,7 +46,7 @@ function normalizeCandidateResults({ date, feelings = [], features = [], enforce
     seenFeelings.add(content);
     return [{
       content,
-      eventTime: item.eventTime || feelingEventTime({ content }, date),
+      eventTime: item.eventTime || feelingEventTime({ content }, date, timeZone),
       importance: normalizeFeelingImportance(item.importance),
     }];
   });
@@ -101,6 +102,7 @@ class MiningReviewStore {
     if (!/^[a-z0-9-]+$/.test(candidateDirectoryName)) throw new Error("invalid candidate directory name");
     this.memoryDir = memoryDir;
     this.threadId = threadId;
+    this.timezone = resolveMemoryTimezone(threadId);
     this.candidateDir = path.join(memoryDir, candidateDirectoryName);
     this.backupDir = path.join(memoryDir, "backups");
   }
@@ -112,6 +114,7 @@ class MiningReviewStore {
       feelings: input.feelings,
       features: input.features,
       enforceCountLimit: ruleIds.includes("count-limit"),
+      timeZone: this.timezone,
     });
     if (!input.archiveFingerprint) throw new Error("archiveFingerprint is required");
     const candidate = {
@@ -211,7 +214,7 @@ class MiningReviewStore {
         if (kind === "feelings" && Object.prototype.hasOwnProperty.call(reference, "content")) {
           const content = String(reference.content || "").trim();
           if (!content || content.length > 2000) throw new Error("edited feeling must contain 1 to 2000 characters");
-          const eventTime = feelingEventTime({ content }, date);
+          const eventTime = feelingEventTime({ content }, date, this.timezone);
           if (!eventTime) throw new Error("edited feeling must retain a recognizable event time");
           edited = content !== original.content;
           row.content = content;
@@ -293,6 +296,7 @@ class MiningReviewStore {
       feelings,
       features,
       enforceCountLimit: sourceCandidate.hybrid?.enforceCountLimit === true,
+      timeZone: this.timezone,
     });
     if (normalized.feelings.length !== feelings.length || normalized.features.length !== features.length) {
       throw new Error("fusion output changed during normalization; review provenance would be unsafe");
@@ -401,6 +405,7 @@ class MiningReviewStore {
             features: candidate.features,
             enforceCountLimit: candidate.ruleIds?.includes("count-limit") ||
               candidate.hybrid?.enforceCountLimit === true,
+            timeZone: this.timezone,
           });
           const result = store.replaceDay(candidate.date, {
             feelings: normalized.feelings,
@@ -620,6 +625,7 @@ function validateCandidate(candidate, { id, threadId }) {
     date: candidate.date,
     feelings: candidate.feelings,
     features: candidate.features,
+    timeZone: resolveMemoryTimezone(candidate.threadId),
     enforceCountLimit: candidate.ruleIds?.includes("count-limit") ||
       candidate.hybrid?.enforceCountLimit === true,
   });

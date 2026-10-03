@@ -15,6 +15,7 @@ const { listRules } = require("../services/rule-store");
 const { latestSuccessfulRebuild, readRebuildState } = require("../services/rebuild-log");
 const { sessionFile } = require("../services/rebuild-workbench");
 const { parseFeelingTime, feelingToUtc, automaticRetainWindow } = require("../services/thread-rebuilder");
+const { DEFAULT_TIMEZONE, resolveMemoryTimezone, zonedDateKey, wallTimeToUtc } = require("../services/timezone");
 const { parseRebuildDryRun } = require("../services/rebuild-dry-run");
 const { MiningReviewStore } = require("../services/mining-review");
 const { editFusionCandidate } = require("../services/review-fusion");
@@ -604,10 +605,8 @@ function directoryBytes(root) {
   return total;
 }
 
-function localDateKey(date = new Date()) {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit",
-  }).format(date);
+function localDateKey(date = new Date(), timeZone = DEFAULT_TIMEZONE) {
+  return zonedDateKey(date, timeZone);
 }
 
 function countFeelingsMinedSince(store, threadId, sinceIso) {
@@ -620,13 +619,11 @@ function memoryGrowthDays(createdAt, firstConversationDate, todayKey = localDate
   const createdDate = Number.isFinite(Date.parse(createdAt || "")) ? localDateKey(new Date(createdAt)) : null;
   const startKey = createdDate || (/^\d{4}-\d{2}-\d{2}$/.test(String(firstConversationDate || "")) ? firstConversationDate : null);
   if (!startKey) return 0;
-  return Math.max(1, Math.round((Date.parse(`${todayKey}T00:00:00+08:00`) - Date.parse(`${startKey}T00:00:00+08:00`)) / 86400000) + 1);
+  return Math.max(1, Math.round((Date.parse(`${todayKey}T00:00:00Z`) - Date.parse(`${startKey}T00:00:00Z`)) / 86400000) + 1);
 }
 
 function homeOverview() {
   const libraries = listLibraries();
-  const today = localDateKey();
-  const todayStart = new Date(`${today}T00:00:00+08:00`).toISOString();
   const totals = {
     todayMessages: 0, todayFeelings: 0, totalFeelings: 0, pendingMiningDays: 0,
     latestMessageAt: null, latestMinedAt: null, caredDays: 0,
@@ -638,6 +635,9 @@ function homeOverview() {
     }
     // 尚未绑定线程的 memory-first 草稿没有数据库；它仍计入记忆体总数，但不参与维护统计。
     if (!library.configured || !library.threadId) continue;
+    const timeZone = library.timezone || resolveMemoryTimezone(library.threadId);
+    const today = zonedDateKey(Date.now(), timeZone);
+    const todayStart = wallTimeToUtc(today, 0, 0, timeZone);
     const store = new MemoryStore({ memoryDir: path.join(getThreadDir(library.threadId), "memory"), threadId: library.threadId });
     try {
       const message = store.db.prepare(`SELECT
@@ -821,7 +821,7 @@ function overview(identifier) {
     try { anchors={...anchors,...JSON.parse(fs.readFileSync(path.join(getThreadDir(threadId),"memory","retain-config.json"),"utf8"))}; } catch {}
     const createdAt=library.createdAt||store.db.prepare("SELECT MIN(created_at) createdAt FROM messages WHERE thread_id=?").get(threadId)?.createdAt||null;
     const firstConversationDate=store.db.prepare("SELECT MIN(source_date) d FROM messages WHERE thread_id=? AND source_date IS NOT NULL").get(threadId)?.d||null;
-    const growthDays=memoryGrowthDays(library.createdAt,firstConversationDate);
+    const growthDays=memoryGrowthDays(library.createdAt,firstConversationDate,localDateKey(new Date(),library.timezone||resolveMemoryTimezone(threadId)));
     return {
       ...library,
       createdAt,
@@ -1340,13 +1340,16 @@ async function handleApi(req, res, url, { isRemote = false } = {}) {
       if (isRemote && ["sessionDir", "threadFile"].some(key => Object.hasOwn(body, key))) {
         throw new Error("远程 Web 不能修改服务器本地 Binding 来源；请在本机 CLI / loopback Web 中修改");
       }
-      const automationKeys = ["automaticFullMining", "automaticMemoryMaintenance", "automaticCompression", "automaticDream", "watcherEnabled"];
+      const automationKeys = ["automaticFullMining", "automaticMemoryMaintenance", "automaticCompression", "automaticDream", "watcherEnabled", "timezone"];
       const regularBody = Object.fromEntries(Object.entries(body).filter(([key]) => !automationKeys.includes(key)));
       const input = { ...current, ...regularBody, threadId, runtime: current.runtime, purpose: current.purpose };
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-web-config-"));
       const file = path.join(dir, "config.json");
       let canonical = false;
       try { canonical = getMemoryContext(threadId).layout === "memory-v1"; } catch {}
+      if (!canonical && Object.hasOwn(body, "timezone")) {
+        throw new Error("旧布局记忆体需先完成 memory-layout 迁移后再配置时区");
+      }
       const settingsPatch = {
         label: input.libraryName, scenario: input.scenario, ai: input.ai, user: input.user, userGender: input.userGender,
         miner: { mode: input.minerMode, apiProfile: input.minerMode === "api" ? input.apiProvider : null },
@@ -1358,6 +1361,7 @@ async function handleApi(req, res, url, { isRemote = false } = {}) {
           mcpMinImportance: input.mcpMinImportance,
         },
       };
+      if (Object.hasOwn(body, "timezone")) settingsPatch.timezone = body.timezone;
       fs.writeFileSync(file, JSON.stringify(canonical ? settingsPatch : input), { encoding: "utf8", mode: 0o600 });
       try {
         if (canonical && input.minerMode === "api") {
@@ -1787,12 +1791,13 @@ async function handleApi(req, res, url, { isRemote = false } = {}) {
     try{
       const feeling=store.db.prepare("SELECT * FROM feelings WHERE thread_id=? AND id=?").get(threadId,id);
       if(!feeling)throw new Error("摘要不存在");
-      const parsed=parseFeelingTime(feeling.content),eventTime=feeling.event_time||(parsed?feelingToUtc({...parsed,date:feeling.source_date}):null);
+      const memoryZone=resolveMemoryTimezone(threadId);
+      const parsed=parseFeelingTime(feeling.content),eventTime=feeling.event_time||(parsed?feelingToUtc({...parsed,date:feeling.source_date},memoryZone):null);
       const all=store.listFeelings(),index=all.findIndex(row=>row.id===id),next=index>=0?all.slice(index+1).find(row=>row.event_time||parseFeelingTime(row.content)?.hour!=null):null;
       let nextEventUtc=null;
       if(next){
         const nextParsed=parseFeelingTime(next.content);
-        nextEventUtc=next.event_time||(nextParsed?feelingToUtc({...nextParsed,date:next.source_date}):null);
+        nextEventUtc=next.event_time||(nextParsed?feelingToUtc({...nextParsed,date:next.source_date},memoryZone):null);
       }
       const dayMessages=store.listMessages({date:feeling.source_date});
       const automatic=automaticRetainWindow(eventTime,nextEventUtc,dayMessages);
@@ -2102,7 +2107,7 @@ function startWebServer({ host = "127.0.0.1", port = 4173 } = {}) {
 }
 
 module.exports = {
-  startWebServer, listLibraries, homeOverview, countFeelingsMinedSince, memoryGrowthDays, overview, previewRows, paginate, buildConversationCalendar,
+  startWebServer, listLibraries, homeOverview, countFeelingsMinedSince, memoryGrowthDays, localDateKey, overview, previewRows, paginate, buildConversationCalendar,
   listDeveloperModules, developerModuleDetail,
   miningDatesFromStore, miningCommandArgs, miningCheckCommandArgs, targetedMiningCommandArgs,
   timelineCommandArgs, compactTimelineReport, compressionCommandArgs, safeStmemFailure, runStmem,

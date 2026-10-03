@@ -8,6 +8,7 @@ const { parseJsonArray, parseJsonObject } = require("../lib/json-parse");
 const { archiveFingerprint, getDayState, isCompleted, retryDelayMs } = require("./mining-state");
 const { MemoryStore } = require("../storage/memory-store");
 const { parseFeelingTime } = require("./thread-rebuilder");
+const { DEFAULT_TIMEZONE, resolveMemoryTimezone, zonedDateKey, zonedWallTime, wallTimeToUtc, shiftDateKey } = require("./timezone");
 const { diagnoseApiMining } = require("./mining-diagnostics");
 const { splitMiningMessages, byteLength, DEFAULT_MAX_MINING_CHUNK_BYTES } = require("./mining-chunks");
 const { isInjectedMemoryBlock } = require("../lib/system-injection");
@@ -49,17 +50,17 @@ function sortFeelingsChronologically(entries) {
   }).map(row => row.entry);
 }
 
-function feelingEventTime(entry, targetDate) {
+function feelingEventTime(entry, targetDate, timeZone = DEFAULT_TIMEZONE) {
   const parsed = parseFeelingTime(String(entry?.content || ""));
   if (parsed?.hour == null) return null;
-  return new Date(`${targetDate}T${String(parsed.hour).padStart(2, "0")}:${String(parsed.minute || 0).padStart(2, "0")}:00+08:00`).toISOString();
+  return wallTimeToUtc(targetDate, parsed.hour, parsed.minute || 0, timeZone);
 }
 
-function miningChunkTimeRange(messages) {
+function miningChunkTimeRange(messages, timeZone = DEFAULT_TIMEZONE) {
   const rows = (messages || []).filter(row => Number.isFinite(Date.parse(row?.timestamp || "")));
   if (!rows.length) return { startTime: null, endTime: null, label: "时间未知" };
   const format = timestamp => new Intl.DateTimeFormat("zh-CN", {
-    timeZone: "Asia/Shanghai", hour: "2-digit", minute: "2-digit", hour12: false,
+    timeZone, hour: "2-digit", minute: "2-digit", hour12: false,
   }).format(new Date(timestamp));
   const startTime = rows[0].timestamp;
   const endTime = rows[rows.length - 1].timestamp;
@@ -135,6 +136,7 @@ class MemoryMiner {
     chunkMaxBytes = DEFAULT_MAX_MINING_CHUNK_BYTES,
   }) {
     this.threadId = threadId;
+    this.timezone = resolveMemoryTimezone(threadId);
     this.aiName = personaConfig?.aiName || "AI";
     this.userName = personaConfig?.userName || "用户";
     this.userGender = personaConfig?.userGender || "unspecified";
@@ -313,10 +315,10 @@ class MemoryMiner {
     return messages.map(m => {
       const raw = m.timestamp || "";
       let ts = raw.slice(11, 16);
-      // UTC（Z 结尾）→ 转北京时间，让 AI 看到正确的时间
+      // UTC（Z 结尾）→ 转记忆体所在时区，让 AI 看到正确的时间
       if (raw.endsWith("Z")) {
-        const d = new Date(raw);
-        if (!isNaN(d.getTime())) ts = new Date(d.getTime() + 8 * 3600 * 1000).toISOString().slice(11, 16);
+        const wall = zonedWallTime(raw, this.timezone);
+        if (wall) ts = `${String(wall.hour).padStart(2, "0")}:${String(wall.minute).padStart(2, "0")}`;
       }
       const label = ts ? `[${ts} ${m.type || "user"}]` : `[${m.type || "user"}]`;
       return `${label} ${m.text || ""}`;
@@ -356,7 +358,7 @@ class MemoryMiner {
 
   _recordFeelingChunk(chunk, index, total, entries, channel, engine = {}) {
     if (!Array.isArray(this.chunkReport)) this.chunkReport = [];
-    const range = miningChunkTimeRange(chunk);
+    const range = miningChunkTimeRange(chunk, this.timezone);
     this.chunkReport[index] = {
       index: index + 1,
       total,
@@ -465,7 +467,7 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
     const feelings = raw.filter(row => row?.content?.trim() && !existing.has(row.content.trim())).map(row => ({
       id: `mem_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`,
       content: row.content.replace(/^\d{1,2}月\d{1,2}日/, dateLabel),
-      eventTime: feelingEventTime(row, targetDate),
+      eventTime: feelingEventTime(row, targetDate, this.timezone),
       importance: normalizeFeelingImportance(row.importance),
     }));
     if (!feelings.length) return { date: targetDate, feelings: [] };
@@ -676,7 +678,7 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
       const dayFeelings = byDate[date].feelings;
       if (!dayFeelings.length) continue;
       const source = dayFeelings.map((entry, index) => ({
-        timestamp: `${date}T12:00:${String(index % 60).padStart(2, "0")}+08:00`,
+        timestamp: entry.eventTime || wallTimeToUtc(date, 12, 0, this.timezone, index % 60),
         type: "memory",
         text: entry.content,
       }));
@@ -732,7 +734,7 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
   }
   _featureSourceMessages(targetDate) {
     return this.pendingFeelings.map((entry, index) => ({
-      timestamp: entry.eventTime || `${targetDate}T12:00:${String(index % 60).padStart(2, "0")}+08:00`,
+      timestamp: entry.eventTime || wallTimeToUtc(targetDate, 12, 0, this.timezone, index % 60),
       type: "memory",
       text: entry.content,
     }));
@@ -867,7 +869,7 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
         this._saveChunkCache(targetDate, cacheLabel, cache);
         raw.push(...entries);
       } catch (error) {
-        const range = miningChunkTimeRange(chunks[index]);
+        const range = miningChunkTimeRange(chunks[index], this.timezone);
         throw new MiningError(error.code || "CHUNK_FAILED",
           `${targetDate} ${range.label}（${label} 第 ${index + 1}/${chunks.length} 块）挖掘失败，已完成 ${Object.keys(cache.chunks).length}/${chunks.length} 块`,
           { completedChunks: Object.keys(cache.chunks).length, totalChunks: chunks.length, failedChunk: index + 1,
@@ -885,9 +887,7 @@ ${examples.length ? examples.map((row, index) => `${index + 1}. ${row.content}`)
   }
 
   _yesterday() {
-    const bj = new Date(Date.now() + 8 * 3600 * 1000);
-    bj.setDate(bj.getDate() - 1);
-    return bj.toISOString().slice(0, 10);
+    return shiftDateKey(zonedDateKey(Date.now(), this.timezone), -1);
   }
 
   async _extractViaSubagent(messages, prompt, {

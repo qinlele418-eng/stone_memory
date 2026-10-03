@@ -3,6 +3,7 @@ const toast = document.querySelector("#toast");
 
 const state = {
   libraries: [], step: 1, imports: [], memoryId: null,
+  defaultTimezone: "UTC", displayTimezone: null,
   form: { libraryName: "", threadId: "", ai: "", user: "", userGender: "unspecified", runtime: "codex", scenario: "life-supervision", sessionDir: "", minerMode: "subagent", apiProvider: "", apiKey: "", baseUrl: "", model: "", windowDays: 1, keepToolPairs: 15, automaticFullMining: true, automaticMemoryMaintenance: true, automaticCompression: false },
   feelingBatch: { active:false, memoryId:null, pending:new Map() },
 };
@@ -154,12 +155,12 @@ function formatTokens(value) { const n=Number(value); if(!Number.isFinite(n))ret
 function formatBytes(value) { const n=Number(value); if(!Number.isFinite(n))return "—"; if(n>=1024*1024)return `${(n/1024/1024).toFixed(2)} MB`; if(n>=1024)return `${(n/1024).toFixed(1)} KB`; return `${n} B`; }
 function formatBeijingTime(value) {
   const date = new Date(value); if (!Number.isFinite(date.getTime())) return String(value || "—");
-  const parts = Object.fromEntries(new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(date).map(part => [part.type, part.value]));
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("zh-CN", { timeZone: activeDisplayTimezone(), year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(date).map(part => [part.type, part.value]));
   return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;
 }
 function formatBeijingClock(value) {
   const date = new Date(value); if (!Number.isFinite(date.getTime())) return "";
-  return new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
+  return new Intl.DateTimeFormat("zh-CN", { timeZone: activeDisplayTimezone(), hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
 }
 function formatChineseDate(value) { const parts=String(value||"").split("-").map(Number);return parts.length===3&&parts.every(Number.isFinite)?`${parts[1]}月${parts[2]}日`:String(value||""); }
 function formatContextUsage(usage) { if(!usage)return "暂无数据"; return usage.maxTokens?`${formatTokens(usage.usedTokens)} / ${formatTokens(usage.maxTokens)} tokens`:`${formatTokens(usage.usedTokens)} tokens`; }
@@ -243,8 +244,16 @@ async function bootstrapStoneMemory() {
 }
 
 async function loadLibraries() {
-  const data = await api("/api/libraries"); state.libraries = data.libraries;
+  const data = await api("/api/libraries");
+  state.libraries = data.libraries;
+  state.defaultTimezone = data.defaultTimezone || "UTC";
 }
+
+// 当前展示时区：打开的记忆体配置优先，其次服务端默认；统一出口，页面与开发者模块共用。
+function activeDisplayTimezone() {
+  return state.displayTimezone || state.defaultTimezone || "UTC";
+}
+window.stmemDisplayTimezone = activeDisplayTimezone;
 
 const optionalScripts = new Map();
 function loadOptionalScript(src) {
@@ -513,6 +522,7 @@ async function createLibrary() {
 }
 
 function lobby() {
+    state.displayTimezone = null;
     app.innerHTML = `<section class="lobby stone-page-transition-pending" data-transition-message="正在整理今日纹路…" aria-busy="true"><div class="shell"><div class="lobby-head"><p>—— 蒲苇韧如丝，磐石无转移 ——</p></div><div class="library-grid">${state.libraries.map(library => `<button class="library-card" data-id="${escapeHtml(library.memoryId || library.threadId)}">${stoneSvg("mini-stone")}<h2>${escapeHtml(library.libraryName)}</h2><p>${!library.configured ? "尚未配置 · 点击继续" : !library.bound ? "尚未绑定对话窗口" : library.lastMinedAt ? "记忆正在生长" : "等待第一次记忆挖掘"}</p><div class="library-stats"><span>${library.counts.feelings} 条摘要</span><span>${library.counts.features} 条特征</span></div></button>`).join("")}<button class="library-card new-card" id="new-library"><div><span>＋</span><strong>创建新的记忆体</strong></div></button></div></div></section>`;
   document.querySelectorAll(".library-card").forEach(card => card.onclick = () => { const library=state.libraries.find(item=>(item.memoryId||item.threadId)===card.dataset.id); library?.configured?openLibrary(card.dataset.id):createMemoryDraft(card,library); });
   document.querySelector("#new-library").onclick = event => createMemoryDraft(event.currentTarget);
@@ -523,6 +533,7 @@ async function openLibrary(identifier, view = "overview") {
   try {
     const data = await api(`/api/libraries/${encodeURIComponent(identifier)}/overview`);
     if (!data.configured) { createMemoryDraft(null,data); return; }
+    state.displayTimezone = data.timezone || state.defaultTimezone;
     workspace(data);
   } catch (error) {
     showToast(error.message, "error");
@@ -545,7 +556,7 @@ function workspace(data) {
     <article class="overview-card overview-thread-card"><header><h2>当前对话线程信息</h2><button class="text-link" id="overview-access">接入管理 →</button></header><p class="thread-identity">${escapeHtml(data.runtime||"未接入平台")} · ${escapeHtml(data.externalThreadId||"暂未绑定 UUID")}</p><div class="context-usage"><div class="context-usage-head"><h3>当前窗口上下文</h3><small${usageTitle}>${contextUsageHint(usage,data.automaticFullMining)}</small></div><div class="context-usage-track" role="progressbar" aria-label="当前窗口上下文占用" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(usagePercent)}"><i style="width:${usagePercent.toFixed(1)}%"></i></div></div><div class="injection-heading"><h3>当前窗口注入</h3><small>上次重建：${rebuild?.completedAt?escapeHtml(formatBeijingTime(rebuild.completedAt)):"暂无记录"}</small></div><div class="injection-counts"><div><strong>${injected.rules}</strong><span>人设 / 规则</span></div><div><strong>${injected.messages}</strong><span>对话</span></div><div><strong>${injected.feelings}</strong><span>摘要</span></div><div><strong>${injected.tools}</strong><span>工具链</span></div></div><div id="integrity" class="integrity overview-integrity"></div><footer><button class="secondary" id="overview-repair">线程修复</button><button class="primary" id="overview-rebuild">线程重建</button></footer></article>
     <article class="overview-card overview-automation-card"><h2>自动化设置</h2><div class="overview-switches">${automationSwitch("automaticFullMining","对话录入",data.automaticFullMining)}${automationSwitch("automaticMemoryMaintenance","自动生成摘要",data.automaticMemoryMaintenance)}${automationSwitch("automaticCompression","记忆压缩",data.automaticCompression,true)}</div></article>
   </section></main></div></section>`;
-  document.querySelector(".back-link").onclick = event => { event.preventDefault(); lobby(); };
+  document.querySelector(".back-link").onclick = event => { event.preventDefault(); state.displayTimezone = null; lobby(); };
   document.querySelector('[data-view="memory"]').onclick = () => renderManagement(data);
   document.querySelector('[data-view="context"]').onclick = () => renderRebuild(data);
   document.querySelector('[data-view="access"]').onclick = () => renderAccess(data);
@@ -987,6 +998,7 @@ async function renderSettings(library) {
         <div class="field"><label for="setting-ai">AI 名字</label><input id="setting-ai" name="ai" value="${escapeHtml(config.ai)}" required></div>
         <div class="field"><label for="setting-user">用户名字</label><input id="setting-user" name="user" value="${escapeHtml(config.user)}" required></div>
         <div class="field full"><label for="setting-gender">用户性别</label><select id="setting-gender" name="userGender"><option value="unspecified" ${config.userGender === "unspecified" ? "selected" : ""}>不指定</option><option value="female" ${config.userGender === "female" ? "selected" : ""}>女性</option><option value="male" ${config.userGender === "male" ? "selected" : ""}>男性</option></select></div>
+        <div class="field full"><label for="setting-timezone">时区</label><input id="setting-timezone" name="timezone" value="${escapeHtml(config.timezone||"")}" list="timezone-options" placeholder="留空使用默认时区" autocomplete="off"><datalist id="timezone-options"><option value="UTC"></option><option value="America/Los_Angeles"></option><option value="America/New_York"></option><option value="Europe/London"></option><option value="Europe/Berlin"></option><option value="Asia/Tokyo"></option><option value="Asia/Singapore"></option><option value="Asia/Shanghai"></option><option value="Australia/Sydney"></option></datalist><small>IANA 时区名称。归档日切分、摘要时间戳和页面显示都按这个时区计算；留空即用默认时区。</small></div>
       </div></section>
       <section class="section-card settings-card"><div class="section-title-row"><div><p class="eyebrow">Mining</p><h2>摘要生成</h2><small>选择记忆挖掘使用的执行通道。</small></div></div><div class="field-grid">
         <div class="field full"><label for="setting-scenario">挖掘场景</label><select id="setting-scenario" name="scenario">${(config.scenario||config.purpose)==="study"?'<option value="study" selected>学习（旧场景）</option>':""}<option value="life-supervision" ${config.scenario==="life-supervision"?"selected":""}>生活监督</option><option value="accompany" ${(config.scenario||config.purpose)==="accompany"?"selected":""}>情感陪伴</option><option value="coding" ${(config.scenario||config.purpose)==="coding"?"selected":""}>编程日志</option></select><small>只影响今后生成的摘要和特征，不会移动目录或改写历史记忆。</small></div>
@@ -1017,6 +1029,7 @@ async function renderSettings(library) {
       try {
         const result = await api(`/api/libraries/${encodeURIComponent(library.threadId)}/settings`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(values) });
         library.libraryName = result.config.libraryName;
+        state.displayTimezone = result.config.timezone || state.defaultTimezone;
         const workspace=document.querySelector(".workspace"),title=workspace?.querySelector(".workspace-memory-card h1");
         if(workspace)workspace.dataset.libraryName=result.config.libraryName;
         if(title?.firstChild)title.firstChild.nodeValue=result.config.libraryName;

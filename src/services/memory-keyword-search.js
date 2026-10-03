@@ -9,6 +9,7 @@ const {
   readMessagesStamp,
 } = require("../storage/memory-reader");
 const { automaticRetainWindow } = require("./thread-rebuilder");
+const { DEFAULT_TIMEZONE, resolveMemoryTimezone, wallTimeToUtc } = require("./timezone");
 const { excerptsEnabled, pickExcerpt, createExcerptAssembler } = require("./source-excerpt");
 
 const ARCHIVE_EXCERPT_CAP = 6;
@@ -125,9 +126,9 @@ function parseFeelingTime(content) {
   return { date, hour, minute };
 }
 
-function toUtc(date, hour, minute) {
+function toUtc(date, hour, minute, timeZone = DEFAULT_TIMEZONE) {
   if (hour === null) return null;
-  return new Date(`${date}T${String(hour).padStart(2,"0")}:${String(minute||0).padStart(2,"0")}:00.000+08:00`).toISOString();
+  return wallTimeToUtc(date, hour, minute || 0, timeZone);
 }
 
 // ---- 关键词提取 ----
@@ -214,7 +215,8 @@ let _feelingsCacheTime = 0;
 let _feelingsCacheKey = null;
 
 function loadFeelings(_feelingsFile, memoryDir, threadId) {
-  const cacheKey = `${memoryDir}:${threadId}`;
+  const timeZone = resolveMemoryTimezone(threadId);
+  const cacheKey = `${memoryDir}:${threadId}:${timeZone}`;
   if (_feelingsCache && _feelingsCacheKey === cacheKey && Date.now() - _feelingsCacheTime < 60000) return _feelingsCache;
   let databaseRows = readDatabaseFeelings(memoryDir, { threadId });
   // R0 回退：pando import_only 且 miner 索引为空时，用本地确定性索引补检索面。
@@ -235,7 +237,7 @@ function loadFeelings(_feelingsFile, memoryDir, threadId) {
       id: r.id,
       content: r.content,
       date,
-      utcTime: r.eventTime || (time ? toUtc(date, time.hour, time.minute) : null),
+      utcTime: r.eventTime || (time ? toUtc(date, time.hour, time.minute, timeZone) : null),
       importance: Number(r.importance) || 0,
       // 稳定源指针：仅本地索引条目逐条对应 archive 消息；miner 蒸馏摘要有
       // id 但无消息级指针，渲染时按「（无源）」标注。

@@ -41,10 +41,20 @@
     return Number(armedUntil) > Number(now) ? "open" : "interact";
   }
 
-  function beijingDateKey(value = new Date()) {
+  // 展示时区跟随记忆体配置（app.js 注入 window.stmemDisplayTimezone）；无法取得时回退 UTC。
+  function displayTimeZone() {
+    try {
+      if (typeof window !== "undefined" && typeof window.stmemDisplayTimezone === "function") {
+        return window.stmemDisplayTimezone() || "UTC";
+      }
+    } catch {}
+    return "UTC";
+  }
+
+  function beijingDateKey(value = new Date(), timeZone = displayTimeZone()) {
     const date = value instanceof Date ? value : new Date(value);
     if (!Number.isFinite(date.getTime())) return "";
-    return new Date(date.getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
   }
 
   function shiftDate(dateKey, days) {
@@ -268,6 +278,7 @@
     isMobileAssistantEnvironment,
     mobileLauncherAction,
     beijingDateKey,
+    displayTimeZone,
     shiftDate,
     parseCommand,
     isInternalQuestion,

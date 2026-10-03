@@ -1,13 +1,14 @@
 const crypto = require("crypto");
 const { parseJsonObject } = require("../lib/json-parse");
 const { feelingEventTime, normalizeNewImportance, normalizeFeelingImportance } = require("./memory-miner");
+const { DEFAULT_TIMEZONE } = require("./timezone");
 
 const FEATURE_CATEGORIES = new Set([
   "eat", "body", "sleep", "work", "relation",
   "habit", "location", "preference", "misc",
 ]);
 
-function buildFusionPlan(sourceCandidate, parentCandidates = []) {
+function buildFusionPlan(sourceCandidate, parentCandidates = [], timeZone = DEFAULT_TIMEZONE) {
   if (sourceCandidate?.profile?.id !== "hybrid") {
     throw new Error("same-event fusion requires a hybrid review candidate");
   }
@@ -22,7 +23,7 @@ function buildFusionPlan(sourceCandidate, parentCandidates = []) {
         index,
         kind,
         content: String(row.content || ""),
-        eventTime: kind === "feelings" ? feelingEventTime(row, sourceCandidate.date) || row.eventTime || null : null,
+        eventTime: kind === "feelings" ? feelingEventTime(row, sourceCandidate.date, timeZone) || row.eventTime || null : null,
         category: row.category || null,
         importance: kind === "feelings"
           ? normalizeFeelingImportance(row.importance)
@@ -35,6 +36,7 @@ function buildFusionPlan(sourceCandidate, parentCandidates = []) {
   }
   return {
     date: sourceCandidate.date,
+    timeZone,
     sourceCandidateId: sourceCandidate.id,
     rows,
     groups: {
@@ -165,7 +167,7 @@ async function fuseReviewCandidate({
   if (source.profile?.id !== "hybrid") throw new Error("same-event fusion only accepts a hybrid candidate");
   reviews.assertCurrentFingerprint(source.date, source.archiveFingerprint);
   const parentCandidates = (source.hybrid?.parentCandidateIds || []).map(id => reviews.load(id));
-  const plan = buildFusionPlan(source, parentCandidates);
+  const plan = buildFusionPlan(source, parentCandidates, reviews.timezone || DEFAULT_TIMEZONE);
   const groupCount = plan.groups.feelings.length + plan.groups.features.length;
   if (!groupCount) throw new Error("当前混合稿没有找到可安全尝试融合的同事件重复组");
 
@@ -203,7 +205,7 @@ function editFusionCandidate({ reviews, candidateId, edits }) {
         }
         if (content === row.content) continue;
         if (kind === "feelings") {
-          const eventTime = feelingEventTime({ content }, candidate.date);
+          const eventTime = feelingEventTime({ content }, candidate.date, candidate.timeZone || reviews.timezone || DEFAULT_TIMEZONE);
           if (!eventTime) throw new Error("edited feeling lost its recognizable event time");
           const sourceTimes = (provenance.sources || [])
             .map(source => Date.parse(source.eventTime || ""))
@@ -260,7 +262,7 @@ function materializeFusion(plan, response) {
       if (!content || content.length > 2000) throw new Error(`${group.id} fused content must contain 1 to 2000 characters`);
       const sources = group.members.map(sourceRef);
       if (kind === "feelings") {
-        const eventTime = feelingEventTime({ content }, plan.date);
+        const eventTime = feelingEventTime({ content }, plan.date, plan.timeZone || DEFAULT_TIMEZONE);
         if (!eventTime) throw new Error(`${group.id} fused feeling lost its recognizable event time`);
         const earliest = Math.min(...group.members.map(row => Date.parse(row.eventTime || "")).filter(Number.isFinite));
         if (!Number.isFinite(earliest) || Math.abs(Date.parse(eventTime) - earliest) > 10 * 60000) {

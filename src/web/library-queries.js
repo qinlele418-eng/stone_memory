@@ -6,6 +6,7 @@ const { MemoryStore } = require("../storage/memory-store");
 const { latestSuccessfulRebuild, readRebuildState } = require("../services/rebuild-log");
 const { sessionFile } = require("../services/rebuild-workbench");
 const { listMemories } = require("../services/memory-setup");
+const { DEFAULT_TIMEZONE, resolveMemoryTimezone } = require("../services/timezone");
 const { readBindingConfig } = require("../services/memory-binding-config");
 
 function publicThreadSettings(threadId) {
@@ -38,6 +39,7 @@ function publicThreadSettings(threadId) {
     mcpSummaryLimit: entry.mcpSummaryLimit ?? 0,
     mcpMinImportance: entry.mcpMinImportance ?? 0,
     contextWindowTokens: entry.contextWindowTokens || null,
+    timezone: typeof entry.timezone === "string" ? entry.timezone : null,
     watcherEnabled: watcherEnabled(entry),
     automaticFullMining: actions.sync,
     automaticMemoryMaintenance: actions.mine,

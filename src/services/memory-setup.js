@@ -5,6 +5,7 @@ const { loadConfig, getMemoryContext, CONFIG_PATH } = require("../config");
 const { saveConfig } = require("./thread-setup");
 const { canonicalMemoryDir, legacyEntries } = require("./memory-identity");
 const { getScenario, scenarioId } = require("./scenario-registry");
+const { DEFAULT_TIMEZONE, isValidTimeZone } = require("./timezone");
 
 function writeJson(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -145,6 +146,7 @@ function publicMemorySettings(memoryId) {
     purpose: entry.purpose || null, scenario: scenarioId(entry), ai: entry.ai || "", user: entry.user || "",
     userGender: entry.userGender || "unspecified",
     relationshipTimeline: Array.isArray(entry.relationshipTimeline) ? entry.relationshipTimeline : [],
+    timezone: typeof entry.timezone === "string" ? entry.timezone : null,
     miner: { mode: entry.minerMode || null, apiProfile: entry.apiProvider || null },
     rebuild: {
       windowDays: entry.windowDays ?? 1, keepToolPairs: entry.keepToolPairs ?? 15,
@@ -174,7 +176,7 @@ function boundedInteger(value, label, minimum, maximum, { nullable = false } = {
 
 function validateMemorySettings(current, patch, config = loadConfig()) {
   if (!patch || typeof patch !== "object" || Array.isArray(patch)) throw new Error("设置必须是 JSON 对象");
-  const allowed = new Set(["label", "purpose", "scenario", "ai", "user", "userGender", "relationshipTimeline", "miner", "rebuild"]);
+  const allowed = new Set(["label", "purpose", "scenario", "ai", "user", "userGender", "relationshipTimeline", "miner", "rebuild", "timezone"]);
   const unknown = Object.keys(patch).filter(key => !allowed.has(key));
   if (unknown.length) throw new Error(`不支持的记忆体设置：${unknown.join("、")}`);
   const next = JSON.parse(JSON.stringify(current));
@@ -199,6 +201,11 @@ function validateMemorySettings(current, patch, config = loadConfig()) {
   if (Object.hasOwn(patch, "relationshipTimeline")) {
     if (!Array.isArray(patch.relationshipTimeline)) throw new Error("关系时间轴必须是数组");
     next.relationshipTimeline = patch.relationshipTimeline.map(value => String(value || "").trim()).filter(Boolean);
+  }
+  if (Object.hasOwn(patch, "timezone")) {
+    const zone = optionalText(patch.timezone, "时区", { nullable: true });
+    if (zone && !isValidTimeZone(zone)) throw new Error(`时区必须是有效的 IANA 时区名称，留空表示使用默认时区，收到："${zone}"`);
+    next.timezone = zone || null;
   }
   if (Object.hasOwn(patch, "miner")) {
     if (!patch.miner || typeof patch.miner !== "object" || Array.isArray(patch.miner)) throw new Error("miner 设置必须是对象");

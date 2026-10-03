@@ -673,11 +673,11 @@
   }
 
   function formatLogDate(timestamp) {
-    return new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", year: "numeric", month: "long", day: "numeric", weekday: "short" }).format(new Date(timestamp));
+    return new Intl.DateTimeFormat("zh-CN", { timeZone: logic.displayTimeZone(), year: "numeric", month: "long", day: "numeric", weekday: "short" }).format(new Date(timestamp));
   }
 
   function formatLogTime(timestamp) {
-    return new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(timestamp));
+    return new Intl.DateTimeFormat("zh-CN", { timeZone: logic.displayTimeZone(), hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(timestamp));
   }
 
   function markLogsDirty() {

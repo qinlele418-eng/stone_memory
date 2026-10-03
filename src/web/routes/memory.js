@@ -10,6 +10,7 @@ const { getThreadDir } = require("../../config");
 const { paginate } = require("../view-models");
 const { NOT_HANDLED } = require("../route-result");
 const { parseFeelingTime, feelingToUtc, automaticRetainWindow } = require("../../services/thread-rebuilder");
+const { resolveMemoryTimezone } = require("../../services/timezone");
 
 function memoryExportPayload(store, settings) {
   const messages = store.db.prepare("SELECT * FROM messages WHERE thread_id=? ORDER BY timestamp,message_seq").all(settings.memoryId);
@@ -115,12 +116,13 @@ async function handleMemoryActions(req, res, url) {
     try{
       const feeling=store.db.prepare("SELECT * FROM feelings WHERE thread_id=? AND id=?").get(threadId,id);
       if(!feeling)throw new Error("摘要不存在");
-      const parsed=parseFeelingTime(feeling.content),eventTime=feeling.event_time||(parsed?feelingToUtc({...parsed,date:feeling.source_date}):null);
+      const memoryZone=resolveMemoryTimezone(threadId);
+      const parsed=parseFeelingTime(feeling.content),eventTime=feeling.event_time||(parsed?feelingToUtc({...parsed,date:feeling.source_date},memoryZone):null);
       const all=store.listFeelings(),index=all.findIndex(row=>row.id===id),next=index>=0?all.slice(index+1).find(row=>row.event_time||parseFeelingTime(row.content)?.hour!=null):null;
       let nextEventUtc=null;
       if(next){
         const nextParsed=parseFeelingTime(next.content);
-        nextEventUtc=next.event_time||(nextParsed?feelingToUtc({...nextParsed,date:next.source_date}):null);
+        nextEventUtc=next.event_time||(nextParsed?feelingToUtc({...nextParsed,date:next.source_date},memoryZone):null);
       }
       const dayMessages=store.listMessages({date:feeling.source_date});
       const automatic=automaticRetainWindow(eventTime,nextEventUtc,dayMessages);

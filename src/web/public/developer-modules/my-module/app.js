@@ -513,7 +513,7 @@
 
   function formattedResult() {
     const timestamp = new Intl.DateTimeFormat("zh-CN", {
-      timeZone: "Asia/Shanghai",
+      timeZone: (typeof window !== "undefined" && typeof window.stmemDisplayTimezone === "function" && window.stmemDisplayTimezone()) || "UTC",
       year: "numeric",
       month: "2-digit",
       day: "2-digit",

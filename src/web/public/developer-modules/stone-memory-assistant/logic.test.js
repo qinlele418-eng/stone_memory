@@ -103,8 +103,10 @@ test("stop confirmation remains bound to the exact active job", () => {
   assert.equal(logic.canStopJob({ job: { id: "job-1", status: "completed" } }, "job-1"), false);
 });
 
-test("Beijing date helpers are deterministic around UTC midnight", () => {
-  assert.equal(logic.beijingDateKey("2026-08-14T16:30:00Z"), "2026-08-15");
+test("date helper follows the configured memory timezone and stays deterministic around UTC midnight", () => {
+  assert.equal(logic.beijingDateKey("2026-08-14T16:30:00Z", "Asia/Shanghai"), "2026-08-15");
+  assert.equal(logic.beijingDateKey("2026-08-14T16:30:00Z", "America/New_York"), "2026-08-14");
+  assert.equal(logic.beijingDateKey("2026-08-14T16:30:00Z"), "2026-08-14");
   assert.equal(logic.shiftDate("2026-08-15", -1), "2026-08-14");
 });
 
