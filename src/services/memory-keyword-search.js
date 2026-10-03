@@ -9,6 +9,53 @@ const {
   readMessagesStamp,
 } = require("../storage/memory-reader");
 const { automaticRetainWindow } = require("./thread-rebuilder");
+const { excerptsEnabled, pickExcerpt, createExcerptAssembler } = require("./source-excerpt");
+
+const ARCHIVE_EXCERPT_CAP = 6;
+const KEYWORD_EXCERPT_CAP = 10;
+// r3 摘句前置层：主关键词命中日摘句前置块，覆盖窗口预算外的命中日。
+const ARCHIVE_DIGEST_BREADTH = 25;
+const ARCHIVE_DIGEST_CAP = 8;
+
+// ---- 选择面触达（TASK-0398 r2，Owner spec v2 授权的三杠杆）----
+//
+// STONE_SELECTION_REACH 独立开关：默认 on；off=精确恢复 df916f6 选择行为
+// （含 maxDays 默认值与命中日排序）。三杠杆只作用于三个检索面入口
+// （feelings/keyword/archive），内部消费者（deep_search、scratch-reward）
+// 不传 face 标识，选择行为零变化。
+
+const SELECTION_REACH_ENV = "STONE_SELECTION_REACH";
+const SELECTION_REACH_OFF_VALUES = new Set(["off", "0", "false", "no"]);
+
+function selectionReachEnabled(env = process.env) {
+  return !SELECTION_REACH_OFF_VALUES.has(String(env[SELECTION_REACH_ENV] ?? "").trim().toLowerCase());
+}
+
+// 杠杆③（feelings 面同源关键词）：与 keyword 面入参同形制的关键词推导——
+// CJK 连续 run 2-6 字，并套用与 focus 词元资格同形的虚词字闸（「的钱/要怎」
+// 这类长 run 内的二元碎片/虚词组合不当检索词）。与 harness stone_keywords
+// 一样只取 CJK run（ASCII focus 词无法从自然语句中恢复，属已知边界）。
+const REACH_FUNCTION_CHARS = new Set(
+  "的了吗呢啊呀吧哦嘛么之这那是个是不没很就也才刚又再还跟与或但可在把被给让向"
+  + "往上中下里外去来过谁什怎和你我都为一说想看觉觉得做使用有",
+);
+
+function reachEligible(word) {
+  if (!word) return false;
+  for (const ch of word) {
+    if (REACH_FUNCTION_CHARS.has(ch)) return false;
+  }
+  return true;
+}
+
+function reachKeywords(query) {
+  const text = String(query || "");
+  const out = [];
+  for (const run of text.match(/[\u4e00-\u9fff]{2,}/g) || []) {
+    if (run.length <= 6 && !out.includes(run) && reachEligible(run)) out.push(run);
+  }
+  return out;
+}
 
 function resolvePaths(threadId) {
   const configured = listMemoryIds();
@@ -106,7 +153,8 @@ function localFeelingsIndexEnabled(threadId) {
 }
 
 const LOCAL_INDEX_CACHE_FILE = "local-feelings-index.json";
-const LOCAL_INDEX_CACHE_VERSION = 1;
+// v2: 条目携带 sourceText（源消息原文），供摘句层回读。
+const LOCAL_INDEX_CACHE_VERSION = 2;
 
 /**
  * 从已导入 DB 的 messages 抽取式生成 feelings 形状索引条目（不生成、不调用任何模型）。
@@ -148,6 +196,7 @@ function buildLocalFeelingsIndex(memoryDir, threadId) {
       eventTime: row.timestamp || null,
       importance: 0,
       content: `${monthDay}，${role}说过：${text}`,
+      sourceText: text,
     });
   }
   if (stamp && fs.existsSync(memoryDir)) {
@@ -188,6 +237,9 @@ function loadFeelings(_feelingsFile, memoryDir, threadId) {
       date,
       utcTime: r.eventTime || (time ? toUtc(date, time.hour, time.minute) : null),
       importance: Number(r.importance) || 0,
+      // 稳定源指针：仅本地索引条目逐条对应 archive 消息；miner 蒸馏摘要有
+      // id 但无消息级指针，渲染时按「（无源）」标注。
+      sourceText: usedLocalIndex ? String(r.sourceText || "") || null : null,
     });
   }
   _feelingsCache = feelings;
@@ -202,8 +254,12 @@ function readArchive(memoryDir, threadId, dateStr) {
 
 // ---- 主搜索 ----
 
-function searchByKeyword(query, { maxResults = 1, threadId } = {}) {
-  const keywords = extractKeywords(query);
+function searchByKeyword(query, { maxResults = 1, threadId, face = null } = {}) {
+  const reachOn = selectionReachEnabled();
+  // 杠杆③：feelings 面查询构造改用与 keyword 面同源的关键词（同形制推导）。
+  let keywords = reachOn && face === "feelings"
+    ? reachKeywords(query)
+    : extractKeywords(query);
   if (keywords.length === 0) return {
     hits: [], matchCount: 0, firstSeen: null, lastSeen: null,
     text: "No searchable keywords found.",
@@ -222,8 +278,29 @@ function searchByKeyword(query, { maxResults = 1, threadId } = {}) {
     if (score > 0) scored.push({ ...f, score, idx: i });
   }
 
-  scored.sort((a, b) => b.score - a.score);
-  const top = scored.slice(0, maxResults);
+  // 杠杆②：keyword 面 top-k 引入主关键词（keyword[0]=focus_term）日覆盖——
+  // 含主关键词的条目按库内时间序先每「日」取一条（覆盖不同 kw0 命中日），
+  // 再按分数降序补足。其余路径保持 df916f6 的全局分数降序不变。
+  let ranked;
+  if (reachOn && face === "keyword" && keywords.length > 0) {
+    const mainKeyword = keywords[0];
+    const tierMain = scored.filter(x => x.content.includes(mainKeyword));
+    const tierRest = scored.filter(x => !x.content.includes(mainKeyword))
+      .sort((a, b) => b.score - a.score);
+    const seenDays = new Set();
+    const dayCovered = [];
+    for (const x of tierMain) {
+      const day = /^\d{4}-\d{2}-\d{2}$/.test(String(x.date || "")) ? x.date : null;
+      if (day === null || !seenDays.has(day)) {
+        if (day !== null) seenDays.add(day);
+        dayCovered.push(x);
+      }
+    }
+    ranked = dayCovered.concat(tierRest);
+  } else {
+    ranked = scored.sort((a, b) => b.score - a.score);
+  }
+  const top = ranked.slice(0, maxResults);
 
   if (top.length === 0) return {
     hits: [], matchCount: 0, firstSeen: null, lastSeen: null,
@@ -231,13 +308,43 @@ function searchByKeyword(query, { maxResults = 1, threadId } = {}) {
   };
 
   const results = [];
+  // 摘句层：单次响应共用一个装配器，同一摘句在本响应内只出现一次。
+  const excerptsOn = excerptsEnabled();
+  const assembler = excerptsOn ? createExcerptAssembler() : null;
+  let sourcelessEntries = 0;
+  const collectEntryExcerpts = (hit, parts) => {
+    if (!excerptsOn) return;
+    if (!hit.sourceText) { parts.push("（无源）"); sourcelessEntries++; return; }
+    const excerpt = pickExcerpt(hit.sourceText);
+    if (excerpt && assembler.register(excerpt)) parts.push(`原文：${excerpt}`);
+  };
+  const collectDayHitExcerpts = (dayMessages, keywords, parts) => {
+    if (!excerptsOn) return;
+    const lowered = keywords.map(word => word.toLowerCase());
+    for (const message of dayMessages) {
+      if (parts.length >= KEYWORD_EXCERPT_CAP) break;
+      const text = String(message.text || "");
+      if (!lowered.some(word => text.toLowerCase().includes(word))) continue;
+      const excerpt = pickExcerpt(text);
+      if (excerpt && assembler.register(excerpt)) parts.push(`原文：${excerpt}`);
+    }
+  };
+  const appendExcerptFooter = (lines, parts) => {
+    if (!excerptsOn || !parts.length) return;
+    lines.push("原文摘句：", ...parts);
+  };
   for (const hit of top) {
     if (!hit.utcTime) {
-      results.push({ feeling: hit, text: `Found: ${hit.content}\n\n(No timestamp — cannot retrieve original)` });
+      const lines = [`Found: ${hit.content}\n\n(No timestamp — cannot retrieve original)`];
+      const parts = [];
+      collectEntryExcerpts(hit, parts);
+      appendExcerptFooter(lines, parts);
+      results.push({ feeling: hit, text: lines.join("\n") });
       continue;
     }
     const archiveDate = hit.date;
     let messages = readArchive(p.memoryDir, p.threadId, archiveDate);
+    const dayMessages = messages;
     const nextUtc=hit.idx + 1 < feelings.length ? feelings[hit.idx + 1].utcTime : null;
     const automatic=automaticRetainWindow(hit.utcTime,nextUtc,messages);
     const startUtc=automatic.startUtc,endUtc=automatic.endUtc;
@@ -262,6 +369,10 @@ function searchByKeyword(query, { maxResults = 1, threadId } = {}) {
         lines.push(`**${role}**: ${text}`);
       }
     }
+    const parts = [];
+    collectEntryExcerpts(hit, parts);
+    collectDayHitExcerpts(dayMessages, keywords, parts);
+    appendExcerptFooter(lines, parts);
     results.push({ feeling: hit, text: lines.join("\n") });
   }
 
@@ -277,7 +388,7 @@ function searchByKeyword(query, { maxResults = 1, threadId } = {}) {
     fs.appendFileSync(p.searchLog, logEntry + "\n", "utf8");
   } catch {}
 
-  return {
+  const payload = {
     hits: top.map(t => ({
       id: t.id,
       content: t.content,
@@ -291,6 +402,50 @@ function searchByKeyword(query, { maxResults = 1, threadId } = {}) {
     lastSeen: scored.map(row => row.date).filter(Boolean).sort().at(-1) || null,
     text: results.map(r => r.text).join("\n\n---\n\n"),
   };
+  // 摘句层关闭时不得携带 sourcelessEntries 字段（df916f6 逐字节等价形态）。
+  if (excerptsOn) payload.sourcelessEntries = sourcelessEntries;
+  return payload;
+}
+
+/**
+ * r3 前置摘句块（杠杆②：锚点相关内容前置入截断预算）：按 layerMain 日序
+ * 遍历前 ARCHIVE_DIGEST_BREADTH 个主关键词命中日，每日回读前
+ * ARCHIVE_DIGEST_CAP 条主关键词命中消息原句（消息序）。经响应级装配器
+ * 去重，窗口 footer 不再重复同一摘句；关闭摘句层或非 reach 态不启用。
+ */
+function collectArchiveKw0Digest(p, assembler, digestDays, reachKw0) {
+  if (!assembler || !reachKw0) return null;
+  const lines = [];
+  for (const dateStr of digestDays) {
+    const messages = readArchive(p.memoryDir, p.threadId, dateStr);
+    let count = 0;
+    for (const m of messages) {
+      if (count >= ARCHIVE_DIGEST_CAP) break;
+      const text = (m.text || "").toLowerCase();
+      if (!text.includes(reachKw0)) continue;
+      const excerpt = pickExcerpt(m.text);
+      if (excerpt && assembler.register(excerpt)) {
+        lines.push(`${dateStr} 原文：${excerpt}`);
+        count++;
+      }
+    }
+  }
+  return lines.length ? lines : null;
+}
+
+/**
+ * archive 面「原文摘句」：当次响应内去重，按消息序回读命中消息原句，
+ * 上限 ARCHIVE_EXCERPT_CAP 条；关闭摘句层或无装配器时恒为空。
+ */
+function collectArchiveHitExcerpts(assembler, messages, hitIndices) {
+  if (!assembler) return [];
+  const parts = [];
+  for (const index of hitIndices) {
+    if (parts.length >= ARCHIVE_EXCERPT_CAP) break;
+    const excerpt = pickExcerpt(messages[index]?.text);
+    if (excerpt && assembler.register(excerpt)) parts.push(`原文：${excerpt}`);
+  }
+  return parts;
 }
 
 /**
@@ -303,11 +458,25 @@ function searchArchiveContext(feelingDate, keywords, {
   skipBefore = null,
   mode = "event",
   threadId,
+  face = null,
 } = {}) {
   const p = resolvePaths(threadId);
-  const resolvedMaxDays = maxDays == null ? (mode === "pattern" ? 30 : 3) : maxDays;
+  const reachOn = selectionReachEnabled();
+  // 杠杆①（仅 archive 面 + event 模式）：maxDays 默认 3→有界扩大到 10
+  // （显式传参仍受调用方钳制），配合主关键词命中日优先层把锚点日送进返回集。
+  const reachArchive = reachOn && face === "archive";
+  const resolvedMaxDays = maxDays == null
+    ? (mode === "pattern" ? 30 : (reachArchive ? 10 : 3))
+    : maxDays;
   const resolvedContextLines = contextLines == null ? (mode === "pattern" ? 10 : 50) : contextLines;
   const half = Math.floor(resolvedContextLines / 2);
+  // 摘句层：单次响应共用一个装配器，同一摘句在本响应内只出现一次。
+  const excerptsOn = excerptsEnabled();
+  const assembler = excerptsOn ? createExcerptAssembler() : null;
+  // 主关键词（keyword[0]=focus_term）命中计数：仅 archive 面 reach 态收集。
+  const reachKw0 = reachArchive && mode === "event" && keywords.length > 0
+    ? String(keywords[0]).toLowerCase()
+    : null;
 
   // SQLite 迁移后只读取日期列；禁止为了列日期把全量对话正文搬进 Node。
   let allDates = readMessageDates(p.memoryDir, { threadId: p.threadId });
@@ -323,22 +492,46 @@ function searchArchiveContext(feelingDate, keywords, {
     const messages = readArchive(p.memoryDir, p.threadId, dateStr);
     if (messages.length === 0) continue;
     let hits = 0;
+    let kw0Hits = 0;
     for (const m of messages) {
       const text = (m.text || "").toLowerCase();
       if (keywords.some(kw => text.includes(kw.toLowerCase()))) hits++;
+      if (reachKw0 && text.includes(reachKw0)) kw0Hits++;
     }
-    if (hits > 0) dateHitCounts.push({ date: dateStr, hits });
+    if (hits > 0) dateHitCounts.push(reachKw0 ? { date: dateStr, hits, kw0Hits } : { date: dateStr, hits });
   }
   const hasFeelingDate = /^\d{4}-\d{2}-\d{2}$/u.test(String(feelingDate || ""));
-  const priorityDates = hasFeelingDate ? [feelingDate] : [];
-  for (const d of dateHitCounts) {
-    if (d.date !== feelingDate) priorityDates.push(d.date);
+  let priorityDates;
+  if (reachKw0) {
+    // 杠杆①：主关键词命中日优先层（层内按总命中数降序），其余命中日按原规则继后。
+    const layerMain = dateHitCounts.filter(d => d.kw0Hits > 0).sort((a, b) => b.hits - a.hits);
+    const layerRest = dateHitCounts.filter(d => !(d.kw0Hits > 0)).sort((a, b) => b.hits - a.hits);
+    priorityDates = [...layerMain.map(d => d.date), ...layerRest.map(d => d.date)];
+    if (hasFeelingDate) {
+      priorityDates = [feelingDate, ...priorityDates.filter(d => d !== feelingDate)];
+    }
+  } else {
+    priorityDates = hasFeelingDate ? [feelingDate] : [];
+    for (const d of dateHitCounts) {
+      if (d.date !== feelingDate) priorityDates.push(d.date);
+    }
+    priorityDates.sort((a, b) => {
+      if (hasFeelingDate && a === feelingDate) return -1;
+      if (hasFeelingDate && b === feelingDate) return 1;
+      return (dateHitCounts.find(d => d.date === b)?.hits || 0) - (dateHitCounts.find(d => d.date === a)?.hits || 0);
+    });
   }
-  priorityDates.sort((a, b) => {
-    if (hasFeelingDate && a === feelingDate) return -1;
-    if (hasFeelingDate && b === feelingDate) return 1;
-    return (dateHitCounts.find(d => d.date === b)?.hits || 0) - (dateHitCounts.find(d => d.date === a)?.hits || 0);
-  });
+
+  // r3 杠杆②：主关键词命中日摘句前置（仅 reach+archive+event+摘句层开）。
+  let digestLines = null;
+  let digestDayCount = 0;
+  if (reachKw0) {
+    const digestDays = priorityDates
+      .filter(d => (dateHitCounts.find(x => x.date === d)?.kw0Hits || 0) > 0)
+      .slice(0, ARCHIVE_DIGEST_BREADTH);
+    digestDayCount = digestDays.length;
+    digestLines = collectArchiveKw0Digest(p, assembler, digestDays, reachKw0);
+  }
 
   const allSnippets = [];
 
@@ -373,19 +566,39 @@ function searchArchiveContext(feelingDate, keywords, {
         const text = (m.text || "").replace(/^\[\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\]\s*/gm, "").trim();
         if (text && !text.startsWith("{\"action\"")) lines.push(`**${role}**: ${text}`);
       }
+      const footer = collectArchiveHitExcerpts(assembler, messages, hitIndices);
+      if (footer.length) lines.push("原文摘句：", ...footer);
       allSnippets.push({ date: dateStr, hitCount: hitIndices.length, text: lines.join("\n") });
       continue;
     }
 
     // 事件型沿用原始 Deep Search 设计：根据当天命中跨度取时间中线，
     // 选择离中线最近的命中作为中心，只返回一个有硬上限的原文窗口。
-    const firstHitMs = new Date(messages[hitIndices[0]].timestamp).getTime();
-    const lastHitMs = new Date(messages[hitIndices[hitIndices.length - 1]].timestamp).getTime();
-    const midpoint = firstHitMs + Math.max(0, lastHitMs - firstHitMs) / 2;
-    const center = hitIndices.reduce((best, index) => {
-      const distance = Math.abs(new Date(messages[index].timestamp).getTime() - midpoint);
-      return distance < best.distance ? { index, distance } : best;
-    }, { index: hitIndices[0], distance: Number.POSITIVE_INFINITY }).index;
+    // r3 杠杆①（窗心对准）：reach 态改取首个主关键词命中位置为窗心；
+    // 无主关键词命中的日子沿用中线规则。
+    let center;
+    if (reachKw0) {
+      const firstHitMs0 = new Date(messages[hitIndices[0]].timestamp).getTime();
+      const lastHitMs0 = new Date(messages[hitIndices[hitIndices.length - 1]].timestamp).getTime();
+      const midpoint0 = firstHitMs0 + Math.max(0, lastHitMs0 - firstHitMs0) / 2;
+      const kw0Hits = hitIndices.filter(index =>
+        (messages[index].text || "").toLowerCase().includes(reachKw0));
+      if (kw0Hits.length) {
+        center = kw0Hits.reduce((best, index) => {
+          const distance = Math.abs(new Date(messages[index].timestamp).getTime() - midpoint0);
+          return distance < best.distance ? { index, distance } : best;
+        }, { index: kw0Hits[0], distance: Number.POSITIVE_INFINITY }).index;
+      }
+    }
+    if (center === undefined) {
+      const firstHitMs = new Date(messages[hitIndices[0]].timestamp).getTime();
+      const lastHitMs = new Date(messages[hitIndices[hitIndices.length - 1]].timestamp).getTime();
+      const midpoint = firstHitMs + Math.max(0, lastHitMs - firstHitMs) / 2;
+      center = hitIndices.reduce((best, index) => {
+        const distance = Math.abs(new Date(messages[index].timestamp).getTime() - midpoint);
+        return distance < best.distance ? { index, distance } : best;
+      }, { index: hitIndices[0], distance: Number.POSITIVE_INFINITY }).index;
+    }
     const start = Math.max(0, center - half);
     const end = Math.min(messages.length, start + resolvedContextLines);
     const slice = messages.slice(start, end);
@@ -401,13 +614,30 @@ function searchArchiveContext(feelingDate, keywords, {
         lines.push(`**${role}**: ${text}`);
       }
     }
+    const footer = collectArchiveHitExcerpts(assembler, messages, hitIndices);
+    if (footer.length) lines.push("原文摘句：", ...footer);
     allSnippets.push({ date: dateStr, hitCount: hitIndices.length, text: lines.join("\n") });
   }
 
+  const sections = allSnippets.map(s => s.text);
+  if (digestLines) {
+    sections.unshift([
+      `### 主关键词「${reachKw0}」命中摘句 | 共 ${digestDayCount} 天`,
+      "",
+      ...digestLines,
+    ].join("\n"));
+  }
   return {
     snippets: allSnippets,
-    text: allSnippets.map(s => s.text).join("\n\n---\n\n"),
+    text: sections.join("\n\n---\n\n"),
   };
 }
 
-module.exports = { searchByKeyword, searchArchiveContext, extractKeywords };
+module.exports = {
+  searchByKeyword,
+  searchArchiveContext,
+  extractKeywords,
+  selectionReachEnabled,
+  reachKeywords,
+  reachEligible,
+};

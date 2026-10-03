@@ -5,7 +5,8 @@ function toolMemorySearch(args) {
     const cfg = loadConfig();
     const resolved = resolveThread(args, cfg);
     const { searchByKeyword } = require("../../services/memory-keyword-search");
-    const result = searchByKeyword(args.query || "", { threadId: resolved?.threadId });
+    // feelings 面：选择面触达杠杆③（同源关键词）由此入口生效。
+    const result = searchByKeyword(args.query || "", { threadId: resolved?.threadId, face: "feelings" });
     return typeof result === "string" ? result : result.text || JSON.stringify(result);
   } catch (err) {
     throw new Error(`搜索失败: ${err.message}`);
@@ -59,9 +60,11 @@ function toolInternalKeywordSearch(args) {
   const query = typeof args.query === "string" ? args.query.trim() : "";
   if (!query) return "请输入关键词。";
   const { searchByKeyword } = require("../../services/memory-keyword-search");
+  // keyword 面：选择面触达杠杆②（主关键词日覆盖 top-k）由此入口生效。
   const result = searchByKeyword(query, {
     maxResults: Math.min(5, Math.max(1, Number(args.maxResults) || 3)),
     threadId: SEARCH_THREAD_ID,
+    face: "keyword",
   });
   const text = result.text || "未找到匹配记忆。";
   log(`deep search tool=keyword durationMs=${Date.now() - startedAt} hits=${result.hits?.length || 0} resultChars=${text.length}`);
@@ -75,13 +78,16 @@ function toolInternalArchiveContext(args) {
   const { searchArchiveContext } = require("../../services/memory-keyword-search");
   const mode = args.mode === "pattern" ? "pattern" : "event";
   const requestedMaxDays = Number(args.maxDays);
+  // archive 面：选择面触达杠杆①（主关键词命中日优先层 + maxDays 默认 3→10）
+  // 由此入口生效；开关关闭或显式传参时恢复 df916f6 行为。
   const result = searchArchiveContext(String(args.feelingDate || ""), keywords, {
     maxDays: Number.isFinite(requestedMaxDays) && requestedMaxDays > 0
       ? Math.min(30, requestedMaxDays)
-      : (mode === "pattern" ? 30 : 3),
+      : null,
     skipBefore: args.skipBefore || null,
     mode,
     threadId: SEARCH_THREAD_ID,
+    face: "archive",
   });
   const text = result.text || "未找到相关原文。";
   log(`deep search tool=archive mode=${mode} durationMs=${Date.now() - startedAt} snippets=${result.snippets?.length || 0} resultChars=${text.length}`);
