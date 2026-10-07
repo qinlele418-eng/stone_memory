@@ -203,6 +203,9 @@ td.context { min-width: 320px; max-width: 460px; line-height: 1.5; }
 .tool-row { grid-template-columns: 24px 150px 130px minmax(0,1fr); }
 .integrity { padding: 16px 18px; margin: 18px 0; border-radius: var(--radius-md); background: var(--moss-100); line-height: 1.6; }
 .integrity.warning { color: #713f2b; background: #fff3dd; }
+/* pando import_only：线程文件口径不适用时的如实说明块（如实声明，非报错态） */
+.thread-not-applicable { padding: 12px 14px; margin: 10px 0; border: 1px dashed color-mix(in srgb, var(--pine-700) 32%, var(--line)); border-radius: var(--radius-sm); background: var(--leaf-50); color: var(--muted); font-size: 13px; line-height: 1.65; }
+.rebuild-db-preview-raw { padding: 14px 16px; margin: 0 0 14px; overflow: auto; background: var(--moss-100); border-radius: var(--radius-sm); font-size: 12px; line-height: 1.7; white-space: pre-wrap; word-break: break-word; }
 .action-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
 .action-card { min-height: 150px; padding: 22px; text-align: left; color: var(--pine-950); background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius-md); transition: .18s ease; }
 .action-card:hover { transform: translateY(-2px); border-color: var(--moss-300); box-shadow: 0 10px 28px rgba(41,85,64,.08); }

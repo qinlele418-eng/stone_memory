@@ -1315,8 +1315,16 @@ async function handleApi(req, res, url, { isRemote = false } = {}) {
   if (req.method === "GET" && url.pathname === "/api/libraries") return json(res, 200, { libraries: listLibraries() });
 
   if (req.method === "POST" && url.pathname === "/api/session-file/check") {
-    if (isRemote) throw new Error("远程 Web 不能探测服务器本地线程文件目录；请在本机 CLI / loopback Web 中检查");
     const body = await readJson(req);
+    // pando 由宿主工作区持有会话、无线程文件：线程文件校验对其不适用，
+    // 如实返回 pando 语义，不抛 Claude/Codex 文案报错（也不引导填写假 sessionDir）。
+    if (String(body.provider || body.runtime || "").trim().toLowerCase() === "pando") {
+      return json(res, 200, {
+        found: false, notApplicable: true, provider: "pando",
+        message: "不适用——Pando 由宿主工作区持有会话，无线程文件；接入由 Pando 宿主通过 bind MCP 完成，无需线程文件校验",
+      });
+    }
+    if (isRemote) throw new Error("远程 Web 不能探测服务器本地线程文件目录；请在本机 CLI / loopback Web 中检查");
     const threadId = String(body.threadId || "").trim(), sessionDir = String(body.sessionDir || "").trim();
     if (!threadId || !sessionDir) throw new Error("请先填写真实 Claude/Codex 线程 ID 和线程文件搜索目录");
     const file = findThreadSessionFile(sessionDir, threadId);
@@ -1821,12 +1829,19 @@ async function handleApi(req, res, url, { isRemote = false } = {}) {
     // The service may have access to a shared sessions root, but the web API
     // may only operate on threads explicitly registered in stmem config.
     const threadSettings = publicThreadSettings(threadId);
+    // pando import_only 无会话原件（宿主工作区持有会话）：线程文件口径的
+    // 检查/修复/裁剪/重建写入不适用且被拒绝；既有拒绝语义零放松，只把
+    // 拒绝原因换成 pando 如实话术，不再回显 Claude/Codex 语义错误。
+    const rebuildProviderOf = binding => binding?.provider || threadSettings.runtime;
+    const PANDO_WRITE_REFUSAL = "pando 记忆体由宿主工作区持有会话、无会话原件：线程修复/线程重建/永久裁剪等写入动作不适用且被拒绝；仅支持 DB 口径降级预览（明示无会话原件）";
+    const PANDO_APPLY_REFUSAL = "pando import_only 没有会话原件，rebuild --apply 对 pando 仍被拒绝（语义不放松）；仅支持 DB 口径降级预览";
     if (req.method === "GET" && action === "preview") {
+      const bindingValue = String(url.searchParams.get("binding") || "").trim();
+      const binding = bindingValue ? getConfiguredBinding(threadId, bindingValue) : null;
+      if (rebuildProviderOf(binding) === "pando") return json(res, 409, { error: PANDO_WRITE_REFUSAL });
       const windowDays = Math.max(1, Number(url.searchParams.get("windowDays")) || 1);
       const toolValue = url.searchParams.get("toolPairs");
       const toolPairs = Math.max(0, toolValue === null ? 15 : Number(toolValue));
-      const bindingValue = String(url.searchParams.get("binding") || "").trim();
-      const binding = bindingValue ? getConfiguredBinding(threadId, bindingValue) : null;
       const preview = buildRebuildPreview(threadId, { windowDays, toolPairs, binding });
       return json(res, 200, { ...preview, items: paginate(preview.items, url.searchParams.get("page")), tools: paginate(preview.tools, url.searchParams.get("toolPage")) });
     }
@@ -1837,26 +1852,34 @@ async function handleApi(req, res, url, { isRemote = false } = {}) {
       if(bindingValue)rebuildArgs.push("--binding",bindingValue);
       if(watermark)rebuildArgs.push("--watermark");
       rebuildArgs.push("--summary-limit",String(summaryLimit),"--min-importance",String(minImportance));
-      return json(res,200,parseRebuildDryRun(runStmem(rebuildArgs)));
+      const parsed=parseRebuildDryRun(runStmem(rebuildArgs));
+      if(rebuildProviderOf(bindingValue?getConfiguredBinding(threadId,bindingValue):null)==="pando")return json(res,200,{...parsed,runtime:"pando",dbPreview:true});
+      return json(res,200,parsed);
     }
     if(req.method==="POST"&&action==="dry-run"){
       const body=await readJson(req),request=normalizeRebuildRequest({...body,trigger:"web"},{windowDays:1,toolPairs:15,trigger:"web"});
       const dir=fs.mkdtempSync(path.join(os.tmpdir(),"stmem-rebuild-preview-")),planFile=path.join(dir,"plan.json");
       fs.writeFileSync(planFile,JSON.stringify(request.trim),{encoding:"utf8",mode:0o600});
       const rebuildArgs=["rebuild","--thread",threadId,...rebuildRequestCliArgs(request),"--plan",planFile];
-      try{return json(res,200,parseRebuildDryRun(runStmem(rebuildArgs)));}
+      try{
+        const parsed=parseRebuildDryRun(runStmem(rebuildArgs));
+        if(rebuildProviderOf(request.bindingId?getConfiguredBinding(threadId,request.bindingId):null)==="pando")return json(res,200,{...parsed,runtime:"pando",dbPreview:true});
+        return json(res,200,parsed);
+      }
       finally{fs.rmSync(dir,{recursive:true,force:true});}
     }
     if (req.method === "GET" && action === "check") {
-      const checkArgs = ["rebuild", "--thread", threadId, "--check"];
       const bindingValue = (url.searchParams.get("binding") || "").trim();
+      if (rebuildProviderOf(bindingValue?getConfiguredBinding(threadId,bindingValue):null) === "pando") return json(res, 409, { error: PANDO_WRITE_REFUSAL });
+      const checkArgs = ["rebuild", "--thread", threadId, "--check"];
       if (bindingValue) checkArgs.push("--binding", bindingValue);
       return json(res, 200, JSON.parse(runStmem(checkArgs)));
     }
     if (req.method === "POST" && action === "repair") {
       const body = await readJson(req);
-      const repairArgs = ["rebuild", "--thread", threadId, "--repair"];
       const bindingValue = String(body.bindingId || "").trim();
+      if (rebuildProviderOf(bindingValue?getConfiguredBinding(threadId,bindingValue):null) === "pando") return json(res, 409, { error: PANDO_WRITE_REFUSAL });
+      const repairArgs = ["rebuild", "--thread", threadId, "--repair"];
       if (bindingValue) repairArgs.push("--binding", bindingValue);
       return json(res, 200, JSON.parse(runStmem(repairArgs)));
     }
@@ -1864,6 +1887,7 @@ async function handleApi(req, res, url, { isRemote = false } = {}) {
       const body = await readJson(req);
       const bindingValue = String(body.bindingId || "").trim();
       const binding = bindingValue ? getConfiguredBinding(threadId, bindingValue) : null;
+      if (rebuildProviderOf(binding) === "pando") return json(res, 409, { error: PANDO_WRITE_REFUSAL });
       if ((binding?.provider || threadSettings.runtime) === "codex") return json(res, 409, { error: "Codex 不支持延时重建队列，请使用 apply 并在成功后立即重启 Codex/app-server" });
       const request = normalizeRebuildRequest({ ...body, trigger: "web" }, { windowDays: 1, toolPairs: 15, trigger: "web" });
       const planDir = fs.mkdtempSync(path.join(os.tmpdir(), "stmem-rebuild-queue-plan-"));
@@ -1879,6 +1903,7 @@ async function handleApi(req, res, url, { isRemote = false } = {}) {
       const body = await readJson(req);
       const bindingValue = String(body.bindingId || "").trim();
       const binding = bindingValue ? getConfiguredBinding(threadId, bindingValue) : null;
+      if (rebuildProviderOf(binding) === "pando") return json(res, 409, { error: PANDO_APPLY_REFUSAL });
       if ((binding?.provider || threadSettings.runtime) !== "codex") return json(res, 409, { error: "Claude Code 必须使用重建队列，以避免 UUID 链断裂" });
       const request = normalizeRebuildRequest({ ...body, trigger: "web" }, { windowDays: 1, toolPairs: 15, trigger: "web" });
       const planFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "stmem-rebuild-plan-")), "plan.json");

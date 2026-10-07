@@ -178,6 +178,14 @@ function miningCalendarData(rows,page=1) {
   return {page:current,totalPages,month,leadingBlanks:new Date(Date.UTC(year,monthIndex,1)).getUTCDay(),days:Array.from({length:count},(_,index)=>{const date=`${month}-${String(index+1).padStart(2,"0")}`;return {date,row:byDate.get(date)||null};})};
 }
 function conversationRole(role, library) { return role==="user"?(library.user||"用户"):role==="assistant"?(library.ai||"AI"):role; }
+
+// provider=pando：宿主工作区持有会话、无线程文件（import_only）。
+// 线程文件口径的字段/取数/动作对 pando 一律如实『不适用』，不显示占位 0 或常量。
+const PANDO_THREAD_NOTE = "不适用——Pando 由宿主工作区持有会话，无线程文件";
+const PANDO_IDENTITY = "Pando · import_only（宿主会话，无线程文件）";
+const PANDO_DB_PREVIEW_NOTE = "pando import_only 无会话原件：以下为 DB 口径降级预览（只读，不写入任何文件）；会话重建（full/ 原件 + UUID 链）口径不可用，rebuild --apply 对 pando 仍被拒绝。";
+function isPandoLibrary(data) { return String(data?.runtime || "").toLowerCase() === "pando"; }
+function runtimeLabel(runtime) { return runtime === "pando" ? "Pando（宿主会话，无线程文件）" : String(runtime || ""); }
 function showToast(message, type = "") { toast.textContent = message; toast.className = `toast show ${type}`; clearTimeout(showToast.timer); showToast.timer = setTimeout(() => toast.className = "toast", 3200); }
 async function api(url, options = {}) {
   const request = { ...options };
@@ -411,13 +419,13 @@ function wizard() {
 
 function basicStep() {
   const panel = document.querySelector("#wizard-panel");
-  panel.innerHTML = `<p class="eyebrow">第一步 · 建立记忆</p><h1>给这段记忆起一个名字</h1><p class="lead">记忆体名字用于显示；真实线程 ID 负责连接 Claude 或 Codex 对话。</p>
+  panel.innerHTML = `<p class="eyebrow">第一步 · 建立记忆</p><h1>给这段记忆起一个名字</h1><p class="lead">记忆体名字用于显示；真实线程 ID 负责连接 Claude 或 Codex 对话；Pando 由宿主工作区持有会话，无线程文件。</p>
     <form id="basic-form"><div class="field-grid">
       ${field("libraryName", "记忆体名字", "以后在 Stone Memory 控制台中显示的名字。", "required autocomplete=off", true)}
-      ${field("threadId", "对应 Claude / Codex 线程 ID", "填写真实线程 UUID（例如 019f91...），不是记忆体名字，也不是完整文件路径；创建后不可修改。", "required autocomplete=off", true)}
+      <div id="thread-id-field" class="field full"></div>
       ${field("ai", "AI 名字", "这段记忆属于哪位 AI。", "required")}
       ${field("user", "用户名字", "AI 在记忆中如何称呼你。", "required")}
-      <div class="field"><label for="runtime">对话来源</label><select id="runtime" name="runtime"><option value="codex" ${state.form.runtime === "codex" ? "selected" : ""}>Codex</option><option value="claude" ${state.form.runtime === "claude" ? "selected" : ""}>Claude</option></select><small>用于绑定正确的线程文件格式。</small></div>
+      <div class="field"><label for="runtime">对话来源</label><select id="runtime" name="runtime"><option value="codex" ${state.form.runtime === "codex" ? "selected" : ""}>Codex</option><option value="claude" ${state.form.runtime === "claude" ? "selected" : ""}>Claude</option><option value="pando" ${state.form.runtime === "pando" ? "selected" : ""}>Pando（宿主工作区接入）</option></select><small>Claude / Codex 按线程文件接入；Pando 由宿主工作区持有会话，通过 bind MCP 接入，无需线程文件。</small></div>
       <div class="field"><label for="purpose">挖掘场景</label><select id="purpose" name="scenario"><option value="life-supervision" ${state.form.scenario === "life-supervision" ? "selected" : ""}>生活监督</option><option value="accompany" ${(state.form.scenario || state.form.purpose) === "accompany" ? "selected" : ""}>情感陪伴</option><option value="coding" ${(state.form.scenario || state.form.purpose) === "coding" ? "selected" : ""}>编程日志</option></select><small>决定摘要与特征挖掘提示词。</small></div>
       <div class="field"><label for="minerMode">记忆挖掘方式</label><select id="minerMode" name="minerMode"><option value="subagent" ${state.form.minerMode === "subagent" ? "selected" : ""}>本地 Subagent</option><option value="api" ${state.form.minerMode === "api" ? "selected" : ""}>API</option></select><small>以后可以在设置中调整。</small></div>
       <div class="field"><label for="userGender">用户性别</label><select id="userGender" name="userGender"><option value="unspecified" ${state.form.userGender === "unspecified" ? "selected" : ""}>不指定</option><option value="female" ${state.form.userGender === "female" ? "selected" : ""}>女性</option><option value="male" ${state.form.userGender === "male" ? "selected" : ""}>男性</option></select><small>帮助摘要保持正确的人称。</small></div>
@@ -427,8 +435,17 @@ function basicStep() {
     </div><div class="wizard-actions"><span></span><button class="primary" type="submit">继续导入对话</button></div></form>`;
   const renderConditional = () => {
     syncForm();
+    const pandoMode = state.form.runtime === "pando";
+    const threadIdTarget = document.querySelector("#thread-id-field");
+    threadIdTarget.innerHTML = pandoMode
+      ? `<div class="field"><label>外部线程标识</label><p class="thread-not-applicable">${PANDO_THREAD_NOTE}；接入标识由 Pando 宿主通过 bind MCP 写入，此处无需填写线程 ID。</p></div>`
+      : field("threadId", "对应 Claude / Codex 线程 ID", "填写真实线程 UUID（例如 019f91...），不是记忆体名字，也不是完整文件路径；创建后不可修改。", "required autocomplete=off", true);
     const runtimeTarget = document.querySelector("#runtime-fields");
-    runtimeTarget.innerHTML = field("sessionDir", "线程文件搜索目录", `${state.form.runtime === "codex" ? "Codex sessions" : "Claude 项目线程"}所在的目录；Stone Memory 会递归查找日期子目录中的对应 JSONL。`, `required placeholder=${state.form.runtime === "codex" ? "C:\\Users\\you\\.codex\\sessions" : "/home/you/.claude/projects/..."}`);
+    runtimeTarget.innerHTML = pandoMode
+      ? `<div class="field"><label>线程文件搜索目录</label><p class="thread-not-applicable">${PANDO_THREAD_NOTE}。</p><small>Stone Memory 不会要求、也不建议为 Pando 填写任何线程文件目录。</small></div>`
+      : field("sessionDir", "线程文件搜索目录", `${state.form.runtime === "codex" ? "Codex sessions" : "Claude 项目线程"}所在的目录；Stone Memory 会递归查找日期子目录中的对应 JSONL。`, `required placeholder=${state.form.runtime === "codex" ? "C:\\Users\\you\\.codex\\sessions" : "/home/you/.claude/projects/..."}`);
+    // pando 不收集线程 ID / 目录：清掉切换对话来源时残留的值，避免误提交。
+    if (pandoMode) { state.form.threadId = ""; state.form.sessionDir = ""; }
     const target = document.querySelector("#api-fields");
     target.innerHTML = state.form.minerMode === "api" ? `<div class="field-grid">${field("apiProvider", "API 厂商", "填写实际使用的服务商名称，不预设。", "required")}${field("model", "模型名", "必须与上游当前提供的模型名完全一致，Stone Memory 不预设。", "required")}${field("apiKey", "API Key", "只保存在本机配置中，不返回给浏览器。", "required type=password")}${field("baseUrl", "Base URL", "DeepSeek 可留空使用官方地址；其他服务必须填写兼容 chat/completions 的地址。", "", true)}</div>` : "";
   };
@@ -437,14 +454,17 @@ function basicStep() {
   renderConditional();
   document.querySelector("#basic-form").onsubmit = async event => {
     event.preventDefault(); syncForm();
+    const pandoMode = state.form.runtime === "pando";
+    if (pandoMode) { state.form.threadId = ""; state.form.sessionDir = ""; }
     let ok = true;
-    for (const name of ["libraryName", "threadId", "ai", "user"]) if (!String(state.form[name] || "").trim()) { document.querySelector(`#${name}-error`).textContent = "请填写这一项"; ok = false; }
-    if (!String(state.form.sessionDir || "").trim()) { document.querySelector("#sessionDir-error").textContent = "请填写线程文件搜索目录"; ok = false; }
+    for (const name of (pandoMode ? ["libraryName", "ai", "user"] : ["libraryName", "threadId", "ai", "user"])) if (!String(state.form[name] || "").trim()) { document.querySelector(`#${name}-error`).textContent = "请填写这一项"; ok = false; }
+    if (!pandoMode && !String(state.form.sessionDir || "").trim()) { document.querySelector("#sessionDir-error").textContent = "请填写线程文件搜索目录"; ok = false; }
     if (!ok) return;
     const button = event.currentTarget.querySelector("button[type=submit]");
-    button.disabled = true; button.textContent = "正在查找线程文件…";
+    button.disabled = true; button.textContent = pandoMode ? "正在创建…" : "正在查找线程文件…";
     try {
-      await api("/api/session-file/check", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ threadId: state.form.threadId, sessionDir: state.form.sessionDir }) });
+      // pando 无线程文件：跳过 /api/session-file/check，不要求也不校验 sessionDir。
+      if (!pandoMode) await api("/api/session-file/check", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ threadId: state.form.threadId, sessionDir: state.form.sessionDir }) });
       state.step = 2; wizard();
     } catch (error) {
       document.querySelector("#sessionDir-error").textContent = error.message;
@@ -456,7 +476,8 @@ function basicStep() {
 
 function importStep() {
   const panel = document.querySelector("#wizard-panel");
-  panel.innerHTML = `<p class="eyebrow">第二步 · 导入对话</p><h1>把过去带进来</h1><p class="lead">支持 Claude、Codex 线程文件、JSON、JSONL 和 SQLite。上传后不会立即写入，你可以先检查识别结果。</p>
+  const pandoWizard = state.form.runtime === "pando";
+  panel.innerHTML = `<p class="eyebrow">第二步 · 导入对话</p><h1>把过去带进来</h1><p class="lead">${pandoWizard ? "Pando 记忆体由宿主工作区持有会话，没有线程文件；这一步可导入通用 JSON/JSONL/SQLite 对话文件（DB 口径写入记忆库），也可以直接跳过。" : "支持 Claude、Codex 线程文件、JSON、JSONL 和 SQLite。上传后不会立即写入，你可以先检查识别结果。"}</p>
     <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="上传对话文件"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v4a2 2 0 002 2h10a2 2 0 002-2v-4"/></svg><strong>把文件拖到这里</strong><p>或者点击打开文件资源管理器</p><button class="secondary" type="button">选择文件</button><input id="file-input" type="file" accept=".json,.jsonl,.db,.sqlite,.sqlite3" multiple hidden></div>
     <div class="import-list" id="import-list"></div>
     <div class="wizard-actions"><button class="ghost" id="back">上一步</button><button class="primary" id="next">${state.imports.length ? "确认识别结果" : "暂不导入"}</button></div>`;
@@ -504,7 +525,7 @@ async function loadImportPage(index, page) {
 function finishStep() {
   const panel = document.querySelector("#wizard-panel");
   panel.innerHTML = `<p class="eyebrow">第三步 · 开始生长</p><h1>一切准备好了</h1><p class="lead">确认自动化选项。以后都可以在记忆体设置中修改。</p>
-    <div class="summary-box"><dl><dt>记忆体名字</dt><dd>${escapeHtml(state.form.libraryName)}</dd><dt>真实线程 ID</dt><dd>${escapeHtml(state.form.threadId)}</dd><dt>对话来源</dt><dd>${escapeHtml(state.form.runtime)}</dd><dt>待导入</dt><dd>${state.imports.reduce((sum, item) => sum + item.valid, 0)} 条对话</dd></dl></div>
+    <div class="summary-box"><dl><dt>记忆体名字</dt><dd>${escapeHtml(state.form.libraryName)}</dd><dt>真实线程 ID</dt><dd>${state.form.runtime === "pando" ? "由 Pando 宿主通过 bind MCP 接入" : escapeHtml(state.form.threadId)}</dd><dt>对话来源</dt><dd>${escapeHtml(runtimeLabel(state.form.runtime))}</dd><dt>待导入</dt><dd>${state.imports.reduce((sum, item) => sum + item.valid, 0)} 条对话</dd></dl></div>
     <label class="check-card"><input type="checkbox" name="automaticFullMining" ${state.form.automaticFullMining ? "checked" : ""}><span><strong>自动录入全量对话</strong>当前记忆体绑定主线程的对话将实时录入。</span></label>
     <label class="check-card"><input type="checkbox" name="automaticMemoryMaintenance" ${state.form.automaticMemoryMaintenance ? "checked" : ""}><span><strong>自动挖掘当日摘要和特征</strong>在时间戳跨天时自动开启挖掘。</span></label>
     <label class="check-card"><input type="checkbox" name="automaticCompression" ${state.form.automaticCompression ? "checked" : ""}><span><strong>自动压缩摘要（测试功能）</strong>当前仍在测试，建议暂时不要开启。</span></label>
@@ -550,10 +571,23 @@ function workspace(data) {
   const usagePercent=usage&&Number.isFinite(usage.percent)?Math.max(0,Math.min(100,usage.percent)):0;
   const usageTitle=usage?.observedAt?` title="最近一次模型调用 ${escapeHtml(formatBeijingTime(usage.observedAt))}"`:"";
   const automationSwitch=(key,label,checked,test=false)=>`<label class="overview-switch"><span>${label}${test?` <small>测试功能</small>`:""}</span><input type="checkbox" data-automation="${key}" ${checked?"checked":""}><i aria-hidden="true"></i></label>`;
+  // pando（import_only）：身份行、窗口占用、注入计数与重建类按钮全部按
+  // 『不适用』如实呈现；claude/codex 维持原线程文件口径，显示零变化。
+  const pandoMode=isPandoLibrary(data);
+  const threadIdentity=pandoMode?PANDO_IDENTITY:`${escapeHtml(data.runtime||"未接入平台")} · ${escapeHtml(data.externalThreadId||"暂未绑定 UUID")}`;
+  const threadUsageBody=pandoMode
+    ?`<div class="context-usage"><div class="context-usage-head"><h3>当前窗口上下文</h3></div><p class="thread-not-applicable">${PANDO_THREAD_NOTE}；线程文件口径的窗口占用数据不可用。</p></div>`
+    :`<div class="context-usage"><div class="context-usage-head"><h3>当前窗口上下文</h3><small${usageTitle}>${contextUsageHint(usage,data.automaticFullMining)}</small></div><div class="context-usage-track" role="progressbar" aria-label="当前窗口上下文占用" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(usagePercent)}"><i style="width:${usagePercent.toFixed(1)}%"></i></div></div>`;
+  const threadInjectionBody=pandoMode
+    ?`<div class="injection-heading"><h3>当前窗口注入</h3><small>不适用——Pando 不执行线程重建</small></div><p class="thread-not-applicable">线程重建注入口径对 Pando 不适用；注入计数数据来源不可用，不显示占位数字。</p>`
+    :`<div class="injection-heading"><h3>当前窗口注入</h3><small>上次重建：${rebuild?.completedAt?escapeHtml(formatBeijingTime(rebuild.completedAt)):"暂无记录"}</small></div><div class="injection-counts"><div><strong>${injected.rules}</strong><span>人设 / 规则</span></div><div><strong>${injected.messages}</strong><span>对话</span></div><div><strong>${injected.feelings}</strong><span>摘要</span></div><div><strong>${injected.tools}</strong><span>工具链</span></div></div>`;
+  const threadFooter=pandoMode
+    ?`<footer><button class="secondary" id="overview-rebuild">查看 DB 口径预览</button></footer>`
+    :`<footer><button class="secondary" id="overview-repair">线程修复</button><button class="primary" id="overview-rebuild">线程重建</button></footer>`;
   app.innerHTML = `<section class="workspace" data-thread-id="${escapeHtml(data.threadId)}" data-library-name="${escapeHtml(data.libraryName)}"><div class="shell workspace-grid workspace-stack"><a class="back-link" href="#">← 返回记忆体</a><div class="dashboard-head workspace-memory-card"><div><p class="eyebrow">Stone Memory</p><h1>${escapeHtml(data.libraryName)}<small>· 已生长了 ${data.growthDays||0} 天</small></h1><div class="status-line ${automationReady&&!data.attention?"":"warning"}"><span class="status-dot"></span>${escapeHtml(statusText)}</div></div>${stoneSvg("mini-stone")}</div><nav class="workspace-nav" aria-label="记忆体页面"><button class="active" role="tab" aria-selected="true" data-view="overview"><span>概况</span></button><button role="tab" aria-selected="false" data-view="memory"><span>记忆</span></button><button role="tab" aria-selected="false" data-view="context"><span>上下文管理</span></button><button role="tab" aria-selected="false" data-view="access"><span>接入</span></button><button role="tab" aria-selected="false" data-view="settings"><span>设置</span></button></nav><main id="workspace-main"><section class="overview-dashboard">
     <article class="overview-card overview-stat-card"><div><span>原始对话</span><strong>${counts.messages||0}<small>条</small></strong></div><div><span>原始线程总体积</span><strong>${formatBytes(data.archiveFullBytes)}</strong></div></article>
     <article class="overview-card overview-stat-card"><div><span>人设 / 规则</span><strong>${counts.rules||0}<small>条</small></strong><small class="corner-note">已停用 ${counts.disabledRules||0} 条</small></div><div><span>已生成摘要</span><strong>${counts.feelings||0}<small>条</small></strong><small class="corner-note">原文锚点 ${counts.retainAnchors||0} 条 · 事件锚点 ${counts.eventAnchors||0} 条 · 隐藏摘要 ${counts.hidden||0} 条</small></div></article>
-    <article class="overview-card overview-thread-card"><header><h2>当前对话线程信息</h2><button class="text-link" id="overview-access">接入管理 →</button></header><p class="thread-identity">${escapeHtml(data.runtime||"未接入平台")} · ${escapeHtml(data.externalThreadId||"暂未绑定 UUID")}</p><div class="context-usage"><div class="context-usage-head"><h3>当前窗口上下文</h3><small${usageTitle}>${contextUsageHint(usage,data.automaticFullMining)}</small></div><div class="context-usage-track" role="progressbar" aria-label="当前窗口上下文占用" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(usagePercent)}"><i style="width:${usagePercent.toFixed(1)}%"></i></div></div><div class="injection-heading"><h3>当前窗口注入</h3><small>上次重建：${rebuild?.completedAt?escapeHtml(formatBeijingTime(rebuild.completedAt)):"暂无记录"}</small></div><div class="injection-counts"><div><strong>${injected.rules}</strong><span>人设 / 规则</span></div><div><strong>${injected.messages}</strong><span>对话</span></div><div><strong>${injected.feelings}</strong><span>摘要</span></div><div><strong>${injected.tools}</strong><span>工具链</span></div></div><div id="integrity" class="integrity overview-integrity"></div><footer><button class="secondary" id="overview-repair">线程修复</button><button class="primary" id="overview-rebuild">线程重建</button></footer></article>
+    <article class="overview-card overview-thread-card"><header><h2>当前对话线程信息</h2><button class="text-link" id="overview-access">接入管理 →</button></header><p class="thread-identity">${threadIdentity}</p>${threadUsageBody}${threadInjectionBody}<div id="integrity" class="integrity overview-integrity" ${pandoMode?"hidden":""}></div>${threadFooter}</article>
     <article class="overview-card overview-automation-card"><h2>自动化设置</h2><div class="overview-switches">${automationSwitch("automaticFullMining","对话录入",data.automaticFullMining)}${automationSwitch("automaticMemoryMaintenance","自动生成摘要",data.automaticMemoryMaintenance)}${automationSwitch("automaticCompression","记忆压缩",data.automaticCompression,true)}</div></article>
   </section></main></div></section>`;
   document.querySelector(".back-link").onclick = event => { event.preventDefault(); state.displayTimezone = null; lobby(); };
@@ -564,7 +598,7 @@ function workspace(data) {
   document.querySelector('[data-view="overview"]').onclick = () => workspace(data);
   document.querySelector("#overview-access").onclick=()=>renderAccess(data);
   document.querySelector("#overview-rebuild").onclick=()=>renderRebuild(data);
-  document.querySelector("#overview-repair").onclick=()=>checkAndRepair(data);
+  document.querySelector("#overview-repair")?.addEventListener("click",()=>checkAndRepair(data));
   document.querySelectorAll("[data-automation]").forEach(input=>input.onchange=async()=>{
     input.disabled=true;
     try{
@@ -600,7 +634,7 @@ async function renderAccess(library) {
   main.innerHTML=`<section class="section-card"><div class="empty">正在读取接入信息…</div></section>`;
   try{
     const data=await api(`/api/libraries/${encodeURIComponent(library.threadId)}/bindings`),bindings=data.bindings||[];
-    main.innerHTML=`<div class="access-layout"><section class="section-card access-card access-bindings-card"><div class="section-title-row"><div><p class="eyebrow">Bind status</p><h2>接入</h2><small>最多同时监听 5 个窗口；主 Binding 可以停止监听，但更换主 Binding 后才能删除</small></div><button class="primary" id="open-binding-guide" type="button">接入线程</button></div>${bindings.length?bindings.map(binding=>{const primary=binding.id===data.primaryBindingId,readonly=binding.readOnly===true,listening=binding.enabled!==false;return `<article class="access-binding"><div class="access-binding-copy"><strong>${escapeHtml(binding.provider||"未知平台")}</strong><small>${escapeHtml(binding.externalThreadId||"")}${binding.source==="legacy-config"?" · 旧配置接入":""}</small></div><div class="access-binding-actions"><span class="badge">${primary?`主 Binding · ${listening?"监听中":"未监听"}`:listening?"监听中":"未监听"}</span>${readonly?"":`${primary?"":`<button class="ghost" type="button" data-binding-primary="${escapeHtml(binding.id)}">设为主 Binding</button>`}<button class="ghost" type="button" data-binding-toggle="${escapeHtml(binding.id)}" data-enabled="${listening}">${listening?"停止监听":"开始监听"}</button>${primary?`<button class="ghost danger" type="button" disabled title="请先把另一个窗口设为主 Binding">删除此绑定</button>`:`<button class="ghost danger" type="button" data-binding-delete="${escapeHtml(binding.id)}">删除此绑定</button>`}`}</div></article>`;}).join(""):`<div class="empty">Bind status：当前记忆体还没有接入对话窗口。</div>`}</section><section class="section-card access-card access-mcp-card"><div class="section-title-row"><div><p class="eyebrow">MCP plugins</p><h2>MCP</h2><small>记忆体级插件权限；所有接入 Binding 自动继承，重新连接 MCP 后生效</small></div></div><div id="binding-mcp-list" class="binding-mcp-list"><div class="empty">正在读取插件权限…</div></div></section><section class="section-card access-card adapter-access-card"><div class="section-title-row"><div><p class="eyebrow">Agent adapter</p><h2>适配器接入</h2><small>给网关类 Agent 助手预留统一的记忆调用口，适配器接入后可按当前记忆体读取和编排能力。</small></div></div><div class="adapter-access-body" id="adapter-registry-content"><span class="badge">正在检测</span><p>正在读取适配器注册状态…</p></div></section></div>`;
+    main.innerHTML=`<div class="access-layout"><section class="section-card access-card access-bindings-card"><div class="section-title-row"><div><p class="eyebrow">Bind status</p><h2>接入</h2><small>最多同时监听 5 个窗口；主 Binding 可以停止监听，但更换主 Binding 后才能删除</small></div><button class="primary" id="open-binding-guide" type="button">接入线程</button></div>${bindings.length?bindings.map(binding=>{const primary=binding.id===data.primaryBindingId,readonly=binding.readOnly===true,listening=binding.enabled!==false,importOnly=binding.provider==="pando"||binding.mode==="import_only",listenLabel=importOnly?(listening?"已启用":"已停用"):(listening?"监听中":"未监听");return `<article class="access-binding"><div class="access-binding-copy"><strong>${escapeHtml(binding.provider||"未知平台")}</strong><small>${escapeHtml(binding.externalThreadId||"")}${importOnly?" · import_only（宿主会话，无线程文件）":""}${binding.source==="legacy-config"?" · 旧配置接入":""}</small></div><div class="access-binding-actions"><span class="badge">${primary?`主 Binding · ${listenLabel}`:listenLabel}</span>${readonly?"":`${primary?"":`<button class="ghost" type="button" data-binding-primary="${escapeHtml(binding.id)}">设为主 Binding</button>`}<button class="ghost" type="button" data-binding-toggle="${escapeHtml(binding.id)}" data-enabled="${listening}">${listening?(importOnly?"停用":"停止监听"):(importOnly?"启用":"开始监听")}</button>${primary?`<button class="ghost danger" type="button" disabled title="请先把另一个窗口设为主 Binding">删除此绑定</button>`:`<button class="ghost danger" type="button" data-binding-delete="${escapeHtml(binding.id)}">删除此绑定</button>`}`}</div></article>`;}).join(""):`<div class="empty">Bind status：当前记忆体还没有接入对话窗口。</div>`}</section><section class="section-card access-card access-mcp-card"><div class="section-title-row"><div><p class="eyebrow">MCP plugins</p><h2>MCP</h2><small>记忆体级插件权限；所有接入 Binding 自动继承，重新连接 MCP 后生效</small></div></div><div id="binding-mcp-list" class="binding-mcp-list"><div class="empty">正在读取插件权限…</div></div></section><section class="section-card access-card adapter-access-card"><div class="section-title-row"><div><p class="eyebrow">Agent adapter</p><h2>适配器接入</h2><small>给网关类 Agent 助手预留统一的记忆调用口，适配器接入后可按当前记忆体读取和编排能力。</small></div></div><div class="adapter-access-body" id="adapter-registry-content"><span class="badge">正在检测</span><p>正在读取适配器注册状态…</p></div></section></div>`;
     main.querySelector("#open-binding-guide")?.addEventListener("click",()=>showBindingGuide(library));
     void refreshAdapterRegistry();
     adapterRegistryTimer=setInterval(()=>{if(document.querySelector("#adapter-registry-content"))void refreshAdapterRegistry();},15000);
@@ -1166,7 +1200,7 @@ function renderConversationImport(library) {
   state.imports=[];
   document.querySelectorAll(".side-nav button").forEach(button=>button.classList.toggle("active",button.dataset.view==="maintenance"));
   const main=document.querySelector("#workspace-main");
-  main.innerHTML=`<div class="dashboard-head"><div><p class="eyebrow">对话维护</p><h1>对话导入</h1><p class="lead">支持 Claude Code、Claude.ai、Codex、ChatGPT 官方导出、通用 JSON/JSONL 和 SQLite；确认识别结果后再写入当前记忆体。</p></div><button class="ghost" id="back-maintenance">返回记忆</button></div><section class="section-card"><div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="上传对话文件"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v4a2 2 0 002 2h10a2 2 0 002-2v-4"/></svg><strong>把文件拖到这里</strong><p>或者点击打开文件资源管理器</p><button class="secondary" type="button">选择文件</button><input id="file-input" type="file" accept=".json,.jsonl,.db,.sqlite,.sqlite3" multiple hidden></div><div class="import-list" id="import-list"></div><div class="wizard-actions"><span></span><button class="primary" id="apply-import" disabled>导入当前记忆体</button></div></section>`;
+  main.innerHTML=`<div class="dashboard-head"><div><p class="eyebrow">对话维护</p><h1>对话导入</h1><p class="lead">${isPandoLibrary(library)?"Pando 记忆体由宿主工作区持有会话，没有线程文件；这里只导入通用 JSON/JSONL/SQLite 对话文件（DB 口径写入记忆库）。":"支持 Claude Code、Claude.ai、Codex、ChatGPT 官方导出、通用 JSON/JSONL 和 SQLite；确认识别结果后再写入当前记忆体。"}</p></div><button class="ghost" id="back-maintenance">返回记忆</button></div><section class="section-card"><div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="上传对话文件"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v4a2 2 0 002 2h10a2 2 0 002-2v-4"/></svg><strong>把文件拖到这里</strong><p>或者点击打开文件资源管理器</p><button class="secondary" type="button">选择文件</button><input id="file-input" type="file" accept=".json,.jsonl,.db,.sqlite,.sqlite3" multiple hidden></div><div class="import-list" id="import-list"></div><div class="wizard-actions"><span></span><button class="primary" id="apply-import" disabled>导入当前记忆体</button></div></section>`;
   const input=main.querySelector("#file-input"),zone=main.querySelector("#dropzone"),apply=main.querySelector("#apply-import");
   const receive=async files=>{await uploadFiles(files);apply.disabled=!state.imports.length;apply.textContent=state.imports.length?`导入 ${state.imports.length} 个文件`:"导入当前记忆体";};
   zone.onclick=event=>{if(event.target.tagName!=="INPUT")input.click();};
@@ -1284,21 +1318,27 @@ async function renderTargetedMining(library,date) {
 
 async function renderRebuild(library) {
   activateWorkspaceTab("context");
+  // pando（import_only）无会话原件：检查/修复/裁剪/线程重建执行入口一律不渲染、
+  // 不发起调用；只保留明示「无会话原件」的 DB 口径降级预览。claude/codex 零变化。
+  const pandoMode = isPandoLibrary(library);
   const main = document.querySelector("#workspace-main");
-  main.innerHTML = `<section class="context-management-grid"><article class="section-card context-status-card"><div class="section-title-row"><div><p class="eyebrow">Current context</p><h2>当前上下文</h2></div><span class="badge" id="context-runtime">正在读取</span></div><div id="context-binding-picker"></div><p class="context-thread-id" id="context-thread-id">正在读取当前线程…</p><div class="context-usage"><div class="context-usage-head"><strong>窗口占用</strong><small id="context-usage-label">正在读取…</small></div><div class="context-usage-track" role="progressbar" aria-label="当前窗口上下文占用" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="context-usage-bar" style="width:0%"></i></div></div><dl class="context-status-list"><div><dt>最近观测</dt><dd id="context-observed">暂无记录</dd></div><div><dt>上次重建</dt><dd id="context-rebuilt">暂无记录</dd></div><div><dt>线程文件</dt><dd id="context-thread-file">正在检查</dd></div></dl></article><article class="section-card context-injection-card"><div class="section-title-row"><div><p class="eyebrow">Current injection</p><h2>当前注入</h2></div><span class="badge" id="context-retention-mode">暂无记录</span></div><div class="context-injection-counts"><div><strong id="context-rules">0</strong><span>人设 / 规则</span></div><div><strong id="context-feelings">0</strong><span>摘要</span></div><div><strong id="context-messages">0</strong><span>近期与锚点原文</span></div><div><strong id="context-tools">0</strong><span>工具链</span></div></div><p class="context-injection-note" id="context-injection-note">生成第一次线程重建后，这里会显示实际注入构成。</p></article></section><section class="section-card rebuild-command-center context-operation-card"><div class="section-title-row"><div><p class="eyebrow">Context actions</p><h2>线程重建</h2><small>先预览将写入当前线程的内容，确认后才会应用。</small></div></div><div id="rebuild-target-slot"></div><div class="rebuild-primary-actions"><button class="primary rebuild-main-button" id="preview-rebuild"><strong>生成重建预览</strong><span>查看摘要、原文与工具链的预计结果</span></button><button class="secondary rebuild-main-button" id="check-thread"><strong>检查线程</strong><span>发现结构异常后再确认修复</span></button></div><div id="integrity"></div><details class="injection-settings"><summary><span class="settings-gear" aria-hidden="true">⚙</span><span><strong>高级注入设置</strong><small>调整摘要范围、近期上下文和工具链数量</small></span><i>⌄</i></summary><div class="injection-settings-body"><section><h3>摘要保留形式</h3><div class="choice-row"><label><input type="radio" name="summary-mode" value="default" ${rebuildState.summaryMode==="default"?"checked":""}><span><strong>默认</strong><small>注入全部非hidden历史摘要</small></span></label><label><input type="radio" name="summary-mode" value="limited" ${rebuildState.summaryMode==="limited"?"checked":""}><span><strong>特殊设置</strong><small>限定摘要数量和最低importance</small></span></label></div><div id="summary-limit-fields" class="inline-settings"><span>保留最近</span><input id="summary-limit" type="number" min="1" value="${rebuildState.summaryLimit||200}"><span>条 importance ≥</span><select id="min-importance">${[0,1,2,3,4,5].map(value=>`<option value="${value}" ${rebuildState.minImportance===value?"selected":""}>${value}</option>`).join("")}</select><span>的摘要</span></div><label id="mcp-default-row" class="rebuild-watermark-option compact-option"><input id="mcp-summary-default" type="checkbox" ${rebuildState.mcpDefault?"checked":""}><span><strong>MCP调用rebuild时默认使用这一摘要范围</strong><small>Agent显式传参时只覆盖当次调用。</small></span></label><p class="tool-memory-note"><span aria-hidden="true">●</span> 默认保护低importance的原文锚点与事件锚点；锚点占摘要名额，hidden不纳入计算。</p></section><section><h3>上下文保留形式</h3><div class="choice-row"><label><input type="radio" name="context-mode" value="days" ${rebuildState.watermark?"":"checked"}><span><strong>默认</strong><small>按最近发生过对话的活跃日保留原文</small></span></label><label><input type="radio" name="context-mode" value="watermark" ${rebuildState.watermark?"checked":""}><span><strong>特殊设置：水位线模式</strong><small>已挖掘出摘要的历史原文不再重复注入</small></span></label></div><div id="active-days-fields" class="inline-settings"><span>保留活跃对话日</span><input id="window-days" type="number" min="1" max="365" value="${rebuildState.windowDays}"><span>天，保留工具调用</span><input id="tool-pairs" type="number" min="0" max="500" value="${rebuildState.toolPairs}"><span>组</span></div><div id="watermark-fields" class="watermark-description"><p>已挖掘出摘要的历史原文不再进入近期注入范围；从最后一条摘要对应的原文开始保留。工具调用仍使用上方的统一设置。</p></div><p class="tool-memory-note"><span aria-hidden="true">●</span> 如果不保留工具链，Agent重建后会失去近期工具调用及其结果的上下文记忆。</p></section></div></details><div id="rebuild-dry-run"></div></section><section class="section-card context-trim-card"><div><p class="eyebrow">Danger zone</p><h2>永久裁剪</h2><p>选择要从活动线程、archive 和 full 中永久移除的对话或工具链。执行前仍会生成预览。</p></div><button class="danger-button" id="open-trim">裁剪对话 / 工具链</button></section>`;
+  main.innerHTML = `<section class="context-management-grid"><article class="section-card context-status-card"><div class="section-title-row"><div><p class="eyebrow">Current context</p><h2>当前上下文</h2></div><span class="badge" id="context-runtime">正在读取</span></div><div id="context-binding-picker"></div><p class="context-thread-id" id="context-thread-id">正在读取当前线程…</p>${pandoMode?`<p class="thread-not-applicable">${PANDO_THREAD_NOTE}；线程文件口径的窗口占用数据不可用。</p>`:`<div class="context-usage"><div class="context-usage-head"><strong>窗口占用</strong><small id="context-usage-label">正在读取…</small></div><div class="context-usage-track" role="progressbar" aria-label="当前窗口上下文占用" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="context-usage-bar" style="width:0%"></i></div></div>`}<dl class="context-status-list"><div><dt>最近观测</dt><dd id="context-observed">暂无记录</dd></div><div><dt>上次重建</dt><dd id="context-rebuilt">暂无记录</dd></div><div><dt>线程文件</dt><dd id="context-thread-file">正在检查</dd></div></dl></article><article class="section-card context-injection-card"><div class="section-title-row"><div><p class="eyebrow">Current injection</p><h2>当前注入</h2></div>${pandoMode?`<span class="badge">不适用</span>`:`<span class="badge" id="context-retention-mode">暂无记录</span>`}</div>${pandoMode?`<p class="thread-not-applicable">当前窗口注入按线程重建口径取数，对 Pando 不适用；注入计数数据来源不可用，不显示占位数字。</p>`:`<div class="context-injection-counts"><div><strong id="context-rules">0</strong><span>人设 / 规则</span></div><div><strong id="context-feelings">0</strong><span>摘要</span></div><div><strong id="context-messages">0</strong><span>近期与锚点原文</span></div><div><strong id="context-tools">0</strong><span>工具链</span></div></div><p class="context-injection-note" id="context-injection-note">生成第一次线程重建后，这里会显示实际注入构成。</p>`}</article></section><section class="section-card rebuild-command-center context-operation-card"><div class="section-title-row"><div><p class="eyebrow">Context actions</p><h2>${pandoMode?"DB 口径预览":"线程重建"}</h2><small>${pandoMode?"pando 无会话原件：仅提供只读的 DB 口径降级预览；线程检查/修复、线程重建与永久裁剪不适用，rebuild --apply 对 pando 仍被拒绝。":"先预览将写入当前线程的内容，确认后才会应用。"}</small></div></div><div id="rebuild-target-slot"></div><div class="rebuild-primary-actions"><button class="primary rebuild-main-button" id="preview-rebuild"><strong>${pandoMode?"生成 DB 口径预览":"生成重建预览"}</strong><span>${pandoMode?"基于当前记忆体 DB 的只读降级预览（无会话原件）":"查看摘要、原文与工具链的预计结果"}</span></button>${pandoMode?"":`<button class="secondary rebuild-main-button" id="check-thread"><strong>检查线程</strong><span>发现结构异常后再确认修复</span></button>`}</div><div id="integrity"></div><details class="injection-settings"><summary><span class="settings-gear" aria-hidden="true">⚙</span><span><strong>高级注入设置</strong><small>调整摘要范围、近期上下文和工具链数量</small></span><i>⌄</i></summary><div class="injection-settings-body"><section><h3>摘要保留形式</h3><div class="choice-row"><label><input type="radio" name="summary-mode" value="default" ${rebuildState.summaryMode==="default"?"checked":""}><span><strong>默认</strong><small>注入全部非hidden历史摘要</small></span></label><label><input type="radio" name="summary-mode" value="limited" ${rebuildState.summaryMode==="limited"?"checked":""}><span><strong>特殊设置</strong><small>限定摘要数量和最低importance</small></span></label></div><div id="summary-limit-fields" class="inline-settings"><span>保留最近</span><input id="summary-limit" type="number" min="1" value="${rebuildState.summaryLimit||200}"><span>条 importance ≥</span><select id="min-importance">${[0,1,2,3,4,5].map(value=>`<option value="${value}" ${rebuildState.minImportance===value?"selected":""}>${value}</option>`).join("")}</select><span>的摘要</span></div><label id="mcp-default-row" class="rebuild-watermark-option compact-option"><input id="mcp-summary-default" type="checkbox" ${rebuildState.mcpDefault?"checked":""}><span><strong>MCP调用rebuild时默认使用这一摘要范围</strong><small>Agent显式传参时只覆盖当次调用。</small></span></label><p class="tool-memory-note"><span aria-hidden="true">●</span> 默认保护低importance的原文锚点与事件锚点；锚点占摘要名额，hidden不纳入计算。</p></section><section><h3>上下文保留形式</h3><div class="choice-row"><label><input type="radio" name="context-mode" value="days" ${rebuildState.watermark?"":"checked"}><span><strong>默认</strong><small>按最近发生过对话的活跃日保留原文</small></span></label><label><input type="radio" name="context-mode" value="watermark" ${rebuildState.watermark?"checked":""}><span><strong>特殊设置：水位线模式</strong><small>已挖掘出摘要的历史原文不再重复注入</small></span></label></div><div id="active-days-fields" class="inline-settings"><span>保留活跃对话日</span><input id="window-days" type="number" min="1" max="365" value="${rebuildState.windowDays}"><span>天，保留工具调用</span><input id="tool-pairs" type="number" min="0" max="500" value="${rebuildState.toolPairs}"><span>组</span></div><div id="watermark-fields" class="watermark-description"><p>已挖掘出摘要的历史原文不再进入近期注入范围；从最后一条摘要对应的原文开始保留。工具调用仍使用上方的统一设置。</p></div><p class="tool-memory-note"><span aria-hidden="true">●</span> 如果不保留工具链，Agent重建后会失去近期工具调用及其结果的上下文记忆。</p></section></div></details><div id="rebuild-dry-run"></div></section>${pandoMode?"":`<section class="section-card context-trim-card"><div><p class="eyebrow">Danger zone</p><h2>永久裁剪</h2><p>选择要从活动线程、archive 和 full 中永久移除的对话或工具链。执行前仍会生成预览。</p></div><button class="danger-button" id="open-trim">裁剪对话 / 工具链</button></section>`}`;
   const operationCard=main.querySelector(".context-operation-card");
   const injectionSettings=operationCard.querySelector(".injection-settings");
   const dryRun=operationCard.querySelector("#rebuild-dry-run");
   const settingsParking=document.createElement("div");
-  settingsParking.hidden=true;
-  operationCard.after(dryRun,settingsParking);
-  settingsParking.append(injectionSettings);
-  operationCard.classList.remove("section-card","rebuild-command-center");
-  operationCard.classList.add("context-action-strip");
-  operationCard.querySelector(".rebuild-primary-actions").insertAdjacentHTML("beforeend",`<button class="secondary rebuild-main-button" id="open-injection-settings"><strong>注入策略</strong><span>设置摘要、原文和工具链范围</span></button>`);
-  injectionSettings.open=true;
-  injectionSettings.querySelector("summary strong").textContent="注入策略";
-  injectionSettings.querySelector("summary small").textContent="设置下一次重建保留哪些摘要、原文和工具链";
+  if(pandoMode)injectionSettings?.remove();
+  if(injectionSettings){
+    settingsParking.hidden=true;
+    operationCard.after(dryRun,settingsParking);
+    settingsParking.append(injectionSettings);
+    operationCard.classList.remove("section-card","rebuild-command-center");
+    operationCard.classList.add("context-action-strip");
+    operationCard.querySelector(".rebuild-primary-actions").insertAdjacentHTML("beforeend",`<button class="secondary rebuild-main-button" id="open-injection-settings"><strong>注入策略</strong><span>设置摘要、原文和工具链范围</span></button>`);
+    injectionSettings.open=true;
+    injectionSettings.querySelector("summary strong").textContent="注入策略";
+    injectionSettings.querySelector("summary small").textContent="设置下一次重建保留哪些摘要、原文和工具链";
+  }
   dryRun.hidden=true;
   main.insertAdjacentHTML("afterbegin",managementNav("context"));
   bindManagementNav(library);
@@ -1308,14 +1348,15 @@ async function renderRebuild(library) {
     const shownUsage=binding?(contextOverview.contextUsageByBinding?.[binding.id]||(!legacyUsage?.bindingId&&primary?legacyUsage:null)):legacyUsage;
     const shownRebuild=binding?(contextOverview.rebuildByBinding?.[binding.id]||(!legacyRebuild?.bindingId&&primary?legacyRebuild:null)):legacyRebuild;
     const percent=shownUsage&&Number.isFinite(shownUsage.percent)?Math.max(0,Math.min(100,shownUsage.percent)):0;
-    document.querySelector("#context-runtime").textContent=binding?.provider||contextOverview.runtime||"未接入平台";
-    document.querySelector("#context-thread-id").textContent=binding?.externalThreadId||contextOverview.externalThreadId||"尚未绑定窗口";
-    document.querySelector("#context-usage-label").textContent=contextUsageHint(shownUsage,contextOverview.automaticFullMining);
-    document.querySelector("#context-usage-bar").style.width=`${percent.toFixed(1)}%`;
-    document.querySelector(".context-usage-track").setAttribute("aria-valuenow",String(Math.round(percent)));
-    document.querySelector("#context-observed").textContent=(shownUsage?.observedAt||shownUsage?.updatedAt)?formatBeijingTime(shownUsage.observedAt||shownUsage.updatedAt):"暂无记录";
-    document.querySelector("#context-rebuilt").textContent=shownRebuild?.completedAt?formatBeijingTime(shownRebuild.completedAt):"该窗口暂无记录";
-    document.querySelector("#context-thread-file").textContent=binding?(binding.resolvedThreadFile||binding.threadFile?"已定位":"等待定位"):(contextOverview.threadFileFound?"已定位":"未找到");
+    document.querySelector("#context-runtime").textContent=pandoMode?"Pando · import_only（宿主会话，无线程文件）":(binding?.provider||contextOverview.runtime||"未接入平台");
+    document.querySelector("#context-thread-id").textContent=pandoMode?"宿主工作区持有会话，无线程文件；线程 ID 口径不适用":(binding?.externalThreadId||contextOverview.externalThreadId||"尚未绑定窗口");
+    const usageLabel=document.querySelector("#context-usage-label"),usageBar=document.querySelector("#context-usage-bar");
+    if(usageLabel)usageLabel.textContent=pandoMode?PANDO_THREAD_NOTE:contextUsageHint(shownUsage,contextOverview.automaticFullMining);
+    if(usageBar){usageBar.style.width=`${percent.toFixed(1)}%`;usageBar.closest(".context-usage-track")?.setAttribute("aria-valuenow",String(Math.round(percent)));}
+    document.querySelector("#context-observed").textContent=pandoMode?"不适用（数据来源不可用）":((shownUsage?.observedAt||shownUsage?.updatedAt)?formatBeijingTime(shownUsage.observedAt||shownUsage.updatedAt):"暂无记录");
+    document.querySelector("#context-rebuilt").textContent=pandoMode?"不适用（Pando 不执行线程重建）":(shownRebuild?.completedAt?formatBeijingTime(shownRebuild.completedAt):"该窗口暂无记录");
+    document.querySelector("#context-thread-file").textContent=pandoMode?"不适用（无线程文件）":(binding?(binding.resolvedThreadFile||binding.threadFile?"已定位":"等待定位"):(contextOverview.threadFileFound?"已定位":"未找到"));
+    if(pandoMode){document.querySelector("#context-retention-mode")?.replaceChildren("不适用");return;}
     document.querySelector("#context-rules").textContent=shownRebuild?.injectedRules||0;
     document.querySelector("#context-feelings").textContent=shownRebuild?.injectedFeelings||0;
     document.querySelector("#context-messages").textContent=(shownRebuild?.recentMessages||0)+(shownRebuild?.retainedMessages||0);
@@ -1335,12 +1376,14 @@ async function renderRebuild(library) {
       rebuildState.minImportance=Math.max(0,Number(config.mcpMinImportance)||0);
       rebuildState.summaryMode=rebuildState.summaryLimit||rebuildState.minImportance?"limited":"default";
     }
-    document.querySelector("#window-days").value=rebuildState.windowDays;
-    document.querySelector("#tool-pairs").value=rebuildState.toolPairs;
-    document.querySelector("#summary-limit").value=rebuildState.summaryLimit||200;
-    document.querySelector("#min-importance").value=String(rebuildState.minImportance);
-    document.querySelector("#mcp-summary-default").checked=rebuildState.mcpDefault;
-    document.querySelectorAll('input[name="summary-mode"]').forEach(input=>{input.checked=input.value===rebuildState.summaryMode;});
+    if(injectionSettings){
+      document.querySelector("#window-days").value=rebuildState.windowDays;
+      document.querySelector("#tool-pairs").value=rebuildState.toolPairs;
+      document.querySelector("#summary-limit").value=rebuildState.summaryLimit||200;
+      document.querySelector("#min-importance").value=String(rebuildState.minImportance);
+      document.querySelector("#mcp-summary-default").checked=rebuildState.mcpDefault;
+      document.querySelectorAll('input[name="summary-mode"]').forEach(input=>{input.checked=input.value===rebuildState.summaryMode;});
+    }
     contextOverview=overview;paintContext();
   } catch(error){showToast(error.message,"error");}
   try {
@@ -1370,6 +1413,7 @@ async function renderRebuild(library) {
     }
     if(bindingRows.length)selectBinding(rebuildState.bindingId);
   } catch { /* Binding 列表读取失败时退回默认窗口重建 */ }
+  if(injectionSettings){
   const syncInjectionControls=()=>{
     const limited=rebuildState.summaryMode==="limited";
     document.querySelector("#summary-limit-fields").hidden=!limited;
@@ -1399,19 +1443,26 @@ async function renderRebuild(library) {
     overlay.addEventListener("click",event=>{if(event.target===overlay)cancel();});
     overlay.querySelector("#save-injection-settings").onclick=async event=>{const button=event.currentTarget;button.disabled=true;button.textContent="正在保存…";try{const summaryLimit=rebuildState.summaryMode==="limited"?rebuildState.summaryLimit:0,minImportance=rebuildState.summaryMode==="limited"?rebuildState.minImportance:0;await api(`/api/libraries/${encodeURIComponent(library.threadId)}/settings`,{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({windowDays:rebuildState.windowDays,keepToolPairs:rebuildState.toolPairs,mcpRebuildDefaultsEnabled:rebuildState.mcpDefault,mcpSummaryLimit:summaryLimit,mcpMinImportance:minImportance})});closeSettings(overlay);showToast("注入策略已保存");}catch(error){showToast(error.message,"error");button.disabled=false;button.textContent="保存设置";}};
   };
+  }
   document.querySelector("#preview-rebuild").onclick = () => {
     const overlay=document.createElement("div");overlay.className="editor-overlay rebuild-preview-overlay";
-    overlay.innerHTML=`<section class="editor-panel rebuild-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="rebuild-preview-title"><button class="editor-close ghost" type="button" aria-label="关闭">×</button><h2 id="rebuild-preview-title">线程重建预览</h2><div id="rebuild-preview-modal-content"></div></section>`;
+    overlay.innerHTML=`<section class="editor-panel rebuild-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="rebuild-preview-title"><button class="editor-close ghost" type="button" aria-label="关闭">×</button><h2 id="rebuild-preview-title">${pandoMode?"DB 口径预览（无会话原件）":"线程重建预览"}</h2><div id="rebuild-preview-modal-content"></div></section>`;
     document.body.append(overlay);const close=()=>overlay.remove();overlay.querySelector(".editor-close").onclick=close;overlay.addEventListener("click",event=>{if(event.target===overlay)close();});
-    previewIntegratedRebuild(library,{target:"#rebuild-preview-modal-content",button:"#preview-rebuild"});
+    if(pandoMode)previewPandoDbRebuild(library,{target:"#rebuild-preview-modal-content"});
+    else previewIntegratedRebuild(library,{target:"#rebuild-preview-modal-content",button:"#preview-rebuild"});
   };
-  document.querySelector("#check-thread").onclick = () => checkAndRepair(library);
-  document.querySelector("#open-trim").onclick = () => renderTrimWorkbench(library);
+  document.querySelector("#check-thread")?.addEventListener("click",()=>checkAndRepair(library));
+  document.querySelector("#open-trim")?.addEventListener("click",()=>renderTrimWorkbench(library));
   await showIntegrity(library, false);
 }
 
 async function renderTrimWorkbench(library) {
   const main = document.querySelector("#workspace-main");
+  if (isPandoLibrary(library)) {
+    main.innerHTML = `<div class="dashboard-head"><div><p class="eyebrow">永久裁剪</p><h1>对 Pando 不适用</h1></div><button class="ghost" id="back-rebuild">返回</button></div><section class="section-card"><p class="thread-not-applicable">${PANDO_THREAD_NOTE}；永久裁剪按线程文件口径执行，对 pando 记忆体不适用，这里不会发起任何裁剪或重建调用。</p></section>`;
+    main.querySelector("#back-rebuild").onclick = () => renderRebuild(library);
+    return;
+  }
   main.innerHTML = `<div class="dashboard-head"><div><p class="eyebrow">永久裁剪</p><h1>选择保留的对话</h1><p class="lead">展示线程最后 n 个实际发生过对话的日期；没有聊天的空白日期不占名额。默认全部保留，取消勾选的内容会永久消失。</p></div><button class="ghost" id="back-rebuild">返回</button></div><section class="section-card"><div class="tab-row"><button data-tab="messages" class="active">末段对话</button><button data-tab="tools">工具链</button></div><div id="selection-list"><div class="empty">正在读取活动线程…</div></div><div class="integrity warning">取消勾选的内容会从活动线程、archive 和既有 full 重建源中永久删除，无法恢复。已有摘要不会自动修改；如需移除摘要，请在记忆页将其设为 hidden。</div><div class="rebuild-footer"><div id="selection-summary"></div><div class="actions"><button class="primary" id="preview-trim">预览裁剪并重建</button></div></div><div id="trim-dry-run"></div></section>`;
   document.querySelector("#back-rebuild").onclick = () => renderRebuild(library);
   document.querySelectorAll("[data-tab]").forEach(button => button.onclick = () => { rebuildState.tab = button.dataset.tab; document.querySelectorAll("[data-tab]").forEach(item => item.classList.toggle("active", item === button)); renderRebuildRows(library); });
@@ -1419,8 +1470,22 @@ async function renderTrimWorkbench(library) {
   await loadRebuildPreview(library);
 }
 
-async function previewIntegratedRebuild(library,options={}) {
-  const windowInput=document.querySelector("#window-days"),toolInput=document.querySelector("#tool-pairs"),summaryLimitInput=document.querySelector("#summary-limit"),minImportanceInput=document.querySelector("#min-importance");
+// pando（import_only）专用：调既有 GET /rebuild/dry-run（服务端对 pando 走
+// rebuild-db-preview 的 DB 口径降级预览并打 dbPreview 标记），只读展示原始
+// 预览文本与口径声明；不渲染任何 apply/写入入口（服务端对 pando 仍拒绝）。
+async function previewPandoDbRebuild(library,options={}) {
+  const target=document.querySelector(options.target||"#rebuild-dry-run");
+  if(!target)return;
+  target.innerHTML='<div class="empty">正在生成 DB 口径降级预览…</div>';
+  try{
+    const windowDays=Math.max(1,Number(rebuildState.windowDays)||1);
+    const preview=await api(`/api/libraries/${encodeURIComponent(library.threadId)}/rebuild/dry-run?windowDays=${windowDays}`);
+    target.innerHTML=`<div class="rebuild-preview"><div class="section-title-row"><div><p class="eyebrow">Pando · DB 口径降级预览</p><h3>无会话原件的只读预览</h3></div><span class="badge">Pando · import_only</span></div><p class="thread-not-applicable">${PANDO_DB_PREVIEW_NOTE}</p><pre class="rebuild-db-preview-raw">${escapeHtml(preview.raw)}</pre><div class="wizard-actions"><span>此预览只读；pando 记忆体没有可执行的线程重建/裁剪动作。</span><button class="ghost" id="cancel-pando-db-preview">关闭</button></div></div>`;
+    target.querySelector("#cancel-pando-db-preview").onclick=()=>{const overlay=target.closest(".editor-overlay");if(overlay)overlay.remove();else target.innerHTML="";};
+  }catch(error){target.innerHTML=`<div class="integrity warning">${escapeHtml(error.message)}</div>`;}
+}
+
+async function previewIntegratedRebuild(library,options={}) {  const windowInput=document.querySelector("#window-days"),toolInput=document.querySelector("#tool-pairs"),summaryLimitInput=document.querySelector("#summary-limit"),minImportanceInput=document.querySelector("#min-importance");
   if(windowInput)rebuildState.windowDays=Math.max(1,Number(windowInput.value)||1);
   if(toolInput)rebuildState.toolPairs=Math.max(0,Number(toolInput.value)||0);
   if(summaryLimitInput)rebuildState.summaryLimit=Math.max(1,Number(summaryLimitInput.value)||200);
@@ -1529,6 +1594,8 @@ function updateSelectionSummary() {
 
 async function showIntegrity(library, repair) {
   const target = document.querySelector("#integrity"); if (!target) return;
+  // pando 无线程文件：线程完整性检查/修复不适用，不向服务端发起调用。
+  if (isPandoLibrary(library)) return null;
   try {
     const bindingId = rebuildState.bindingMemoryId === library.threadId ? rebuildState.bindingId : null;
     const query = bindingId ? `?binding=${encodeURIComponent(bindingId)}` : "";
@@ -1541,6 +1608,7 @@ async function showIntegrity(library, repair) {
 }
 
 async function checkAndRepair(library) {
+  if (isPandoLibrary(library)) { showToast("pando 记忆体没有线程文件，线程修复不适用"); return; }
   const check = await showIntegrity(library, false); if (!check || check.healthy) { showToast("线程结构完整"); return; }
   const button = document.querySelector("#check-thread, #overview-repair");
   if (!button) return;
