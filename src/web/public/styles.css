@@ -205,6 +205,10 @@ td.context { min-width: 320px; max-width: 460px; line-height: 1.5; }
 .integrity.warning { color: #713f2b; background: #fff3dd; }
 /* pando import_only：线程文件口径不适用时的如实说明块（如实声明，非报错态） */
 .thread-not-applicable { padding: 12px 14px; margin: 10px 0; border: 1px dashed color-mix(in srgb, var(--pine-700) 32%, var(--line)); border-radius: var(--radius-sm); background: var(--leaf-50); color: var(--muted); font-size: 13px; line-height: 1.65; }
+/* TASK-0422：pando 当前窗口 usage 遥测事实行（真实上报数据，非占位） */
+.pando-usage-telemetry { padding: 12px 14px; margin: 10px 0; border: 1px solid var(--line); border-left: 3px solid var(--moss-300); border-radius: var(--radius-sm); background: var(--paper); color: var(--pine-950); font-size: 13px; line-height: 1.65; }
+.pando-usage-telemetry code { padding: 1px 6px; border-radius: 6px; background: var(--leaf-50); font-size: 12px; overflow-wrap: anywhere; }
+.pando-usage-telemetry.empty { border-left-style: dashed; border-left-color: color-mix(in srgb, var(--pine-700) 32%, var(--line)); color: var(--muted); }
 .rebuild-db-preview-raw { padding: 14px 16px; margin: 0 0 14px; overflow: auto; background: var(--moss-100); border-radius: var(--radius-sm); font-size: 12px; line-height: 1.7; white-space: pre-wrap; word-break: break-word; }
 .action-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
 .action-card { min-height: 150px; padding: 22px; text-align: left; color: var(--pine-950); background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius-md); transition: .18s ease; }

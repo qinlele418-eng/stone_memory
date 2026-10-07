@@ -186,6 +186,22 @@ const PANDO_IDENTITY = "Pando · import_only（宿主会话，无线程文件）
 const PANDO_DB_PREVIEW_NOTE = "pando import_only 无会话原件：以下为 DB 口径降级预览（只读，不写入任何文件）；会话重建（full/ 原件 + UUID 链）口径不可用，rebuild --apply 对 pando 仍被拒绝。";
 function isPandoLibrary(data) { return String(data?.runtime || "").toLowerCase() === "pando"; }
 function runtimeLabel(runtime) { return runtime === "pando" ? "Pando（宿主会话，无线程文件）" : String(runtime || ""); }
+// TASK-0422：pando 当前窗口 usage 遥测事实（stmem usage report 上报的运维观测数据）。
+// 只显示真实上报：最近活跃 session 短标识、最近活动时间（记忆体时区口径）、分类活动计数；
+// 无遥测（缺失/损坏/未上报）时如实『暂无 Pando 活动记录』；窗口占用百分比保持 0421 的『不适用』，不伪造。
+function shortSessionId(value) { const id = String(value || ""); return id.length > 12 ? `${id.slice(0, 8)}…` : id; }
+function pandoUsageTelemetryLine(telemetry) {
+  // 服务端口径：usageTelemetry = { file, available, reason, sources: { pando: record } }；
+  // 缺失/损坏/未上报（available=false 或 sources.pando 缺席）一律如实『暂无 Pando 活动记录』。
+  const record = telemetry && telemetry.sources ? telemetry.sources.pando : null;
+  if (!telemetry || !telemetry.available || !record) return `<p class="pando-usage-telemetry empty">暂无 Pando 活动记录</p>`;
+  const counts = record.counts || {};
+  const time = record.lastActivityAt ? escapeHtml(formatBeijingTime(record.lastActivityAt)) : "—";
+  const tz = record.timezone ? `（${escapeHtml(String(record.timezone))}${record.utcOffset ? ` ${escapeHtml(String(record.utcOffset))}` : ""}）` : "";
+  const session = escapeHtml(shortSessionId(record.lastSessionId));
+  const sessionTitle = record.lastSessionId ? ` title="${escapeHtml(String(record.lastSessionId))}"` : "";
+  return `<p class="pando-usage-telemetry">最近活跃会话 <code${sessionTitle}>${session}</code> · 最近活动 ${time}${tz} · search ${Number(counts.search) || 0} 次 · ingest ${Number(counts.ingest) || 0} 次 · other ${Number(counts.other) || 0} 次</p>`;
+}
 function showToast(message, type = "") { toast.textContent = message; toast.className = `toast show ${type}`; clearTimeout(showToast.timer); showToast.timer = setTimeout(() => toast.className = "toast", 3200); }
 async function api(url, options = {}) {
   const request = { ...options };
@@ -576,7 +592,7 @@ function workspace(data) {
   const pandoMode=isPandoLibrary(data);
   const threadIdentity=pandoMode?PANDO_IDENTITY:`${escapeHtml(data.runtime||"未接入平台")} · ${escapeHtml(data.externalThreadId||"暂未绑定 UUID")}`;
   const threadUsageBody=pandoMode
-    ?`<div class="context-usage"><div class="context-usage-head"><h3>当前窗口上下文</h3></div><p class="thread-not-applicable">${PANDO_THREAD_NOTE}；线程文件口径的窗口占用数据不可用。</p></div>`
+    ?`<div class="context-usage"><div class="context-usage-head"><h3>当前窗口上下文</h3></div>${pandoUsageTelemetryLine(data.usageTelemetry)}<p class="thread-not-applicable">${PANDO_THREAD_NOTE}；线程文件口径的窗口占用数据不可用。</p></div>`
     :`<div class="context-usage"><div class="context-usage-head"><h3>当前窗口上下文</h3><small${usageTitle}>${contextUsageHint(usage,data.automaticFullMining)}</small></div><div class="context-usage-track" role="progressbar" aria-label="当前窗口上下文占用" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(usagePercent)}"><i style="width:${usagePercent.toFixed(1)}%"></i></div></div>`;
   const threadInjectionBody=pandoMode
     ?`<div class="injection-heading"><h3>当前窗口注入</h3><small>不适用——Pando 不执行线程重建</small></div><p class="thread-not-applicable">线程重建注入口径对 Pando 不适用；注入计数数据来源不可用，不显示占位数字。</p>`

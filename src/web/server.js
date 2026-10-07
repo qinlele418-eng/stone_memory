@@ -13,6 +13,7 @@ const { buildRebuildPreview } = require("../services/rebuild-workbench");
 const { findThreadSessionFile } = require("../lib/thread-session-file");
 const { listRules } = require("../services/rule-store");
 const { latestSuccessfulRebuild, readRebuildState } = require("../services/rebuild-log");
+const { usageTelemetrySummary } = require("../services/usage-telemetry");
 const { sessionFile } = require("../services/rebuild-workbench");
 const { parseFeelingTime, feelingToUtc, automaticRetainWindow } = require("../services/thread-rebuilder");
 const { DEFAULT_TIMEZONE, resolveMemoryTimezone, zonedDateKey, wallTimeToUtc } = require("../services/timezone");
@@ -822,6 +823,9 @@ function overview(identifier) {
     const createdAt=library.createdAt||store.db.prepare("SELECT MIN(created_at) createdAt FROM messages WHERE thread_id=?").get(threadId)?.createdAt||null;
     const firstConversationDate=store.db.prepare("SELECT MIN(source_date) d FROM messages WHERE thread_id=? AND source_date IS NOT NULL").get(threadId)?.d||null;
     const growthDays=memoryGrowthDays(library.createdAt,firstConversationDate,localDateKey(new Date(),library.timezone||resolveMemoryTimezone(threadId)));
+    // pando 当前窗口遥测事实（运维观测数据，fail-soft 只读）；非 pando 记忆体不带此键，显示零变化。
+    const isPandoLibrary=String(library.runtime||"").toLowerCase()==="pando";
+    const usageTelemetry=isPandoLibrary?usageTelemetrySummary(threadId,{source:"pando"}):null;
     return {
       ...library,
       createdAt,
@@ -837,6 +841,7 @@ function overview(identifier) {
       archiveFullBytes: directoryBytes(path.join(getThreadDir(threadId),"memory","archive","full")),
       recent, rebuild, rebuildByBinding:rebuildState.lastCompletedByBinding||{}, contextUsage, contextUsageByBinding, threadFileFound:!!file, pendingMiningDays,
       attention: failed ? `${failed} 个日期挖掘失败` : null,
+      ...(isPandoLibrary?{usageTelemetry}:{}),
     };
   } finally { store.close(); }
 }

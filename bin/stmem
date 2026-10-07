@@ -77,6 +77,9 @@ if (!cmd || cmd === "--help" || cmd === "-h") {
   stmem web lan enable|disable|status [--json]    开关有登录保护的局域网访问
   stmem supervisor start|stop|restart|status     管理唯一 watcher supervisor
   stmem db [status|migrate|migrate-all|export] [--memory <id>]  数据库管理
+  stmem usage report --memory <id> --source pando --session <id> [--kind search|ingest|other] [--at <ISO时间>]
+                                                记录 usage 遥测（唯一写入口，幂等；同参重复上报不重复计数）
+  stmem usage show --memory <id> [--source pando]  只读查看 usage 遥测 JSON（缺失/损坏如实降级）
 
 记忆体命令默认取第一个已配置 memoryId；兼容期仍接受同值的 --thread。
 
@@ -215,6 +218,14 @@ switch (cmd) {
     break;
   case "db":
     require(path.join(SCRIPTS, "stmem-db"));
+    break;
+  case "usage":
+    try {
+      require(path.join(__dirname, "..", "src", "lib", "usage-cli")).runUsageCommand(process.argv.slice(3));
+    } catch (error) {
+      console.error(`[usage] ${error.message}`);
+      process.exit(1);
+    }
     break;
   default:
     console.log("未知命令: " + cmd + "\n运行 stmem --help 查看可用命令");
