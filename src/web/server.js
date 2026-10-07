@@ -442,6 +442,7 @@ function publicThreadSettings(threadId, { redactLocalPaths = false } = {}) {
     mcpSummaryLimit: entry.mcpSummaryLimit ?? 0,
     mcpMinImportance: entry.mcpMinImportance ?? 0,
     contextWindowTokens: entry.contextWindowTokens || null,
+    timezone: typeof entry.timezone === "string" ? entry.timezone : null,
     watcherEnabled: watcherEnabled(entry),
     automaticFullMining: actions.sync,
     automaticMemoryMaintenance: actions.mine,
@@ -574,6 +575,7 @@ function listLibraries() {
       return {
         memoryId, scenario: scenarioId(tc), configured: true, bound, bindingCount, threadId, externalThreadId: tc.externalThreadId || (context.layout !== "memory-v1" ? threadId : null), libraryName: tc.label || memoryId, runtime: tc.runtime || null, purpose: tc.purpose || "accompany", createdAt,
         ai: tc.ai || "", user: tc.user || "", counts,
+        timezone: resolveMemoryTimezone(threadId),
         lastArchivedAt: latestArchived?.timestamp || null, lastMinedAt: latest?.completedAt || null,
         watcherEnabled: watcherEnabled(tc),
         automaticFullMining: actions.sync,
@@ -588,6 +590,7 @@ function listLibraries() {
     memoryId: memory.memoryId, configured: false, threadId: null, libraryName: memory.label,
     runtime: null, purpose: null, ai: "", user: "", createdAt: memory.createdAt,
     counts: { messages: 0, feelings: 0, features: 0, coarse: 0, hidden: 0 },
+    timezone: null,
     lastArchivedAt: null, lastMinedAt: null,
     watcherEnabled: false, automaticFullMining: false, automaticMemoryMaintenance: false,
     automaticCompression: false, automaticDream: false,
@@ -1317,7 +1320,7 @@ async function handleApi(req, res, url, { isRemote = false } = {}) {
     } : result);
   }
   if (req.method === "GET" && url.pathname === "/api/home") return json(res, 200, homeOverview());
-  if (req.method === "GET" && url.pathname === "/api/libraries") return json(res, 200, { libraries: listLibraries() });
+  if (req.method === "GET" && url.pathname === "/api/libraries") return json(res, 200, { libraries: listLibraries(), defaultTimezone: DEFAULT_TIMEZONE });
 
   if (req.method === "POST" && url.pathname === "/api/session-file/check") {
     const body = await readJson(req);
